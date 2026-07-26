@@ -32,12 +32,24 @@ importers:
       '@fastify/static':
         specifier: ^8.2.0
         version: 8.3.0
+      '@story-to-cyoa/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@story-to-cyoa/export-twine':
+        specifier: workspace:*
+        version: link:../../packages/export-twine
       '@story-to-cyoa/importers':
         specifier: workspace:*
         version: link:../../packages/importers
+      '@story-to-cyoa/openrouter':
+        specifier: workspace:*
+        version: link:../../packages/openrouter
       '@story-to-cyoa/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence
+      '@story-to-cyoa/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
       fastify:
         specifier: ^5.5.0
         version: 5.10.0
@@ -71,6 +83,12 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
 
+  packages/export-twine:
+    dependencies:
+      '@story-to-cyoa/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/importers:
     dependencies:
       fflate:
@@ -88,6 +106,21 @@ importers:
       '@story-to-cyoa/domain':
         specifier: workspace:*
         version: link:../domain
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+
+  packages/pipeline:
+    dependencies:
+      '@story-to-cyoa/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@story-to-cyoa/importers':
+        specifier: workspace:*
+        version: link:../importers
+      '@story-to-cyoa/persistence':
+        specifier: workspace:*
+        version: link:../persistence
       zod:
         specifier: ^3.25.76
         version: 3.25.76

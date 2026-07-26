@@ -1,0 +1,6 @@
+import type { FastifyInstance } from "fastify"; import type { JobRunner } from "@story-to-cyoa/pipeline";
+export function registerJobRoutes(app: FastifyInstance, runner: JobRunner): void {
+  app.get<{ Params: { jobId: string } }>("/api/jobs/:jobId", async (request, reply) => runner.get(request.params.jobId) ?? reply.code(404).send({ error: "Job not found" }));
+  app.post<{ Params: { jobId: string } }>("/api/jobs/:jobId/cancel", async (request, reply) => { if (!runner.get(request.params.jobId)) return reply.code(404).send({ error: "Job not found" }); return runner.cancel(request.params.jobId); });
+  app.get<{ Params: { jobId: string } }>("/api/jobs/:jobId/events", async (request, reply) => { if (!runner.get(request.params.jobId)) return reply.code(404).send({ error: "Job not found" }); reply.raw.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" }); const unlisten = runner.subscribe((event) => { if (event.jobId === request.params.jobId) reply.raw.write(`event: progress\ndata: ${JSON.stringify({ status: event.status, completed: event.completed, total: event.total })}\n\n`); }); request.raw.on("close", unlisten); return reply; });
+}

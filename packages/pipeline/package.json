@@ -1,0 +1,18 @@
+{
+  "name": "@story-to-cyoa/pipeline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@story-to-cyoa/domain": "workspace:*",
+    "@story-to-cyoa/importers": "workspace:*",
+    "@story-to-cyoa/persistence": "workspace:*",
+    "zod": "^3.25.76"
+  }
+}

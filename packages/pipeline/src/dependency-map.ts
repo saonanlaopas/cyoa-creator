@@ -1,0 +1,2 @@
+export const pipelineDependencies: Record<string, string[]> = { bible: ["source"], adaptation: ["bible"], routes: ["adaptation"], drafts: ["routes"] };
+export function staleArtifacts(changed: string): string[] { const result: string[] = []; const visit = (item: string) => Object.entries(pipelineDependencies).forEach(([next, inputs]) => { if (inputs.includes(item) && !result.includes(next)) { result.push(next); visit(next); } }); visit(changed); return result; }

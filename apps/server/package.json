@@ -13,6 +13,10 @@
     "@fastify/multipart": "^9.2.1",
     "@fastify/static": "^8.2.0",
     "@story-to-cyoa/importers": "workspace:*",
+    "@story-to-cyoa/domain": "workspace:*",
+    "@story-to-cyoa/export-twine": "workspace:*",
+    "@story-to-cyoa/openrouter": "workspace:*",
+    "@story-to-cyoa/pipeline": "workspace:*",
     "@story-to-cyoa/persistence": "workspace:*",
     "fastify": "^5.5.0"
   },
