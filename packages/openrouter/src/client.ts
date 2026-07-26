@@ -5,6 +5,7 @@ import { parseJsonResponse, type OpenRouterDiagnostic } from "./diagnostics.js";
 import { OpenRouterError } from "./errors.js";
 import { parseModelCatalog, supportsStrictJsonSchema, type OpenRouterModel } from "./model-catalog.js";
 import { redactSecret } from "./redact.js";
+import { parseOpenRouterStream, type StreamCallbacks } from "./stream.js";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -19,6 +20,8 @@ export interface StructuredGenerationRequest {
   maxTokens?: number;
   temperature?: number;
   signal?: AbortSignal;
+  /** Returned reasoning can consume output tokens and therefore affect cost. */
+  reasoning?: { enabled: boolean; effort?: "minimal" | "low" | "medium" | "high" };
 }
 
 export interface GenerationUsage {
@@ -199,6 +202,78 @@ export class OpenRouterClient {
     }
     return parsed;
   }
+
+  public async generateStructuredStream<T>(
+    request: StructuredGenerationRequest,
+    schema: ZodType<T>,
+    callbacks: StreamCallbacks & { onRepair?: (attempt: number) => void } = {},
+  ): Promise<GenerationResult<T>> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt === 1) callbacks.onRepair?.(1);
+      const messages = attempt === 0 ? request.messages : [
+        ...request.messages,
+        { role: "system" as const, content: "Return only repaired JSON matching the requested schema." },
+      ];
+      const response = await this.request("/chat/completions", {
+        method: "POST",
+        signal: request.signal,
+        body: JSON.stringify({
+          model: request.model,
+          messages,
+          stream: true,
+          provider: { require_parameters: true },
+          response_format: supportsStrictJsonSchema(request.modelCapabilities)
+            ? {
+                type: "json_schema",
+                json_schema: { name: "structured_response", strict: true, schema: zodToJsonSchema(schema) },
+              }
+            : { type: "json_object" },
+          ...(request.maxTokens === undefined ? {} : { max_tokens: request.maxTokens }),
+          ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+          reasoning: request.reasoning?.enabled
+            ? { enabled: true, exclude: false, ...(request.reasoning.effort ? { effort: request.reasoning.effort } : {}) }
+            : { enabled: false },
+        }),
+      });
+      const completion = await parseOpenRouterStream(response, callbacks, request.signal);
+      let raw: unknown;
+      try {
+        raw = JSON.parse(completion.content) as unknown;
+      } catch {
+        if (attempt === 1) throw completionJsonError(completion.diagnostic);
+        continue;
+      }
+      try {
+        return {
+          data: schema.parse(raw),
+          usage: completion.usage,
+          cost: request.modelCapabilities
+            ? actualCost(request.modelCapabilities, { ...completion.usage, cost: completion.reportedCost })
+            : null,
+          repaired: attempt === 1,
+        };
+      } catch {
+        if (attempt === 1) throw schemaError(completion.diagnostic);
+      }
+    }
+    throw new OpenRouterError("SCHEMA_INVALID", "Structured repair failed");
+  }
+}
+
+function completionJsonError(diagnostic: OpenRouterDiagnostic): OpenRouterError {
+  return new OpenRouterError(
+    "COMPLETION_JSON_INVALID",
+    "OpenRouter returned completion content that was not valid JSON",
+    { diagnostic },
+  );
+}
+
+function schemaError(diagnostic: OpenRouterDiagnostic): OpenRouterError {
+  return new OpenRouterError(
+    "SCHEMA_INVALID",
+    "OpenRouter returned completion data that did not match the required schema",
+    { diagnostic },
+  );
 }
 
 function providerError(diagnostic: OpenRouterDiagnostic): OpenRouterError {

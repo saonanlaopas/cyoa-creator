@@ -47,6 +47,34 @@ describe("OpenRouterClient", () => {
     expect(bodies[0]).toMatchObject({ provider: { require_parameters: true }, response_format: { json_schema: { strict: true } } });
   });
 
+  it("streams structured JSON, enables requested reasoning, and repairs invalid JSON once", async () => {
+    const bodies: unknown[] = [];
+    let calls = 0;
+    const client = new OpenRouterClient({
+      credentialStore: credentials(),
+      fetch: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        calls += 1;
+        const content = calls === 1 ? "{bad" : '{"title":"ok"}';
+        return new Response([
+          `data: ${JSON.stringify({ choices: [{ delta: { content } }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8, cost: 0.8 } })}\n\n`,
+          "data: [DONE]\n\n",
+        ].join(""), { headers: { "content-type": "text/event-stream" } });
+      },
+    });
+    const repairs: number[] = [];
+    const result = await client.generateStructuredStream(
+      { model: model.id, modelCapabilities: model, messages: [{ role: "user", content: "go" }], reasoning: { enabled: true, effort: "low" } },
+      z.object({ title: z.string() }),
+      { onRepair: (attempt) => repairs.push(attempt) },
+    );
+    expect(result).toMatchObject({ data: { title: "ok" }, repaired: true, usage: { totalTokens: 8 }, cost: { total: 0.8 } });
+    expect(repairs).toEqual([1]);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toMatchObject({ stream: true, reasoning: { enabled: true, exclude: false, effort: "low" } });
+    expect(bodies[1]).toMatchObject({ messages: expect.arrayContaining([{ role: "system", content: "Return only repaired JSON matching the requested schema." }]) });
+  });
+
   it.each([[401, "UNAUTHENTICATED"], [429, "RATE_LIMITED"], [500, "PROVIDER_FAILURE"]] as const)("maps HTTP %s", async (status, code) => {
     const client = new OpenRouterClient({ credentialStore: credentials(), fetch: async () => jsonResponse({}, { status }) });
     await expect(client.listModels()).rejects.toMatchObject<Partial<OpenRouterError>>({ code });
