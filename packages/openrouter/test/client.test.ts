@@ -42,7 +42,7 @@ describe("OpenRouterClient", () => {
       },
     });
     const result = await client.generateStructured({ model: model.id, modelCapabilities: model, messages: [{ role: "user", content: "go" }] }, z.object({ title: z.string() }));
-    expect(result).toMatchObject({ data: { title: "ok" }, repaired: true, usage: { totalTokens: 8 }, cost: { total: 0.8 } });
+    expect(result).toMatchObject({ data: { title: "ok" }, repaired: true, usage: { totalTokens: 8 }, cost: { total: 0.8 }, attempts: [{ usage: { totalTokens: 8 } }, { usage: { totalTokens: 8 } }] });
     expect(bodies).toHaveLength(2);
     expect(bodies[0]).toMatchObject({ provider: { require_parameters: true }, response_format: { json_schema: { strict: true } } });
   });
@@ -68,7 +68,7 @@ describe("OpenRouterClient", () => {
       z.object({ title: z.string() }),
       { onRepair: (attempt) => repairs.push(attempt) },
     );
-    expect(result).toMatchObject({ data: { title: "ok" }, repaired: true, usage: { totalTokens: 8 }, cost: { total: 0.8 } });
+    expect(result).toMatchObject({ data: { title: "ok" }, repaired: true, usage: { totalTokens: 8 }, cost: { total: 0.8 }, attempts: [{ usage: { totalTokens: 8 } }, { usage: { totalTokens: 8 } }] });
     expect(repairs).toEqual([1]);
     expect(bodies).toHaveLength(2);
     expect(bodies[0]).toMatchObject({ stream: true, reasoning: { enabled: true, exclude: false, effort: "low" } });

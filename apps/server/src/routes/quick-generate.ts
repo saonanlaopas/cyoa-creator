@@ -123,29 +123,60 @@ function publicError(error: unknown): PublicGenerationError {
   };
 }
 
-function createReasoningBuffer(source: string) {
-  const events: ReasoningEvent[] = [];
+export function createReasoningSafetyBuffer(source: string, send: (event: ReasoningEvent) => void) {
+  const pending: Array<{ kind: ReasoningEvent["kind"]; text: string }> = [];
   const normalizedSource = source.toLowerCase().replace(/\s+/g, " ").trim();
+  const withheldCharacters = 64;
+  const pendingText = () => pending.map((event) => event.text).join("");
+  const take = (count: number) => {
+    const result: typeof pending = [];
+    let remaining = count;
+    while (remaining > 0 && pending.length) {
+      const event = pending[0];
+      const length = Math.min(remaining, event.text.length);
+      result.push({ kind: event.kind, text: event.text.slice(0, length) });
+      event.text = event.text.slice(length);
+      remaining -= length;
+      if (!event.text) pending.shift();
+    }
+    return result;
+  };
+  const sensitive = (value: string) => {
+    if (/\b(?:sk-or-v1-|sk-)[A-Za-z0-9_.-]{1,}/i.test(value)) return true;
+    const normalized = value.toLowerCase().replace(/\s+/g, " ").trim();
+    for (let offset = 0; offset <= normalized.length - 8; offset += 1) {
+      if (normalizedSource.includes(normalized.slice(offset, offset + 8))) return true;
+    }
+    return false;
+  };
+  const emit = (events: typeof pending) => {
+    const merged: typeof pending = [];
+    for (const event of events) {
+      const prior = merged.at(-1);
+      if (prior?.kind === event.kind) prior.text += event.text;
+      else merged.push({ ...event });
+    }
+    for (const event of merged) if (event.text) send({ kind: event.kind, text: redactSecret(event.text) });
+  };
+  const release = () => {
+    const available = pendingText().length - withheldCharacters;
+    if (available <= 0) return;
+    const preview = pendingText();
+    const released = take(available);
+    if (sensitive(preview)) send({ kind: "unavailable" });
+    else emit(released);
+  };
   return {
-    push(event: ReasoningEvent): void { events.push(event); },
-    flush(send: (event: ReasoningEvent) => void): void {
-      const byKind = new Map<string, string[]>();
-      for (const event of events) {
-        if (!event.text) send({ kind: event.kind });
-        else byKind.set(event.kind, [...(byKind.get(event.kind) ?? []), event.text]);
+    push(event: ReasoningEvent): void {
+      if (!event.text) { send({ kind: event.kind }); return; }
+      pending.push({ kind: event.kind, text: event.text });
+      release();
+    },
+    finish(): void {
+      if (pending.length) {
+        pending.length = 0;
+        send({ kind: "unavailable" });
       }
-      for (const [kind, chunks] of byKind) {
-        const text = redactSecret(chunks.join(""));
-        const normalizedText = text.toLowerCase().replace(/\s+/g, " ").trim();
-        let containsSource = false;
-        for (let offset = 0; offset <= normalizedText.length - 20; offset += 1) {
-          if (normalizedSource.includes(normalizedText.slice(offset, offset + 20))) { containsSource = true; break; }
-        }
-        send(containsSource
-          ? { kind: "unavailable" }
-          : { kind: kind as ReasoningEvent["kind"], text });
-      }
-      events.length = 0;
     },
   };
 }
@@ -229,12 +260,12 @@ export function registerQuickGenerateRoutes(
     const now = () => new Date().toISOString();
     const stage = (name: GenerationStage, message: string) =>
       send({ type: "status", stage: name, message, at: now() });
+    const reasoning = createReasoningSafetyBuffer(source, (event) => send({ type: "reasoning", ...event, at: now() }));
 
     try {
       stage("preparing", "Preparing project source");
       stage("request", "Sending generation request");
       stage("receiving", "Receiving streamed response");
-      const reasoning = createReasoningBuffer(source);
       let generation = await client.generateStructuredStream(
         {
           model,
@@ -258,7 +289,7 @@ export function registerQuickGenerateRoutes(
         },
       );
       const attempts = [...generation.attempts];
-      reasoning.flush((event) => send({ type: "reasoning", ...event, at: now() }));
+      reasoning.finish();
       stage("schema-validation", "Validating structured output");
       send({ type: "validation", phase: "schema", findings: [], at: now() });
       let project: Project = ProjectSchema.parse(generation.data);
@@ -297,7 +328,7 @@ export function registerQuickGenerateRoutes(
           },
         );
         attempts.push(...generation.attempts);
-        reasoning.flush((event) => send({ type: "reasoning", ...event, at: now() }));
+        reasoning.finish();
         stage("schema-validation", "Validating repaired structured output");
         send({ type: "validation", phase: "schema", findings: [], at: now() });
         project = ProjectSchema.parse(generation.data);
@@ -338,6 +369,7 @@ export function registerQuickGenerateRoutes(
       stage("complete", "Generation complete");
       send({ type: "result", generation: { project, twee, html, findings, usage: totals.usage, cost: totals.cost, compiler: compiled.compiler }, at: now() });
     } catch (error) {
+      reasoning.finish();
       stage("failed", "Generation failed");
       const openRouterError = error instanceof OpenRouterError ? error : undefined;
       const diagnosticId = openRouterError?.diagnostic

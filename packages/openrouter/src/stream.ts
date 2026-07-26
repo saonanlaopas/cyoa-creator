@@ -139,15 +139,15 @@ function processEvent(data: string, state: StreamState, callbacks: StreamCallbac
   if (!isRecord(value)) {
     throw new OpenRouterError("OPENROUTER_ENVELOPE_INVALID", "OpenRouter returned an invalid stream event", { diagnostic });
   }
-  if (isRecord(value.error)) {
-    const provider = providerDiagnostic(value.error, diagnostic);
-    throw providerError(provider);
-  }
-
   if (typeof value.provider === "string") state.provider = value.provider;
   if (typeof value.model === "string") state.model = value.model;
   if (typeof value.id === "string") state.generationId = value.id;
   if (typeof value.generation_id === "string") state.generationId = value.generation_id;
+  if (isRecord(value.error)) {
+    const provider = providerDiagnostic(value.error, diagnostic, state);
+    throw providerError(provider);
+  }
+
   if ("cost" in value) state.reportedCost = reportedCost(value.cost);
   if (isRecord(value.usage)) {
     state.usage = usageFrom(value.usage);
@@ -219,12 +219,14 @@ function streamDiagnostic(response: Response): OpenRouterDiagnostic {
   };
 }
 
-function providerDiagnostic(error: Record<string, unknown>, diagnostic: OpenRouterDiagnostic): OpenRouterDiagnostic {
+function providerDiagnostic(error: Record<string, unknown>, diagnostic: OpenRouterDiagnostic, state?: Pick<StreamState, "provider" | "generationId">): OpenRouterDiagnostic {
   const safeError = redactValue(error);
   if (!isRecord(safeError)) return diagnostic;
   const metadata = isRecord(safeError.metadata) ? safeError.metadata : {};
   return {
     ...diagnostic,
+    provider: state?.provider ?? diagnostic.provider,
+    generationId: state?.generationId ?? diagnostic.generationId,
     providerError: {
       code: typeof safeError.code === "number" ? safeError.code : undefined,
       message: typeof safeError.message === "string" ? safeError.message : undefined,

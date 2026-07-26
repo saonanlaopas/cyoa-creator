@@ -74,6 +74,15 @@ describe("parseOpenRouterStream", () => {
     await expect(parseOpenRouterStream(response, {})).rejects.toMatchObject({ code: "RATE_LIMITED" });
   });
 
+  it("keeps provider and generation metadata when an error arrives mid-stream", async () => {
+    const error = await parseOpenRouterStream(sseResponse([
+      { id: "gen-mid", provider: "provider-mid", choices: [{ delta: { content: "{" } }] },
+      { error: { code: 429, message: "Rate limit", metadata: { error_type: "rate_limited" } } },
+    ]), {}).catch((reason: unknown) => reason);
+
+    expect(error).toMatchObject({ code: "RATE_LIMITED", diagnostic: { provider: "provider-mid", generationId: "gen-mid" } });
+  });
+
   it("maps an empty HTTP 429 response before checking for a stream body", async () => {
     const response = new Response(null, { status: 429, headers: { "x-request-id": "req-rate-limited" } });
     await expect(parseOpenRouterStream(response, {})).rejects.toMatchObject({

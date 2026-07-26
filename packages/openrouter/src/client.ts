@@ -22,6 +22,10 @@ export interface StructuredGenerationRequest {
   signal?: AbortSignal;
   /** Returned reasoning can consume output tokens and therefore affect cost. */
   reasoning?: { enabled: boolean; effort?: "minimal" | "low" | "medium" | "high" };
+}
+
+/** Streaming-only repair control; non-stream calls retain their fixed one-repair contract. */
+export interface StructuredGenerationStreamRequest extends StructuredGenerationRequest {
   maxRepairAttempts?: 0 | 1;
 }
 
@@ -98,6 +102,7 @@ export class OpenRouterClient {
     request: StructuredGenerationRequest,
     schema: ZodType<T>,
   ): Promise<GenerationResult<T>> {
+    const attempts: GenerationAttempt[] = [];
     let lastCompletionErrorCode: "COMPLETION_JSON_INVALID" | "SCHEMA_INVALID" = "SCHEMA_INVALID";
     let lastDiagnostic: OpenRouterDiagnostic | undefined;
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -134,6 +139,19 @@ export class OpenRouterClient {
         body: JSON.stringify(payload),
       });
       const { data: parsed, diagnostic } = await this.json<ChatResponse>(response);
+      const usage: GenerationUsage = {
+        inputTokens: toNumber(parsed.usage?.prompt_tokens),
+        outputTokens: toNumber(parsed.usage?.completion_tokens),
+        totalTokens: toNumber(parsed.usage?.total_tokens),
+      };
+      const cost = request.modelCapabilities
+        ? actualCost(request.modelCapabilities, {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cost: parsed.usage?.cost ?? parsed.cost,
+        })
+        : null;
+      attempts.push({ usage, cost, provider: diagnostic.provider ?? null, generationId: diagnostic.generationId ?? null, diagnostic });
       const content = contentFrom(parsed, diagnostic);
       let raw: unknown;
       try {
@@ -145,24 +163,12 @@ export class OpenRouterClient {
       }
       try {
         const data = schema.parse(raw);
-        const usage: GenerationUsage = {
-          inputTokens: toNumber(parsed.usage?.prompt_tokens),
-          outputTokens: toNumber(parsed.usage?.completion_tokens),
-          totalTokens: toNumber(parsed.usage?.total_tokens),
-        };
-        const cost = request.modelCapabilities
-          ? actualCost(request.modelCapabilities, {
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-            cost: parsed.usage?.cost ?? parsed.cost,
-          })
-          : null;
         return {
           data,
           usage,
           cost,
           repaired: attempt === 1,
-          attempts: [{ usage, cost, provider: diagnostic.provider ?? null, generationId: diagnostic.generationId ?? null, diagnostic }],
+          attempts,
         };
       } catch {
         lastCompletionErrorCode = "SCHEMA_INVALID";
@@ -220,7 +226,7 @@ export class OpenRouterClient {
   }
 
   public async generateStructuredStream<T>(
-    request: StructuredGenerationRequest,
+    request: StructuredGenerationStreamRequest,
     schema: ZodType<T>,
     callbacks: StreamCallbacks & { onRepair?: (attempt: number) => void } = {},
   ): Promise<GenerationResult<T>> {
