@@ -85,7 +85,7 @@ export class OpenRouterClient {
     request: StructuredGenerationRequest,
     schema: ZodType<T>,
   ): Promise<GenerationResult<T>> {
-    let lastSchemaError: unknown;
+    let lastCompletionErrorCode: "COMPLETION_JSON_INVALID" | "SCHEMA_INVALID" = "SCHEMA_INVALID";
     let lastDiagnostic: OpenRouterDiagnostic | undefined;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const messages = attempt === 0 ? request.messages : [
@@ -121,8 +121,16 @@ export class OpenRouterClient {
         body: JSON.stringify(payload),
       });
       const { data: parsed, diagnostic } = await this.json<ChatResponse>(response);
+      const content = contentFrom(parsed, diagnostic);
+      let raw: unknown;
       try {
-        const raw = JSON.parse(contentFrom(parsed, diagnostic)) as unknown;
+        raw = JSON.parse(content) as unknown;
+      } catch {
+        lastCompletionErrorCode = "COMPLETION_JSON_INVALID";
+        lastDiagnostic = diagnostic;
+        continue;
+      }
+      try {
         const data = schema.parse(raw);
         const usage: GenerationUsage = {
           inputTokens: toNumber(parsed.usage?.prompt_tokens),
@@ -137,16 +145,17 @@ export class OpenRouterClient {
           })
           : null;
         return { data, usage, cost, repaired: attempt === 1 };
-      } catch (error) {
-        if (error instanceof OpenRouterError) throw error;
-        lastSchemaError = error;
+      } catch {
+        lastCompletionErrorCode = "SCHEMA_INVALID";
         lastDiagnostic = diagnostic;
       }
     }
     throw new OpenRouterError(
-      "SCHEMA_INVALID",
-      `OpenRouter returned invalid structured data: ${lastSchemaError instanceof Error ? lastSchemaError.message : "unknown error"}`,
-      { diagnostic: lastDiagnostic, cause: lastSchemaError },
+      lastCompletionErrorCode,
+      lastCompletionErrorCode === "COMPLETION_JSON_INVALID"
+        ? "OpenRouter returned completion content that was not valid JSON"
+        : "OpenRouter returned completion data that did not match the required schema",
+      { diagnostic: lastDiagnostic },
     );
   }
 
@@ -184,18 +193,11 @@ export class OpenRouterClient {
   }
 
   private async json<T = unknown>(response: Response): Promise<{ data: T; diagnostic: OpenRouterDiagnostic }> {
-    try {
-      const parsed = await parseJsonResponse<T>(response);
-      if (parsed.diagnostic.providerError || !response.ok) {
-        throw providerError(parsed.diagnostic);
-      }
-      return parsed;
-    } catch (error) {
-      if (error instanceof OpenRouterError && error.code === "OPENROUTER_ENVELOPE_INVALID" && !response.ok) {
-        throw providerError(error.diagnostic!);
-      }
-      throw error;
+    const parsed = await parseJsonResponse<T>(response);
+    if (parsed.diagnostic.providerError || !response.ok) {
+      throw providerError(parsed.diagnostic);
     }
+    return parsed;
   }
 }
 
@@ -211,7 +213,8 @@ function providerErrorCode(diagnostic: OpenRouterDiagnostic): OpenRouterError["c
     case "rate_limit_exceeded":
     case "rate_limited": return "RATE_LIMITED";
     case "provider_unavailable":
-    case "provider_timeout": return "PROVIDER_UNAVAILABLE";
+      return "PROVIDER_UNAVAILABLE";
+    case "provider_timeout": return "TIMEOUT";
     case "content_rejected":
     case "content_policy_violation": return "CONTENT_REJECTED";
     case "unauthorized":
@@ -223,6 +226,7 @@ function providerErrorCode(diagnostic: OpenRouterDiagnostic): OpenRouterError["c
     case 402: return "INSUFFICIENT_CREDITS";
     case 429: return "RATE_LIMITED";
     case 503: return "PROVIDER_UNAVAILABLE";
+    case 504: return "TIMEOUT";
     default: return "PROVIDER_FAILURE";
   }
 }

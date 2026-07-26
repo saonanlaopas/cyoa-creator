@@ -48,7 +48,7 @@ describe("OpenRouterClient", () => {
   });
 
   it.each([[401, "UNAUTHENTICATED"], [429, "RATE_LIMITED"], [500, "PROVIDER_FAILURE"]] as const)("maps HTTP %s", async (status, code) => {
-    const client = new OpenRouterClient({ credentialStore: credentials(), fetch: async () => new Response("failed", { status }) });
+    const client = new OpenRouterClient({ credentialStore: credentials(), fetch: async () => jsonResponse({}, { status }) });
     await expect(client.listModels()).rejects.toMatchObject<Partial<OpenRouterError>>({ code });
   });
 
@@ -70,6 +70,14 @@ describe("OpenRouterClient", () => {
     });
   });
 
+  it("preserves an invalid 500 response as an envelope error", async () => {
+    const error = await rejectedError(clientWithResponse(new Response("<html>bad gateway</html>", {
+      status: 500,
+      headers: { "content-type": "text/html" },
+    })));
+    expect(error).toMatchObject({ code: "OPENROUTER_ENVELOPE_INVALID", diagnostic: { status: 500 } });
+  });
+
   it("maps a typed OpenRouter error returned with HTTP 200", async () => {
     const client = clientWithResponse(jsonResponse({
       error: { code: 402, message: "Insufficient credits", metadata: { error_type: "insufficient_credits" } },
@@ -80,6 +88,46 @@ describe("OpenRouterClient", () => {
   it("redacts secrets from full response evidence", async () => {
     const error = await rejectedError(clientWithResponse(new Response(`bad ${key}`, { status: 200 })));
     expect(JSON.stringify(error.diagnostic)).not.toContain(key);
+  });
+
+  it("returns a sanitized completion JSON error after the bounded repair", async () => {
+    const completion = `{"token":"${key}"`;
+    const client = new OpenRouterClient({
+      credentialStore: credentials(),
+      fetch: async () => jsonResponse({ choices: [{ message: { content: completion } }] }),
+    });
+    try {
+      await client.generateStructured({ model: model.id, messages: [{ role: "user", content: "go" }] }, z.object({ title: z.string() }));
+      throw new Error("Expected OpenRouterClient to reject");
+    } catch (error) {
+      if (!(error instanceof OpenRouterError)) throw error;
+      expect(error).toMatchObject({ code: "COMPLETION_JSON_INVALID" });
+      expect(error).not.toHaveProperty("cause");
+      expect(error.message).not.toContain(completion);
+      expect(error.message).not.toContain(key);
+      expect(JSON.stringify(error)).not.toContain(key);
+    }
+  });
+
+  it("returns a schema error after the bounded repair for valid completion JSON", async () => {
+    const client = new OpenRouterClient({
+      credentialStore: credentials(),
+      fetch: async () => jsonResponse({ choices: [{ message: { content: '{"title":4}' } }] }),
+    });
+    const generation = client.generateStructured(
+      { model: model.id, messages: [{ role: "user", content: "go" }] },
+      z.object({ title: z.string() }),
+    );
+    await expect(generation).rejects.toMatchObject({ code: "SCHEMA_INVALID" });
+    const error = await generation.catch((reason: unknown) => reason);
+    expect(error).not.toHaveProperty("cause");
+  });
+
+  it.each([
+    [jsonResponse({ error: { metadata: { error_type: "provider_timeout" } } }), "TIMEOUT"],
+    [jsonResponse({}, { status: 504 }), "TIMEOUT"],
+  ] as const)("maps provider timeout evidence to TIMEOUT", async (response, code) => {
+    await expect(clientWithResponse(response).listModels()).rejects.toMatchObject({ code });
   });
 
   it("reports timeout and cancellation", async () => {

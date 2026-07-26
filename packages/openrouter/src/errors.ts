@@ -27,7 +27,8 @@ export class OpenRouterError extends Error {
   public readonly diagnostic?: OpenRouterDiagnostic;
 
   public constructor(code: OpenRouterErrorCode, message: string, options: OpenRouterErrorOptions = {}) {
-    super(message, { cause: options.cause });
+    if (options.cause === undefined) super(message);
+    else super(message, { cause: options.cause });
     this.name = "OpenRouterError";
     this.code = code;
     this.status = options.status;
