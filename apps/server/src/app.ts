@@ -21,6 +21,7 @@ import { registerExportRoutes } from "./routes/export.js";
 import { registerQuickGenerateRoutes } from "./routes/quick-generate.js";
 import { registerCommandRoutes } from "./routes/commands.js";
 import { registerQuickDraftRoutes } from "./routes/quick-drafts.js";
+import { GenerationDiagnosticStore } from "./services/generation-diagnostic-store.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -40,6 +41,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const projects = new ProjectRepository(database);
   const commands = new CommandRepository(database);
   const artifacts = new ArtifactRepository(database);
+  const diagnostics = new GenerationDiagnosticStore();
   const runner = new JobRunner(new JobRepository(database));
   const credentials = options.credentials ?? createDefaultCredentialStore();
   const openRouter = options.openRouterClient ?? new OpenRouterClient({ credentialStore: credentials });
@@ -66,7 +68,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerConversationRoutes(app, artifacts);
   registerPlaytestRoutes(app, projects, artifacts);
   registerExportRoutes(app, projects, artifacts);
-  registerQuickGenerateRoutes(app, openRouter);
+  registerQuickGenerateRoutes(app, openRouter, projects, commands, artifacts, diagnostics);
 
   if (existsSync(webDistPath)) {
     void app.register(fastifyStatic, {
