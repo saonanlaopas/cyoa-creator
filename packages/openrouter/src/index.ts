@@ -7,3 +7,4 @@ export * from "./model-catalog.js";
 export * from "./redact.js";
 export * from "./stream.js";
 export * from "./windows-credential-store.js";
+export * from "./powershell-dpapi-adapter.js";

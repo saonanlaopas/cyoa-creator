@@ -2,7 +2,7 @@ import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { ArtifactRepository, JobRepository, openDatabase, ProjectRepository } from "@story-to-cyoa/persistence";
-import { EnvironmentCredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
+import { createDefaultCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { JobRunner } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -23,6 +23,8 @@ import { registerQuickGenerateRoutes } from "./routes/quick-generate.js";
 export interface BuildAppOptions {
   databasePath?: string;
   maxImportBytes?: number;
+  credentials?: CredentialStore;
+  openRouterClient?: OpenRouterClient;
 }
 
 const webDistPath = resolve(
@@ -36,8 +38,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const projects = new ProjectRepository(database);
   const artifacts = new ArtifactRepository(database);
   const runner = new JobRunner(new JobRepository(database));
-  const credentials = new EnvironmentCredentialStore();
-  const openRouter = new OpenRouterClient({ credentialStore: credentials });
+  const credentials = options.credentials ?? createDefaultCredentialStore();
+  const openRouter = options.openRouterClient ?? new OpenRouterClient({ credentialStore: credentials });
   void app.register(fastifyMultipart, {
     limits: { files: 1, fileSize: options.maxImportBytes ?? 25 * 1024 * 1024 },
   });
