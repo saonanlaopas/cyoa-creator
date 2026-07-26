@@ -19,12 +19,14 @@ export interface OpenRouterErrorOptions {
   status?: number;
   diagnostic?: OpenRouterDiagnostic;
   cause?: unknown;
+  schemaIssues?: Array<{ path: Array<string | number>; message: string }>;
 }
 
 export class OpenRouterError extends Error {
   public readonly code: OpenRouterErrorCode;
   public readonly status?: number;
   public readonly diagnostic?: OpenRouterDiagnostic;
+  public readonly schemaIssues?: Array<{ path: Array<string | number>; message: string }>;
 
   public constructor(code: OpenRouterErrorCode, message: string, options: OpenRouterErrorOptions = {}) {
     if (options.cause === undefined) super(message);
@@ -33,5 +35,6 @@ export class OpenRouterError extends Error {
     this.code = code;
     this.status = options.status;
     this.diagnostic = options.diagnostic;
+    this.schemaIssues = options.schemaIssues;
   }
 }

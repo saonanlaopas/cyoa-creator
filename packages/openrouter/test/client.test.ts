@@ -75,6 +75,23 @@ describe("OpenRouterClient", () => {
     expect(bodies[1]).toMatchObject({ messages: expect.arrayContaining([{ role: "system", content: "Return only repaired JSON matching the requested schema." }]) });
   });
 
+  it("can disable a second structured repair while retaining completed-attempt metadata", async () => {
+    let calls = 0;
+    const client = new OpenRouterClient({
+      credentialStore: credentials(),
+      fetch: async () => {
+        calls += 1;
+        return new Response(`data: ${JSON.stringify({ id: `gen-${calls}`, provider: "test-provider", choices: [{ delta: { content: "{bad" } }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8, cost: 0.8 } })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+      },
+    });
+
+    await expect(client.generateStructuredStream(
+      { model: model.id, modelCapabilities: model, messages: [{ role: "user", content: "go" }], maxRepairAttempts: 0 },
+      z.object({ title: z.string() }),
+    )).rejects.toMatchObject({ code: "COMPLETION_JSON_INVALID", diagnostic: { provider: "test-provider", generationId: "gen-1" } });
+    expect(calls).toBe(1);
+  });
+
   it.each([[401, "UNAUTHENTICATED"], [429, "RATE_LIMITED"], [500, "PROVIDER_FAILURE"]] as const)("maps HTTP %s", async (status, code) => {
     const client = new OpenRouterClient({ credentialStore: credentials(), fetch: async () => jsonResponse({}, { status }) });
     await expect(client.listModels()).rejects.toMatchObject<Partial<OpenRouterError>>({ code });

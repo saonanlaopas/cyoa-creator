@@ -40,7 +40,31 @@ export type QuickGenerationEvent =
   | { type: "result"; generation: QuickGenerationResult; at: string }
   | { type: "error"; error: PublicGenerationError; diagnosticId?: string; at: string };
 
+export interface NdjsonWriter {
+  send(event: QuickGenerationEvent): boolean;
+  end(): void;
+}
+
+type WritableRaw = Pick<ServerResponse, "write" | "end" | "destroyed" | "writableEnded">;
+
+export function createNdjsonWriter(raw: WritableRaw, signal?: AbortSignal): NdjsonWriter {
+  let ended = false;
+  const unavailable = () => ended || signal?.aborted === true || raw.destroyed || raw.writableEnded;
+  return {
+    send(event) {
+      if (unavailable()) return false;
+      raw.write(`${JSON.stringify(event)}\n`);
+      return true;
+    },
+    end() {
+      if (unavailable()) { ended = true; return; }
+      ended = true;
+      raw.end();
+    },
+  };
+}
+
 /** Writes only browser-safe, typed records; raw provider chunks never cross this boundary. */
 export function writeNdjson(raw: ServerResponse, event: QuickGenerationEvent): void {
-  raw.write(`${JSON.stringify(event)}\n`);
+  createNdjsonWriter(raw).send(event);
 }

@@ -12,6 +12,8 @@ export interface OpenRouterDiagnostic {
   contentType: string | null;
   requestId: string | null;
   retryAfter: string | null;
+  provider?: string | null;
+  generationId?: string | null;
   body: BoundedBody;
   providerError?: {
     code?: number;

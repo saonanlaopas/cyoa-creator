@@ -22,6 +22,7 @@ export interface StructuredGenerationRequest {
   signal?: AbortSignal;
   /** Returned reasoning can consume output tokens and therefore affect cost. */
   reasoning?: { enabled: boolean; effort?: "minimal" | "low" | "medium" | "high" };
+  maxRepairAttempts?: 0 | 1;
 }
 
 export interface GenerationUsage {
@@ -35,6 +36,15 @@ export interface GenerationResult<T> {
   usage: GenerationUsage;
   cost: CostRange | null;
   repaired: boolean;
+  attempts: GenerationAttempt[];
+}
+
+export interface GenerationAttempt {
+  usage: GenerationUsage;
+  cost: CostRange | null;
+  provider: string | null;
+  generationId: string | null;
+  diagnostic: OpenRouterDiagnostic;
 }
 
 export interface OpenRouterClientOptions {
@@ -147,7 +157,13 @@ export class OpenRouterClient {
             cost: parsed.usage?.cost ?? parsed.cost,
           })
           : null;
-        return { data, usage, cost, repaired: attempt === 1 };
+        return {
+          data,
+          usage,
+          cost,
+          repaired: attempt === 1,
+          attempts: [{ usage, cost, provider: diagnostic.provider ?? null, generationId: diagnostic.generationId ?? null, diagnostic }],
+        };
       } catch {
         lastCompletionErrorCode = "SCHEMA_INVALID";
         lastDiagnostic = diagnostic;
@@ -208,7 +224,9 @@ export class OpenRouterClient {
     schema: ZodType<T>,
     callbacks: StreamCallbacks & { onRepair?: (attempt: number) => void } = {},
   ): Promise<GenerationResult<T>> {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    const attempts: GenerationAttempt[] = [];
+    const maxAttempts = 1 + (request.maxRepairAttempts ?? 1);
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       if (attempt === 1) callbacks.onRepair?.(1);
       const messages = attempt === 0 ? request.messages : [
         ...request.messages,
@@ -236,24 +254,28 @@ export class OpenRouterClient {
         }),
       });
       const completion = await parseOpenRouterStream(response, callbacks, request.signal);
+      const cost = request.modelCapabilities
+        ? actualCost(request.modelCapabilities, { ...completion.usage, cost: completion.reportedCost })
+        : null;
+      const diagnostic = { ...completion.diagnostic, provider: completion.provider, generationId: completion.generationId };
+      attempts.push({ usage: completion.usage, cost, provider: completion.provider, generationId: completion.generationId, diagnostic });
       let raw: unknown;
       try {
         raw = JSON.parse(completion.content) as unknown;
       } catch {
-        if (attempt === 1) throw completionJsonError(completion.diagnostic);
+        if (attempt === maxAttempts - 1) throw completionJsonError(diagnostic);
         continue;
       }
       try {
         return {
           data: schema.parse(raw),
           usage: completion.usage,
-          cost: request.modelCapabilities
-            ? actualCost(request.modelCapabilities, { ...completion.usage, cost: completion.reportedCost })
-            : null,
+          cost,
           repaired: attempt === 1,
+          attempts,
         };
-      } catch {
-        if (attempt === 1) throw schemaError(completion.diagnostic);
+      } catch (error) {
+        if (attempt === maxAttempts - 1) throw schemaError(diagnostic, error);
       }
     }
     throw new OpenRouterError("SCHEMA_INVALID", "Structured repair failed");
@@ -268,11 +290,16 @@ function completionJsonError(diagnostic: OpenRouterDiagnostic): OpenRouterError 
   );
 }
 
-function schemaError(diagnostic: OpenRouterDiagnostic): OpenRouterError {
+function schemaError(diagnostic: OpenRouterDiagnostic, cause?: unknown): OpenRouterError {
   return new OpenRouterError(
     "SCHEMA_INVALID",
     "OpenRouter returned completion data that did not match the required schema",
-    { diagnostic },
+    {
+      diagnostic,
+      schemaIssues: cause instanceof z.ZodError
+        ? cause.issues.map((issue) => ({ path: issue.path, message: issue.message }))
+        : undefined,
+    },
   );
 }
 
