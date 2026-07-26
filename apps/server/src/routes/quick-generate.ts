@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { ProjectSchema, validateGraph, type Project } from "@story-to-cyoa/domain";
 import { compileSugarCube, renderTwee } from "@story-to-cyoa/export-twine";
 import { importSource } from "@story-to-cyoa/importers";
-import { OpenRouterError, redactSecret, type CostRange, type GenerationAttempt, type GenerationUsage, type OpenRouterClient, type ReasoningEvent } from "@story-to-cyoa/openrouter";
+import { OpenRouterError, type CostRange, type GenerationAttempt, type GenerationUsage, type OpenRouterClient, type ReasoningEvent } from "@story-to-cyoa/openrouter";
 import type { ArtifactRepository, CommandRepository, ProjectRepository } from "@story-to-cyoa/persistence";
 import { GenerationDiagnosticStore } from "../services/generation-diagnostic-store.js";
 import type { GenerationStage, PublicGenerationError, QuickGenerationEvent } from "./quick-generation-events.js";
@@ -123,61 +123,25 @@ function publicError(error: unknown): PublicGenerationError {
   };
 }
 
-export function createReasoningSafetyBuffer(source: string, send: (event: ReasoningEvent) => void) {
-  const pending: Array<{ kind: ReasoningEvent["kind"]; text: string }> = [];
-  const normalizedSource = source.toLowerCase().replace(/\s+/g, " ").trim();
-  const withheldCharacters = 64;
-  const pendingText = () => pending.map((event) => event.text).join("");
-  const take = (count: number) => {
-    const result: typeof pending = [];
-    let remaining = count;
-    while (remaining > 0 && pending.length) {
-      const event = pending[0];
-      const length = Math.min(remaining, event.text.length);
-      result.push({ kind: event.kind, text: event.text.slice(0, length) });
-      event.text = event.text.slice(length);
-      remaining -= length;
-      if (!event.text) pending.shift();
+/** Browser activity intentionally exposes only provider event kinds, never reasoning text. */
+export function createReasoningActivityQueue(send: (event: ReasoningEvent) => void) {
+  const queue: ReasoningEvent[] = [];
+  let draining = false;
+  const drain = () => {
+    if (draining) return;
+    draining = true;
+    while (queue.length) {
+      const event = queue.shift()!;
+      send({ kind: event.kind });
     }
-    return result;
-  };
-  const sensitive = (value: string) => {
-    if (/\b(?:sk-or-v1-|sk-)[A-Za-z0-9_.-]{1,}/i.test(value)) return true;
-    const normalized = value.toLowerCase().replace(/\s+/g, " ").trim();
-    for (let offset = 0; offset <= normalized.length - 8; offset += 1) {
-      if (normalizedSource.includes(normalized.slice(offset, offset + 8))) return true;
-    }
-    return false;
-  };
-  const emit = (events: typeof pending) => {
-    const merged: typeof pending = [];
-    for (const event of events) {
-      const prior = merged.at(-1);
-      if (prior?.kind === event.kind) prior.text += event.text;
-      else merged.push({ ...event });
-    }
-    for (const event of merged) if (event.text) send({ kind: event.kind, text: redactSecret(event.text) });
-  };
-  const release = () => {
-    const available = pendingText().length - withheldCharacters;
-    if (available <= 0) return;
-    const preview = pendingText();
-    const released = take(available);
-    if (sensitive(preview)) send({ kind: "unavailable" });
-    else emit(released);
+    draining = false;
   };
   return {
     push(event: ReasoningEvent): void {
-      if (!event.text) { send({ kind: event.kind }); return; }
-      pending.push({ kind: event.kind, text: event.text });
-      release();
+      queue.push(event);
+      drain();
     },
-    finish(): void {
-      if (pending.length) {
-        pending.length = 0;
-        send({ kind: "unavailable" });
-      }
-    },
+    finish: drain,
   };
 }
 
@@ -260,7 +224,7 @@ export function registerQuickGenerateRoutes(
     const now = () => new Date().toISOString();
     const stage = (name: GenerationStage, message: string) =>
       send({ type: "status", stage: name, message, at: now() });
-    const reasoning = createReasoningSafetyBuffer(source, (event) => send({ type: "reasoning", ...event, at: now() }));
+    const reasoning = createReasoningActivityQueue((event) => send({ type: "reasoning", ...event, at: now() }));
 
     try {
       stage("preparing", "Preparing project source");

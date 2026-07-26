@@ -41,13 +41,13 @@ class FakeStreamClient {
   public readonly requests: Request[] = [];
   public failure: OpenRouterError | undefined;
   public projects: Project[] = [graphInvalidProject, validProject];
-  public reasoning: Array<{ kind: "summary"; text: string }> = [{ kind: "summary", text: "Mapped the route." }];
+  public reasoning: Array<{ kind: "text" | "summary" | "encrypted" | "unavailable"; text?: string }> = [{ kind: "summary", text: "Mapped the route." }];
   public repairEachCall = false;
 
   async generateStructuredStream(
     request: Request,
     _schema: unknown,
-    callbacks: { onReasoning?: (event: { kind: "summary"; text: string }) => void; onUsage?: (usage: { inputTokens: number; outputTokens: number; totalTokens: number }) => void; onRepair?: (attempt: number) => void },
+    callbacks: { onReasoning?: (event: { kind: "text" | "summary" | "encrypted" | "unavailable"; text?: string }) => void; onUsage?: (usage: { inputTokens: number; outputTokens: number; totalTokens: number }) => void; onRepair?: (attempt: number) => void },
   ) {
     this.requests.push(request);
     if (this.failure) throw this.failure;
@@ -80,7 +80,7 @@ describe("quick generation stream", () => {
     const types = events.map((event) => event.type);
 
     expect(response.headers["content-type"]).toContain("application/x-ndjson");
-    expect(types).toEqual(["status", "status", "status", "usage", "status", "repair", "reasoning", "status", "validation", "status", "validation", "status", "repair", "usage", "reasoning", "status", "validation", "status", "validation", "status", "status", "result"]);
+    expect(types).toEqual(["status", "status", "status", "reasoning", "usage", "status", "repair", "status", "validation", "status", "validation", "status", "repair", "reasoning", "usage", "status", "validation", "status", "validation", "status", "status", "result"]);
     expect(events.filter((event) => event.type === "repair")).toEqual([
       expect.objectContaining({ phase: "structured-output", attempt: 1 }),
       expect.objectContaining({ phase: "graph", attempt: 1 }),
@@ -121,10 +121,14 @@ describe("quick generation stream", () => {
     const projectId = (await app.inject({ method: "POST", url: "/api/quick/drafts", payload: {} })).json().projectId as string;
 
     const events = parseNdjson((await app.inject({ method: "POST", url: "/api/quick/generate", payload: { projectId, source, model: "test/model" } })).body);
-    const visibleReasoning = events.filter((event) => event.type === "reasoning").map((event) => event.text ?? "").join("");
+    const reasoningEvents = events.filter((event) => event.type === "reasoning");
 
-    expect(visibleReasoning).not.toContain(source.slice(0, 50));
-    expect(visibleReasoning).not.toContain(apiKey);
+    expect(reasoningEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "summary" }),
+    ]));
+    expect(reasoningEvents.every((event) => !("text" in event))).toBe(true);
+    expect(JSON.stringify(events)).not.toContain(source.slice(0, 50));
+    expect(JSON.stringify(events)).not.toContain(apiKey);
     await app.close();
   });
 

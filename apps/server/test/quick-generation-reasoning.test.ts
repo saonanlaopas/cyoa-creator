@@ -1,42 +1,46 @@
 import { describe, expect, it } from "vitest";
-import { createReasoningSafetyBuffer } from "../src/routes/quick-generate.js";
+import { createReasoningActivityQueue } from "../src/routes/quick-generate.js";
 
 const source = "Mara returns to the flooded station before dawn carrying the brass key her father hid years ago.";
 
-describe("rolling reasoning safety buffer", () => {
-  it("suppresses source fragments split across reasoning kinds", () => {
+describe("reasoning activity queue", () => {
+  it("never exposes raw source or secret text", () => {
     const events: Array<{ kind: string; text?: string }> = [];
-    const buffer = createReasoningSafetyBuffer(source, (event) => events.push(event));
+    const queue = createReasoningActivityQueue((event) => events.push(event));
 
-    buffer.push({ kind: "text", text: "Mara returns to the " });
-    buffer.push({ kind: "summary", text: "flooded station before dawn" });
-    buffer.finish();
+    queue.push({ kind: "text", text: source });
+    queue.push({ kind: "summary", text: "sk-or-v1-test-secret-key-0123456789" });
 
-    expect(events.map((event) => event.text ?? "").join("")).not.toContain("Mara returns to the flooded station");
-    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "unavailable" })]));
+    expect(events).toEqual([{ kind: "text" }, { kind: "summary" }]);
+    expect(JSON.stringify(events)).not.toContain(source);
+    expect(JSON.stringify(events)).not.toContain("sk-or-v1-test-secret-key-0123456789");
   });
 
-  it("does not release sub-20 source or secret tails at finish", () => {
+  it("preserves cross-kind provider order and encrypted semantics", () => {
     const events: Array<{ kind: string; text?: string }> = [];
-    const buffer = createReasoningSafetyBuffer(source, (event) => events.push(event));
+    const queue = createReasoningActivityQueue((event) => events.push(event));
 
-    buffer.push({ kind: "summary", text: "Mara return" });
-    buffer.push({ kind: "text", text: "sk-or-v1-short" });
-    buffer.finish();
+    queue.push({ kind: "summary", text: "first" });
+    queue.push({ kind: "encrypted" });
+    queue.push({ kind: "text", text: "second" });
+    queue.push({ kind: "unavailable" });
 
-    expect(events.map((event) => event.text ?? "").join("")).not.toContain("Mara return");
-    expect(events.map((event) => event.text ?? "").join("")).not.toContain("sk-or-v1-short");
+    expect(events).toEqual([
+      { kind: "summary" },
+      { kind: "encrypted" },
+      { kind: "text" },
+      { kind: "unavailable" },
+    ]);
   });
 
-  it("preserves kind order while releasing safe reasoning incrementally", () => {
+  it("emits activity synchronously before generation resolves", () => {
     const events: Array<{ kind: string; text?: string }> = [];
-    const buffer = createReasoningSafetyBuffer(source, (event) => events.push(event));
+    const queue = createReasoningActivityQueue((event) => events.push(event));
 
-    buffer.push({ kind: "text", text: "A".repeat(80) });
-    expect(events).toEqual([expect.objectContaining({ kind: "text", text: "A".repeat(16) })]);
-    buffer.push({ kind: "summary", text: "B".repeat(80) });
-    buffer.finish();
+    queue.push({ kind: "text", text: "provider is working" });
+    expect(events).toEqual([{ kind: "text" }]);
 
-    expect(events.map((event) => event.kind)).toEqual(["text", "text", "summary", "unavailable"]);
+    queue.finish();
+    expect(events).toEqual([{ kind: "text" }]);
   });
 });
