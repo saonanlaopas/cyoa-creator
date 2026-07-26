@@ -18,6 +18,7 @@ import { registerPassageRoutes } from "./routes/passages.js";
 import { registerConversationRoutes } from "./routes/conversation.js";
 import { registerPlaytestRoutes } from "./routes/playtest.js";
 import { registerExportRoutes } from "./routes/export.js";
+import { registerQuickGenerateRoutes } from "./routes/quick-generate.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -58,6 +59,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerConversationRoutes(app, artifacts);
   registerPlaytestRoutes(app, projects, artifacts);
   registerExportRoutes(app, projects, artifacts);
+  registerQuickGenerateRoutes(app, openRouter);
 
   if (existsSync(webDistPath)) {
     void app.register(fastifyStatic, {
