@@ -1,7 +1,7 @@
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { ArtifactRepository, JobRepository, openDatabase, ProjectRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, CommandRepository, JobRepository, openDatabase, ProjectRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { JobRunner } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
@@ -19,6 +19,8 @@ import { registerConversationRoutes } from "./routes/conversation.js";
 import { registerPlaytestRoutes } from "./routes/playtest.js";
 import { registerExportRoutes } from "./routes/export.js";
 import { registerQuickGenerateRoutes } from "./routes/quick-generate.js";
+import { registerCommandRoutes } from "./routes/commands.js";
+import { registerQuickDraftRoutes } from "./routes/quick-drafts.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -36,6 +38,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = fastify({ logger: false });
   const database = openDatabase(options.databasePath ?? ":memory:");
   const projects = new ProjectRepository(database);
+  const commands = new CommandRepository(database);
   const artifacts = new ArtifactRepository(database);
   const runner = new JobRunner(new JobRepository(database));
   const credentials = options.credentials ?? createDefaultCredentialStore();
@@ -51,6 +54,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }));
 
   registerProjectRoutes(app, projects, artifacts);
+  registerQuickDraftRoutes(app, projects);
+  registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024);
   void registerSettingsRoutes(app, { credentials, client: openRouter });
   registerJobRoutes(app, runner);
