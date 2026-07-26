@@ -114,4 +114,22 @@ describe("CommandManager", () => {
     expect((screen.getByLabelText("Instruction") as HTMLTextAreaElement).value).toContain("characterization");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("reloads once after a rejected reorder while retaining the mutation error", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "Reorder IDs must match command scope" }), { status: 400 }));
+    const onChanged = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<CommandManager
+      projectId="p1"
+      globalCommands={[command({ id: "global-a", scope: "global", projectId: null, name: "Canon", position: 0 }), command({ id: "global-b", scope: "global", projectId: null, name: "Style", position: 1 })]}
+      projectCommands={[]}
+      onChanged={onChanged}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Move Style up" }));
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("alert").textContent).toContain("Could not save command changes.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

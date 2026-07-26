@@ -45,7 +45,13 @@ export function CommandManager({ projectId, globalCommands, projectCommands, onC
       await operation();
       await onChanged();
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Could not save command changes.");
+      const mutationError = failure instanceof Error ? failure.message : "Could not save command changes.";
+      try {
+        await onChanged();
+        setError(mutationError);
+      } catch {
+        setError(`${mutationError} Commands could not be reloaded.`);
+      }
     } finally {
       setPending(false);
     }
