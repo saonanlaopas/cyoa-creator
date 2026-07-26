@@ -33,3 +33,10 @@ h1 {
 .health--unavailable {
   color: #b91c1c;
 }
+
+button, input, textarea, select { font: inherit; margin: .3rem; }
+.wizard { max-width: 48rem; }
+.wizard section, .wizard footer, article, dialog { display: grid; gap: .7rem; padding: 1rem; border: 1px solid #dbe3ef; border-radius: .6rem; background: white; }
+.studio { display: grid; grid-template-columns: minmax(9rem, 16rem) minmax(0, 1fr) minmax(13rem, 20rem); max-width: 100%; margin: 0; gap: 1rem; }
+.studio nav, .studio aside { display: grid; align-content: start; gap: .25rem; }.studio > section { min-width: 0; }.selected { background: #4f46e5; color: white; }.warning { color: #92400e; background: #fffbeb; padding: .7rem; }.preview { display: grid; grid-template-columns: 12rem 1fr; gap: 1rem; }.node { border: 1px solid #818cf8; padding: 1rem; background: #eef2ff; }
+@media (max-width: 760px) { main { margin: 2rem auto; }.studio { grid-template-columns: 1fr; }.studio nav { grid-auto-flow: column; overflow-x: auto; }.preview { grid-template-columns: 1fr; } }

@@ -1,0 +1,1 @@
+export function AssistantPanel({ stage }: { stage: string }) { return <aside><h2>Assistant</h2><p>Working on: {stage}</p><button>Suggest next passage</button><button>Compare versions</button><details><summary>Advanced generation controls</summary><label>Model <select><option>Balanced</option><option>Economy</option><option>Quality</option></select></label></details></aside>; }

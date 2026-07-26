@@ -1,0 +1,1 @@
+export function JobProgress({ progress = 0, cancel }: { progress?: number; cancel?: () => void }) { return <section aria-label="Job progress"><progress value={progress} max="100" /><span>{progress}% complete</span>{cancel && <button onClick={cancel}>Cancel</button>}</section>; }

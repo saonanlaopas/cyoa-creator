@@ -1,0 +1,1 @@
+export function PipelineNav({ view, setView }: { view: string; setView: (view: string) => void }) { return <nav aria-label="Pipeline">{["Story bible", "Passages", "Story map", "Play preview", "Findings"].map((item) => <button key={item} className={view === item ? "selected" : ""} onClick={() => setView(item)}>{item}</button>)}</nav>; }

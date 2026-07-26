@@ -1,0 +1,2 @@
+import { useState } from "react"; import { PipelineNav } from "./PipelineNav.js"; import { AssistantPanel } from "./AssistantPanel.js"; import { ArtifactWorkspace } from "./ArtifactWorkspace.js";
+export function StudioLayout() { const [view, setView] = useState("Story bible"); return <main className="studio"><PipelineNav view={view} setView={setView} /><ArtifactWorkspace view={view} /><AssistantPanel stage={view} /></main>; }

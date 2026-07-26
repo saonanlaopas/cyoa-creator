@@ -1,0 +1,1 @@
+export function StatSidebar({ courage = 1, inventory = ["Silver token"] }: { courage?: number; inventory?: string[] }) { return <aside className="stats"><h2>State</h2><p>Courage: {courage}</p><p>Relationship: Gardener — wary</p><h3>Inventory</h3><ul>{inventory.map((item) => <li key={item}>{item}</li>)}</ul></aside>; }

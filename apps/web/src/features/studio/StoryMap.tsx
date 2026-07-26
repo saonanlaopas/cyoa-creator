@@ -1,0 +1,1 @@
+export function StoryMap() { return <section className="story-map"><header><h2>Story map</h2><button aria-label="Expand story map">Fullscreen</button></header><button className="node">Arrival → Gate</button><button className="node">Gate → Bargain</button><p>Select a node to inspect its passage and conditions.</p></section>; }

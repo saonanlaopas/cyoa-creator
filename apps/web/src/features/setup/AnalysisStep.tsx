@@ -1,0 +1,1 @@
+export function AnalysisStep() { return <section><h2>Review story bible</h2><progress value="65" max="100" /> <span>Analysis 65%</span><article><strong>Motif: promise and consequence</strong><button type="button" aria-label="View source excerpt">View citation</button><p>“The orchard opens for a true bargain.”</p></article></section>; }
