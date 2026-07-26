@@ -101,6 +101,29 @@ describe("PowerShellDpapiAdapter", () => {
     expect(child.stdin.end).toHaveBeenCalledWith(sentinel);
   });
 
+  it("settles a synchronous stdin write throw exactly once without leaking plaintext", async () => {
+    const sentinel = "synchronous-stdin-write-sentinel-must-not-leak";
+    const child = fakeChildProcess({ endError: new Error(`EPIPE ${sentinel}`) });
+    const runner = createPowerShellRunner(() => child);
+    let settlements = 0;
+    const result = runner(["-NoProfile"], sentinel).then(
+      (value) => ({ value }),
+      (error: Error) => {
+        settlements += 1;
+        return { error };
+      },
+    );
+
+    child.emit("close", 0);
+    child.stdin.emit("error", new Error(`later stdin error ${sentinel}`));
+    child.emit("error", new Error(`later child error ${sentinel}`));
+
+    await expect(result).resolves.toMatchObject({ error: { message: "PowerShell process failed" } });
+    const resolved = await result;
+    expect("error" in resolved ? resolved.error.message : "").not.toContain(sentinel);
+    expect(settlements).toBe(1);
+  });
+
   it("selects the injected Windows secure store instead of the environment fallback", async () => {
     const calls: string[] = [];
     const store = createDefaultCredentialStore({
@@ -130,10 +153,14 @@ describe("PowerShellDpapiAdapter", () => {
   });
 });
 
-function fakeChildProcess(): PowerShellChildProcess {
+function fakeChildProcess(options: { endError?: Error } = {}): PowerShellChildProcess {
   const child = new EventEmitter() as PowerShellChildProcess;
   child.stdout = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
   child.stderr = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
-  child.stdin = Object.assign(new EventEmitter(), { end: vi.fn() });
+  child.stdin = Object.assign(new EventEmitter(), {
+    end: vi.fn(() => {
+      if (options.endError) throw options.endError;
+    }),
+  });
   return child;
 }
