@@ -46,8 +46,10 @@ export async function parseOpenRouterStream(
   signal?: AbortSignal,
 ): Promise<StreamedCompletion> {
   const diagnostic = streamDiagnostic(response);
-  if (!response.ok) throw providerError(diagnostic);
-  if (!response.body) throw new OpenRouterError("STREAM_INTERRUPTED", "OpenRouter returned an empty stream", { diagnostic });
+  if (!response.body) {
+    if (!response.ok) throw providerError(diagnostic);
+    throw new OpenRouterError("STREAM_INTERRUPTED", "OpenRouter returned an empty stream", { diagnostic });
+  }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -120,6 +122,7 @@ export async function parseOpenRouterStream(
   }
 
   if (signal?.aborted) throw cancelledError(diagnostic);
+  if (!response.ok) throw providerError(diagnostic);
   if (!done && !state.finished) {
     throw new OpenRouterError("STREAM_INTERRUPTED", "OpenRouter stream ended before completion", { diagnostic });
   }

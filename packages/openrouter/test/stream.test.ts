@@ -82,6 +82,17 @@ describe("parseOpenRouterStream", () => {
     });
   });
 
+  it("prefers a typed SSE error over a non-OK HTTP status", async () => {
+    const response = new Response([
+      `data: ${JSON.stringify({ error: {
+        code: 429,
+        message: "Rate limit",
+        metadata: { error_type: "rate_limit_exceeded" },
+      } })}\n\n`,
+    ].join(""), { status: 503, headers: { "content-type": "text/event-stream" } });
+    await expect(parseOpenRouterStream(response, {})).rejects.toMatchObject({ code: "RATE_LIMITED" });
+  });
+
   it("redacts secrets from in-band provider evidence", async () => {
     const secret = "sk-or-v1-test-secret-key-0123456789";
     const error = await parseOpenRouterStream(sseResponse([{ error: {
