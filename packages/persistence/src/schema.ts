@@ -72,6 +72,20 @@ CREATE TABLE IF NOT EXISTS messages (
   content TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS instruction_commands (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL CHECK(scope IN ('global', 'project')),
+  name TEXT NOT NULL,
+  instruction TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK((scope = 'global' AND project_id IS NULL) OR (scope = 'project' AND project_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS instruction_commands_scope_order
+  ON instruction_commands(scope, project_id, position, created_at);
 `;
 
 export const artifactChain = ["source", "bible", "adaptation", "routes", "drafts", "review", "export"] as const;

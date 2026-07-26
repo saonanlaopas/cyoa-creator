@@ -1,4 +1,5 @@
 export * from "./artifact-repository.js";
+export * from "./command-repository.js";
 export * from "./database.js";
 export * from "./job-repository.js";
 export * from "./migrate.js";
