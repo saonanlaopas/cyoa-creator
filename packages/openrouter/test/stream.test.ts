@@ -74,6 +74,14 @@ describe("parseOpenRouterStream", () => {
     await expect(parseOpenRouterStream(response, {})).rejects.toMatchObject({ code: "RATE_LIMITED" });
   });
 
+  it("maps an empty HTTP 429 response before checking for a stream body", async () => {
+    const response = new Response(null, { status: 429, headers: { "x-request-id": "req-rate-limited" } });
+    await expect(parseOpenRouterStream(response, {})).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      diagnostic: { status: 429, requestId: "req-rate-limited" },
+    });
+  });
+
   it("redacts secrets from in-band provider evidence", async () => {
     const secret = "sk-or-v1-test-secret-key-0123456789";
     const error = await parseOpenRouterStream(sseResponse([{ error: {
