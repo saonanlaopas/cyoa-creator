@@ -10,7 +10,10 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@fastify/multipart": "^9.2.1",
     "@fastify/static": "^8.2.0",
+    "@story-to-cyoa/importers": "workspace:*",
+    "@story-to-cyoa/persistence": "workspace:*",
     "fastify": "^5.5.0"
   },
   "devDependencies": {
