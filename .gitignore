@@ -1,0 +1,10 @@
+.worktrees/
+.superpowers/
+node_modules/
+dist/
+.env
+data/
+exports/
+tools/tweego/
+test-results/
+playwright-report/
