@@ -16,6 +16,8 @@ import { registerAdaptationRoutes } from "./routes/adaptation.js";
 import { registerRouteGraphRoutes } from "./routes/routes.js";
 import { registerPassageRoutes } from "./routes/passages.js";
 import { registerConversationRoutes } from "./routes/conversation.js";
+import { registerPlaytestRoutes } from "./routes/playtest.js";
+import { registerExportRoutes } from "./routes/export.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -54,6 +56,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerRouteGraphRoutes(app, artifacts);
   registerPassageRoutes(app, artifacts);
   registerConversationRoutes(app, artifacts);
+  registerPlaytestRoutes(app, projects, artifacts);
+  registerExportRoutes(app, projects, artifacts);
 
   if (existsSync(webDistPath)) {
     void app.register(fastifyStatic, {
