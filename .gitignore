@@ -8,3 +8,4 @@ exports/
 tools/tweego/
 test-results/
 playwright-report/
+coverage/
