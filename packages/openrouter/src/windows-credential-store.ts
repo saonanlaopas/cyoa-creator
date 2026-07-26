@@ -32,11 +32,13 @@ export function createDefaultCredentialStore(options: {
   platform?: NodeJS.Platform;
   environment?: NodeJS.ProcessEnv;
   localAppData?: string;
+  /** Optional seam for platform-selection tests; production uses DPAPI by default. */
+  windowsAdapter?: WindowsDpapiAdapter;
 } = {}): CredentialStore {
   const platform = options.platform ?? process.platform;
   const localAppData = options.localAppData ?? process.env.LOCALAPPDATA;
   const secureStore = platform === "win32" && localAppData
-    ? new WindowsCredentialStore(new PowerShellDpapiAdapter({ localAppData }))
+    ? new WindowsCredentialStore(options.windowsAdapter ?? new PowerShellDpapiAdapter({ localAppData }))
     : undefined;
   return new EnvironmentCredentialStore({ environment: options.environment, secureStore });
 }

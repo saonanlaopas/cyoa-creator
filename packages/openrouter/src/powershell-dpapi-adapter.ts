@@ -9,6 +9,29 @@ export type PowerShellRunner = (
   stdin: string,
 ) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
 
+export interface PowerShellChildProcess {
+  stdin: {
+    end(input: string): unknown;
+    once(event: "error", listener: (error: Error) => void): unknown;
+  };
+  stdout: {
+    setEncoding(encoding: string): unknown;
+    on(event: "data", listener: (chunk: string) => void): unknown;
+  };
+  stderr: {
+    setEncoding(encoding: string): unknown;
+    on(event: "data", listener: (chunk: string) => void): unknown;
+  };
+  once(event: "error", listener: (error: Error) => void): unknown;
+  once(event: "close", listener: (exitCode: number | null) => void): unknown;
+}
+
+export type PowerShellSpawner = (
+  command: string,
+  args: string[],
+  options: { stdio: ["pipe", "pipe", "pipe"]; windowsHide: boolean },
+) => PowerShellChildProcess;
+
 export interface PowerShellDpapiAdapterOptions {
   localAppData?: string;
   /** Test-only override for the credential file; its parent is the credential directory. */
@@ -119,15 +142,43 @@ function deleteScript(path: string): string {
   ].join("; ");
 }
 
-const runPowerShell: PowerShellRunner = (args, stdin) => new Promise((resolveRun, rejectRun) => {
-  const child = spawn("powershell.exe", args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
-  let stdout = "";
-  let stderr = "";
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk: string) => { stdout += chunk; });
-  child.stderr.on("data", (chunk: string) => { stderr += chunk; });
-  child.once("error", rejectRun);
-  child.once("close", (exitCode) => resolveRun({ exitCode: exitCode ?? 1, stdout, stderr }));
-  child.stdin.end(stdin);
-});
+/** Creates the default runner with an injectable process boundary for lifecycle tests. */
+export function createPowerShellRunner(
+  spawnProcess: PowerShellSpawner = (command, args, options) => spawn(command, args, options),
+): PowerShellRunner {
+  return (args, stdin) => new Promise((resolveRun, rejectRun) => {
+    let settled = false;
+    const rejectProcess = () => {
+      if (settled) return;
+      settled = true;
+      rejectRun(new Error("PowerShell process failed"));
+    };
+    let child: PowerShellChildProcess;
+    try {
+      child = spawnProcess("powershell.exe", args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    } catch {
+      rejectProcess();
+      return;
+    }
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { stdout += chunk; });
+    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.once("error", rejectProcess);
+    child.stdin.once("error", rejectProcess);
+    child.once("close", (exitCode) => {
+      if (settled) return;
+      settled = true;
+      resolveRun({ exitCode: exitCode ?? 1, stdout, stderr });
+    });
+    try {
+      child.stdin.end(stdin);
+    } catch {
+      rejectProcess();
+    }
+  });
+}
+
+const runPowerShell = createPowerShellRunner();
