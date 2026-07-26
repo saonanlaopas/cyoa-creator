@@ -2,18 +2,32 @@
 
 ## Start locally
 
-Install Node.js 20+ and enable pnpm with `corepack enable`. From the project folder run `powershell -ExecutionPolicy Bypass -File scripts/launch.ps1`. The launcher installs locked dependencies when needed, starts a loopback-only service, waits for its health check, and opens the app. It warns when Tweego is missing; install it under `tools/tweego/` before exporting Twee.
+From the project folder run:
 
-## Create an adaptation
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/launch.ps1
+```
 
-Choose **Create project**, import a text, Markdown, or downloaded AO3 file that you have the right to adapt, select the chapters, then review the cited story bible. Pick Economy, Balanced, or Quality. Use **Advanced** only when you need a per-operation model, generation controls, or a cost cap. Any non-zero estimated operation requires confirmation; keep the cap small while experimenting.
+The launcher uses Codex's bundled Node and pnpm when they are available; otherwise it expects Node.js 20+ and pnpm on `PATH`. It installs locked dependencies when needed, builds the app, starts a loopback-only service, waits for its health check, and opens the browser.
 
-Approve the mechanics to enter the studio. The left pipeline selects artifacts, the center is the active workspace, and the right assistant proposes changes. The story map is an expandable workspace mode. Stale notices mean an upstream source changed; regenerate or explicitly compare versions before approving an artifact.
+## Generate an adaptation
 
-## Play, repair, and export
+1. Enter your OpenRouter API key. The key stays in the local server process and is not included in generated files.
+2. Paste source text or load a TXT/HTML AO3 download. For long works, start with one arc under 250,000 characters.
+3. Add optional direction such as desired routes, relationships, endings, or content boundaries.
+4. Keep `openrouter/auto` or enter a specific OpenRouter model ID.
+5. Choose a target of 8–40 passages and select **Generate CYOA**.
 
-Use **Play preview** to follow passages, inspect visible state, restart, or backtrack. Send feedback from the current passage; it is attached to that passage and artifact version. In **Findings**, inspect citations, request a repair, then approve or reject its proposal. Export HTML for browser play or Twee when Tweego is installed.
+The generator requests an existing-protagonist adaptation with visible stats, relationship state, meaningful divergence, controlled reconvergence, and multiple endings. It validates the branch graph and asks the model to repair broken links once before failing.
 
-## Keys, backups, and troubleshooting
+## Play and export
 
-Provider keys are write-only and are sent to the local service; never paste them into story text. Back up the project data directory before major rewrites and copy exports separately. If the app will not open, visit `/api/health`; if it fails, rerun the launcher and inspect the terminal error. If an export is unavailable, verify `tools/tweego/tweego.exe`. Use only material you are permitted to import and adapt.
+Play the result directly below the generator. The preview tracks visible stats and relationship labels. Download editable Twee source or a standalone playable HTML file. If Tweego is not installed, the app automatically uses its built-in standalone HTML compiler.
+
+## Troubleshooting
+
+- If generation says the key is not configured, save the key again after restarting the app; the default store is process-local.
+- If a model cannot produce valid structured JSON, try another model or reduce the passage count.
+- If a long source exceeds context limits, select a chapter or arc.
+- The application listens only on `127.0.0.1` by default.
+- Use only material you are permitted to import and adapt.
