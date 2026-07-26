@@ -4,6 +4,17 @@ import { CommandManager } from "./CommandManager.js";
 import { download, Player } from "./Player.js";
 
 type DraftResponse = { projectId?: unknown };
+const activeProjectStorageKey = "story-to-cyoa.active-project-id";
+
+const storedProjectId = (): string | null => {
+  try { return localStorage.getItem(activeProjectStorageKey); } catch { return null; }
+};
+const storeProjectId = (id: string): void => {
+  try { localStorage.setItem(activeProjectStorageKey, id); } catch { /* storage is optional */ }
+};
+const clearStoredProjectId = (): void => {
+  try { localStorage.removeItem(activeProjectStorageKey); } catch { /* storage is optional */ }
+};
 
 const commandsFrom = async (path: string): Promise<InstructionCommand[]> => {
   const response = await fetch(path);
@@ -31,6 +42,7 @@ export function QuickGenerator() {
     const value = await response.json() as DraftResponse;
     if (!response.ok || typeof value.projectId !== "string") throw new Error("Could not create a story draft.");
     setProjectId(value.projectId);
+    storeProjectId(value.projectId);
     return value.projectId;
   }, [projectId]);
 
@@ -46,7 +58,24 @@ export function QuickGenerator() {
 
   useEffect(() => {
     void fetch("/api/settings/openrouter").then((response) => response.json()).then((value: { configured?: unknown }) => setConfigured(Boolean(value.configured))).catch(() => undefined);
-    void createDraft().then((id) => loadCommands(id)).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Could not prepare the story draft."));
+    void (async () => {
+      const stored = storedProjectId();
+      if (stored) {
+        try {
+          const response = await fetch(`/api/projects/${stored}`);
+          if (response.ok) {
+            setProjectId(stored);
+            await loadCommands(stored);
+            return;
+          }
+        } catch {
+          // A stored ID is only a convenience; a new local draft remains safe fallback.
+        }
+        clearStoredProjectId();
+      }
+      const id = await createDraft();
+      await loadCommands(id);
+    })().catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Could not prepare the story draft."));
   }, [createDraft, loadCommands]);
 
   const saveKey = async () => {

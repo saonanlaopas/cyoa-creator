@@ -6,6 +6,7 @@ type CommandParams = ProjectParams & { commandId: string };
 type GlobalCommandParams = { commandId: string };
 type CommandBody = { name?: unknown; instruction?: unknown; enabled?: unknown; position?: unknown };
 type ValidatedCommandInput = { name: string; instruction: string; enabled?: boolean; position?: number };
+type ReorderBody = { ids?: unknown };
 
 const sendError = (reply: FastifyReply, statusCode: number, error: string) => reply.code(statusCode).send({ error });
 
@@ -46,6 +47,11 @@ function validatePatchBody(body: CommandBody | undefined): { value?: Partial<Pic
   };
 }
 
+function validateReorderBody(body: ReorderBody | undefined): { value?: string[]; error?: string } {
+  if (!Array.isArray(body?.ids) || body.ids.some((id) => typeof id !== "string" || !id)) return { error: "ids must be an array of command IDs" };
+  return { value: body.ids };
+}
+
 export function registerCommandRoutes(app: FastifyInstance, projects: ProjectRepository, commands: CommandRepository): void {
   const projectExists = (projectId: string, reply: FastifyReply): boolean => {
     if (projects.get(projectId)) return true;
@@ -57,6 +63,11 @@ export function registerCommandRoutes(app: FastifyInstance, projects: ProjectRep
   const globalCommand = (commandId: string) => commands.list({ scope: "global" }).find((command) => command.id === commandId);
 
   app.get("/api/commands/global", async () => commands.list({ scope: "global" }));
+  app.put<{ Body: ReorderBody }>("/api/commands/global/reorder", async (request, reply) => {
+    const body = validateReorderBody(request.body);
+    if (!body.value) return sendError(reply, 400, body.error!);
+    try { return commands.reorder({ scope: "global" }, body.value); } catch (error) { return sendError(reply, 400, (error as Error).message); }
+  });
   app.post<{ Body: CommandBody }>("/api/commands/global", async (request, reply) => {
     const body = validateCreateBody(request.body);
     if (!body.value) return sendError(reply, 400, body.error!);
@@ -81,6 +92,12 @@ export function registerCommandRoutes(app: FastifyInstance, projects: ProjectRep
   app.get<{ Params: ProjectParams }>("/api/projects/:projectId/commands", async (request, reply) => {
     if (!projectExists(request.params.projectId, reply)) return;
     return commands.list({ scope: "project", projectId: request.params.projectId });
+  });
+  app.put<{ Params: ProjectParams; Body: ReorderBody }>("/api/projects/:projectId/commands/reorder", async (request, reply) => {
+    if (!projectExists(request.params.projectId, reply)) return;
+    const body = validateReorderBody(request.body);
+    if (!body.value) return sendError(reply, 400, body.error!);
+    try { return commands.reorder({ scope: "project", projectId: request.params.projectId }, body.value); } catch (error) { return sendError(reply, 400, (error as Error).message); }
   });
   app.post<{ Params: ProjectParams; Body: CommandBody }>("/api/projects/:projectId/commands", async (request, reply) => {
     if (!projectExists(request.params.projectId, reply)) return;

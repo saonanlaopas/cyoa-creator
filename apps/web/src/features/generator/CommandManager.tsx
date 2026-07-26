@@ -62,11 +62,10 @@ export function CommandManager({ projectId, globalCommands, projectCommands, onC
   const reorder = (scope: "global" | "project", commands: InstructionCommand[], index: number, direction: -1 | 1) => {
     const otherIndex = index + direction;
     if (otherIndex < 0 || otherIndex >= commands.length) return;
-    const current = commands[index];
-    const other = commands[otherIndex];
+    const ids = commands.map((command) => command.id);
+    [ids[index], ids[otherIndex]] = [ids[otherIndex], ids[index]];
     void perform(async () => {
-      await request(pathFor(current), { method: "PATCH", body: JSON.stringify({ position: other.position }) });
-      await request(pathFor(other), { method: "PATCH", body: JSON.stringify({ position: current.position }) });
+      await request(scope === "global" ? "/api/commands/global/reorder" : `/api/projects/${projectId}/commands/reorder`, { method: "PUT", body: JSON.stringify({ ids }) });
     });
   };
 

@@ -112,6 +112,18 @@ describe("command and quick-draft routes", () => {
     await app.close();
   });
 
+  it("atomically reorders project commands and rejects cross-scope IDs", async () => {
+    const app = buildApp();
+    const projectId = (await app.inject({ method: "POST", url: "/api/quick/drafts", payload: {} })).json().projectId as string;
+    const first = (await app.inject({ method: "POST", url: `/api/projects/${projectId}/commands`, payload: { name: "First", instruction: "One.", position: 0 } })).json();
+    const second = (await app.inject({ method: "POST", url: `/api/projects/${projectId}/commands`, payload: { name: "Second", instruction: "Two.", position: 1 } })).json();
+    const reordered = await app.inject({ method: "PUT", url: `/api/projects/${projectId}/commands/reorder`, payload: { ids: [second.id, first.id] } });
+    expect(reordered.statusCode).toBe(200);
+    expect(reordered.json().map((command: { id: string }) => command.id)).toEqual([second.id, first.id]);
+    expect((await app.inject({ method: "PUT", url: `/api/commands/global/reorder`, payload: { ids: [first.id] } })).statusCode).toBe(400);
+    await app.close();
+  });
+
   it("rejects invalid command bodies and missing projects deterministically", async () => {
     const app = buildApp();
     const projectBody = await app.inject({ method: "POST", url: "/api/projects/missing/commands", payload: { name: "Tone", instruction: "Use it." } });

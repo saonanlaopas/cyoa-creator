@@ -30,16 +30,21 @@ describe("consumeNdjson", () => {
     const events: QuickGenerationEvent[] = [];
     await consumeNdjson(streamOf([
       '{"type":"status","stage":"preparing","message":"Preparing","at":"t"}',
-      '{"type":"reasoning","kind":"summary","at":"t"}',
+      '{"type":"reasoning","kind":"summary","text":"sk-secret source text","at":"t"}',
       '{"type":"usage","inputTokens":1,"outputTokens":2,"totalTokens":3,"at":"t"}',
       '{"type":"validation","phase":"schema","findings":[],"at":"t"}',
       '{"type":"repair","phase":"structured-output","attempt":1,"at":"t"}',
-      '{"type":"result","generation":{"project":{},"twee":"","html":"","compiler":"","findings":[],"usage":{"inputTokens":1,"outputTokens":2,"totalTokens":3},"cost":null},"at":"t"}',
+      '{"type":"result","generation":{"project":{"id":"p","name":"Story","schemaVersion":1,"startPassageId":"start","metadata":{},"mechanics":{"visibleStats":{},"relationships":{},"hiddenFlags":{},"inventory":[],"protagonistTendencies":[],"divergenceMode":"balanced","randomness":false},"passages":[{"id":"start","title":"Start","purpose":"","prose":"","participants":[],"requiredKnowledge":[],"incomingAssumptions":[],"ending":"success","choices":[]}]},"twee":"","html":"","compiler":"","findings":[],"usage":{"inputTokens":1,"outputTokens":2,"totalTokens":3},"cost":null},"at":"t"}',
       '{"type":"error","error":{"code":"GRAPH_INVALID","message":"Invalid graph","retryable":true},"diagnosticId":"d1","at":"t"}',
     ].join("\n")), (event) => events.push(event));
 
     expect(events.map((event) => event.type)).toEqual(["status", "reasoning", "usage", "validation", "repair", "result", "error"]);
     expect(events[1]).toEqual({ type: "reasoning", kind: "summary", at: "t" });
+  });
+
+  it("rejects malformed nested result data before it reaches the generator", async () => {
+    await expect(consumeNdjson(streamOf('{"type":"result","generation":{"project":{}},"at":"t"}\n'), () => {}))
+      .rejects.toMatchObject({ code: "LOCAL_STREAM_INVALID" });
   });
 
   it("uses a typed browser-safe fallback for non-JSON HTTP errors", async () => {

@@ -1,4 +1,4 @@
-import type { GraphFinding, Project } from "@story-to-cyoa/domain";
+import { ProjectSchema, type GraphFinding, type Project } from "@story-to-cyoa/domain";
 
 export type GenerationStage =
   | "preparing"
@@ -143,7 +143,7 @@ function parseLine(line: string, onEvent: (event: QuickGenerationEvent) => void)
   if (!isQuickGenerationEvent(value)) {
     throw new LocalStreamError("The generation stream contained an invalid event.", line);
   }
-  onEvent(value);
+  onEvent(value.type === "reasoning" ? { ...value, text: undefined } : value);
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object";
@@ -158,10 +158,32 @@ function isQuickGenerationEvent(value: unknown): value is QuickGenerationEvent {
     case "usage": return isNumber(value.inputTokens) && isNumber(value.outputTokens) && isNumber(value.totalTokens);
     case "validation": return (value.phase === "schema" || value.phase === "graph") && Array.isArray(value.findings);
     case "repair": return (value.phase === "structured-output" || value.phase === "graph") && value.attempt === 1;
-    case "result": return isRecord(value.generation);
+    case "result": return isQuickGenerationResult(value.generation);
     case "error": return isPublicGenerationError(value.error) && (value.diagnosticId === undefined || isString(value.diagnosticId));
     default: return false;
   }
+}
+
+function isQuickGenerationResult(value: unknown): value is QuickGenerationResult {
+  if (!isRecord(value) || !isString(value.twee) || !isString(value.html) || !isString(value.compiler) ||
+    !Array.isArray(value.findings) || !isUsage(value.usage) || !(value.cost === null || isCost(value.cost))) return false;
+  if (!ProjectSchema.safeParse(value.project).success) return false;
+  return value.findings.every(isGraphFinding);
+}
+
+function isUsage(value: unknown): value is GenerationUsage {
+  return isRecord(value) && isNumber(value.inputTokens) && isNumber(value.outputTokens) && isNumber(value.totalTokens);
+}
+
+function isCost(value: unknown): value is CostRange {
+  return isRecord(value) && value.currency === "USD" && isNumber(value.input) && isNumber(value.output) && isNumber(value.total);
+}
+
+function isGraphFinding(value: unknown): value is GraphFinding {
+  return isRecord(value) && isString(value.code) && isString(value.severity) &&
+    ["missing_start", "duplicate_passage", "missing_destination", "unreachable_passage", "unreachable_ending", "no_reachable_ending", "variable_read_before_initialization"].includes(value.code) &&
+    ["error", "warning", "info"].includes(value.severity) &&
+    (value.passageId === undefined || isString(value.passageId)) && (value.choiceId === undefined || isString(value.choiceId)) && (value.detail === undefined || isString(value.detail));
 }
 
 function isGenerationStage(value: unknown): value is GenerationStage {

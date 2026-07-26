@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { StoryDatabase } from "./database.js";
+import { transaction } from "./database.js";
 
 export type CommandScope = "global" | "project";
 
@@ -110,6 +111,20 @@ export class CommandRepository {
 
   delete(id: string): void {
     this.database.prepare("DELETE FROM instruction_commands WHERE id = ?").run(id);
+  }
+
+  reorder(filter: CommandFilter, ids: string[]): InstructionCommand[] {
+    transaction(this.database, () => {
+      const existing = this.list(filter);
+      if (ids.length !== existing.length || new Set(ids).size !== ids.length ||
+        ids.some((id) => !existing.some((command) => command.id === id))) {
+        throw new Error("Reorder IDs must match command scope");
+      }
+      const update = this.database.prepare("UPDATE instruction_commands SET position = ?, updated_at = ? WHERE id = ?");
+      const now = new Date().toISOString();
+      ids.forEach((id, position) => update.run(position, now, id));
+    });
+    return this.list(filter);
   }
 
   private get(id: string): InstructionCommand | undefined {

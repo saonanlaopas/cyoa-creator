@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommandManager } from "../src/features/generator/CommandManager.js";
 import type { InstructionCommand } from "../src/api/quick-generation.js";
+import { QuickGenerator } from "../src/features/generator/QuickGenerator.js";
 
 const command = (overrides: Partial<InstructionCommand> = {}): InstructionCommand => ({
   id: "project-tone",
@@ -22,7 +23,37 @@ const response = (body: unknown = {}) => new Response(JSON.stringify(body), { st
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.restoreAllMocks();
+});
+
+describe("QuickGenerator draft persistence", () => {
+  it("reuses a verified stored draft after refresh", async () => {
+    localStorage.setItem("story-to-cyoa.active-project-id", "saved");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = String(input);
+      if (path === "/api/settings/openrouter") return response({ configured: false });
+      if (path === "/api/projects/saved") return response({ id: "saved" });
+      return response([]);
+    });
+    render(<QuickGenerator />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/projects/saved"));
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/quick/drafts", expect.anything());
+  });
+
+  it("replaces a stale stored draft safely", async () => {
+    localStorage.setItem("story-to-cyoa.active-project-id", "stale");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = String(input);
+      if (path === "/api/settings/openrouter") return response({ configured: false });
+      if (path === "/api/projects/stale") return new Response("", { status: 404 });
+      if (path === "/api/quick/drafts") return response({ projectId: "fresh" });
+      return response([]);
+    });
+    render(<QuickGenerator />);
+    await waitFor(() => expect(localStorage.getItem("story-to-cyoa.active-project-id")).toBe("fresh"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/quick/drafts", expect.objectContaining({ method: "POST" }));
+  });
 });
 
 describe("CommandManager", () => {
@@ -65,8 +96,7 @@ describe("CommandManager", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/commands/project-tone", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ enabled: false }) }));
 
     await user.click(screen.getByRole("button", { name: "Move Style up" }));
-    expect(fetchMock).toHaveBeenCalledWith("/api/commands/global/global-b", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ position: 10 }) }));
-    expect(fetchMock).toHaveBeenCalledWith("/api/commands/global/global-a", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ position: 20 }) }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/commands/global/reorder", expect.objectContaining({ method: "PUT", body: JSON.stringify({ ids: ["global-b", "global-a"] }) }));
 
     await user.click(within(projectCommand).getByRole("button", { name: "Delete Tone" }));
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/commands/project-tone", expect.objectContaining({ method: "DELETE" }));

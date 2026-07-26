@@ -41,6 +41,20 @@ describe("CommandRepository", () => {
     database.close();
   });
 
+  it("atomically reorders exactly one command scope", () => {
+    const database = openDatabase();
+    const projects = new ProjectRepository(database);
+    const commands = new CommandRepository(database);
+    const projectId = projects.create("Ordered").id;
+    const first = commands.create({ name: "First", instruction: "One.", scope: "project", projectId, position: 0 });
+    const second = commands.create({ name: "Second", instruction: "Two.", scope: "project", projectId, position: 1 });
+
+    commands.reorder({ scope: "project", projectId }, [second.id, first.id]);
+    expect(commands.list({ scope: "project", projectId }).map((item) => item.id)).toEqual([second.id, first.id]);
+    expect(() => commands.reorder({ scope: "project", projectId }, [first.id])).toThrow("Reorder IDs must match command scope");
+    database.close();
+  });
+
   it("rejects blank fields and invalid scope or project combinations", () => {
     const database = openDatabase();
     const projects = new ProjectRepository(database);
