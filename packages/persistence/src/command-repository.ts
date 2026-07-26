@@ -81,6 +81,8 @@ export class CommandRepository {
   }
 
   listEffective(projectId: string): InstructionCommand[] {
+    const project = this.database.prepare("SELECT id FROM projects WHERE id = ?").get(projectId);
+    if (!project) throw new Error("Project not found");
     const rows = this.database.prepare(`
       SELECT * FROM instruction_commands
       WHERE enabled = 1 AND (scope = 'global' OR (scope = 'project' AND project_id = ?))

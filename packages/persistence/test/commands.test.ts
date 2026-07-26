@@ -58,6 +58,15 @@ describe("CommandRepository", () => {
     database.close();
   });
 
+  it("rejects effective-command lookup for an unknown project", () => {
+    const database = openDatabase();
+    const commands = new CommandRepository(database);
+    commands.create({ name: "Global", instruction: "Apply everywhere.", scope: "global" });
+
+    expect(() => commands.listEffective("missing-project")).toThrow("Project not found");
+    database.close();
+  });
+
   it("cascades project commands when their project is deleted", () => {
     const database = openDatabase();
     const projects = new ProjectRepository(database);
