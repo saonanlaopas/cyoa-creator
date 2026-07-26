@@ -1,19 +1,36 @@
+import type { OpenRouterDiagnostic } from "./diagnostics.js";
+
 export type OpenRouterErrorCode =
   | "UNAUTHENTICATED"
+  | "INSUFFICIENT_CREDITS"
   | "RATE_LIMITED"
+  | "PROVIDER_UNAVAILABLE"
+  | "CONTENT_REJECTED"
   | "PROVIDER_FAILURE"
   | "TIMEOUT"
   | "CANCELLED"
+  | "OPENROUTER_ENVELOPE_INVALID"
+  | "STREAM_INTERRUPTED"
+  | "COMPLETION_EMPTY"
+  | "COMPLETION_JSON_INVALID"
   | "SCHEMA_INVALID";
+
+export interface OpenRouterErrorOptions {
+  status?: number;
+  diagnostic?: OpenRouterDiagnostic;
+  cause?: unknown;
+}
 
 export class OpenRouterError extends Error {
   public readonly code: OpenRouterErrorCode;
   public readonly status?: number;
+  public readonly diagnostic?: OpenRouterDiagnostic;
 
-  public constructor(code: OpenRouterErrorCode, message: string, status?: number) {
-    super(message);
+  public constructor(code: OpenRouterErrorCode, message: string, options: OpenRouterErrorOptions = {}) {
+    super(message, { cause: options.cause });
     this.name = "OpenRouterError";
     this.code = code;
-    this.status = status;
+    this.status = options.status;
+    this.diagnostic = options.diagnostic;
   }
 }

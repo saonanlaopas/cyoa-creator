@@ -1,8 +1,10 @@
 import { z, type ZodType } from "zod";
 import type { CredentialStore } from "./credential-store.js";
 import { actualCost, type CostRange } from "./cost.js";
+import { parseJsonResponse, type OpenRouterDiagnostic } from "./diagnostics.js";
 import { OpenRouterError } from "./errors.js";
 import { parseModelCatalog, supportsStrictJsonSchema, type OpenRouterModel } from "./model-catalog.js";
+import { redactSecret } from "./redact.js";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -51,7 +53,7 @@ function toNumber(value: unknown): number {
   return Number.isFinite(result) && result >= 0 ? result : 0;
 }
 
-function contentFrom(response: ChatResponse): string {
+function contentFrom(response: ChatResponse, diagnostic: OpenRouterDiagnostic): string {
   const content = response.choices?.[0]?.message?.content;
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -59,7 +61,7 @@ function contentFrom(response: ChatResponse): string {
       .map((part) => part && typeof part === "object" && "text" in part ? String(part.text ?? "") : "")
       .join("");
   }
-  throw new OpenRouterError("PROVIDER_FAILURE", "OpenRouter returned no completion content");
+  throw new OpenRouterError("COMPLETION_EMPTY", "OpenRouter returned no completion content", { diagnostic });
 }
 
 /** HTTP client with bounded retries only for locally-invalid structured output. */
@@ -76,7 +78,7 @@ export class OpenRouterClient {
 
   public async listModels(signal?: AbortSignal): Promise<OpenRouterModel[]> {
     const response = await this.request("/models", { method: "GET", signal });
-    return parseModelCatalog(await this.json(response));
+    return parseModelCatalog((await this.json<{ data?: unknown }>(response)).data);
   }
 
   public async generateStructured<T>(
@@ -84,6 +86,7 @@ export class OpenRouterClient {
     schema: ZodType<T>,
   ): Promise<GenerationResult<T>> {
     let lastSchemaError: unknown;
+    let lastDiagnostic: OpenRouterDiagnostic | undefined;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const messages = attempt === 0 ? request.messages : [
         ...request.messages,
@@ -117,9 +120,9 @@ export class OpenRouterClient {
         signal: request.signal,
         body: JSON.stringify(payload),
       });
-      const parsed = await this.json<ChatResponse>(response);
+      const { data: parsed, diagnostic } = await this.json<ChatResponse>(response);
       try {
-        const raw = JSON.parse(contentFrom(parsed)) as unknown;
+        const raw = JSON.parse(contentFrom(parsed, diagnostic)) as unknown;
         const data = schema.parse(raw);
         const usage: GenerationUsage = {
           inputTokens: toNumber(parsed.usage?.prompt_tokens),
@@ -137,11 +140,13 @@ export class OpenRouterClient {
       } catch (error) {
         if (error instanceof OpenRouterError) throw error;
         lastSchemaError = error;
+        lastDiagnostic = diagnostic;
       }
     }
     throw new OpenRouterError(
       "SCHEMA_INVALID",
       `OpenRouter returned invalid structured data: ${lastSchemaError instanceof Error ? lastSchemaError.message : "unknown error"}`,
+      { diagnostic: lastDiagnostic, cause: lastSchemaError },
     );
   }
 
@@ -166,30 +171,59 @@ export class OpenRouterClient {
           ...init.headers,
         },
       });
-      if (response.status === 401) throw new OpenRouterError("UNAUTHENTICATED", "OpenRouter rejected the API key", 401);
-      if (response.status === 429) throw new OpenRouterError("RATE_LIMITED", "OpenRouter rate limit reached", 429);
-      if (!response.ok) {
-        const body = await response.text();
-        throw new OpenRouterError("PROVIDER_FAILURE", `OpenRouter request failed (${response.status}): ${body.slice(0, 300)}`, response.status);
-      }
       return response;
     } catch (error) {
       if (error instanceof OpenRouterError) throw error;
       if (init.signal?.aborted) throw new OpenRouterError("CANCELLED", "OpenRouter request cancelled");
       if (controller.signal.aborted) throw new OpenRouterError("TIMEOUT", "OpenRouter request timed out");
-      throw new OpenRouterError("PROVIDER_FAILURE", error instanceof Error ? error.message : "OpenRouter request failed");
+      throw new OpenRouterError("PROVIDER_FAILURE", error instanceof Error ? redactSecret(error.message) : "OpenRouter request failed", { cause: error });
     } finally {
       clearTimeout(timer);
       init.signal?.removeEventListener("abort", onAbort);
     }
   }
 
-  private async json<T = unknown>(response: Response): Promise<T> {
+  private async json<T = unknown>(response: Response): Promise<{ data: T; diagnostic: OpenRouterDiagnostic }> {
     try {
-      return await response.json() as T;
-    } catch {
-      throw new OpenRouterError("PROVIDER_FAILURE", "OpenRouter returned invalid JSON");
+      const parsed = await parseJsonResponse<T>(response);
+      if (parsed.diagnostic.providerError || !response.ok) {
+        throw providerError(parsed.diagnostic);
+      }
+      return parsed;
+    } catch (error) {
+      if (error instanceof OpenRouterError && error.code === "OPENROUTER_ENVELOPE_INVALID" && !response.ok) {
+        throw providerError(error.diagnostic!);
+      }
+      throw error;
     }
+  }
+}
+
+function providerError(diagnostic: OpenRouterDiagnostic): OpenRouterError {
+  const code = providerErrorCode(diagnostic);
+  const message = diagnostic.providerError?.message ?? `OpenRouter request failed (${diagnostic.status})`;
+  return new OpenRouterError(code, message, { status: diagnostic.status, diagnostic });
+}
+
+function providerErrorCode(diagnostic: OpenRouterDiagnostic): OpenRouterError["code"] {
+  switch (diagnostic.providerError?.errorType?.toLowerCase()) {
+    case "insufficient_credits": return "INSUFFICIENT_CREDITS";
+    case "rate_limit_exceeded":
+    case "rate_limited": return "RATE_LIMITED";
+    case "provider_unavailable":
+    case "provider_timeout": return "PROVIDER_UNAVAILABLE";
+    case "content_rejected":
+    case "content_policy_violation": return "CONTENT_REJECTED";
+    case "unauthorized":
+    case "invalid_api_key": return "UNAUTHENTICATED";
+    default: break;
+  }
+  switch (diagnostic.status) {
+    case 401: return "UNAUTHENTICATED";
+    case 402: return "INSUFFICIENT_CREDITS";
+    case 429: return "RATE_LIMITED";
+    case 503: return "PROVIDER_UNAVAILABLE";
+    default: return "PROVIDER_FAILURE";
   }
 }
 

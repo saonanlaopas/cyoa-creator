@@ -9,6 +9,24 @@ import {
 const key = "sk-or-v1-test-secret-key-0123456789";
 const credentials = () => new EnvironmentCredentialStore({ environment: { OPENROUTER_API_KEY: key } });
 const model = { id: "test/model", name: "Test", contextLength: 1, pricing: { prompt: 0.1, completion: 0.2 }, supportedParameters: ["response_format"] };
+const jsonResponse = (value: unknown, init: ResponseInit = {}) => {
+  const headers = new Headers(init.headers);
+  headers.set("content-type", "application/json");
+  return new Response(JSON.stringify(value), { ...init, headers });
+};
+const clientWithResponse = (response: Response) => new OpenRouterClient({
+  credentialStore: new EnvironmentCredentialStore({ environment: { OPENROUTER_API_KEY: key } }),
+  fetch: async () => response.clone(),
+});
+const rejectedError = async (client: OpenRouterClient): Promise<OpenRouterError> => {
+  try {
+    await client.listModels();
+    throw new Error("Expected OpenRouterClient to reject");
+  } catch (error) {
+    if (!(error instanceof OpenRouterError)) throw error;
+    return error;
+  }
+};
 
 describe("OpenRouterClient", () => {
   it("authenticates, requires parameters, validates usage, and repairs once", async () => {
@@ -32,6 +50,36 @@ describe("OpenRouterClient", () => {
   it.each([[401, "UNAUTHENTICATED"], [429, "RATE_LIMITED"], [500, "PROVIDER_FAILURE"]] as const)("maps HTTP %s", async (status, code) => {
     const client = new OpenRouterClient({ credentialStore: credentials(), fetch: async () => new Response("failed", { status }) });
     await expect(client.listModels()).rejects.toMatchObject<Partial<OpenRouterError>>({ code });
+  });
+
+  it.each([
+    ["", "OPENROUTER_ENVELOPE_INVALID"],
+    ["<html>bad gateway</html>", "OPENROUTER_ENVELOPE_INVALID"],
+  ] as const)("preserves a redacted non-JSON response", async (body, code) => {
+    const client = clientWithResponse(new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/html", "x-request-id": "req-123" },
+    }));
+    await expect(client.listModels()).rejects.toMatchObject({
+      code,
+      diagnostic: {
+        status: 200,
+        contentType: "text/html",
+        requestId: "req-123",
+      },
+    });
+  });
+
+  it("maps a typed OpenRouter error returned with HTTP 200", async () => {
+    const client = clientWithResponse(jsonResponse({
+      error: { code: 402, message: "Insufficient credits", metadata: { error_type: "insufficient_credits" } },
+    }));
+    await expect(client.listModels()).rejects.toMatchObject({ code: "INSUFFICIENT_CREDITS" });
+  });
+
+  it("redacts secrets from full response evidence", async () => {
+    const error = await rejectedError(clientWithResponse(new Response(`bad ${key}`, { status: 200 })));
+    expect(JSON.stringify(error.diagnostic)).not.toContain(key);
   });
 
   it("reports timeout and cancellation", async () => {
