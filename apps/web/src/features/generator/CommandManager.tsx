@@ -43,7 +43,6 @@ export function CommandManager({ projectId, globalCommands, projectCommands, onC
     setError("");
     try {
       await operation();
-      await onChanged();
     } catch (failure) {
       const mutationError = failure instanceof Error ? failure.message : "Could not save command changes.";
       try {
@@ -52,6 +51,13 @@ export function CommandManager({ projectId, globalCommands, projectCommands, onC
       } catch {
         setError(`${mutationError} Commands could not be reloaded.`);
       }
+      setPending(false);
+      return;
+    }
+    try {
+      await onChanged();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Commands could not be reloaded.");
     } finally {
       setPending(false);
     }

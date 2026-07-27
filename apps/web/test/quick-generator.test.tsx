@@ -132,4 +132,22 @@ describe("CommandManager", () => {
     expect(screen.getByRole("alert").textContent).toContain("Could not save command changes.");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("does not retry reload after a successful reorder when normal refresh fails", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response());
+    const onChanged = vi.fn().mockRejectedValue(new Error("Commands could not be reloaded."));
+    const user = userEvent.setup();
+    render(<CommandManager
+      projectId="p1"
+      globalCommands={[command({ id: "global-a", scope: "global", projectId: null, name: "Canon", position: 0 }), command({ id: "global-b", scope: "global", projectId: null, name: "Style", position: 1 })]}
+      projectCommands={[]}
+      onChanged={onChanged}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Move Style up" }));
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("alert").textContent).toContain("Commands could not be reloaded.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
