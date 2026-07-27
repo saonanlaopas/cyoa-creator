@@ -18,7 +18,8 @@ Push-Location $projectRoot
 try {
   $env:Path = "$(Split-Path -Parent $nodePath);$env:Path"
   if (-not (Test-Path "node_modules")) { & $pnpmPath install --frozen-lockfile; if ($LASTEXITCODE) { throw "Dependency installation failed." } }
-  if (-not (Test-Path "apps/server/dist/main.js")) { & $pnpmPath build; if ($LASTEXITCODE) { throw "Build failed." } }
+  & $pnpmPath build
+  if ($LASTEXITCODE) { throw "Build failed." }
   $tweego = Join-Path $projectRoot "tools/tweego/tweego.exe"
   if (-not (Test-Path $tweego)) { Write-Warning "Tweego was not found at $tweego. Twee export will be unavailable." }
 
