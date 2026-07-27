@@ -43,20 +43,29 @@ export function QuickGenerator() {
   const [now, setNow] = useState(Date.now());
   const [showReasoning, setShowReasoning] = useState(true);
   const controller = useRef<AbortController | null>(null);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeRun = useRef(0);
+  const timer = useRef<{ run: number; handle: ReturnType<typeof setInterval> } | null>(null);
   const modelInput = useRef<HTMLInputElement | null>(null);
 
-  const stopTimer = useCallback(() => {
-    if (timer.current !== null) {
-      clearInterval(timer.current);
+  const stopTimer = useCallback((run?: number) => {
+    if (timer.current !== null && (run === undefined || timer.current.run === run)) {
+      clearInterval(timer.current.handle);
       timer.current = null;
     }
   }, []);
 
-  const startTimer = useCallback(() => {
+  const startTimer = useCallback((run: number) => {
     stopTimer();
     setNow(Date.now());
-    timer.current = setInterval(() => setNow(Date.now()), 1_000);
+    const handle = setInterval(() => {
+      if (activeRun.current !== run) {
+        clearInterval(handle);
+        if (timer.current?.handle === handle) timer.current = null;
+        return;
+      }
+      setNow(Date.now());
+    }, 1_000);
+    timer.current = { run, handle };
   }, [stopTimer]);
 
   const createDraft = useCallback(async (): Promise<string> => {
@@ -102,7 +111,9 @@ export function QuickGenerator() {
   }, [createDraft, loadCommands]);
 
   useEffect(() => () => {
+    activeRun.current += 1;
     controller.current?.abort();
+    controller.current = null;
     stopTimer();
   }, [stopTimer]);
 
@@ -120,13 +131,23 @@ export function QuickGenerator() {
 
   const forgetKey = async () => {
     setSetupError("");
-    const response = await fetch("/api/settings/openrouter", { method: "DELETE" });
-    if (!response.ok) return setSetupError("Could not forget the OpenRouter key.");
-    const value = await response.json() as { configured?: unknown };
-    setConfigured(Boolean(value.configured));
+    try {
+      const response = await fetch("/api/settings/openrouter", { method: "DELETE" });
+      if (!response.ok) throw new Error("Key removal failed");
+      const value = await response.json() as unknown;
+      if (!value || typeof value !== "object" || typeof (value as { configured?: unknown }).configured !== "boolean") {
+        throw new Error("Invalid key removal response");
+      }
+      setConfigured((value as { configured: boolean }).configured);
+    } catch {
+      setSetupError("Could not forget the OpenRouter key.");
+    }
   };
 
   const generate = async () => {
+    controller.current?.abort();
+    const run = activeRun.current + 1;
+    activeRun.current = run;
     const activeController = new AbortController();
     controller.current = activeController;
     setBusy(true);
@@ -135,23 +156,25 @@ export function QuickGenerator() {
     setGeneration(null);
     setActivityEvents([]);
     setStartedAt(Date.now());
-    startTimer();
+    startTimer(run);
     try {
       const id = await createDraft();
+      if (activeRun.current !== run) return;
       const input: QuickGenerationInput = { projectId: id, source, instructions, model, targetPassages, showReasoning };
       await streamQuickGeneration(input, (event) => {
+        if (activeRun.current !== run) return;
         setActivityEvents((events) => [...events, event]);
         if (event.type === "result") {
           setGeneration(event.generation);
-          stopTimer();
+          stopTimer(run);
         }
         if (event.type === "error") {
           setGenerationError({ ...event.error, ...(event.diagnosticId ? { diagnosticId: event.diagnosticId } : {}) });
-          stopTimer();
+          stopTimer(run);
         }
       }, activeController.signal);
     } catch (failure) {
-      if (!activeController.signal.aborted) {
+      if (activeRun.current === run && !activeController.signal.aborted) {
         setGenerationError({
           code: "LOCAL_STREAM_INVALID",
           message: failure instanceof Error ? failure.message : "Generation failed.",
@@ -159,16 +182,20 @@ export function QuickGenerator() {
         });
       }
     } finally {
-      stopTimer();
-      if (controller.current === activeController) controller.current = null;
-      setBusy(false);
+      if (activeRun.current === run) {
+        stopTimer(run);
+        if (controller.current === activeController) controller.current = null;
+        setBusy(false);
+      }
     }
   };
 
   const cancelGeneration = () => {
+    const run = activeRun.current;
+    activeRun.current += 1;
     controller.current?.abort();
     controller.current = null;
-    stopTimer();
+    stopTimer(run);
     setBusy(false);
   };
 
@@ -208,7 +235,7 @@ export function QuickGenerator() {
         </button>
       </div>
       <p className="cost-note">Reasoning is enabled by default. Provider reasoning tokens can affect generation cost; provider text is withheld for privacy.</p>
-      {startedAt !== null && activityEvents.length > 0 && !generation && <GenerationActivity startedAt={startedAt} now={now} events={activityEvents} onCancel={busy ? cancelGeneration : undefined} />}
+      {startedAt !== null && !generation && (busy || activityEvents.length > 0) && <GenerationActivity startedAt={startedAt} now={now} events={activityEvents} onCancel={busy ? cancelGeneration : undefined} />}
       {generationError && <GenerationErrorPanel
         error={generationError}
         loadDiagnostic={loadGenerationDiagnostic}

@@ -127,6 +127,26 @@ describe("generation activity and diagnostics", () => {
     expect(retry).toHaveBeenCalledOnce();
     expect(changeModel).toHaveBeenCalledOnce();
   });
+
+  it("keeps every provider activity event in chronological order", () => {
+    render(<GenerationActivity startedAt={0} now={0} events={[
+      { type: "status", stage: "preparing", message: "Preparing project source", at: "t1" },
+      { type: "reasoning", kind: "summary", at: "t2" },
+      { type: "usage", inputTokens: 12, outputTokens: 34, totalTokens: 46, at: "t3" },
+      { type: "repair", phase: "structured-output", attempt: 1, at: "t4" },
+      { type: "validation", phase: "schema", findings: ["one"], at: "t5" },
+      { type: "status", stage: "receiving", message: "Receiving streamed response", at: "t6" },
+    ]} />);
+
+    expect(within(screen.getByRole("list", { name: "Generation activity timeline" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Preparing project source",
+      "Provider summary received; text withheld for privacy.",
+      "Usage updated: 12 input, 34 output tokens.",
+      "Structured-output repair attempt 1.",
+      "Schema validation: 1 finding.",
+      "Receiving streamed response",
+    ]);
+  });
 });
 
 describe("QuickGenerator generation controls", () => {
@@ -150,8 +170,13 @@ describe("QuickGenerator generation controls", () => {
     await user.type(screen.getByPlaceholderText("Paste the story or selected arc here…"), "x".repeat(100));
     await user.click(await screen.findByRole("button", { name: "Generate CYOA" }));
 
-    const stages = within(await screen.findByRole("list", { name: "Generation stages" })).getAllByRole("listitem");
-    expect(stages.map((item) => item.textContent)).toEqual(["Sending generation request", "Receiving streamed response"]);
+    const stages = within(await screen.findByRole("list", { name: "Generation activity timeline" })).getAllByRole("listitem");
+    expect(stages.map((item) => item.textContent)).toEqual([
+      "Sending generation request",
+      "Receiving streamed response",
+      "Provider summary received; text withheld for privacy.",
+      "Generation failed: OpenRouter generation failed.",
+    ]);
     expect(screen.getByText("Provider summary received; text withheld for privacy.")).toBeTruthy();
     expect(screen.queryByText("do not expose this")).toBeNull();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
@@ -190,6 +215,47 @@ describe("QuickGenerator generation controls", () => {
     expect(generationSignal?.aborted).toBe(true);
   });
 
+  it("ignores a cancelled run's late stream after immediately starting another run", async () => {
+    localStorage.setItem("story-to-cyoa.active-project-id", "saved");
+    let resolveFirstResponse: (response: Response) => void = () => undefined;
+    let generationCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const path = String(input);
+      if (path === "/api/settings/openrouter") return response({ configured: true });
+      if (path === "/api/projects/saved") return response({ id: "saved" });
+      if (path === "/api/quick/generate") {
+        generationCount += 1;
+        if (generationCount === 1) return new Promise<Response>((resolve) => { resolveFirstResponse = resolve; });
+        const signal = (init as RequestInit | undefined)?.signal;
+        return new Response(new ReadableStream({
+          start(stream) {
+            stream.enqueue(new TextEncoder().encode('{"type":"status","stage":"request","message":"Second request","at":"t"}\n'));
+            signal?.addEventListener("abort", () => stream.error(new Error("aborted")));
+          },
+        }), { headers: { "content-type": "application/x-ndjson" } });
+      }
+      return response([]);
+    });
+    const user = userEvent.setup();
+    render(<QuickGenerator />);
+
+    await user.type(screen.getByPlaceholderText("Paste the story or selected arc here…"), "x".repeat(100));
+    await user.click(await screen.findByRole("button", { name: "Generate CYOA" }));
+    expect(await screen.findByRole("button", { name: "Cancel generation" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Cancel generation" }));
+    await user.click(screen.getByRole("button", { name: "Generate CYOA" }));
+    expect(await screen.findByText("Second request")).toBeTruthy();
+
+    resolveFirstResponse(new Response([
+      '{"type":"status","stage":"failed","message":"Stale activity","at":"t"}',
+      '{"type":"error","error":{"code":"RATE_LIMITED","message":"Stale failure","retryable":true},"at":"t"}',
+    ].join("\n"), { headers: { "content-type": "application/x-ndjson" } }));
+
+    await waitFor(() => expect(screen.queryByText("Stale activity")).toBeNull());
+    expect(screen.queryByText("Stale failure")).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel generation" })).toBeTruthy();
+  });
+
   it("forgets the configured key without reading it", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const path = String(input);
@@ -204,6 +270,25 @@ describe("QuickGenerator generation controls", () => {
     await user.click(await screen.findByRole("button", { name: "Forget key" }));
     expect(fetchMock).toHaveBeenCalledWith("/api/settings/openrouter", { method: "DELETE" });
     await waitFor(() => expect(screen.queryByRole("button", { name: "Forget key" })).toBeNull());
+  });
+
+  it.each([
+    ["a network failure", () => Promise.reject(new Error("offline"))],
+    ["a malformed settings response", () => Promise.resolve(new Response("not json", { status: 200 }))],
+  ])("keeps the configured state and reports %s while forgetting a key", async (_description, deleteResponse) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const path = String(input);
+      if (path === "/api/settings/openrouter" && (init as RequestInit | undefined)?.method === "DELETE") return deleteResponse();
+      if (path === "/api/settings/openrouter") return response({ configured: true });
+      if (path === "/api/quick/drafts") return response({ projectId: "fresh" });
+      return response([]);
+    });
+    const user = userEvent.setup();
+    render(<QuickGenerator />);
+
+    await user.click(await screen.findByRole("button", { name: "Forget key" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Could not forget the OpenRouter key.");
+    expect(screen.getByRole("button", { name: "Forget key" })).toBeTruthy();
   });
 });
 
