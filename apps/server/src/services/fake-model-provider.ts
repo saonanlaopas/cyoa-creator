@@ -21,7 +21,7 @@ interface OfflineFixture {
 
 /**
  * E2E-only deterministic provider. It never reads a credential or opens a network connection.
- * Set E2E_FAKE_MODEL_PROVIDER=1 before constructing the application to use it.
+ * It is selected only when NODE_ENV=test and E2E_FAKE_MODEL_PROVIDER=1.
  */
 export class FakeModelProvider {
   private readonly fixture: OfflineFixture;

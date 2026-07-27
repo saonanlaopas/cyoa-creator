@@ -44,7 +44,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const artifacts = new ArtifactRepository(database);
   const diagnostics = new GenerationDiagnosticStore();
   const runner = new JobRunner(new JobRepository(database));
-  const useOfflineE2EProvider = process.env.E2E_FAKE_MODEL_PROVIDER === "1";
+  const useOfflineE2EProvider = process.env.NODE_ENV === "test"
+    && process.env.E2E_FAKE_MODEL_PROVIDER === "1";
   const credentials = options.credentials
     ?? (useOfflineE2EProvider
       ? new EnvironmentCredentialStore({ environment: {} })

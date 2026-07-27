@@ -11,6 +11,7 @@ export default defineConfig({
     env: {
       ...process.env,
       PORT: "3100",
+      NODE_ENV: "test",
       E2E_FAKE_MODEL_PROVIDER: "1",
     },
   },
