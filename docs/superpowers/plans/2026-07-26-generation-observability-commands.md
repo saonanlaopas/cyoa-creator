@@ -1280,7 +1280,7 @@ git commit -m "feat: show generation activity and full diagnostics"
 
 ---
 
-### Task 9: Make the production launcher resolve built workspace packages
+### Task 9: Make production resolve builds while development resolves source
 
 **Files:**
 
@@ -1297,7 +1297,7 @@ git commit -m "feat: show generation activity and full diagnostics"
 **Interfaces:**
 
 - Consumes: compiled `dist/index.js` outputs.
-- Produces: a launcher that always builds current sources and starts `apps/server/dist/main.js`.
+- Produces: conditional package exports that resolve source during development/typechecking and compiled files in production, plus a launcher that always builds current sources and starts `apps/server/dist/main.js`.
 
 - [ ] **Step 1: Add a production-entry smoke assertion**
 
@@ -1327,7 +1327,7 @@ pnpm vitest apps/server/test/production-entry.test.ts --run
 
 Expected before the fix: FAIL because workspace package exports resolve `src/index.ts` and raw Node cannot find source-relative `.js` files.
 
-- [ ] **Step 3: Point production package exports at `dist`**
+- [ ] **Step 3: Add conditional source/development and compiled/production exports**
 
 For each workspace library package, replace:
 
@@ -1339,16 +1339,24 @@ with:
 
 ```json
 "main": "./dist/index.js",
-"types": "./dist/index.d.ts",
+"types": "./src/index.ts",
 "exports": {
   ".": {
-    "types": "./dist/index.d.ts",
-    "import": "./dist/index.js"
+    "development": "./src/index.ts",
+    "types": "./src/index.ts",
+    "import": "./dist/index.js",
+    "default": "./dist/index.js"
   }
 }
 ```
 
-Tests continue importing source by relative path where needed; built application code resolves package exports.
+TypeScript resolves the `types` source entry, Vite development resolves the `development` entry, and raw production Node resolves the compiled `import` entry. Update the server development script to activate the development condition:
+
+```json
+"dev": "tsx --conditions=development watch src/main.ts"
+```
+
+The web Vite dev server already includes the `development` condition. Verify both dev entry points resolve workspace source before accepting the change.
 
 - [ ] **Step 4: Make launcher builds freshness-safe**
 
@@ -1368,10 +1376,12 @@ Run:
 ```powershell
 pnpm build
 pnpm vitest apps/server/test/production-entry.test.ts apps/server/test/health.test.ts --run
+pnpm --filter @story-to-cyoa/server typecheck
+pnpm --filter @story-to-cyoa/web typecheck
 powershell -ExecutionPolicy Bypass -File scripts/launch.ps1 -Port 3010
 ```
 
-Expected: build and health smoke pass; the launcher reports a process ID and `http://127.0.0.1:3010`; `/api/health` returns `{ "ok": true, "service": "story-to-cyoa" }`.
+Expected: build, source-resolving typechecks, and health smoke pass; the launcher reports a process ID and `http://127.0.0.1:3010`; `/api/health` returns `{ "ok": true, "service": "story-to-cyoa" }`.
 
 - [ ] **Step 6: Commit**
 

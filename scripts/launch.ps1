@@ -9,6 +9,7 @@ $pnpmCommand = Get-Command pnpm -ErrorAction SilentlyContinue
 $codexDependencies = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies"
 $bundledNode = Join-Path $codexDependencies "node\bin\node.exe"
 $bundledPnpm = Join-Path $codexDependencies "bin\fallback\pnpm.cmd"
+$bundledPnpmDir = Split-Path -Parent $bundledPnpm
 $nodePath = if ($nodeCommand) { $nodeCommand.Source } elseif (Test-Path $bundledNode) { $bundledNode } else { $null }
 $pnpmPath = if ($pnpmCommand) { $pnpmCommand.Source } elseif (Test-Path $bundledPnpm) { $bundledPnpm } else { $null }
 if (-not $nodePath) { throw "Node.js 20+ is required. Install it, then run this launcher again." }
@@ -16,9 +17,10 @@ if (-not $pnpmPath) { throw "pnpm is required. Run: corepack enable" }
 
 Push-Location $projectRoot
 try {
-  $env:Path = "$(Split-Path -Parent $nodePath);$env:Path"
+  $env:Path = "$(Split-Path -Parent $nodePath);$bundledPnpmDir;$env:Path"
   if (-not (Test-Path "node_modules")) { & $pnpmPath install --frozen-lockfile; if ($LASTEXITCODE) { throw "Dependency installation failed." } }
-  if (-not (Test-Path "apps/server/dist/main.js")) { & $pnpmPath build; if ($LASTEXITCODE) { throw "Build failed." } }
+  & $pnpmPath build
+  if ($LASTEXITCODE) { throw "Build failed." }
   $tweego = Join-Path $projectRoot "tools/tweego/tweego.exe"
   if (-not (Test-Path $tweego)) { Write-Warning "Tweego was not found at $tweego. Twee export will be unavailable." }
 

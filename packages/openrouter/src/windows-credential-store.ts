@@ -1,4 +1,5 @@
-import type { CredentialStore } from "./credential-store.js";
+import { EnvironmentCredentialStore, type CredentialStore } from "./credential-store.js";
+import { PowerShellDpapiAdapter } from "./powershell-dpapi-adapter.js";
 
 /** Narrow boundary around an optional native DPAPI implementation. */
 export interface WindowsDpapiAdapter {
@@ -7,10 +8,7 @@ export interface WindowsDpapiAdapter {
   delete(service: string): Promise<void>;
 }
 
-/**
- * This module contains no native dependency. The desktop host may pass a DPAPI
- * adapter; otherwise EnvironmentCredentialStore provides the safe env fallback.
- */
+/** Wraps the current-user DPAPI adapter behind the application credential API. */
 export class WindowsCredentialStore implements CredentialStore {
   public constructor(
     private readonly adapter: WindowsDpapiAdapter,
@@ -28,4 +26,19 @@ export class WindowsCredentialStore implements CredentialStore {
   public deleteOpenRouterKey(): Promise<void> {
     return this.adapter.delete(this.service);
   }
+}
+
+export function createDefaultCredentialStore(options: {
+  platform?: NodeJS.Platform;
+  environment?: NodeJS.ProcessEnv;
+  localAppData?: string;
+  /** Optional seam for platform-selection tests; production uses DPAPI by default. */
+  windowsAdapter?: WindowsDpapiAdapter;
+} = {}): CredentialStore {
+  const platform = options.platform ?? process.platform;
+  const localAppData = options.localAppData ?? process.env.LOCALAPPDATA;
+  const secureStore = platform === "win32" && localAppData
+    ? new WindowsCredentialStore(options.windowsAdapter ?? new PowerShellDpapiAdapter({ localAppData }))
+    : undefined;
+  return new EnvironmentCredentialStore({ environment: options.environment, secureStore });
 }
