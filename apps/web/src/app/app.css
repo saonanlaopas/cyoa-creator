@@ -55,6 +55,20 @@ textarea.source { min-height: 20rem; }
 .status { color: #d5a963; }
 .status.good { color: #83c99a; }
 .error { color: #ff9b9b; background: #441f28; padding: .8rem; border-radius: .5rem; }
+.cost-note, .privacy-note { color: #b9c0ce; font-size: .92rem; margin: 0; }
+.checkbox { align-items: center; grid-auto-flow: column; justify-content: start; }
+.checkbox input { min-width: 0; }
+.generation-activity, .generation-error { display: grid; gap: .8rem; padding: 1rem; border: 1px solid #566681; border-radius: .75rem; background: #161d2a; }
+.generation-activity p { margin: 0; }
+.activity-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.generation-activity ol, .generation-activity ul { display: grid; gap: .45rem; margin: 0; padding-left: 1.35rem; }
+.generation-activity details { display: grid; gap: .6rem; }
+.generation-activity summary { cursor: pointer; color: #d5a963; font-weight: 700; }
+.generation-error { border-color: #a45b68; background: #321e28; }
+.generation-error > p { margin: 0; }
+.diagnostic { display: grid; gap: .65rem; }
+.diagnostic p { margin: 0; }
+.diagnostic pre { overflow: auto; max-height: 20rem; margin: 0; padding: .8rem; border: 1px solid #5c4350; border-radius: .5rem; background: #11151e; color: #f4efe7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .result-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .player { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: 1rem; }
 .player article, .stats { border: 1px solid #3e4960; border-radius: .8rem; background: #171c27; padding: 1.25rem; }

@@ -91,6 +91,14 @@ export interface QuickGenerationInput {
   reasoningEffort?: "minimal" | "low" | "medium" | "high";
 }
 
+export interface GenerationDiagnostic {
+  containsSourceText: boolean;
+  status?: number;
+  contentType?: string | null;
+  requestId?: string | null;
+  body: { text: string; originalBytes: number; truncated: boolean };
+}
+
 export class LocalStreamError extends Error implements PublicGenerationError {
   readonly code = "LOCAL_STREAM_INVALID" as const;
   readonly retryable = true;
@@ -212,6 +220,12 @@ export async function streamQuickGeneration(
   });
   if (!response.ok || !response.body) throw await httpError(response);
   await consumeNdjson(response.body, onEvent);
+}
+
+export async function loadGenerationDiagnostic(id: string): Promise<GenerationDiagnostic> {
+  const response = await fetch(`/api/quick/diagnostics/${encodeURIComponent(id)}`);
+  if (!response.ok) throw new Error("Could not load the retained diagnostic.");
+  return response.json() as Promise<GenerationDiagnostic>;
 }
 
 export async function httpError(response: Response): Promise<PublicGenerationError> {

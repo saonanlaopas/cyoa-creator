@@ -3,6 +3,8 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommandManager } from "../src/features/generator/CommandManager.js";
+import { GenerationActivity } from "../src/features/generator/GenerationActivity.js";
+import { GenerationErrorPanel } from "../src/features/generator/GenerationErrorPanel.js";
 import type { InstructionCommand } from "../src/api/quick-generation.js";
 import { QuickGenerator } from "../src/features/generator/QuickGenerator.js";
 
@@ -53,6 +55,155 @@ describe("QuickGenerator draft persistence", () => {
     render(<QuickGenerator />);
     await waitFor(() => expect(localStorage.getItem("story-to-cyoa.active-project-id")).toBe("fresh"));
     expect(fetchMock).toHaveBeenCalledWith("/api/quick/drafts", expect.objectContaining({ method: "POST" }));
+  });
+});
+
+describe("generation activity and diagnostics", () => {
+  it("labels provider activity without rendering provider reasoning text", () => {
+    render(<GenerationActivity startedAt={0} now={65_000} events={[
+      { type: "status", stage: "request", message: "Sending generation request", at: "t" },
+      { type: "reasoning", kind: "summary", text: "Never render this provider text.", at: "t" },
+      { type: "reasoning", kind: "encrypted", at: "t" },
+    ]} />);
+
+    expect(screen.getByText("1:05 elapsed")).toBeTruthy();
+    expect(screen.getByText("Sending generation request")).toBeTruthy();
+    expect(screen.getByText("Provider summary received; text withheld for privacy.")).toBeTruthy();
+    expect(screen.getByText("Encrypted provider reasoning received; text withheld for privacy.")).toBeTruthy();
+    expect(screen.queryByText("Never render this provider text.")).toBeNull();
+  });
+
+  it("loads safe diagnostics and confirms before copying source-containing evidence", async () => {
+    const user = userEvent.setup();
+    const copy = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(navigator, "clipboard", "get").mockReturnValue({ writeText: copy } as Clipboard);
+    const createObjectURL = vi.fn().mockReturnValue("blob:diagnostic");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const loadDiagnostic = vi.fn().mockResolvedValue({
+      containsSourceText: true,
+      status: 502,
+      contentType: "text/html",
+      requestId: "req-1",
+      body: { text: "<html>bad gateway</html>", truncated: false, originalBytes: 24 },
+    });
+    render(<GenerationErrorPanel
+      error={{ code: "OPENROUTER_ENVELOPE_INVALID", message: "OpenRouter returned a non-JSON response.", retryable: true, diagnosticId: "diag-1" }}
+      loadDiagnostic={loadDiagnostic}
+      onRetry={vi.fn()}
+      onChangeModel={vi.fn()}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "View full response" }));
+    expect(await screen.findByText("<html>bad gateway</html>")).toBeTruthy();
+    expect(screen.getByText(/may contain submitted source text/i)).toBeTruthy();
+    expect(screen.queryByText(/authorization/i)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Copy diagnostics" }));
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(copy).toHaveBeenCalledWith(expect.stringContaining("bad gateway"));
+
+    await user.click(screen.getByRole("button", { name: "Download full response" }));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:diagnostic");
+  });
+
+  it("offers retry and model-change recovery actions", async () => {
+    const user = userEvent.setup();
+    const retry = vi.fn();
+    const changeModel = vi.fn();
+    render(<GenerationErrorPanel
+      error={{ code: "RATE_LIMITED", message: "OpenRouter generation failed.", retryable: true }}
+      loadDiagnostic={vi.fn()}
+      onRetry={retry}
+      onChangeModel={changeModel}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "Try another model" }));
+    expect(retry).toHaveBeenCalledOnce();
+    expect(changeModel).toHaveBeenCalledOnce();
+  });
+});
+
+describe("QuickGenerator generation controls", () => {
+  it("appends streamed activity in order and keeps it beside a recoverable error", async () => {
+    localStorage.setItem("story-to-cyoa.active-project-id", "saved");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = String(input);
+      if (path === "/api/settings/openrouter") return response({ configured: true });
+      if (path === "/api/projects/saved") return response({ id: "saved" });
+      if (path === "/api/quick/generate") return new Response([
+        '{"type":"status","stage":"request","message":"Sending generation request","at":"t"}',
+        '{"type":"status","stage":"receiving","message":"Receiving streamed response","at":"t"}',
+        '{"type":"reasoning","kind":"summary","text":"do not expose this","at":"t"}',
+        '{"type":"error","error":{"code":"RATE_LIMITED","message":"OpenRouter generation failed.","retryable":true},"at":"t"}',
+      ].join("\n"), { headers: { "content-type": "application/x-ndjson" } });
+      return response([]);
+    });
+    const user = userEvent.setup();
+    render(<QuickGenerator />);
+
+    await user.type(screen.getByPlaceholderText("Paste the story or selected arc here…"), "x".repeat(100));
+    await user.click(await screen.findByRole("button", { name: "Generate CYOA" }));
+
+    const stages = within(await screen.findByRole("list", { name: "Generation stages" })).getAllByRole("listitem");
+    expect(stages.map((item) => item.textContent)).toEqual(["Sending generation request", "Receiving streamed response"]);
+    expect(screen.getByText("Provider summary received; text withheld for privacy.")).toBeTruthy();
+    expect(screen.queryByText("do not expose this")).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith("/api/quick/generate", expect.objectContaining({
+      method: "POST",
+      body: expect.stringContaining('"showReasoning":true'),
+    }));
+  });
+
+  it("aborts the active generation when cancelled", async () => {
+    localStorage.setItem("story-to-cyoa.active-project-id", "saved");
+    let generationSignal: AbortSignal | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const path = String(input);
+      if (path === "/api/settings/openrouter") return response({ configured: true });
+      if (path === "/api/projects/saved") return response({ id: "saved" });
+      if (path === "/api/quick/generate") {
+        generationSignal = (init as RequestInit | undefined)?.signal ?? undefined;
+        return new Response(new ReadableStream({
+          start(stream) {
+            stream.enqueue(new TextEncoder().encode('{"type":"status","stage":"request","message":"Sending generation request","at":"t"}\n'));
+            generationSignal?.addEventListener("abort", () => stream.error(new Error("aborted")));
+          },
+        }), { headers: { "content-type": "application/x-ndjson" } });
+      }
+      return response([]);
+    });
+    const user = userEvent.setup();
+    render(<QuickGenerator />);
+
+    await user.type(screen.getByPlaceholderText("Paste the story or selected arc here…"), "x".repeat(100));
+    await user.click(await screen.findByRole("button", { name: "Generate CYOA" }));
+    await screen.findByRole("button", { name: "Cancel generation" });
+    await user.click(screen.getByRole("button", { name: "Cancel generation" }));
+
+    expect(generationSignal?.aborted).toBe(true);
+  });
+
+  it("forgets the configured key without reading it", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const path = String(input);
+      if (path === "/api/settings/openrouter" && (init as RequestInit | undefined)?.method === "DELETE") return response({ configured: false });
+      if (path === "/api/settings/openrouter") return response({ configured: true });
+      if (path === "/api/quick/drafts") return response({ projectId: "fresh" });
+      return response([]);
+    });
+    const user = userEvent.setup();
+    render(<QuickGenerator />);
+
+    await user.click(await screen.findByRole("button", { name: "Forget key" }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/settings/openrouter", { method: "DELETE" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Forget key" })).toBeNull());
   });
 });
 

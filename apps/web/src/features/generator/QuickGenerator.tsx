@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { streamQuickGeneration, type InstructionCommand, type QuickGenerationResult } from "../../api/quick-generation.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { loadGenerationDiagnostic, streamQuickGeneration, type InstructionCommand, type PublicGenerationError, type QuickGenerationEvent, type QuickGenerationInput, type QuickGenerationResult } from "../../api/quick-generation.js";
 import { CommandManager } from "./CommandManager.js";
+import { GenerationActivity } from "./GenerationActivity.js";
+import { GenerationErrorPanel } from "./GenerationErrorPanel.js";
 import { download, Player } from "./Player.js";
 
 type DraftResponse = { projectId?: unknown };
@@ -34,7 +36,28 @@ export function QuickGenerator() {
   const [projectCommands, setProjectCommands] = useState<InstructionCommand[]>([]);
   const [generation, setGeneration] = useState<QuickGenerationResult | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [setupError, setSetupError] = useState("");
+  const [generationError, setGenerationError] = useState<(PublicGenerationError & { diagnosticId?: string }) | null>(null);
+  const [activityEvents, setActivityEvents] = useState<QuickGenerationEvent[]>([]);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [showReasoning, setShowReasoning] = useState(true);
+  const controller = useRef<AbortController | null>(null);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const modelInput = useRef<HTMLInputElement | null>(null);
+
+  const stopTimer = useCallback(() => {
+    if (timer.current !== null) {
+      clearInterval(timer.current);
+      timer.current = null;
+    }
+  }, []);
+
+  const startTimer = useCallback(() => {
+    stopTimer();
+    setNow(Date.now());
+    timer.current = setInterval(() => setNow(Date.now()), 1_000);
+  }, [stopTimer]);
 
   const createDraft = useCallback(async (): Promise<string> => {
     if (projectId) return projectId;
@@ -75,36 +98,78 @@ export function QuickGenerator() {
       }
       const id = await createDraft();
       await loadCommands(id);
-    })().catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Could not prepare the story draft."));
+    })().catch((failure: unknown) => setSetupError(failure instanceof Error ? failure.message : "Could not prepare the story draft."));
   }, [createDraft, loadCommands]);
 
+  useEffect(() => () => {
+    controller.current?.abort();
+    stopTimer();
+  }, [stopTimer]);
+
   const saveKey = async () => {
-    setError("");
+    setSetupError("");
     const response = await fetch("/api/settings/openrouter", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ apiKey: key }),
     });
-    if (!response.ok) return setError("Could not save the OpenRouter key.");
+    if (!response.ok) return setSetupError("Could not save the OpenRouter key.");
     setKey("");
     setConfigured(true);
   };
 
+  const forgetKey = async () => {
+    setSetupError("");
+    const response = await fetch("/api/settings/openrouter", { method: "DELETE" });
+    if (!response.ok) return setSetupError("Could not forget the OpenRouter key.");
+    const value = await response.json() as { configured?: unknown };
+    setConfigured(Boolean(value.configured));
+  };
+
   const generate = async () => {
+    const activeController = new AbortController();
+    controller.current = activeController;
     setBusy(true);
-    setError("");
+    setSetupError("");
+    setGenerationError(null);
     setGeneration(null);
+    setActivityEvents([]);
+    setStartedAt(Date.now());
+    startTimer();
     try {
       const id = await createDraft();
-      await streamQuickGeneration({ projectId: id, source, instructions, model, targetPassages, showReasoning: true }, (event) => {
-        if (event.type === "result") setGeneration(event.generation);
-        if (event.type === "error") throw new Error(event.error.message);
-      });
+      const input: QuickGenerationInput = { projectId: id, source, instructions, model, targetPassages, showReasoning };
+      await streamQuickGeneration(input, (event) => {
+        setActivityEvents((events) => [...events, event]);
+        if (event.type === "result") {
+          setGeneration(event.generation);
+          stopTimer();
+        }
+        if (event.type === "error") {
+          setGenerationError({ ...event.error, ...(event.diagnosticId ? { diagnosticId: event.diagnosticId } : {}) });
+          stopTimer();
+        }
+      }, activeController.signal);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Generation failed.");
+      if (!activeController.signal.aborted) {
+        setGenerationError({
+          code: "LOCAL_STREAM_INVALID",
+          message: failure instanceof Error ? failure.message : "Generation failed.",
+          retryable: true,
+        });
+      }
     } finally {
+      stopTimer();
+      if (controller.current === activeController) controller.current = null;
       setBusy(false);
     }
+  };
+
+  const cancelGeneration = () => {
+    controller.current?.abort();
+    controller.current = null;
+    stopTimer();
+    setBusy(false);
   };
 
   return <main className="generator">
@@ -120,7 +185,9 @@ export function QuickGenerator() {
       <div className="row">
         <input type="password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="sk-or-v1-…" aria-label="OpenRouter API key" />
         <button onClick={saveKey} disabled={!key.trim()}>Save key</button>
+        {configured && <button type="button" onClick={() => void forgetKey()}>Forget key</button>}
       </div>
+      {setupError && <p className="error" role="alert">{setupError}</p>}
     </section>
 
     <section className="panel">
@@ -133,13 +200,21 @@ export function QuickGenerator() {
       <textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Optional: tone, routes, endings, relationships, content boundaries…" />
       {projectId && <CommandManager projectId={projectId} globalCommands={globalCommands} projectCommands={projectCommands} onChanged={() => loadCommands(projectId)} />}
       <div className="row">
-        <label>Model <input value={model} onChange={(event) => setModel(event.target.value)} /></label>
+        <label>Model <input ref={modelInput} value={model} onChange={(event) => setModel(event.target.value)} /></label>
         <label>Passages <input type="number" min={8} max={40} value={targetPassages} onChange={(event) => setTargetPassages(Number(event.target.value))} /></label>
-        <button className="primary" onClick={generate} disabled={busy || !configured || source.trim().length < 100}>
+        <label className="checkbox"><input type="checkbox" checked={showReasoning} onChange={(event) => setShowReasoning(event.target.checked)} /> Show provider reasoning activity</label>
+        <button className="primary" onClick={() => void generate()} disabled={busy || !configured || source.trim().length < 100}>
           {busy ? "Designing and writing…" : "Generate CYOA"}
         </button>
       </div>
-      {error && <p className="error" role="alert">{error}</p>}
+      <p className="cost-note">Reasoning is enabled by default. Provider reasoning tokens can affect generation cost; provider text is withheld for privacy.</p>
+      {startedAt !== null && activityEvents.length > 0 && !generation && <GenerationActivity startedAt={startedAt} now={now} events={activityEvents} onCancel={busy ? cancelGeneration : undefined} />}
+      {generationError && <GenerationErrorPanel
+        error={generationError}
+        loadDiagnostic={loadGenerationDiagnostic}
+        onRetry={() => void generate()}
+        onChangeModel={() => modelInput.current?.focus()}
+      />}
     </section>
 
     {generation && <section className="result">
