@@ -2,7 +2,7 @@ import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { ArtifactRepository, CommandRepository, JobRepository, openDatabase, ProjectRepository } from "@story-to-cyoa/persistence";
-import { createDefaultCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
+import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { JobRunner } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -22,6 +22,7 @@ import { registerQuickGenerateRoutes } from "./routes/quick-generate.js";
 import { registerCommandRoutes } from "./routes/commands.js";
 import { registerQuickDraftRoutes } from "./routes/quick-drafts.js";
 import { GenerationDiagnosticStore } from "./services/generation-diagnostic-store.js";
+import { createOfflineE2EClient } from "./services/fake-model-provider.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -43,8 +44,15 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const artifacts = new ArtifactRepository(database);
   const diagnostics = new GenerationDiagnosticStore();
   const runner = new JobRunner(new JobRepository(database));
-  const credentials = options.credentials ?? createDefaultCredentialStore();
-  const openRouter = options.openRouterClient ?? new OpenRouterClient({ credentialStore: credentials });
+  const useOfflineE2EProvider = process.env.E2E_FAKE_MODEL_PROVIDER === "1";
+  const credentials = options.credentials
+    ?? (useOfflineE2EProvider
+      ? new EnvironmentCredentialStore({ environment: {} })
+      : createDefaultCredentialStore());
+  const openRouter = options.openRouterClient
+    ?? (useOfflineE2EProvider
+      ? createOfflineE2EClient()
+      : new OpenRouterClient({ credentialStore: credentials }));
   void app.register(fastifyMultipart, {
     limits: { files: 1, fileSize: options.maxImportBytes ?? 25 * 1024 * 1024 },
   });

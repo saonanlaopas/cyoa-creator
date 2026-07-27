@@ -1,4 +1,55 @@
 {
-  "analysis": { "motif": "promise and consequence", "chapters": 2 },
-  "draft": { "passages": 25, "endings": 3 }
+  "success": {
+    "reasoning": { "kind": "text", "text": "The offline provider planned the branch structure." },
+    "usage": { "inputTokens": 16, "outputTokens": 32, "totalTokens": 48 },
+    "repairAttempt": 1,
+    "project": {
+      "id": "offline-flooded-station",
+      "name": "The Flooded Station",
+      "schemaVersion": 1,
+      "startPassageId": "platform",
+      "metadata": { "protagonist": "Mara" },
+      "mechanics": {
+        "visibleStats": { "resolve": { "label": "Resolve", "initial": 0, "min": -2, "max": 5 } },
+        "relationships": {},
+        "hiddenFlags": {},
+        "inventory": [],
+        "protagonistTendencies": [],
+        "divergenceMode": "balanced",
+        "randomness": false
+      },
+      "passages": [
+        {
+          "id": "platform",
+          "title": "The Platform",
+          "purpose": "choice",
+          "prose": "Mara weighs the key in her palm while the train waits.",
+          "participants": ["Mara"],
+          "requiredKnowledge": [],
+          "incomingAssumptions": [],
+          "ending": null,
+          "choices": [
+            { "id": "board", "label": "Board the train", "destinationId": "departure", "conditions": [], "effects": [{ "op": "addStat", "key": "resolve", "value": 1 }], "hardGate": false }
+          ]
+        },
+        {
+          "id": "departure",
+          "title": "Departure",
+          "purpose": "ending",
+          "prose": "She keeps the promise and rides into the dawn.",
+          "participants": ["Mara"],
+          "requiredKnowledge": [],
+          "incomingAssumptions": [],
+          "ending": "success",
+          "choices": []
+        }
+      ]
+    }
+  },
+  "nonJsonFailure": {
+    "status": 502,
+    "contentType": "text/html",
+    "requestId": "offline-non-json",
+    "body": "<html><body>upstream rejected Authorization: Bearer sk-or-v1-offline-secret-0123456789</body></html>"
+  }
 }
