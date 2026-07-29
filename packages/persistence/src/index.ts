@@ -6,3 +6,5 @@ export * from "./migrate.js";
 export * from "./project-repository.js";
 export * from "./schema.js";
 export * from "./workflow-repository.js";
+export * from "./conversation-repository.js";
+export * from "./change-set-repository.js";

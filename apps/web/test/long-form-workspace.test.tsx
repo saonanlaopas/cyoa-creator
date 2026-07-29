@@ -58,6 +58,22 @@ const draftWorkflow = {
   updatedAt: "t",
 };
 
+const conversation = {
+  id: "conversation-1",
+  projectId: project.id,
+  title: "Project brief discussion",
+  scope: {
+    kind: "artifact",
+    projectId: project.id,
+    stage: "brief",
+    artifactId: "brief",
+    versionId: brief.id,
+  },
+  summary: "",
+  createdAt: "t",
+  updatedAt: "t",
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
   localStorage.clear();
@@ -70,6 +86,15 @@ describe("LongFormWorkspace", () => {
       if (path === "/api/projects") return response([]);
       if (path === "/api/long-form/projects") {
         return response({ project, brief, workflow: draftWorkflow }, 201);
+      }
+      if (path === `/api/long-form/projects/${project.id}/conversations` && !init?.method) {
+        return response([]);
+      }
+      if (path === `/api/long-form/projects/${project.id}/conversations` && init?.method === "POST") {
+        return response(conversation, 201);
+      }
+      if (path === `/api/long-form/projects/${project.id}/conversations/${conversation.id}`) {
+        return response({ conversation, messages: [], proposals: [] });
       }
       if (path === `/api/long-form/projects/${project.id}/brief` && init?.method === "PUT") {
         const content = JSON.parse(String(init.body));
@@ -90,6 +115,8 @@ describe("LongFormWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "Create project" }));
     expect(await screen.findByRole("heading", { name: "Project brief" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "New project" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Project discussion" })).toBeTruthy();
+    expect(screen.getByLabelText("Scope")).toBeTruthy();
     expect((screen.getByLabelText("Total words") as HTMLInputElement).value).toBe("175000");
     expect(screen.getByText("Scope")).toBeTruthy();
     expect(screen.getByText("Project brief · version 1")).toBeTruthy();

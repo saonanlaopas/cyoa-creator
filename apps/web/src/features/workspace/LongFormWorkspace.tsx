@@ -12,6 +12,7 @@ import {
   type WorkflowState,
 } from "../../api/long-form.js";
 import { BriefEditor } from "./BriefEditor.js";
+import { AssistantPanel } from "./AssistantPanel.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const stages = ["Project brief", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Review", "Play & export"];
@@ -147,15 +148,11 @@ export function LongFormWorkspace() {
       }} />
     </section>
 
-    <aside className="assistant-preview">
-      <p className="eyebrow">Assistant</p>
-      <h2>Scoped project chat</h2>
-      <div className="scope-preview">
-        <strong>Scope</strong>
-        <span>Project brief · version {brief.version}</span>
-      </div>
-      <p>The persistent scoped assistant arrives in the next slice. This space will discuss the selected artifact and propose versioned changes without silently applying them.</p>
-      <p className="field-note">Recommended next step: finish and approve the project brief.</p>
-    </aside>
+    <AssistantPanel
+      key={project.id}
+      project={project}
+      brief={brief}
+      onBriefApplied={() => openProject(project.id)}
+    />
   </main>;
 }

@@ -76,15 +76,42 @@ CREATE TABLE IF NOT EXISTS usage_records (
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  created_at TEXT NOT NULL
+  title TEXT NOT NULL DEFAULT 'Project discussion',
+  scope_json TEXT NOT NULL DEFAULT '{}',
+  summary TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  intent TEXT NOT NULL DEFAULT 'discuss',
+  scope_json TEXT NOT NULL DEFAULT '{}',
+  context_json TEXT NOT NULL DEFAULT '{}',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS messages_conversation_order
+  ON messages(conversation_id, created_at, id);
+CREATE TABLE IF NOT EXISTS change_sets (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  artifact_id TEXT NOT NULL,
+  base_version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE RESTRICT,
+  status TEXT NOT NULL CHECK(status IN ('proposed', 'applied', 'rejected', 'superseded')),
+  summary TEXT NOT NULL,
+  rationale TEXT NOT NULL,
+  candidate_json TEXT NOT NULL,
+  invalidations_json TEXT NOT NULL DEFAULT '[]',
+  applied_version_id TEXT REFERENCES artifact_versions(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS change_sets_conversation_order
+  ON change_sets(conversation_id, created_at, id);
 CREATE TABLE IF NOT EXISTS instruction_commands (
   id TEXT PRIMARY KEY,
   project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,

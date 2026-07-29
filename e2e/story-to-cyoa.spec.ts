@@ -51,21 +51,37 @@ test("long-form workspace persists and approves a project brief", async ({ page 
 
   await expect(page.getByRole("heading", { name: "Project brief" })).toBeVisible();
   await expect(page.getByLabel("Total words")).toHaveValue("175000");
-  await expect(page.getByText("Project brief · version 1")).toBeVisible();
+  await expect(page.locator(".artifact-header").getByText(/Version 1/)).toBeVisible();
 
   await page.getByPlaceholder("What is this adaptation or original story about?").fill(
     "A student discovers why an apparently easy course has no surviving graduates.",
   );
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByText("Draft saved locally.")).toBeVisible();
-  await expect(page.getByText("Project brief · version 2")).toBeVisible();
+  await expect(page.locator(".artifact-header").getByText(/Version 2/)).toBeVisible();
 
   await page.getByRole("button", { name: "Approve brief" }).click();
   await expect(page.getByText("Project brief approved. Story-bible work will be the next stage.")).toBeVisible();
+
+  await page.getByLabel("Model").fill("e2e/chat");
+  await page.locator(".assistant-composer textarea").fill("Would six routes give the relationships more room?");
+  await page.getByRole("button", { name: "Send to assistant" }).click();
+  await expect(page.getByText("Five routes is a practical baseline; six gives secondary relationships more room.")).toBeVisible();
+  await expect(page.getByText("110 tokens")).toBeVisible();
+
+  await page.getByLabel("Intent").selectOption("propose");
+  await page.locator(".assistant-composer textarea").fill("Change the brief to six major routes.");
+  await page.getByRole("button", { name: "Request proposal" }).click();
+  await expect(page.getByRole("heading", { name: "Expand the brief to six routes" })).toBeVisible();
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator(".artifact-header").getByText(/Version 3/)).toBeVisible();
+  await expect(page.getByLabel("Major routes")).toHaveValue("6");
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Project brief" })).toBeVisible();
   await expect(page.getByPlaceholder("What is this adaptation or original story about?")).toHaveValue(
     "A student discovers why an apparently easy course has no surviving graduates.",
   );
+  await expect(page.getByText("I prepared a six-route version for review.")).toBeVisible();
+  await expect(page.getByLabel("Major routes")).toHaveValue("6");
 });
