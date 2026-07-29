@@ -1,7 +1,7 @@
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, JobRepository, openDatabase, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, JobRepository, openDatabase, PassagePlanRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { JobRunner } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
@@ -26,6 +26,8 @@ import { createOfflineE2EClient } from "./services/fake-model-provider.js";
 import { registerLongFormRoutes } from "./routes/long-form.js";
 import { registerLongFormChatRoutes } from "./routes/long-form-chat.js";
 import { LongFormProjectService } from "./services/long-form-project-service.js";
+import { PassagePlanService } from "./services/passage-plan-service.js";
+import { registerPassagePlanRoutes } from "./routes/passage-plan.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -48,7 +50,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const workflow = new WorkflowRepository(database);
   const conversations = new ConversationRepository(database);
   const changeSets = new ChangeSetRepository(database);
-  const longFormProjects = new LongFormProjectService(projects, artifacts, workflow, changeSets);
+  const passagePlans = new PassagePlanRepository(database);
+  const longFormProjects = new LongFormProjectService(projects, artifacts, workflow, changeSets, passagePlans);
+  const passagePlanService = new PassagePlanService(projects, artifacts, workflow, passagePlans);
   const diagnostics = new GenerationDiagnosticStore();
   const runner = new JobRunner(new JobRepository(database));
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
@@ -74,6 +78,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerProjectRoutes(app, projects, artifacts, longFormProjects);
   registerLongFormRoutes(app, projects, artifacts, workflow, longFormProjects);
   registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, changeSets, longFormProjects);
+  registerPassagePlanRoutes(app, passagePlanService);
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024, workflow);

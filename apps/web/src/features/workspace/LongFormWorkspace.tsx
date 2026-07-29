@@ -23,6 +23,7 @@ import { RoutePlanWorkspace } from "./RoutePlanWorkspace.js";
 import { EndingPlanWorkspace } from "./EndingPlanWorkspace.js";
 import { MechanicsWorkspace } from "./MechanicsWorkspace.js";
 import { ArtifactHistory } from "./ArtifactHistory.js";
+import { PassagePlanWorkspace } from "./PassagePlanWorkspace.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
@@ -42,8 +43,8 @@ export function LongFormWorkspace() {
   const [mechanics, setMechanics] = useState<ArtifactVersion<LongFormMechanicsPlan> | null>(null);
   const [mechanicsWorkflow, setMechanicsWorkflow] = useState<WorkflowState | null>(null);
   const storedStage = localStorage.getItem(activeStageKey);
-  const [activeStage, setActiveStage] = useState<"brief" | "bible" | "routes" | "endings" | "mechanics">(
-    storedStage === "bible" || storedStage === "routes" || storedStage === "endings" || storedStage === "mechanics" ? storedStage : "brief",
+  const [activeStage, setActiveStage] = useState<"brief" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan">(
+    storedStage === "bible" || storedStage === "routes" || storedStage === "endings" || storedStage === "mechanics" || storedStage === "passage-plan" ? storedStage : "brief",
   );
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -177,15 +178,18 @@ export function LongFormWorkspace() {
                 ? "routes"
                 : index === 3
                   ? "endings"
-                  : index === 4
+              : index === 4
                     ? "mechanics"
+                    : index === 5
+                      ? "passage-plan"
                   : null;
           const enabled = stageId === "brief"
             || (stageId === "bible" && (briefWorkflow.status === "approved" || Boolean(bible)))
             || (stageId === "routes" && (bibleWorkflow.status === "approved" || Boolean(routes)));
           const available = enabled
             || (stageId === "endings" && (routesWorkflow.status === "approved" || Boolean(endings)))
-            || (stageId === "mechanics" && (endingsWorkflow.status === "approved" || Boolean(mechanics)));
+            || (stageId === "mechanics" && (endingsWorkflow.status === "approved" || Boolean(mechanics)))
+            || (stageId === "passage-plan" && mechanicsWorkflow.status === "approved");
           const status = stageId === "brief"
             ? briefWorkflow.status
             : stageId === "bible"
@@ -196,6 +200,8 @@ export function LongFormWorkspace() {
                   ? endingsWorkflow.status === "empty" ? "Not started" : endingsWorkflow.status
                   : stageId === "mechanics"
                     ? mechanicsWorkflow.status === "empty" ? "Not started" : mechanicsWorkflow.status
+                    : stageId === "passage-plan"
+                      ? mechanicsWorkflow.status === "approved" ? "Available" : "Not started"
               : "Not started";
           return <li key={stage} className={stageId === activeStage ? "current" : ""}>
           <button disabled={!available} onClick={() => {
@@ -213,7 +219,7 @@ export function LongFormWorkspace() {
       </ol>
     </nav>
 
-    <section className="artifact-tools">
+    {activeStage !== "passage-plan" && <section className="artifact-tools">
       <ArtifactHistory
         projectId={project.id}
         artifactId={activeStage}
@@ -227,7 +233,7 @@ export function LongFormWorkspace() {
             <strong>{finding.severity}</strong> {finding.message}
           </p>)}
       </details>}
-    </section>
+    </section>}
 
     {activeStage === "brief" ? <section className="artifact-pane">
       <header className="artifact-header">
@@ -299,14 +305,23 @@ export function LongFormWorkspace() {
       setBusy={setBusy}
       setMessage={setMessage}
       onChanged={() => openProject(project.id)}
-    /> : <MechanicsWorkspace
+    /> : activeStage === "mechanics" ? <MechanicsWorkspace
       projectId={project.id} endingsApproved={endingsWorkflow.status === "approved"}
       routes={routes?.content ?? null} endings={endings?.content ?? null}
       mechanics={mechanics} workflow={mechanicsWorkflow} busy={busy} message={message}
       setBusy={setBusy} setMessage={setMessage} onChanged={() => openProject(project.id)}
+    /> : <PassagePlanWorkspace
+      projectId={project.id}
+      mechanicsApproved={mechanicsWorkflow.status === "approved"}
+      bible={bible?.content ?? null}
+      routes={routes?.content ?? null}
+      endings={endings?.content ?? null}
+      mechanics={mechanics?.content ?? null}
+      message={message}
+      setMessage={setMessage}
     />}
 
-    <AssistantPanel
+    {activeStage !== "passage-plan" && <AssistantPanel
       key={project.id}
       project={project}
       brief={brief}
@@ -316,6 +331,6 @@ export function LongFormWorkspace() {
       mechanics={mechanics}
       activeArtifact={activeStage}
       onBriefApplied={() => openProject(project.id)}
-    />
+    />}
   </main>;
 }

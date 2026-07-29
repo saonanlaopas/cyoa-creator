@@ -8,3 +8,4 @@ export * from "./schema.js";
 export * from "./workflow-repository.js";
 export * from "./conversation-repository.js";
 export * from "./change-set-repository.js";
+export * from "./passage-plan-repository.js";

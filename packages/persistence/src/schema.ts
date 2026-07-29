@@ -128,6 +128,73 @@ CREATE TABLE IF NOT EXISTS instruction_commands (
 );
 CREATE INDEX IF NOT EXISTS instruction_commands_scope_order
   ON instruction_commands(scope, project_id, position, created_at);
+CREATE TABLE IF NOT EXISTS passage_structure_versions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  content_json TEXT NOT NULL,
+  restored_from_version_id TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, version)
+);
+CREATE TABLE IF NOT EXISTS passage_structure_heads (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  version_id TEXT NOT NULL REFERENCES passage_structure_versions(id) ON DELETE RESTRICT
+);
+CREATE TABLE IF NOT EXISTS passage_entity_versions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  entity_kind TEXT NOT NULL CHECK(entity_kind IN ('passage', 'choice', 'thread')),
+  entity_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  content_json TEXT NOT NULL,
+  restored_from_version_id TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, entity_kind, entity_id, version)
+);
+CREATE INDEX IF NOT EXISTS passage_entity_versions_lookup
+  ON passage_entity_versions(project_id, entity_kind, entity_id, version DESC);
+CREATE TABLE IF NOT EXISTS passage_entity_heads (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  entity_kind TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  version_id TEXT NOT NULL REFERENCES passage_entity_versions(id) ON DELETE RESTRICT,
+  tombstoned INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(project_id, entity_kind, entity_id)
+);
+CREATE TABLE IF NOT EXISTS passage_plan_snapshots (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  structure_version_id TEXT NOT NULL REFERENCES passage_structure_versions(id) ON DELETE RESTRICT,
+  upstream_versions_json TEXT NOT NULL,
+  validation_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('draft', 'approved')),
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, version)
+);
+CREATE TABLE IF NOT EXISTS passage_plan_snapshot_items (
+  snapshot_id TEXT NOT NULL REFERENCES passage_plan_snapshots(id) ON DELETE CASCADE,
+  entity_kind TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  version_id TEXT NOT NULL REFERENCES passage_entity_versions(id) ON DELETE RESTRICT,
+  PRIMARY KEY(snapshot_id, entity_kind, entity_id)
+);
+CREATE TABLE IF NOT EXISTS passage_plan_state (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('empty', 'draft', 'approved', 'stale')),
+  approved_snapshot_id TEXT REFERENCES passage_plan_snapshots(id) ON DELETE SET NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS passage_finding_overrides (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  code TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  rationale TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, code, entity_id)
+);
 `;
 
 export const artifactChain = ["source", "bible", "adaptation", "routes", "drafts", "review", "export"] as const;

@@ -192,6 +192,42 @@ textarea.source { min-height: 20rem; }
 .mechanics-editor { padding-bottom: 2rem; }
 .mechanic-condition { display: grid; grid-template-columns: 1.2fr 1fr .7fr; gap: .5rem; }
 .mechanic-condition select, .mechanic-condition input { min-width: 0; border: 1px solid #48536a; border-radius: .5rem; padding: .55rem; background: #11151e; color: #f4efe7; }
+.passage-plan-workspace { min-width: 0; }
+.passage-view-tabs, .structure-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.passage-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; padding: .75rem; border: 1px solid #364258; border-radius: .7rem; background: #171c27; }
+.jump-control { display: flex; gap: .35rem; }
+.passage-authoring-grid { display: grid; grid-template-columns: minmax(18rem, 30%) minmax(0, 1fr); gap: .8rem; min-height: 40rem; }
+.passage-outline, .passage-detail { min-width: 0; padding: .75rem; border: 1px solid #364258; border-radius: .7rem; background: #171c27; overflow: auto; }
+.passage-outline { max-height: calc(100vh - 12rem); }
+.passage-outline details { border-top: 1px solid #303a4d; padding: .45rem 0; }
+.passage-outline summary { display: flex; align-items: center; gap: .35rem; }
+.outline-sequence { display: grid; gap: .25rem; margin: .4rem 0 .6rem .6rem; }
+.outline-passage { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .2rem .4rem; align-items: center; padding: .3rem; border-radius: .35rem; }
+.outline-passage.selected { background: #2a3951; }
+.outline-passage button { text-align: left; overflow: hidden; text-overflow: ellipsis; }
+.outline-passage small { grid-column: 2; color: #9ea9ba; }
+.bulk-editor { position: sticky; bottom: 0; display: grid; gap: .4rem; padding: .65rem; border: 1px solid #60708a; background: #202838; border-radius: .5rem; }
+.passage-editor { display: grid; gap: .65rem; }
+.passage-editor > header { display: flex; justify-content: space-between; align-items: start; }
+.passage-editor h2 { margin: 0; }
+.passage-reference-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .5rem; }
+.choice-editor { padding: .65rem; border: 1px solid #48536a; border-radius: .5rem; background: #1d2431; }
+.structure-editor, .artifact-history { margin: .6rem 0; }
+.structure-record { padding: .55rem; border-top: 1px solid #364258; }
+.structure-sequence-record { display: grid; grid-template-columns: minmax(8rem, 1fr) 7rem 7rem auto auto; gap: .35rem; }
+.passage-graph { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .6rem; }
+.passage-graph article { padding: .6rem; border: 1px solid #46536a; border-radius: .55rem; background: #171c27; }
+.passage-graph article.selected { border-color: #8db7f4; }
+.passage-graph button { display: grid; width: 100%; text-align: left; }
+.passage-graph ul { padding-left: 1.1rem; color: #aeb7c6; }
+.coverage-dashboard { display: grid; gap: .75rem; }
+.coverage-table { display: grid; gap: .3rem; }
+.coverage-table > div { display: grid; grid-template-columns: minmax(10rem, 1fr) repeat(2, 8rem); gap: .5rem; padding: .45rem; border-bottom: 1px solid #354055; }
+.finding-card { padding: .7rem; border: 1px solid currentColor; border-radius: .55rem; background: #171c27; }
+.finding-card header, .snapshot-row { display: flex; justify-content: space-between; gap: .5rem; align-items: center; }
+.finding-override { display: flex; gap: .5rem; }
+.finding-override input { flex: 1; }
+.snapshot-row { padding: .4rem 0; border-bottom: 1px solid #354055; }
 
 @media (max-width: 1050px) {
   .long-form-workspace { grid-template-columns: 14rem minmax(0, 1fr); }
@@ -210,4 +246,7 @@ textarea.source { min-height: 20rem; }
   .brief-grid, .brief-grid.targets { grid-template-columns: 1fr; }
   .route-budget { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mechanic-condition { grid-template-columns: 1fr; }
+  .passage-authoring-grid { grid-template-columns: 1fr; }
+  .passage-outline { max-height: 35rem; }
+  .structure-sequence-record { grid-template-columns: 1fr 7rem; }
 }

@@ -13,6 +13,12 @@ Completed long-form stages:
 5. Mechanics planning
 6. Scoped project chat with reviewable proposals
 
+Implementation checkpoints:
+
+- Foundation 1 is complete.
+- Foundation 2 is complete: the manual passage-plan workspace, entity history, immutable snapshots, stable-ID editing/reordering, budgets, search/filtering, exports, and a 300-passage offline acceptance test are implemented.
+- Foundation 3 is in progress.
+
 The next objective is to turn that planning prototype into a safe production workspace for a configurable 150,000-200,000-word interactive novel with hundreds of passages.
 
 The detailed passage, versioning, and runtime contracts are defined in:
@@ -137,6 +143,8 @@ RFC 6902 is a useful model for ordered operations and precondition tests, but ra
 - Existing quick and long-form tests remain green.
 
 ### Foundation 2: manual passage-plan workspace
+
+**Implementation status:** Complete and acceptance-tested offline on 2026-07-30.
 
 #### Goal
 

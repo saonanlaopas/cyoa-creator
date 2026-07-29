@@ -23,6 +23,9 @@ export function migrate(database: StoryDatabase): void {
   database.prepare(`
     INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (3, ?)
   `).run(new Date().toISOString());
+  database.prepare(`
+    INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (4, ?)
+  `).run(new Date().toISOString());
 }
 
 function addColumn(database: StoryDatabase, table: string, column: string, definition: string): void {

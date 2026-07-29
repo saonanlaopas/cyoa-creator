@@ -26,6 +26,7 @@ import type {
   ArtifactRepository,
   ArtifactVersion,
   ChangeSetRepository,
+  PassagePlanRepository,
   ProjectRepository,
   WorkflowRepository,
 } from "@story-to-cyoa/persistence";
@@ -60,6 +61,7 @@ export class LongFormProjectService {
     private readonly artifacts: ArtifactRepository,
     private readonly workflow: WorkflowRepository,
     private readonly changeSets?: ChangeSetRepository,
+    private readonly passagePlans?: PassagePlanRepository,
   ) {}
 
   project(projectId: string) {
@@ -158,6 +160,7 @@ export class LongFormProjectService {
       dependencies: dependencies[artifactId],
     }) as ArtifactVersion<PlanningArtifact>;
     this.markDraftAndDependents(projectId, artifactId);
+    this.markPassagePlanStale(projectId);
     return {
       artifact: version,
       workflow: this.workflow.get(projectId, artifactId),
@@ -192,6 +195,7 @@ export class LongFormProjectService {
     const id = artifactId as PlanningArtifactId;
     const version = this.artifacts.restore(projectId, id, versionId);
     this.markDraftAndDependents(projectId, id);
+    this.markPassagePlanStale(projectId);
     return {
       version,
       workflow: this.workflow.get(projectId, id),
@@ -246,6 +250,7 @@ export class LongFormProjectService {
       dependencies[artifactId],
     );
     this.markDependentWorkflowStale(projectId, artifactId);
+    this.markPassagePlanStale(projectId);
     return { ...applied, validation: findings, appliedGroupIds: [...selectedIds] };
   }
 
@@ -286,6 +291,10 @@ export class LongFormProjectService {
   private markDependentWorkflowStale(projectId: string, artifactId: PlanningArtifactId): void {
     this.artifacts.markDependentsStale(projectId, artifactId)
       .forEach((dependent) => this.workflow.markStale(projectId, dependent));
+  }
+
+  private markPassagePlanStale(projectId: string): void {
+    if (this.passagePlans?.currentStructure(projectId)) this.passagePlans.markStale(projectId);
   }
 }
 

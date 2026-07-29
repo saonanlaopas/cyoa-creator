@@ -38,8 +38,9 @@ Choose **Long-form workspace** for a persistent 150,000–200,000-word project. 
 3. Create the route architecture.
 4. Turn the approved route hooks into detailed endings.
 5. Design the stats, relationships, flags, resources, gates, and choice effects.
+6. Build and approve the passage plan.
 
-The planned production workflow then continues by planning acts, sequences, passages, and executable choices; drafting and reviewing prose in bounded batches; simulating routes; and producing native and portable builds. Those later stages are documented plans rather than current controls.
+The planned production workflow then continues by drafting and reviewing prose in bounded batches, simulating routes, and producing native and portable builds. Those later stages are documented plans rather than current controls.
 
 The route architecture is seeded locally from the approved brief and bible; creating it does not call OpenRouter. It allocates the project word target across shared and route-exclusive acts, then provides editable major routes, entry conditions, relationship trajectories, decision points, reconvergences, ending hooks, and unresolved questions. The budget summary always shows allocated, shared, route-exclusive, and remaining words. An imbalance may be saved as a draft but remains visibly flagged.
 
@@ -50,6 +51,12 @@ The assistant follows an explicit visible scope: whole project or a selected sec
 The ending stage tracks route coverage, outcome types, requirements and exclusions, contributing decisions, thematic payoff, foreshadowing, character and relationship outcomes, persistent consequences, and smaller ending variants. Its prose target is explicitly a subset of the full project budget. Coverage warnings identify routes without outcomes, while readiness reporting distinguishes placeholder endings from endings with an actual payoff and earned access conditions. Route changes mark the ending plan stale without deleting its history.
 
 The mechanics stage starts with candidate long-form stats and story-bible relationships, but does not pretend they matter automatically. Its influence summary shows which declared mechanics appear in a route or ending gate or a choice-effect plan. Every mechanics field is directly editable, including relationship bands, gate logic and conditions, effect plans, balancing rules, and unresolved questions. Mechanics approval is blocked while any tracked value is unused. Balancing rules explicitly discourage grinding, invisible consequences, and a single universally optimal stat.
+
+The passage-plan stage is also fully local and does not call OpenRouter. It starts from the approved route and ending structure, then lets you add and edit acts, sequences, passage plans, choices, state conditions and effects, and narrative threads. The outline is the primary editor; the filtered graph is a secondary structural view. Search, stable-ID jump, filters, passage selection, local batch status/tag edits, and stable-ID reordering are designed for several hundred passages.
+
+Word totals are shown for the project, acts, routes, sequences, individual passages, and estimated complete paths. Saving writes immutable versions only for changed entities. **Approve snapshot** first saves the current work, creates an immutable snapshot tied to the exact approved upstream versions, validates it, and then approves that snapshot. Hard structural errors block approval; warnings remain visible. Restoring a passage version or a project snapshot creates recoverable current versions and keeps intervening history.
+
+Use **Export Markdown** for a readable outline, **Export JSON** for the canonical current passage-plan data, and **Project bundle** for a recovery/interchange package containing project metadata, current and approved planning artifacts, passage-plan snapshots, entity versions, validation, and readable Markdown. Imported source bodies and conversations are excluded from this bundle by default for privacy.
 
 ## Planned long-form runtime and exports
 

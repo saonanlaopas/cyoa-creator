@@ -19,6 +19,8 @@ export * from "./schemas/long-form-mechanics-plan.js";
 export * from "./schemas/mechanics-plan-assistant-response.js";
 export * from "./schemas/planning-assistant-response.js";
 export * from "./long-form-foundation.js";
+export * from "./schemas/passage-plan.js";
+export * from "./passage-plan-validator.js";
 export * from "./stages/analyze-source.js";
 export * from "./stages/propose-adaptation.js";
 export * from "./stages/generate-routes.js";
