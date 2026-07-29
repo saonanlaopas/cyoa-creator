@@ -12,11 +12,16 @@ export function migrate(database: StoryDatabase): void {
   addColumn(database, "messages", "scope_json", "TEXT NOT NULL DEFAULT '{}'");
   addColumn(database, "messages", "context_json", "TEXT NOT NULL DEFAULT '{}'");
   addColumn(database, "messages", "metadata_json", "TEXT NOT NULL DEFAULT '{}'");
+  addColumn(database, "change_sets", "proposal_json", "TEXT");
+  addColumn(database, "change_sets", "validation_json", "TEXT NOT NULL DEFAULT '[]'");
   database.prepare(`
     INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)
   `).run(new Date().toISOString());
   database.prepare(`
     INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)
+  `).run(new Date().toISOString());
+  database.prepare(`
+    INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (3, ?)
   `).run(new Date().toISOString());
 }
 

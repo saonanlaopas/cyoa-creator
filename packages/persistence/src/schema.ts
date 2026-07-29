@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS change_sets (
   summary TEXT NOT NULL,
   rationale TEXT NOT NULL,
   candidate_json TEXT NOT NULL,
+  proposal_json TEXT,
+  validation_json TEXT NOT NULL DEFAULT '[]',
   invalidations_json TEXT NOT NULL DEFAULT '[]',
   applied_version_id TEXT REFERENCES artifact_versions(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL,

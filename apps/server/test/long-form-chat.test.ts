@@ -3,7 +3,6 @@ import type { OpenRouterClient, StructuredGenerationStreamRequest } from "@story
 import {
   defaultLongFormRoutePlan,
   defaultLongFormEndingPlan,
-  defaultLongFormStoryBible,
   defaultProjectBrief,
 } from "@story-to-cyoa/pipeline";
 import { buildApp } from "../src/app.js";
@@ -18,26 +17,21 @@ function fakeChatClient(): OpenRouterClient {
       callbacks.onReasoning?.({ kind: "summary" });
       const prompt = request.messages.at(-1)?.content ?? "";
       const proposing = prompt.includes("User intent: propose");
-      const bibleScope = prompt.includes("Selected story bible:");
-      const routesScope = prompt.includes("Selected route architecture:");
-      const endingsScope = prompt.includes("Selected ending architecture:");
+      const bibleScope = prompt.includes("Selected story bible section:");
+      const routesScope = prompt.includes("Selected route architecture section:");
+      const endingsScope = prompt.includes("Selected ending architecture section:");
       const baseRoutes = defaultLongFormRoutePlan(defaultProjectBrief("Chat Project"));
-      const candidate = endingsScope
-        ? {
-            ...defaultLongFormEndingPlan(baseRoutes),
-            endings: defaultLongFormEndingPlan(baseRoutes).endings.map((ending, index) =>
-              index === 0 ? { ...ending, title: "Forgiveness" } : ending),
-          }
+      const targetId = endingsScope
+        ? defaultLongFormEndingPlan(baseRoutes).endings[0]!.id
         : routesScope
+          ? baseRoutes.routes[0]!.id
+          : "root";
+      const operation = bibleScope
         ? {
-            ...baseRoutes,
-            routes: baseRoutes.routes.map((route, index) =>
-              index === 0 ? { ...route, name: "Forgiveness route" } : route),
-          }
-        : bibleScope
-        ? {
-            ...defaultLongFormStoryBible({ title: "Chat Project" }),
-            characters: [{
+            kind: "add-item",
+            targetId: "root",
+            collection: "characters",
+            item: {
               id: "character-mara",
               name: "Mara",
               role: "Protagonist",
@@ -45,9 +39,13 @@ function fakeChatClient(): OpenRouterClient {
               motivations: ["Learn the truth"],
               knowledge: [],
               plannedArc: "Trust selectively.",
-            }],
           }
-        : { ...defaultProjectBrief("Chat Project"), routeTarget: 6 };
+        }
+        : {
+            kind: "set-fields",
+            targetId,
+            changes: endingsScope ? { title: "Forgiveness" } : routesScope ? { name: "Forgiveness route" } : { routeTarget: 6 },
+          };
       return {
         data: schema.parse({
           message: endingsScope
@@ -61,7 +59,14 @@ function fakeChatClient(): OpenRouterClient {
             ? {
                 summary: endingsScope ? "Develop forgiveness ending" : routesScope ? "Name the forgiveness route" : bibleScope ? "Add Mara to the bible" : "Expand to six routes",
                 rationale: endingsScope ? "The outcome needs a clear thematic identity." : routesScope ? "The route needs a legible identity." : bibleScope ? "The protagonist needs a canonical record." : "Adds room for the requested branch.",
-                candidate,
+                groups: [{
+                  id: "requested-change",
+                  label: "Requested change",
+                  summary: "Apply the requested scoped edit.",
+                  dependsOnGroupIds: [],
+                  safeToApplyIndependently: true,
+                  operations: [operation],
+                }],
               }
             : null,
         }),
@@ -110,8 +115,8 @@ describe("long-form scoped chat", () => {
       payload: { content: "Make it six routes.", intent: "propose", model: "offline/chat" },
     });
     expect(proposed.statusCode).toBe(201);
-    const proposal = proposed.json().proposal as { id: string; baseVersionId: string; candidate: { routeTarget: number } };
-    expect(proposal).toMatchObject({ baseVersionId: project.brief.id, candidate: { routeTarget: 6 } });
+    const proposal = proposed.json().proposal as { id: string; baseVersionId: string; proposal: { groups: unknown[] } };
+    expect(proposal).toMatchObject({ baseVersionId: project.brief.id, proposal: { groups: [expect.any(Object)] } });
 
     const applied = await app.inject({
       method: "POST",
@@ -182,7 +187,7 @@ describe("long-form scoped chat", () => {
       url: `/api/long-form/projects/${created.project.id}/conversations/${conversation.id}/proposals/${proposed.proposal.id}/apply`,
     });
     expect(conflict.statusCode).toBe(409);
-    expect(conflict.json().error).toContain("older artifact version");
+    expect(conflict.json().error).toContain("older content");
     await app.close();
   });
 
@@ -229,12 +234,12 @@ describe("long-form scoped chat", () => {
     });
     expect(response.statusCode).toBe(201);
     const proposal = response.json().proposal as {
-      id: string; artifactId: string; baseVersionId: string; candidate: { characters: unknown[] };
+      id: string; artifactId: string; baseVersionId: string; proposal: { groups: unknown[] };
     };
     expect(proposal).toMatchObject({
       artifactId: "bible",
       baseVersionId: bible.bible.id,
-      candidate: { characters: [expect.objectContaining({ name: "Mara" })] },
+      proposal: { groups: [expect.any(Object)] },
     });
     const applied = await app.inject({
       method: "POST",
@@ -300,7 +305,7 @@ describe("long-form scoped chat", () => {
       artifactId: "routes",
       baseVersionId: routes.routes.id,
     });
-    expect(response.proposal.candidate.routes[0]).toMatchObject({ name: "Forgiveness route" });
+    expect(response.proposal.proposal.groups[0].operations[0]).toMatchObject({ targetId: routes.routes.content.routes[0].id, changes: { name: "Forgiveness route" } });
     const applied = await app.inject({
       method: "POST",
       url: `/api/long-form/projects/${projectId}/conversations/${conversation.id}/proposals/${response.proposal.id}/apply`,
@@ -354,7 +359,7 @@ describe("long-form scoped chat", () => {
       payload: { content: "Make the first ending about forgiveness.", intent: "propose", model: "offline/chat" },
     })).json();
     expect(response.proposal).toMatchObject({ artifactId: "endings", baseVersionId: endings.endings.id });
-    expect(response.proposal.candidate.endings[0]).toMatchObject({ title: "Forgiveness" });
+    expect(response.proposal.proposal.groups[0].operations[0]).toMatchObject({ targetId: endings.endings.content.endings[0].id, changes: { title: "Forgiveness" } });
     const applied = await app.inject({
       method: "POST",
       url: `/api/long-form/projects/${projectId}/conversations/${conversation.id}/proposals/${response.proposal.id}/apply`,

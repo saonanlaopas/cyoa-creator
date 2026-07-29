@@ -7,6 +7,7 @@ export interface AssistantScope {
   stage?: "brief" | "bible" | "routes" | "endings" | "mechanics";
   artifactId?: "brief" | "bible" | "routes" | "endings" | "mechanics";
   versionId?: string;
+  sectionId?: string;
 }
 
 export interface ConversationRecord {
@@ -26,7 +27,11 @@ export interface MessageRecord {
   content: string;
   intent: "discuss" | "propose";
   scope: AssistantScope;
-  context: { briefVersionId?: string; bibleVersionId?: string; routesVersionId?: string; endingsVersionId?: string; mechanicsVersionId?: string };
+  context: {
+    briefVersionId?: string; bibleVersionId?: string; routesVersionId?: string;
+    endingsVersionId?: string; mechanicsVersionId?: string;
+    [key: string]: string | undefined;
+  };
   metadata: Record<string, unknown>;
   createdAt: string;
 }
@@ -94,6 +99,14 @@ export class ConversationRepository {
     if (scope.projectId !== conversation.projectId) throw new Error("Conversation scope must belong to its project");
     this.database.prepare("UPDATE conversations SET scope_json = ?, updated_at = ? WHERE id = ?")
       .run(JSON.stringify(scope), new Date().toISOString(), id);
+    return this.get(id)!;
+  }
+
+  updateSummary(id: string, summary: string): ConversationRecord {
+    const conversation = this.get(id);
+    if (!conversation) throw new Error("Conversation not found");
+    this.database.prepare("UPDATE conversations SET summary = ?, updated_at = ? WHERE id = ?")
+      .run(summary.trim().slice(0, 12_000), new Date().toISOString(), id);
     return this.get(id)!;
   }
 

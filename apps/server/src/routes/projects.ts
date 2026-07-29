@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ArtifactRepository, ProjectRepository } from "@story-to-cyoa/persistence";
+import type { LongFormProjectService } from "../services/long-form-project-service.js";
 
 interface ProjectParams { projectId: string }
 interface ArtifactParams extends ProjectParams { artifactId: string }
@@ -8,6 +9,7 @@ export function registerProjectRoutes(
   app: FastifyInstance,
   projects: ProjectRepository,
   artifacts: ArtifactRepository,
+  longFormProjects?: LongFormProjectService,
 ): void {
   app.post<{ Body: { name?: string; mode?: "quick" | "long-form" } }>("/api/projects", async (request, reply) => {
     try {
@@ -83,6 +85,12 @@ export function registerProjectRoutes(
   }>("/api/projects/:projectId/artifacts/:artifactId/restore", async (request, reply) => {
     if (!request.body?.versionId) return reply.code(400).send({ error: "versionId is required" });
     try {
+      const project = projects.get(request.params.projectId);
+      if (project?.mode === "long-form" && longFormProjects) {
+        return reply.code(201).send(longFormProjects.restoreArtifact(
+          request.params.projectId, request.params.artifactId, request.body.versionId,
+        ));
+      }
       return reply.code(201).send(artifacts.restore(
         request.params.projectId, request.params.artifactId, request.body.versionId,
       ));

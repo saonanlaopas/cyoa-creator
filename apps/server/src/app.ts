@@ -25,6 +25,7 @@ import { GenerationDiagnosticStore } from "./services/generation-diagnostic-stor
 import { createOfflineE2EClient } from "./services/fake-model-provider.js";
 import { registerLongFormRoutes } from "./routes/long-form.js";
 import { registerLongFormChatRoutes } from "./routes/long-form-chat.js";
+import { LongFormProjectService } from "./services/long-form-project-service.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -47,6 +48,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const workflow = new WorkflowRepository(database);
   const conversations = new ConversationRepository(database);
   const changeSets = new ChangeSetRepository(database);
+  const longFormProjects = new LongFormProjectService(projects, artifacts, workflow, changeSets);
   const diagnostics = new GenerationDiagnosticStore();
   const runner = new JobRunner(new JobRepository(database));
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
@@ -69,9 +71,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     service: "story-to-cyoa",
   }));
 
-  registerProjectRoutes(app, projects, artifacts);
-  registerLongFormRoutes(app, projects, artifacts, workflow);
-  registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, changeSets);
+  registerProjectRoutes(app, projects, artifacts, longFormProjects);
+  registerLongFormRoutes(app, projects, artifacts, workflow, longFormProjects);
+  registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, changeSets, longFormProjects);
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024, workflow);

@@ -1,15 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import {
-  defaultLongFormStoryBible,
-  defaultLongFormRoutePlan,
-  defaultLongFormEndingPlan,
-  defaultLongFormMechanicsPlan,
-  defaultProjectBrief,
-  LongFormRoutePlanSchema,
-  LongFormEndingPlanSchema,
-  LongFormMechanicsPlanSchema,
-  LongFormStoryBibleSchema,
-  ProjectBriefSchema,
   type LongFormRoutePlan,
   type LongFormEndingPlan,
   type LongFormMechanicsPlan,
@@ -21,6 +11,7 @@ import type {
   ProjectRepository,
   WorkflowRepository,
 } from "@story-to-cyoa/persistence";
+import { LongFormProjectService, findingsFromError } from "../services/long-form-project-service.js";
 
 interface ProjectParams {
   projectId: string;
@@ -28,25 +19,6 @@ interface ProjectParams {
 
 function markdownList(values: string[]): string {
   return values.length ? values.map((value) => `- ${value}`).join("\n") : "_None yet._";
-}
-
-function endingReferenceError(plan: LongFormEndingPlan, routes: LongFormRoutePlan): string | null {
-  const routeIds = new Set(routes.routes.map((route) => route.id));
-  const hooks = new Map(routes.endingHooks.map((hook) => [hook.id, hook]));
-  for (const ending of plan.endings) {
-    const hook = hooks.get(ending.hookId);
-    if (!routeIds.has(ending.routeId) || !hook || hook.routeId !== ending.routeId) {
-      return `Ending "${ending.title}" no longer matches an approved route hook`;
-    }
-  }
-  const mappedHooks = new Set(plan.endings.map((ending) => ending.hookId));
-  if (routes.endingHooks.some((hook) => !mappedHooks.has(hook.id))) {
-    return "Every approved route ending hook must have a detailed ending";
-  }
-  if (routes.routes.some((route) => !plan.endings.some((ending) => ending.routeId === route.id))) {
-    return "Every major route must have at least one ending";
-  }
-  return null;
 }
 
 export function renderBriefMarkdown(brief: ProjectBrief): string {
@@ -330,6 +302,7 @@ export function registerLongFormRoutes(
   projects: ProjectRepository,
   artifacts: ArtifactRepository,
   workflow: WorkflowRepository,
+  service: LongFormProjectService,
 ): void {
   const longFormProject = (projectId: string) => {
     const project = projects.get(projectId);
@@ -338,58 +311,26 @@ export function registerLongFormRoutes(
 
   app.post<{ Body: { name?: string } }>("/api/long-form/projects", async (request, reply) => {
     try {
-      const project = projects.create(request.body?.name ?? "", undefined, "long-form");
-      const brief = artifacts.saveArtifact({
-        projectId: project.id,
-        artifactId: "brief",
-        artifactType: "brief",
-        schema: ProjectBriefSchema,
-        content: defaultProjectBrief(project.name),
-      });
-      return reply.code(201).send({ project, brief, workflow: workflow.markDraft(project.id, "brief") });
+      return reply.code(201).send(service.createProject(request.body?.name ?? ""));
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
     }
   });
 
   app.get<{ Params: ProjectParams }>("/api/long-form/projects/:projectId", async (request, reply) => {
-    const project = longFormProject(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-    return {
-      project,
-      brief: artifacts.getCurrent<ProjectBrief>(project.id, "brief") ?? null,
-      bible: artifacts.getCurrent<LongFormStoryBible>(project.id, "bible") ?? null,
-      routes: artifacts.getCurrent<LongFormRoutePlan>(project.id, "routes") ?? null,
-      endings: artifacts.getCurrent<LongFormEndingPlan>(project.id, "endings") ?? null,
-      mechanics: artifacts.getCurrent<LongFormMechanicsPlan>(project.id, "mechanics") ?? null,
-      workflow: {
-        brief: workflow.get(project.id, "brief"),
-        bible: workflow.get(project.id, "bible"),
-        routes: workflow.get(project.id, "routes"),
-        endings: workflow.get(project.id, "endings"),
-        mechanics: workflow.get(project.id, "mechanics"),
-      },
-    };
+    try {
+      return service.getState(request.params.projectId);
+    } catch (error) {
+      return reply.code(404).send({ error: (error as Error).message });
+    }
   });
 
   app.put<{ Params: ProjectParams; Body: ProjectBrief }>(
     "/api/long-form/projects/:projectId/brief",
     async (request, reply) => {
-      const project = longFormProject(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
       try {
-        const brief = artifacts.saveArtifact({
-          projectId: project.id,
-          artifactId: "brief",
-          artifactType: "brief",
-          schema: ProjectBriefSchema,
-          content: request.body,
-        });
-        if (artifacts.getCurrent(project.id, "bible")) workflow.markStale(project.id, "bible");
-        if (artifacts.getCurrent(project.id, "routes")) workflow.markStale(project.id, "routes");
-        if (artifacts.getCurrent(project.id, "endings")) workflow.markStale(project.id, "endings");
-        if (artifacts.getCurrent(project.id, "mechanics")) workflow.markStale(project.id, "mechanics");
-        return reply.code(201).send({ brief, workflow: workflow.markDraft(project.id, "brief") });
+        const result = service.saveArtifact(request.params.projectId, "brief", request.body);
+        return reply.code(201).send({ brief: result.artifact, workflow: result.workflow, validation: result.validation });
       } catch (error) {
         return reply.code(400).send({ error: (error as Error).message });
       }
@@ -399,57 +340,24 @@ export function registerLongFormRoutes(
   app.post<{ Params: ProjectParams }>(
     "/api/long-form/projects/:projectId/bible",
     async (request, reply) => {
-      const project = longFormProject(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-      if (artifacts.getCurrent(project.id, "bible")) {
-        return reply.code(409).send({ error: "Story bible already exists" });
+      try {
+        const result = service.createArtifact(request.params.projectId, "bible");
+        return reply.code(201).send({ bible: result.artifact, workflow: result.workflow, validation: result.validation });
+      } catch (error) {
+        return reply.code((error as Error).message.includes("not found") ? 404 : 409)
+          .send({ error: (error as Error).message });
       }
-      const briefState = workflow.get(project.id, "brief");
-      const approvedBrief = briefState.approvedVersionId
-        ? artifacts.getVersion<ProjectBrief>(briefState.approvedVersionId)
-        : undefined;
-      if (!approvedBrief) return reply.code(409).send({ error: "Approve the project brief first" });
-      const bible = artifacts.saveArtifact({
-        projectId: project.id,
-        artifactId: "bible",
-        artifactType: "bible",
-        schema: LongFormStoryBibleSchema,
-        content: defaultLongFormStoryBible({
-          title: approvedBrief.content.workingTitle,
-          overview: approvedBrief.content.premise,
-          protagonist: approvedBrief.content.protagonist,
-          pointOfView: approvedBrief.content.pointOfView,
-          tone: approvedBrief.content.tone,
-        }),
-        dependencies: ["brief", "source"],
-      });
-      return reply.code(201).send({ bible, workflow: workflow.markDraft(project.id, "bible") });
     },
   );
 
   app.put<{ Params: ProjectParams; Body: LongFormStoryBible }>(
     "/api/long-form/projects/:projectId/bible",
     async (request, reply) => {
-      const project = longFormProject(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-      if (!artifacts.getCurrent(project.id, "bible")) {
-        return reply.code(409).send({ error: "Create the story bible first" });
-      }
       try {
-        const bible = artifacts.saveArtifact({
-          projectId: project.id,
-          artifactId: "bible",
-          artifactType: "bible",
-          schema: LongFormStoryBibleSchema,
-          content: request.body,
-          dependencies: ["brief", "source"],
-        });
-        if (artifacts.getCurrent(project.id, "routes")) workflow.markStale(project.id, "routes");
-        if (artifacts.getCurrent(project.id, "endings")) workflow.markStale(project.id, "endings");
-        if (artifacts.getCurrent(project.id, "mechanics")) workflow.markStale(project.id, "mechanics");
-        return reply.code(201).send({ bible, workflow: workflow.markDraft(project.id, "bible") });
+        const result = service.saveArtifact(request.params.projectId, "bible", request.body);
+        return reply.code(201).send({ bible: result.artifact, workflow: result.workflow, validation: result.validation });
       } catch (error) {
-        return reply.code(400).send({ error: (error as Error).message });
+        return reply.code((error as Error).message.includes("Create") ? 409 : 400).send({ error: (error as Error).message });
       }
     },
   );
@@ -457,14 +365,13 @@ export function registerLongFormRoutes(
   app.post<{ Params: ProjectParams; Body: { versionId?: string } }>(
     "/api/long-form/projects/:projectId/bible/approve",
     async (request, reply) => {
-      const project = longFormProject(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-      const versionId = request.body?.versionId ?? artifacts.getCurrent(project.id, "bible")?.id;
+      const versionId = request.body?.versionId ?? artifacts.getCurrent(request.params.projectId, "bible")?.id;
       if (!versionId) return reply.code(404).send({ error: "Story bible not found" });
       try {
-        return workflow.approve(project.id, "bible", versionId);
+        return service.approveArtifact(request.params.projectId, "bible", versionId);
       } catch (error) {
-        return reply.code(404).send({ error: (error as Error).message });
+        return reply.code((error as Error).message.includes("not found") ? 404 : 409)
+          .send({ error: (error as Error).message, findings: findingsFromError(error) });
       }
     },
   );
@@ -495,56 +402,24 @@ export function registerLongFormRoutes(
   app.post<{ Params: ProjectParams }>(
     "/api/long-form/projects/:projectId/routes",
     async (request, reply) => {
-      const project = longFormProject(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-      if (artifacts.getCurrent(project.id, "routes")) {
-        return reply.code(409).send({ error: "Route architecture already exists" });
+      try {
+        const result = service.createArtifact(request.params.projectId, "routes");
+        return reply.code(201).send({ routes: result.artifact, workflow: result.workflow, validation: result.validation });
+      } catch (error) {
+        return reply.code((error as Error).message.includes("not found") ? 404 : 409)
+          .send({ error: (error as Error).message });
       }
-      const bibleState = workflow.get(project.id, "bible");
-      const approvedBible = bibleState.approvedVersionId
-        ? artifacts.getVersion<LongFormStoryBible>(bibleState.approvedVersionId)
-        : undefined;
-      const briefState = workflow.get(project.id, "brief");
-      const approvedBrief = briefState.approvedVersionId
-        ? artifacts.getVersion<ProjectBrief>(briefState.approvedVersionId)
-        : undefined;
-      if (!approvedBible || !approvedBrief) {
-        return reply.code(409).send({ error: "Approve the project brief and story bible first" });
-      }
-      const routes = artifacts.saveArtifact({
-        projectId: project.id,
-        artifactId: "routes",
-        artifactType: "routes",
-        schema: LongFormRoutePlanSchema,
-        content: defaultLongFormRoutePlan(approvedBrief.content),
-        dependencies: ["brief", "bible"],
-      });
-      return reply.code(201).send({ routes, workflow: workflow.markDraft(project.id, "routes") });
     },
   );
 
   app.put<{ Params: ProjectParams; Body: LongFormRoutePlan }>(
     "/api/long-form/projects/:projectId/routes",
     async (request, reply) => {
-      const project = longFormProject(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-      if (!artifacts.getCurrent(project.id, "routes")) {
-        return reply.code(409).send({ error: "Create the route architecture first" });
-      }
       try {
-        const routes = artifacts.saveArtifact({
-          projectId: project.id,
-          artifactId: "routes",
-          artifactType: "routes",
-          schema: LongFormRoutePlanSchema,
-          content: request.body,
-          dependencies: ["brief", "bible"],
-        });
-        if (artifacts.getCurrent(project.id, "endings")) workflow.markStale(project.id, "endings");
-        if (artifacts.getCurrent(project.id, "mechanics")) workflow.markStale(project.id, "mechanics");
-        return reply.code(201).send({ routes, workflow: workflow.markDraft(project.id, "routes") });
+        const result = service.saveArtifact(request.params.projectId, "routes", request.body);
+        return reply.code(201).send({ routes: result.artifact, workflow: result.workflow, validation: result.validation });
       } catch (error) {
-        return reply.code(400).send({ error: (error as Error).message });
+        return reply.code((error as Error).message.includes("Create") ? 409 : 400).send({ error: (error as Error).message });
       }
     },
   );
@@ -552,14 +427,13 @@ export function registerLongFormRoutes(
   app.post<{ Params: ProjectParams; Body: { versionId?: string } }>(
     "/api/long-form/projects/:projectId/routes/approve",
     async (request, reply) => {
-      const project = longFormProject(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-      const versionId = request.body?.versionId ?? artifacts.getCurrent(project.id, "routes")?.id;
+      const versionId = request.body?.versionId ?? artifacts.getCurrent(request.params.projectId, "routes")?.id;
       if (!versionId) return reply.code(404).send({ error: "Route architecture not found" });
       try {
-        return workflow.approve(project.id, "routes", versionId);
+        return service.approveArtifact(request.params.projectId, "routes", versionId);
       } catch (error) {
-        return reply.code(404).send({ error: (error as Error).message });
+        return reply.code((error as Error).message.includes("not found") ? 404 : 409)
+          .send({ error: (error as Error).message, findings: findingsFromError(error) });
       }
     },
   );
@@ -590,49 +464,24 @@ export function registerLongFormRoutes(
   app.post<{ Params: ProjectParams }>(
     "/api/long-form/projects/:projectId/endings",
     async (request, reply) => {
-      const project = longFormProject(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-      if (artifacts.getCurrent(project.id, "endings")) {
-        return reply.code(409).send({ error: "Ending architecture already exists" });
+      try {
+        const result = service.createArtifact(request.params.projectId, "endings");
+        return reply.code(201).send({ endings: result.artifact, workflow: result.workflow, validation: result.validation });
+      } catch (error) {
+        return reply.code((error as Error).message.includes("not found") ? 404 : 409)
+          .send({ error: (error as Error).message });
       }
-      const routeState = workflow.get(project.id, "routes");
-      const approvedRoutes = routeState.approvedVersionId
-        ? artifacts.getVersion<LongFormRoutePlan>(routeState.approvedVersionId)
-        : undefined;
-      if (!approvedRoutes) return reply.code(409).send({ error: "Approve the route architecture first" });
-      const endings = artifacts.saveArtifact({
-        projectId: project.id,
-        artifactId: "endings",
-        artifactType: "endings",
-        schema: LongFormEndingPlanSchema,
-        content: defaultLongFormEndingPlan(approvedRoutes.content),
-        dependencies: ["routes"],
-      });
-      return reply.code(201).send({ endings, workflow: workflow.markDraft(project.id, "endings") });
     },
   );
 
   app.put<{ Params: ProjectParams; Body: LongFormEndingPlan }>(
     "/api/long-form/projects/:projectId/endings",
     async (request, reply) => {
-      const project = longFormProject(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-      if (!artifacts.getCurrent(project.id, "endings")) {
-        return reply.code(409).send({ error: "Create the ending architecture first" });
-      }
       try {
-        const endings = artifacts.saveArtifact({
-          projectId: project.id,
-          artifactId: "endings",
-          artifactType: "endings",
-          schema: LongFormEndingPlanSchema,
-          content: request.body,
-          dependencies: ["routes"],
-        });
-        if (artifacts.getCurrent(project.id, "mechanics")) workflow.markStale(project.id, "mechanics");
-        return reply.code(201).send({ endings, workflow: workflow.markDraft(project.id, "endings") });
+        const result = service.saveArtifact(request.params.projectId, "endings", request.body);
+        return reply.code(201).send({ endings: result.artifact, workflow: result.workflow, validation: result.validation });
       } catch (error) {
-        return reply.code(400).send({ error: (error as Error).message });
+        return reply.code((error as Error).message.includes("Create") ? 409 : 400).send({ error: (error as Error).message });
       }
     },
   );
@@ -640,24 +489,13 @@ export function registerLongFormRoutes(
   app.post<{ Params: ProjectParams; Body: { versionId?: string } }>(
     "/api/long-form/projects/:projectId/endings/approve",
     async (request, reply) => {
-      const project = longFormProject(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-      const versionId = request.body?.versionId ?? artifacts.getCurrent(project.id, "endings")?.id;
+      const versionId = request.body?.versionId ?? artifacts.getCurrent(request.params.projectId, "endings")?.id;
       if (!versionId) return reply.code(404).send({ error: "Ending architecture not found" });
       try {
-        const endingVersion = artifacts.getVersion<LongFormEndingPlan>(versionId);
-        const routeVersionId = workflow.get(project.id, "routes").approvedVersionId;
-        const routeVersion = routeVersionId
-          ? artifacts.getVersion<LongFormRoutePlan>(routeVersionId)
-          : undefined;
-        if (!endingVersion || !routeVersion) {
-          return reply.code(409).send({ error: "Approve the route architecture before approving endings" });
-        }
-        const referenceError = endingReferenceError(endingVersion.content, routeVersion.content);
-        if (referenceError) return reply.code(409).send({ error: referenceError });
-        return workflow.approve(project.id, "endings", versionId);
+        return service.approveArtifact(request.params.projectId, "endings", versionId);
       } catch (error) {
-        return reply.code(404).send({ error: (error as Error).message });
+        return reply.code((error as Error).message.includes("not found") ? 404 : 409)
+          .send({ error: (error as Error).message, findings: findingsFromError(error) });
       }
     },
   );
@@ -686,52 +524,33 @@ export function registerLongFormRoutes(
   );
 
   app.post<{ Params: ProjectParams }>("/api/long-form/projects/:projectId/mechanics", async (request, reply) => {
-    const project = longFormProject(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-    if (artifacts.getCurrent(project.id, "mechanics")) return reply.code(409).send({ error: "Mechanics already exist" });
-    const endingVersionId = workflow.get(project.id, "endings").approvedVersionId;
-    const bibleVersionId = workflow.get(project.id, "bible").approvedVersionId;
-    const endings = endingVersionId ? artifacts.getVersion<LongFormEndingPlan>(endingVersionId) : undefined;
-    const bible = bibleVersionId ? artifacts.getVersion<LongFormStoryBible>(bibleVersionId) : undefined;
-    if (!endings || !bible) return reply.code(409).send({ error: "Approve the story bible and ending architecture first" });
-    const mechanics = artifacts.saveArtifact({
-      projectId: project.id, artifactId: "mechanics", artifactType: "mechanics",
-      schema: LongFormMechanicsPlanSchema,
-      content: defaultLongFormMechanicsPlan(bible.content, endings.content),
-      dependencies: ["bible", "routes", "endings"],
-    });
-    return reply.code(201).send({ mechanics, workflow: workflow.markDraft(project.id, "mechanics") });
+    try {
+      const result = service.createArtifact(request.params.projectId, "mechanics");
+      return reply.code(201).send({ mechanics: result.artifact, workflow: result.workflow, validation: result.validation });
+    } catch (error) {
+      return reply.code((error as Error).message.includes("not found") ? 404 : 409)
+        .send({ error: (error as Error).message });
+    }
   });
 
   app.put<{ Params: ProjectParams; Body: LongFormMechanicsPlan }>("/api/long-form/projects/:projectId/mechanics", async (request, reply) => {
-    const project = longFormProject(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Long-form project not found" });
     try {
-      const mechanics = artifacts.saveArtifact({
-        projectId: project.id, artifactId: "mechanics", artifactType: "mechanics",
-        schema: LongFormMechanicsPlanSchema, content: request.body,
-        dependencies: ["bible", "routes", "endings"],
-      });
-      return reply.code(201).send({ mechanics, workflow: workflow.markDraft(project.id, "mechanics") });
+      const result = service.saveArtifact(request.params.projectId, "mechanics", request.body);
+      return reply.code(201).send({ mechanics: result.artifact, workflow: result.workflow, validation: result.validation });
     } catch (error) {
-      return reply.code(400).send({ error: (error as Error).message });
+      return reply.code((error as Error).message.includes("Create") ? 409 : 400).send({ error: (error as Error).message });
     }
   });
 
   app.post<{ Params: ProjectParams; Body: { versionId?: string } }>("/api/long-form/projects/:projectId/mechanics/approve", async (request, reply) => {
-    const project = longFormProject(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-    const versionId = request.body?.versionId ?? artifacts.getCurrent(project.id, "mechanics")?.id;
-    const version = versionId ? artifacts.getVersion<LongFormMechanicsPlan>(versionId) : undefined;
-    if (!version) return reply.code(404).send({ error: "Mechanics not found" });
-    const used = new Set([
-      ...version.content.gates.flatMap((gate) => gate.conditions.map((condition) => condition.mechanicKey)),
-      ...version.content.choiceEffectPlans.flatMap((effect) => effect.mechanicKeys),
-    ]);
-    const declared = [...version.content.visibleStats, ...version.content.relationships, ...version.content.flags, ...version.content.resources];
-    const unused = declared.filter((item) => !used.has(item.key));
-    if (unused.length) return reply.code(409).send({ error: `Every mechanic must influence a gate or choice-effect plan. Unused: ${unused.map((item) => item.label).join(", ")}` });
-    return workflow.approve(project.id, "mechanics", version.id);
+    const versionId = request.body?.versionId ?? artifacts.getCurrent(request.params.projectId, "mechanics")?.id;
+    if (!versionId) return reply.code(404).send({ error: "Mechanics not found" });
+    try {
+      return service.approveArtifact(request.params.projectId, "mechanics", versionId);
+    } catch (error) {
+      return reply.code((error as Error).message.includes("not found") ? 404 : 409)
+        .send({ error: (error as Error).message, findings: findingsFromError(error) });
+    }
   });
 
   app.get<{ Params: ProjectParams; Querystring: { format?: string } }>("/api/long-form/projects/:projectId/mechanics/export", async (request, reply) => {
@@ -745,14 +564,13 @@ export function registerLongFormRoutes(
   app.post<{ Params: ProjectParams; Body: { versionId?: string } }>(
     "/api/long-form/projects/:projectId/brief/approve",
     async (request, reply) => {
-      const project = longFormProject(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
-      const versionId = request.body?.versionId ?? artifacts.getCurrent(project.id, "brief")?.id;
+      const versionId = request.body?.versionId ?? artifacts.getCurrent(request.params.projectId, "brief")?.id;
       if (!versionId) return reply.code(404).send({ error: "Project brief not found" });
       try {
-        return workflow.approve(project.id, "brief", versionId);
+        return service.approveArtifact(request.params.projectId, "brief", versionId);
       } catch (error) {
-        return reply.code(404).send({ error: (error as Error).message });
+        return reply.code((error as Error).message.includes("not found") ? 404 : 409)
+          .send({ error: (error as Error).message, findings: findingsFromError(error) });
       }
     },
   );

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import {
   applyProposal,
   createConversation,
+  listAssistantSections,
   listConversations,
   loadConversation,
   rejectProposal,
@@ -41,6 +42,7 @@ export function AssistantPanel(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState<string[]>([]);
+  const [sections, setSections] = useState<Array<{ id: string; label: string }>>([]);
   const [collapsed, setCollapsed] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const [width, setWidth] = useState(() => clampWidth(Number(localStorage.getItem(widthKey)) || 400));
@@ -78,7 +80,10 @@ export function AssistantPanel(props: {
           ? props.bible
           : props.brief;
 
-  const changeScope = async (selection: "project" | "brief" | "bible" | "routes" | "endings" | "mechanics") => {
+  const changeScope = async (
+    selection: "project" | "brief" | "bible" | "routes" | "endings" | "mechanics",
+    sectionId = "root",
+  ) => {
     if (!conversation) return;
     const selected = selection === "project" ? null : artifactFor(selection);
     if (selection !== "project" && !selected) return;
@@ -90,6 +95,7 @@ export function AssistantPanel(props: {
           stage: selection,
           artifactId: selection,
           versionId: selected!.id,
+          sectionId,
         };
     try {
       setConversation(await updateConversationScope(props.project.id, conversation.id, scope));
@@ -97,6 +103,17 @@ export function AssistantPanel(props: {
       setError((reason as Error).message);
     }
   };
+
+  useEffect(() => {
+    const artifactId = conversation?.scope.kind === "artifact" ? conversation.scope.artifactId : undefined;
+    if (!artifactId) {
+      setSections([]);
+      return;
+    }
+    void listAssistantSections(props.project.id, artifactId)
+      .then(setSections)
+      .catch((reason: Error) => setError(reason.message));
+  }, [props.project.id, conversation?.scope.kind, conversation?.scope.artifactId, conversation?.scope.versionId]);
 
   useEffect(() => {
     const selected = artifactFor(props.activeArtifact);
@@ -220,6 +237,18 @@ export function AssistantPanel(props: {
           <option value="project">Whole project</option>
         </select>
       </label>
+      {conversation?.scope.kind === "artifact" && <label>Section
+        <select
+          value={conversation.scope.sectionId ?? "root"}
+          disabled={busy}
+          onChange={(event) => void changeScope(
+            conversation.scope.artifactId as "brief" | "bible" | "routes" | "endings" | "mechanics",
+            event.target.value,
+          )}
+        >
+          {sections.map((section) => <option key={section.id} value={section.id}>{section.label}</option>)}
+        </select>
+      </label>}
       <p className="scope-version">Project: {props.project.name} · Base: {currentArtifact ? `${props.activeArtifact} v${currentArtifact.version}` : "project only"}</p>
     </header>
 
@@ -243,12 +272,12 @@ export function AssistantPanel(props: {
                 ? props.bible?.id ?? ""
                 : props.brief.id}
         busy={busy}
-        onApply={async () => {
+        onApply={async (groupIds) => {
           if (!conversation) return;
           setBusy(true);
           setError(null);
           try {
-            await applyProposal(props.project.id, conversation.id, proposal.id);
+            await applyProposal(props.project.id, conversation.id, proposal.id, groupIds);
             await refresh(conversation.id);
             await props.onBriefApplied();
           } catch (reason) {
@@ -310,16 +339,12 @@ function ProposalCard(props: {
   proposal: ChangeSetRecord;
   currentVersionId: string;
   busy: boolean;
-  onApply(): Promise<void>;
+  onApply(groupIds: string[]): Promise<void>;
   onReject(): Promise<void>;
 }) {
+  const groups = props.proposal.proposal?.groups ?? [];
+  const [selected, setSelected] = useState(() => new Set(groups.map((group) => group.id)));
   const stale = props.proposal.status === "proposed" && props.proposal.baseVersionId !== props.currentVersionId;
-  const candidate = props.proposal.candidate;
-  const bible = props.proposal.artifactId === "bible" ? candidate as LongFormStoryBible : null;
-  const brief = props.proposal.artifactId === "brief" ? candidate as ProjectBrief : null;
-  const routes = props.proposal.artifactId === "routes" ? candidate as LongFormRoutePlan : null;
-  const endings = props.proposal.artifactId === "endings" ? candidate as LongFormEndingPlan : null;
-  const mechanics = props.proposal.artifactId === "mechanics" ? candidate as LongFormMechanicsPlan : null;
   return <article className={`proposal-card ${props.proposal.status}`}>
     <header>
       <strong>{props.proposal.artifactId === "mechanics" ? "Mechanics" : props.proposal.artifactId === "endings" ? "Endings" : props.proposal.artifactId === "routes" ? "Routes" : props.proposal.artifactId === "bible" ? "Bible" : "Brief"} change proposal</strong>
@@ -327,48 +352,39 @@ function ProposalCard(props: {
     </header>
     <h3>{props.proposal.summary}</h3>
     <p>{props.proposal.rationale}</p>
-    <p className="field-note">Applying creates a new draft version; it does not approve the brief.</p>
-    <details>
-      <summary>Review candidate {props.proposal.artifactId}</summary>
-      <dl className="proposal-preview">
-        {brief && <>
-          <dt>Working title</dt><dd>{brief.workingTitle}</dd>
-          <dt>Total words</dt><dd>{brief.totalWordTarget.toLocaleString()}</dd>
-          <dt>Routes</dt><dd>{brief.routeTarget}</dd>
-          <dt>Endings</dt><dd>{brief.endingTarget}</dd>
-          <dt>Premise</dt><dd>{brief.premise || "Not set"}</dd>
-        </>}
-        {bible && <>
-          <dt>Title</dt><dd>{bible.title}</dd>
-          <dt>Characters</dt><dd>{bible.characters.length}</dd>
-          <dt>Relationships</dt><dd>{bible.relationships.length}</dd>
-          <dt>Canon facts</dt><dd>{bible.canonFacts.length}</dd>
-          <dt>Open questions</dt><dd>{bible.unresolvedQuestions.length}</dd>
-        </>}
-        {routes && <>
-          <dt>Title</dt><dd>{routes.title}</dd>
-          <dt>Major routes</dt><dd>{routes.routes.length}</dd>
-          <dt>Acts</dt><dd>{routes.acts.length}</dd>
-          <dt>Allocated words</dt><dd>{routes.acts.reduce((total, act) => total + act.wordTarget, 0).toLocaleString()}</dd>
-          <dt>Ending hooks</dt><dd>{routes.endingHooks.length}</dd>
-        </>}
-        {endings && <>
-          <dt>Title</dt><dd>{endings.title}</dd>
-          <dt>Endings</dt><dd>{endings.endings.length}</dd>
-          <dt>Ending words</dt><dd>{endings.endingWordTarget.toLocaleString()}</dd>
-          <dt>Variants</dt><dd>{endings.endings.reduce((total, ending) => total + ending.variants.length, 0)}</dd>
-        </>}
-        {mechanics && <>
-          <dt>Stats</dt><dd>{mechanics.visibleStats.length}</dd>
-          <dt>Relationships</dt><dd>{mechanics.relationships.length}</dd>
-          <dt>Gates</dt><dd>{mechanics.gates.length}</dd>
-          <dt>Effect plans</dt><dd>{mechanics.choiceEffectPlans.length}</dd>
-        </>}
-      </dl>
-    </details>
+    <p className="field-note">Applying creates a new draft version; it does not approve it.</p>
+    <div className="proposal-groups">
+      {groups.map((group) => <label className="proposal-group" key={group.id}>
+        <input
+          type="checkbox"
+          checked={selected.has(group.id)}
+          disabled={(!group.safeToApplyIndependently && groups.length > 1)
+            || groups.some((item) => selected.has(item.id) && item.dependsOnGroupIds.includes(group.id))}
+          onChange={(event) => setSelected((current) => {
+            const next = new Set(current);
+            if (event.target.checked) next.add(group.id); else next.delete(group.id);
+            return next;
+          })}
+        />
+        <span>
+          <strong>{group.label}</strong>
+          <small>{group.summary}</small>
+          <small>{group.operations.length} operation(s){group.dependsOnGroupIds.length > 0 ? ` · depends on ${group.dependsOnGroupIds.join(", ")}` : ""}</small>
+        </span>
+      </label>)}
+    </div>
+    {props.proposal.validationFindings.length > 0 && <details>
+      <summary>Validation findings ({props.proposal.validationFindings.length})</summary>
+      {props.proposal.validationFindings.map((finding, index) =>
+        <p className={`validation-${finding.severity}`} key={`${finding.code}-${index}`}>{finding.severity}: {finding.message}</p>)}
+    </details>}
     {props.proposal.status === "proposed" && <div className="proposal-actions">
       <button disabled={props.busy} onClick={() => void props.onReject()}>Reject</button>
-      <button className="primary" disabled={props.busy || stale} onClick={() => void props.onApply()}>Apply changes</button>
+      <button
+        className="primary"
+        disabled={props.busy || stale || selected.size === 0 || props.proposal.validationFindings.some((finding) => finding.severity === "error")}
+        onClick={() => void props.onApply([...selected])}
+      >Apply selected</button>
     </div>}
   </article>;
 }

@@ -201,12 +201,23 @@ export interface LongFormProjectState {
   };
 }
 
+export interface PlanningFinding {
+  code: string;
+  severity: "error" | "warning" | "info";
+  artifactId: "brief" | "bible" | "routes" | "endings" | "mechanics";
+  entityId?: string;
+  path?: string;
+  message: string;
+  suggestion?: string;
+}
+
 export interface AssistantScope {
   kind: "project" | "artifact";
   projectId: string;
   stage?: "brief" | "bible" | "routes" | "endings" | "mechanics";
   artifactId?: "brief" | "bible" | "routes" | "endings" | "mechanics";
   versionId?: string;
+  sectionId?: string;
 }
 
 export interface ConversationRecord {
@@ -228,6 +239,8 @@ export interface MessageRecord {
   scope: AssistantScope;
   context: {
     briefVersionId?: string; bibleVersionId?: string; routesVersionId?: string; endingsVersionId?: string;
+    mechanicsVersionId?: string;
+    [key: string]: string | undefined;
   };
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -242,7 +255,27 @@ export interface ChangeSetRecord {
   status: "proposed" | "applied" | "rejected" | "superseded";
   summary: string;
   rationale: string;
-  candidate: ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan | LongFormMechanicsPlan;
+  candidate: ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan | LongFormMechanicsPlan | null;
+  proposal: {
+    groups: Array<{
+      id: string;
+      label: string;
+      summary: string;
+      dependsOnGroupIds: string[];
+      safeToApplyIndependently: boolean;
+      operations: Array<{
+        id: string;
+        kind: "set-fields" | "add-item" | "remove-item" | "reorder-items";
+        targetId: string;
+        collection?: string;
+        changes?: Record<string, unknown>;
+        item?: Record<string, unknown>;
+        orderedIds?: string[];
+        baseFingerprint: string;
+      }>;
+    }>;
+  } | null;
+  validationFindings: PlanningFinding[];
   invalidations: string[];
   appliedVersionId: string | null;
   createdAt: string;
@@ -281,6 +314,7 @@ export async function loadLongFormProject(projectId: string): Promise<{
   endings: ArtifactVersion<LongFormEndingPlan> | null;
   mechanics: ArtifactVersion<LongFormMechanicsPlan> | null;
   workflow: { brief: WorkflowState; bible: WorkflowState; routes: WorkflowState; endings: WorkflowState; mechanics: WorkflowState };
+  validation: PlanningFinding[];
 }> {
   return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}`));
 }
@@ -483,6 +517,13 @@ export async function updateConversationScope(
   }));
 }
 
+export async function listAssistantSections(
+  projectId: string,
+  artifactId: string,
+): Promise<Array<{ id: string; label: string }>> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/assistant-sections/${encodeURIComponent(artifactId)}`));
+}
+
 export async function sendConversationMessage(input: {
   projectId: string;
   conversationId: string;
@@ -504,13 +545,22 @@ export async function sendConversationMessage(input: {
   }));
 }
 
-export async function applyProposal(projectId: string, conversationId: string, proposalId: string): Promise<{
+export async function applyProposal(
+  projectId: string,
+  conversationId: string,
+  proposalId: string,
+  groupIds?: string[],
+): Promise<{
   changeSet: ChangeSetRecord;
   version: ArtifactVersion<ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan | LongFormMechanicsPlan>;
 }> {
   return json(await fetch(
     `${conversationBase(projectId)}/${encodeURIComponent(conversationId)}/proposals/${encodeURIComponent(proposalId)}/apply`,
-    { method: "POST" },
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ groupIds }),
+    },
   ));
 }
 
@@ -523,4 +573,33 @@ export async function rejectProposal(
     `${conversationBase(projectId)}/${encodeURIComponent(conversationId)}/proposals/${encodeURIComponent(proposalId)}/reject`,
     { method: "POST" },
   ));
+}
+
+export async function listArtifactVersions<T>(
+  projectId: string,
+  artifactId: string,
+): Promise<ArtifactVersion<T>[]> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}/versions`));
+}
+
+export async function compareArtifactVersions(
+  projectId: string,
+  artifactId: string,
+  from: string,
+  to: string,
+): Promise<{ from: ArtifactVersion<unknown>; to: ArtifactVersion<unknown>; equal: boolean }> {
+  const query = new URLSearchParams({ from, to });
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}/compare?${query}`));
+}
+
+export async function restoreArtifactVersion(
+  projectId: string,
+  artifactId: string,
+  versionId: string,
+): Promise<{ version: ArtifactVersion<unknown>; workflow: WorkflowState; validation: PlanningFinding[] }> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}/restore`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ versionId }),
+  }));
 }

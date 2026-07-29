@@ -13,6 +13,7 @@ import {
   type LongFormMechanicsPlan,
   type ProjectBrief,
   type ProjectRecord,
+  type PlanningFinding,
   type WorkflowState,
 } from "../../api/long-form.js";
 import { BriefEditor } from "./BriefEditor.js";
@@ -21,6 +22,7 @@ import { BibleWorkspace } from "./BibleWorkspace.js";
 import { RoutePlanWorkspace } from "./RoutePlanWorkspace.js";
 import { EndingPlanWorkspace } from "./EndingPlanWorkspace.js";
 import { MechanicsWorkspace } from "./MechanicsWorkspace.js";
+import { ArtifactHistory } from "./ArtifactHistory.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
@@ -46,6 +48,7 @@ export function LongFormWorkspace() {
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [validation, setValidation] = useState<PlanningFinding[]>([]);
 
   const openProject = async (projectId: string) => {
     const state = await loadLongFormProject(projectId);
@@ -60,6 +63,7 @@ export function LongFormWorkspace() {
     setEndingsWorkflow(state.workflow.endings);
     setMechanics(state.mechanics);
     setMechanicsWorkflow(state.workflow.mechanics);
+    setValidation(state.validation);
     localStorage.setItem(activeProjectKey, projectId);
   };
 
@@ -208,6 +212,22 @@ export function LongFormWorkspace() {
         })}
       </ol>
     </nav>
+
+    <section className="artifact-tools">
+      <ArtifactHistory
+        projectId={project.id}
+        artifactId={activeStage}
+        currentVersionId={(activeStage === "brief" ? brief : activeStage === "bible" ? bible : activeStage === "routes" ? routes : activeStage === "endings" ? endings : mechanics)?.id ?? ""}
+        onChanged={() => openProject(project.id)}
+      />
+      {validation.filter((finding) => finding.artifactId === activeStage).length > 0 && <details className="validation-panel" open>
+        <summary>Validation ({validation.filter((finding) => finding.artifactId === activeStage).length})</summary>
+        {validation.filter((finding) => finding.artifactId === activeStage).map((finding, index) =>
+          <p className={`validation-${finding.severity}`} key={`${finding.code}-${finding.path}-${index}`}>
+            <strong>{finding.severity}</strong> {finding.message}
+          </p>)}
+      </details>}
+    </section>
 
     {activeStage === "brief" ? <section className="artifact-pane">
       <header className="artifact-header">

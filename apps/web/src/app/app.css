@@ -148,6 +148,19 @@ textarea.source { min-height: 20rem; }
 .proposal-card.rejected, .proposal-card.superseded { opacity: .7; }
 .proposal-card header, .proposal-actions { display: flex; justify-content: space-between; gap: .5rem; }
 .proposal-card h3, .proposal-card p { margin: 0; }
+.proposal-groups { display: grid; gap: .45rem; }
+.proposal-group { display: flex; align-items: start; gap: .55rem; padding: .55rem; border: 1px solid #554b3d; border-radius: .5rem; background: #211e19; }
+.proposal-group span { display: grid; gap: .2rem; }
+.proposal-group small { color: #b8b0a3; }
+.artifact-tools { display: grid; gap: .65rem; }
+.artifact-history, .validation-panel { padding: .75rem 1rem; border: 1px solid #364258; border-radius: .7rem; background: #1c222f; }
+.history-controls { display: flex; flex-wrap: wrap; align-items: end; gap: .65rem; margin-top: .7rem; }
+.history-controls label { min-width: 8rem; }
+.history-json { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.history-json pre { max-height: 22rem; overflow: auto; white-space: pre-wrap; padding: .65rem; background: #11151d; border-radius: .45rem; font-size: .74rem; }
+.validation-error { color: #ff9f9f; }
+.validation-warning { color: #ffd18a; }
+.validation-info { color: #a8c7ff; }
 .proposal-preview { display: grid; grid-template-columns: auto 1fr; gap: .35rem .7rem; }
 .proposal-preview dt { color: #aeb7c6; }
 .proposal-preview dd { margin: 0; }
