@@ -4,8 +4,8 @@ import type { StoryDatabase } from "./database.js";
 export interface AssistantScope {
   kind: "project" | "artifact";
   projectId: string;
-  stage?: "brief" | "bible" | "routes";
-  artifactId?: "brief" | "bible" | "routes";
+  stage?: "brief" | "bible" | "routes" | "endings";
+  artifactId?: "brief" | "bible" | "routes" | "endings";
   versionId?: string;
 }
 
@@ -26,7 +26,7 @@ export interface MessageRecord {
   content: string;
   intent: "discuss" | "propose";
   scope: AssistantScope;
-  context: { briefVersionId?: string; bibleVersionId?: string; routesVersionId?: string };
+  context: { briefVersionId?: string; bibleVersionId?: string; routesVersionId?: string; endingsVersionId?: string };
   metadata: Record<string, unknown>;
   createdAt: string;
 }

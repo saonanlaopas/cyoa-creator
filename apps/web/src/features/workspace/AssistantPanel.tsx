@@ -12,6 +12,7 @@ import {
   type ConversationRecord,
   type LongFormStoryBible,
   type LongFormRoutePlan,
+  type LongFormEndingPlan,
   type MessageRecord,
   type ProjectBrief,
   type ProjectRecord,
@@ -25,7 +26,8 @@ export function AssistantPanel(props: {
   brief: ArtifactVersion<ProjectBrief>;
   bible: ArtifactVersion<LongFormStoryBible> | null;
   routes: ArtifactVersion<LongFormRoutePlan> | null;
-  activeArtifact: "brief" | "bible" | "routes";
+  endings: ArtifactVersion<LongFormEndingPlan> | null;
+  activeArtifact: "brief" | "bible" | "routes" | "endings";
   onBriefApplied(): Promise<void>;
 }) {
   const [conversation, setConversation] = useState<ConversationRecord | null>(null);
@@ -65,10 +67,16 @@ export function AssistantPanel(props: {
     if (historyRef.current) historyRef.current.scrollTop = historyRef.current.scrollHeight;
   }, [messages, proposals]);
 
-  const artifactFor = (selection: "brief" | "bible" | "routes") =>
-    selection === "routes" ? props.routes : selection === "bible" ? props.bible : props.brief;
+  const artifactFor = (selection: "brief" | "bible" | "routes" | "endings") =>
+    selection === "endings"
+      ? props.endings
+      : selection === "routes"
+        ? props.routes
+        : selection === "bible"
+          ? props.bible
+          : props.brief;
 
-  const changeScope = async (selection: "project" | "brief" | "bible" | "routes") => {
+  const changeScope = async (selection: "project" | "brief" | "bible" | "routes" | "endings") => {
     if (!conversation) return;
     const selected = selection === "project" ? null : artifactFor(selection);
     if (selection !== "project" && !selected) return;
@@ -108,12 +116,15 @@ export function AssistantPanel(props: {
     props.brief.id,
     props.bible?.id,
     props.routes?.id,
+    props.endings?.id,
     busy,
   ]);
 
   const currentArtifact = artifactFor(props.activeArtifact);
-  const artifactLabel = props.activeArtifact === "routes"
-    ? "route architecture"
+  const artifactLabel = props.activeArtifact === "endings"
+    ? "ending architecture"
+    : props.activeArtifact === "routes"
+      ? "route architecture"
     : props.activeArtifact === "bible"
       ? "story bible"
       : "project brief";
@@ -194,11 +205,12 @@ export function AssistantPanel(props: {
         <select
           value={conversation?.scope.kind === "project" ? "project" : conversation?.scope.artifactId ?? props.activeArtifact}
           disabled={!conversation || busy}
-          onChange={(event) => void changeScope(event.target.value as "project" | "brief" | "bible" | "routes")}
+          onChange={(event) => void changeScope(event.target.value as "project" | "brief" | "bible" | "routes" | "endings")}
         >
           <option value="brief">Project brief · version {props.brief.version}</option>
           {props.bible && <option value="bible">Story bible · version {props.bible.version}</option>}
           {props.routes && <option value="routes">Route architecture · version {props.routes.version}</option>}
+          {props.endings && <option value="endings">Ending architecture · version {props.endings.version}</option>}
           <option value="project">Whole project</option>
         </select>
       </label>
@@ -215,8 +227,10 @@ export function AssistantPanel(props: {
       {proposals.map((proposal) => <ProposalCard
         key={proposal.id}
         proposal={proposal}
-        currentVersionId={proposal.artifactId === "routes"
-          ? props.routes?.id ?? ""
+        currentVersionId={proposal.artifactId === "endings"
+          ? props.endings?.id ?? ""
+          : proposal.artifactId === "routes"
+            ? props.routes?.id ?? ""
           : proposal.artifactId === "bible"
             ? props.bible?.id ?? ""
             : props.brief.id}
@@ -296,9 +310,10 @@ function ProposalCard(props: {
   const bible = props.proposal.artifactId === "bible" ? candidate as LongFormStoryBible : null;
   const brief = props.proposal.artifactId === "brief" ? candidate as ProjectBrief : null;
   const routes = props.proposal.artifactId === "routes" ? candidate as LongFormRoutePlan : null;
+  const endings = props.proposal.artifactId === "endings" ? candidate as LongFormEndingPlan : null;
   return <article className={`proposal-card ${props.proposal.status}`}>
     <header>
-      <strong>{props.proposal.artifactId === "routes" ? "Routes" : props.proposal.artifactId === "bible" ? "Bible" : "Brief"} change proposal</strong>
+      <strong>{props.proposal.artifactId === "endings" ? "Endings" : props.proposal.artifactId === "routes" ? "Routes" : props.proposal.artifactId === "bible" ? "Bible" : "Brief"} change proposal</strong>
       <span>{stale ? "outdated" : props.proposal.status}</span>
     </header>
     <h3>{props.proposal.summary}</h3>
@@ -327,6 +342,12 @@ function ProposalCard(props: {
           <dt>Acts</dt><dd>{routes.acts.length}</dd>
           <dt>Allocated words</dt><dd>{routes.acts.reduce((total, act) => total + act.wordTarget, 0).toLocaleString()}</dd>
           <dt>Ending hooks</dt><dd>{routes.endingHooks.length}</dd>
+        </>}
+        {endings && <>
+          <dt>Title</dt><dd>{endings.title}</dd>
+          <dt>Endings</dt><dd>{endings.endings.length}</dd>
+          <dt>Ending words</dt><dd>{endings.endingWordTarget.toLocaleString()}</dd>
+          <dt>Variants</dt><dd>{endings.endings.reduce((total, ending) => total + ending.variants.length, 0)}</dd>
         </>}
       </dl>
     </details>

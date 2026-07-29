@@ -241,4 +241,85 @@ describe("long-form project brief", () => {
     expect(reloaded.routes.stale).toBe(true);
     await app.close();
   });
+
+  it("promotes route hooks into detailed, budgeted, versioned endings", async () => {
+    const app = buildApp();
+    const created = (await app.inject({
+      method: "POST", url: "/api/long-form/projects", payload: { name: "Ending Project" },
+    })).json();
+    const projectId = created.project.id as string;
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`,
+      payload: { versionId: created.brief.id },
+    });
+    const bible = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/bible`,
+    })).json();
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/bible/approve`,
+      payload: { versionId: bible.bible.id },
+    });
+    const routes = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/routes`,
+    })).json();
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/endings`,
+    })).statusCode).toBe(409);
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/routes/approve`,
+      payload: { versionId: routes.routes.id },
+    });
+
+    const createdEndings = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/endings`,
+    });
+    expect(createdEndings.statusCode).toBe(201);
+    const plan = createdEndings.json().endings.content;
+    expect(plan.endings).toHaveLength(routes.routes.content.endingHooks.length);
+    expect(plan.endings.reduce((total: number, ending: { wordTarget: number }) => total + ending.wordTarget, 0))
+      .toBe(plan.endingWordTarget);
+
+    const incomplete = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/endings`,
+      payload: { ...plan, endings: plan.endings.slice(1) },
+    })).json();
+    const blockedApproval = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/endings/approve`,
+      payload: { versionId: incomplete.endings.id },
+    });
+    expect(blockedApproval.statusCode).toBe(409);
+    expect(blockedApproval.json().error).toContain("hook");
+
+    const saved = await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/endings`,
+      payload: {
+        ...plan,
+        endings: plan.endings.map((ending: { id: string }) => ending.id === "ending-1"
+          ? { ...ending, title: "Forgiveness", summary: "The protagonist chooses repair.", thematicPayoff: "Accountability permits change.", requirements: ["Chose honesty"] }
+          : ending),
+      },
+    });
+    expect(saved.statusCode).toBe(201);
+    const endingVersionId = saved.json().endings.id as string;
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/endings/approve`,
+      payload: { versionId: endingVersionId },
+    });
+    const markdown = await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/endings/export?format=markdown`,
+    });
+    expect(markdown.body).toContain("## Forgiveness");
+    expect(markdown.body).toContain("Chose honesty");
+
+    await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/routes`,
+      payload: { ...routes.routes.content, overview: "Revised routes." },
+    });
+    const reloaded = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}`,
+    })).json();
+    expect(reloaded.workflow.endings.status).toBe("stale");
+    expect(reloaded.endings.stale).toBe(true);
+    await app.close();
+  });
 });

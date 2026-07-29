@@ -130,6 +130,35 @@ export interface LongFormRoutePlan {
   unresolvedQuestions: Array<{ id: string; question: string; answer: string }>;
 }
 
+export interface EndingOutcome {
+  id: string;
+  hookId: string;
+  routeId: string;
+  title: string;
+  type: "success" | "partial" | "failure" | "special";
+  summary: string;
+  thematicPayoff: string;
+  wordTarget: number;
+  requirements: string[];
+  exclusions: string[];
+  contributingDecisionIds: string[];
+  foreshadowing: string[];
+  characterOutcomes: Array<{ characterId: string; outcome: string }>;
+  relationshipOutcomes: Array<{ relationshipId: string; outcome: string }>;
+  stateConsequences: string[];
+  variants: Array<{ id: string; label: string; requirements: string[]; differences: string[] }>;
+}
+
+export interface LongFormEndingPlan {
+  schemaVersion: 1;
+  title: string;
+  overview: string;
+  projectWordTarget: number;
+  endingWordTarget: number;
+  endings: EndingOutcome[];
+  unresolvedQuestions: Array<{ id: string; question: string; answer: string }>;
+}
+
 export interface ArtifactVersion<T> {
   id: string;
   projectId: string;
@@ -153,14 +182,17 @@ export interface LongFormProjectState {
   brief: ArtifactVersion<ProjectBrief>;
   bible: ArtifactVersion<LongFormStoryBible> | null;
   routes: ArtifactVersion<LongFormRoutePlan> | null;
-  workflow: WorkflowState | { brief: WorkflowState; bible: WorkflowState; routes: WorkflowState };
+  endings: ArtifactVersion<LongFormEndingPlan> | null;
+  workflow: WorkflowState | {
+    brief: WorkflowState; bible: WorkflowState; routes: WorkflowState; endings: WorkflowState;
+  };
 }
 
 export interface AssistantScope {
   kind: "project" | "artifact";
   projectId: string;
-  stage?: "brief" | "bible" | "routes";
-  artifactId?: "brief" | "bible" | "routes";
+  stage?: "brief" | "bible" | "routes" | "endings";
+  artifactId?: "brief" | "bible" | "routes" | "endings";
   versionId?: string;
 }
 
@@ -181,7 +213,9 @@ export interface MessageRecord {
   content: string;
   intent: "discuss" | "propose";
   scope: AssistantScope;
-  context: { briefVersionId?: string; bibleVersionId?: string; routesVersionId?: string };
+  context: {
+    briefVersionId?: string; bibleVersionId?: string; routesVersionId?: string; endingsVersionId?: string;
+  };
   metadata: Record<string, unknown>;
   createdAt: string;
 }
@@ -195,7 +229,7 @@ export interface ChangeSetRecord {
   status: "proposed" | "applied" | "rejected" | "superseded";
   summary: string;
   rationale: string;
-  candidate: ProjectBrief | LongFormStoryBible | LongFormRoutePlan;
+  candidate: ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan;
   invalidations: string[];
   appliedVersionId: string | null;
   createdAt: string;
@@ -231,7 +265,8 @@ export async function loadLongFormProject(projectId: string): Promise<{
   brief: ArtifactVersion<ProjectBrief>;
   bible: ArtifactVersion<LongFormStoryBible> | null;
   routes: ArtifactVersion<LongFormRoutePlan> | null;
-  workflow: { brief: WorkflowState; bible: WorkflowState; routes: WorkflowState };
+  endings: ArtifactVersion<LongFormEndingPlan> | null;
+  workflow: { brief: WorkflowState; bible: WorkflowState; routes: WorkflowState; endings: WorkflowState };
 }> {
   return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}`));
 }
@@ -311,6 +346,32 @@ export async function approveRoutePlan(projectId: string, versionId: string): Pr
   }));
 }
 
+export async function createEndingPlan(projectId: string): Promise<{
+  endings: ArtifactVersion<LongFormEndingPlan>;
+  workflow: WorkflowState;
+}> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/endings`, { method: "POST" }));
+}
+
+export async function saveEndingPlan(projectId: string, endings: LongFormEndingPlan): Promise<{
+  endings: ArtifactVersion<LongFormEndingPlan>;
+  workflow: WorkflowState;
+}> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/endings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(endings),
+  }));
+}
+
+export async function approveEndingPlan(projectId: string, versionId: string): Promise<WorkflowState> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/endings/approve`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ versionId }),
+  }));
+}
+
 export async function downloadBrief(projectId: string, format: "markdown" | "json"): Promise<void> {
   const response = await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/brief/export?format=${format}`);
   if (!response.ok) throw new Error("Could not export the project brief");
@@ -343,6 +404,18 @@ export async function downloadRoutePlan(projectId: string, format: "markdown" | 
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = `${projectId}-routes.${format === "markdown" ? "md" : "json"}`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadEndingPlan(projectId: string, format: "markdown" | "json"): Promise<void> {
+  const response = await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/endings/export?format=${format}`);
+  if (!response.ok) throw new Error("Could not export the ending architecture");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${projectId}-endings.${format === "markdown" ? "md" : "json"}`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -405,7 +478,7 @@ export async function sendConversationMessage(input: {
 
 export async function applyProposal(projectId: string, conversationId: string, proposalId: string): Promise<{
   changeSet: ChangeSetRecord;
-  version: ArtifactVersion<ProjectBrief | LongFormStoryBible | LongFormRoutePlan>;
+  version: ArtifactVersion<ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan>;
 }> {
   return json(await fetch(
     `${conversationBase(projectId)}/${encodeURIComponent(conversationId)}/proposals/${encodeURIComponent(proposalId)}/apply`,

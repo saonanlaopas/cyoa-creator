@@ -2,11 +2,14 @@ import type { FastifyInstance } from "fastify";
 import {
   defaultLongFormStoryBible,
   defaultLongFormRoutePlan,
+  defaultLongFormEndingPlan,
   defaultProjectBrief,
   LongFormRoutePlanSchema,
+  LongFormEndingPlanSchema,
   LongFormStoryBibleSchema,
   ProjectBriefSchema,
   type LongFormRoutePlan,
+  type LongFormEndingPlan,
   type LongFormStoryBible,
   type ProjectBrief,
 } from "@story-to-cyoa/pipeline";
@@ -22,6 +25,25 @@ interface ProjectParams {
 
 function markdownList(values: string[]): string {
   return values.length ? values.map((value) => `- ${value}`).join("\n") : "_None yet._";
+}
+
+function endingReferenceError(plan: LongFormEndingPlan, routes: LongFormRoutePlan): string | null {
+  const routeIds = new Set(routes.routes.map((route) => route.id));
+  const hooks = new Map(routes.endingHooks.map((hook) => [hook.id, hook]));
+  for (const ending of plan.endings) {
+    const hook = hooks.get(ending.hookId);
+    if (!routeIds.has(ending.routeId) || !hook || hook.routeId !== ending.routeId) {
+      return `Ending "${ending.title}" no longer matches an approved route hook`;
+    }
+  }
+  const mappedHooks = new Set(plan.endings.map((ending) => ending.hookId));
+  if (routes.endingHooks.some((hook) => !mappedHooks.has(hook.id))) {
+    return "Every approved route ending hook must have a detailed ending";
+  }
+  if (routes.routes.some((route) => !plan.endings.some((ending) => ending.routeId === route.id))) {
+    return "Every major route must have at least one ending";
+  }
+  return null;
 }
 
 export function renderBriefMarkdown(brief: ProjectBrief): string {
@@ -231,6 +253,57 @@ export function renderRoutePlanMarkdown(plan: LongFormRoutePlan): string {
   ].join("\n");
 }
 
+export function renderEndingPlanMarkdown(plan: LongFormEndingPlan): string {
+  const allocated = plan.endings.reduce((total, ending) => total + ending.wordTarget, 0);
+  return [
+    `# ${plan.title}`,
+    "",
+    plan.overview || "_Overview not written yet._",
+    "",
+    "## Ending budget",
+    "",
+    `- Project words: ${plan.projectWordTarget.toLocaleString("en-US")}`,
+    `- Ending subset target: ${plan.endingWordTarget.toLocaleString("en-US")}`,
+    `- Allocated: ${allocated.toLocaleString("en-US")}`,
+    "",
+    ...plan.endings.flatMap((ending) => [
+      `## ${ending.title}`,
+      "",
+      `- Route: \`${ending.routeId}\``,
+      `- Type: ${ending.type}`,
+      `- Word target: ${ending.wordTarget.toLocaleString("en-US")}`,
+      `- Route hook: \`${ending.hookId}\``,
+      "",
+      ending.summary || "_Outcome summary not written yet._",
+      "",
+      `**Thematic payoff:** ${ending.thematicPayoff || "Not set"}`,
+      "",
+      `**Requirements:** ${ending.requirements.join("; ") || "None yet"}`,
+      "",
+      `**Exclusions:** ${ending.exclusions.join("; ") || "None yet"}`,
+      "",
+      `**Contributing decisions:** ${ending.contributingDecisionIds.join(", ") || "None yet"}`,
+      "",
+      `**Foreshadowing:** ${ending.foreshadowing.join("; ") || "None yet"}`,
+      "",
+      `**Character outcomes:** ${ending.characterOutcomes.map((item) => `${item.characterId}: ${item.outcome}`).join("; ") || "None yet"}`,
+      "",
+      `**Relationship outcomes:** ${ending.relationshipOutcomes.map((item) => `${item.relationshipId}: ${item.outcome}`).join("; ") || "None yet"}`,
+      "",
+      `**State consequences:** ${ending.stateConsequences.join("; ") || "None yet"}`,
+      "",
+      `**Variants:** ${ending.variants.map((variant) => variant.label).join("; ") || "None yet"}`,
+      "",
+    ]),
+    "## Unresolved questions",
+    "",
+    ...(plan.unresolvedQuestions.length
+      ? plan.unresolvedQuestions.map((item) => `- ${item.question}${item.answer ? ` — ${item.answer}` : ""}`)
+      : ["_None yet._"]),
+    "",
+  ].join("\n");
+}
+
 export function registerLongFormRoutes(
   app: FastifyInstance,
   projects: ProjectRepository,
@@ -266,10 +339,12 @@ export function registerLongFormRoutes(
       brief: artifacts.getCurrent<ProjectBrief>(project.id, "brief") ?? null,
       bible: artifacts.getCurrent<LongFormStoryBible>(project.id, "bible") ?? null,
       routes: artifacts.getCurrent<LongFormRoutePlan>(project.id, "routes") ?? null,
+      endings: artifacts.getCurrent<LongFormEndingPlan>(project.id, "endings") ?? null,
       workflow: {
         brief: workflow.get(project.id, "brief"),
         bible: workflow.get(project.id, "bible"),
         routes: workflow.get(project.id, "routes"),
+        endings: workflow.get(project.id, "endings"),
       },
     };
   });
@@ -289,6 +364,7 @@ export function registerLongFormRoutes(
         });
         if (artifacts.getCurrent(project.id, "bible")) workflow.markStale(project.id, "bible");
         if (artifacts.getCurrent(project.id, "routes")) workflow.markStale(project.id, "routes");
+        if (artifacts.getCurrent(project.id, "endings")) workflow.markStale(project.id, "endings");
         return reply.code(201).send({ brief, workflow: workflow.markDraft(project.id, "brief") });
       } catch (error) {
         return reply.code(400).send({ error: (error as Error).message });
@@ -345,6 +421,7 @@ export function registerLongFormRoutes(
           dependencies: ["brief", "source"],
         });
         if (artifacts.getCurrent(project.id, "routes")) workflow.markStale(project.id, "routes");
+        if (artifacts.getCurrent(project.id, "endings")) workflow.markStale(project.id, "endings");
         return reply.code(201).send({ bible, workflow: workflow.markDraft(project.id, "bible") });
       } catch (error) {
         return reply.code(400).send({ error: (error as Error).message });
@@ -438,6 +515,7 @@ export function registerLongFormRoutes(
           content: request.body,
           dependencies: ["brief", "bible"],
         });
+        if (artifacts.getCurrent(project.id, "endings")) workflow.markStale(project.id, "endings");
         return reply.code(201).send({ routes, workflow: workflow.markDraft(project.id, "routes") });
       } catch (error) {
         return reply.code(400).send({ error: (error as Error).message });
@@ -479,6 +557,103 @@ export function registerLongFormRoutes(
           project: { id: project.id, name: project.name, mode: project.mode },
           artifact: routes,
           workflow: workflow.get(project.id, "routes"),
+        });
+    },
+  );
+
+  app.post<{ Params: ProjectParams }>(
+    "/api/long-form/projects/:projectId/endings",
+    async (request, reply) => {
+      const project = longFormProject(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
+      if (artifacts.getCurrent(project.id, "endings")) {
+        return reply.code(409).send({ error: "Ending architecture already exists" });
+      }
+      const routeState = workflow.get(project.id, "routes");
+      const approvedRoutes = routeState.approvedVersionId
+        ? artifacts.getVersion<LongFormRoutePlan>(routeState.approvedVersionId)
+        : undefined;
+      if (!approvedRoutes) return reply.code(409).send({ error: "Approve the route architecture first" });
+      const endings = artifacts.saveArtifact({
+        projectId: project.id,
+        artifactId: "endings",
+        artifactType: "endings",
+        schema: LongFormEndingPlanSchema,
+        content: defaultLongFormEndingPlan(approvedRoutes.content),
+        dependencies: ["routes"],
+      });
+      return reply.code(201).send({ endings, workflow: workflow.markDraft(project.id, "endings") });
+    },
+  );
+
+  app.put<{ Params: ProjectParams; Body: LongFormEndingPlan }>(
+    "/api/long-form/projects/:projectId/endings",
+    async (request, reply) => {
+      const project = longFormProject(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
+      if (!artifacts.getCurrent(project.id, "endings")) {
+        return reply.code(409).send({ error: "Create the ending architecture first" });
+      }
+      try {
+        const endings = artifacts.saveArtifact({
+          projectId: project.id,
+          artifactId: "endings",
+          artifactType: "endings",
+          schema: LongFormEndingPlanSchema,
+          content: request.body,
+          dependencies: ["routes"],
+        });
+        return reply.code(201).send({ endings, workflow: workflow.markDraft(project.id, "endings") });
+      } catch (error) {
+        return reply.code(400).send({ error: (error as Error).message });
+      }
+    },
+  );
+
+  app.post<{ Params: ProjectParams; Body: { versionId?: string } }>(
+    "/api/long-form/projects/:projectId/endings/approve",
+    async (request, reply) => {
+      const project = longFormProject(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
+      const versionId = request.body?.versionId ?? artifacts.getCurrent(project.id, "endings")?.id;
+      if (!versionId) return reply.code(404).send({ error: "Ending architecture not found" });
+      try {
+        const endingVersion = artifacts.getVersion<LongFormEndingPlan>(versionId);
+        const routeVersionId = workflow.get(project.id, "routes").approvedVersionId;
+        const routeVersion = routeVersionId
+          ? artifacts.getVersion<LongFormRoutePlan>(routeVersionId)
+          : undefined;
+        if (!endingVersion || !routeVersion) {
+          return reply.code(409).send({ error: "Approve the route architecture before approving endings" });
+        }
+        const referenceError = endingReferenceError(endingVersion.content, routeVersion.content);
+        if (referenceError) return reply.code(409).send({ error: referenceError });
+        return workflow.approve(project.id, "endings", versionId);
+      } catch (error) {
+        return reply.code(404).send({ error: (error as Error).message });
+      }
+    },
+  );
+
+  app.get<{ Params: ProjectParams; Querystring: { format?: string } }>(
+    "/api/long-form/projects/:projectId/endings/export",
+    async (request, reply) => {
+      const project = longFormProject(request.params.projectId);
+      const endings = project && artifacts.getCurrent<LongFormEndingPlan>(project.id, "endings");
+      if (!project || !endings) return reply.code(404).send({ error: "Ending architecture not found" });
+      if (request.query.format === "markdown") {
+        return reply
+          .header("content-type", "text/markdown; charset=utf-8")
+          .header("content-disposition", `attachment; filename="${project.id}-endings.md"`)
+          .send(renderEndingPlanMarkdown(endings.content));
+      }
+      return reply
+        .header("content-type", "application/json; charset=utf-8")
+        .header("content-disposition", `attachment; filename="${project.id}-endings.json"`)
+        .send({
+          project: { id: project.id, name: project.name, mode: project.mode },
+          artifact: endings,
+          workflow: workflow.get(project.id, "endings"),
         });
     },
   );

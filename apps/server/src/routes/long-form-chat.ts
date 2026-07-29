@@ -2,12 +2,15 @@ import type { FastifyInstance } from "fastify";
 import type { OpenRouterClient, ReasoningEvent } from "@story-to-cyoa/openrouter";
 import {
   BibleAssistantResponseSchema,
+  EndingPlanAssistantResponseSchema,
+  LongFormEndingPlanSchema,
   LongFormRoutePlanSchema,
   LongFormStoryBibleSchema,
   ProjectBriefAssistantResponseSchema,
   ProjectBriefSchema,
   RoutePlanAssistantResponseSchema,
   type LongFormRoutePlan,
+  type LongFormEndingPlan,
   type LongFormStoryBible,
   type ProjectBrief,
 } from "@story-to-cyoa/pipeline";
@@ -23,7 +26,7 @@ interface ProjectParams { projectId: string }
 interface ConversationParams extends ProjectParams { conversationId: string }
 interface ProposalParams extends ConversationParams { proposalId: string }
 
-type PlanningArtifactId = "brief" | "bible" | "routes";
+type PlanningArtifactId = "brief" | "bible" | "routes" | "endings";
 
 function artifactScope(projectId: string, artifactId: PlanningArtifactId, versionId: string): AssistantScope {
   return { kind: "artifact", projectId, stage: artifactId, artifactId, versionId };
@@ -32,11 +35,12 @@ function artifactScope(projectId: string, artifactId: PlanningArtifactId, versio
 function assistantPrompt(input: {
   intent: "discuss" | "propose";
   scope: AssistantScope;
-  selectedArtifact: { label: string; content: ProjectBrief | LongFormStoryBible | LongFormRoutePlan };
+  selectedArtifact: { label: string; content: ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan };
   projectContext: {
     brief: ProjectBrief;
     bible: LongFormStoryBible | null;
     routes: LongFormRoutePlan | null;
+    endings: LongFormEndingPlan | null;
   };
   recentMessages: Array<{ role: "user" | "assistant"; content: string }>;
   message: string;
@@ -133,7 +137,7 @@ export function registerLongFormChatRoutes(
         const version = scope.versionId ? artifacts.getVersion(scope.versionId) : undefined;
         if (
           !scope.artifactId
-          || !["brief", "bible", "routes"].includes(scope.artifactId)
+          || !["brief", "bible", "routes", "endings"].includes(scope.artifactId)
           || scope.stage !== scope.artifactId
           || !version
           || version.projectId !== request.params.projectId
@@ -159,6 +163,7 @@ export function registerLongFormChatRoutes(
     if (!currentBrief) return reply.code(409).send({ error: "Project brief not found" });
     const currentBible = artifacts.getCurrent<LongFormStoryBible>(request.params.projectId, "bible");
     const currentRoutes = artifacts.getCurrent<LongFormRoutePlan>(request.params.projectId, "routes");
+    const currentEndings = artifacts.getCurrent<LongFormEndingPlan>(request.params.projectId, "endings");
     const content = request.body?.content?.trim() ?? "";
     const intent = request.body?.intent === "propose" ? "propose" : "discuss";
     if (!content) return reply.code(400).send({ error: "Message is required" });
@@ -169,8 +174,10 @@ export function registerLongFormChatRoutes(
     const selectedArtifactId = conversation.scope.kind === "artifact"
       ? conversation.scope.artifactId ?? "brief"
       : "brief";
-    const selectedArtifact = selectedArtifactId === "routes"
-      ? currentRoutes
+    const selectedArtifact = selectedArtifactId === "endings"
+      ? currentEndings
+      : selectedArtifactId === "routes"
+        ? currentRoutes
       : selectedArtifactId === "bible"
         ? currentBible
         : currentBrief;
@@ -185,6 +192,7 @@ export function registerLongFormChatRoutes(
       briefVersionId: currentBrief.id,
       ...(currentBible ? { bibleVersionId: currentBible.id } : {}),
       ...(currentRoutes ? { routesVersionId: currentRoutes.id } : {}),
+      ...(currentEndings ? { endingsVersionId: currentEndings.id } : {}),
     };
     const userMessage = conversations.addMessage({
       conversationId: conversation.id,
@@ -209,8 +217,10 @@ export function registerLongFormChatRoutes(
               intent,
               scope,
               selectedArtifact: {
-                label: selectedArtifactId === "routes"
-                  ? "route architecture"
+                label: selectedArtifactId === "endings"
+                  ? "ending architecture"
+                  : selectedArtifactId === "routes"
+                    ? "route architecture"
                   : selectedArtifactId === "bible"
                     ? "story bible"
                     : "project brief",
@@ -220,6 +230,7 @@ export function registerLongFormChatRoutes(
                 brief: currentBrief.content,
                 bible: currentBible?.content ?? null,
                 routes: currentRoutes?.content ?? null,
+                endings: currentEndings?.content ?? null,
               },
               recentMessages,
               message: content,
@@ -232,8 +243,10 @@ export function registerLongFormChatRoutes(
         maxRepairAttempts: 1 as const,
       };
       const callbacks = { onReasoning: (event: ReasoningEvent) => activity.push({ kind: event.kind }) };
-      const generation = selectedArtifactId === "routes"
-        ? await client.generateStructuredStream(generationRequest, RoutePlanAssistantResponseSchema, callbacks)
+      const generation = selectedArtifactId === "endings"
+        ? await client.generateStructuredStream(generationRequest, EndingPlanAssistantResponseSchema, callbacks)
+        : selectedArtifactId === "routes"
+          ? await client.generateStructuredStream(generationRequest, RoutePlanAssistantResponseSchema, callbacks)
         : selectedArtifactId === "bible"
           ? await client.generateStructuredStream(generationRequest, BibleAssistantResponseSchema, callbacks)
           : await client.generateStructuredStream(generationRequest, ProjectBriefAssistantResponseSchema, callbacks);
@@ -288,8 +301,10 @@ export function registerLongFormChatRoutes(
         return reply.code(404).send({ error: "Proposal not found" });
       }
       try {
-        const applied = proposal.artifactId === "routes"
-          ? changeSets.apply(request.params.proposalId, LongFormRoutePlanSchema)
+        const applied = proposal.artifactId === "endings"
+          ? changeSets.apply(request.params.proposalId, LongFormEndingPlanSchema)
+          : proposal.artifactId === "routes"
+            ? changeSets.apply(request.params.proposalId, LongFormRoutePlanSchema)
           : proposal.artifactId === "bible"
             ? changeSets.apply(request.params.proposalId, LongFormStoryBibleSchema)
             : changeSets.apply(request.params.proposalId, ProjectBriefSchema);
