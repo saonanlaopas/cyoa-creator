@@ -42,3 +42,30 @@ test("offline non-JSON provider failure exposes a redacted diagnostic", async ({
   await page.getByRole("button", { name: "View full response" }).click();
   await expect(page.getByText("Bearer [REDACTED]")).toBeVisible();
 });
+
+test("long-form workspace persists and approves a project brief", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Long-form workspace" }).click();
+  await page.getByLabel("Working title").fill("The Long-form E2E Project");
+  await page.getByRole("button", { name: "Create project" }).click();
+
+  await expect(page.getByRole("heading", { name: "Project brief" })).toBeVisible();
+  await expect(page.getByLabel("Total words")).toHaveValue("175000");
+  await expect(page.getByText("Project brief · version 1")).toBeVisible();
+
+  await page.getByPlaceholder("What is this adaptation or original story about?").fill(
+    "A student discovers why an apparently easy course has no surviving graduates.",
+  );
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByText("Draft saved locally.")).toBeVisible();
+  await expect(page.getByText("Project brief · version 2")).toBeVisible();
+
+  await page.getByRole("button", { name: "Approve brief" }).click();
+  await expect(page.getByText("Project brief approved. Story-bible work will be the next stage.")).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Project brief" })).toBeVisible();
+  await expect(page.getByPlaceholder("What is this adaptation or original story about?")).toHaveValue(
+    "A student discovers why an apparently easy course has no surviving graduates.",
+  );
+});

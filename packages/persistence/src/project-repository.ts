@@ -5,28 +5,30 @@ import { transaction } from "./database.js";
 export interface ProjectRecord {
   id: string;
   name: string;
+  mode: "quick" | "long-form";
   archived: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
-type ProjectRow = { id: string; name: string; archived: number; created_at: string; updated_at: string };
+type ProjectRow = { id: string; name: string; mode: "quick" | "long-form"; archived: number; created_at: string; updated_at: string };
 
 const mapProject = (row: ProjectRow): ProjectRecord => ({
-  id: row.id, name: row.name, archived: Boolean(row.archived),
+  id: row.id, name: row.name, mode: row.mode, archived: Boolean(row.archived),
   createdAt: row.created_at, updatedAt: row.updated_at,
 });
 
 export class ProjectRepository {
   constructor(private readonly database: StoryDatabase) {}
 
-  create(name: string, id = randomUUID()): ProjectRecord {
+  create(name: string, id = randomUUID(), mode: ProjectRecord["mode"] = "quick"): ProjectRecord {
     const cleanName = name.trim();
     if (!cleanName) throw new Error("Project name is required");
+    if (mode !== "quick" && mode !== "long-form") throw new Error("Project mode is invalid");
     const now = new Date().toISOString();
     this.database.prepare(
-      "INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-    ).run(id, cleanName, now, now);
+      "INSERT INTO projects (id, name, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(id, cleanName, mode, now, now);
     return this.get(id)!;
   }
 
@@ -64,7 +66,7 @@ export class ProjectRepository {
     const source = this.get(id);
     if (!source) throw new Error("Project not found");
     return transaction(this.database, () => {
-      const copy = this.create(name ?? `${source.name} (copy)`);
+      const copy = this.create(name ?? `${source.name} (copy)`, randomUUID(), source.mode);
       const versions = this.database.prepare(`
         SELECT av.* FROM artifact_versions av
         JOIN (

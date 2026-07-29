@@ -5,3 +5,4 @@ export * from "./job-repository.js";
 export * from "./migrate.js";
 export * from "./project-repository.js";
 export * from "./schema.js";
+export * from "./workflow-repository.js";

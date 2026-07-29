@@ -17,6 +17,7 @@ describe("createE2EWebServerEnv", () => {
       SYSTEMROOT: "C:\\Windows",
       PORT: "3100",
       NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
       E2E_FAKE_MODEL_PROVIDER: "1",
     });
   });

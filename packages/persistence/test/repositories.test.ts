@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ArtifactRepository, JobRepository, openDatabase, ProjectRepository } from "../src/index.js";
+import { ArtifactRepository, JobRepository, openDatabase, ProjectRepository, WorkflowRepository } from "../src/index.js";
 
 describe("SQLite repositories", () => {
   it("supports projects, immutable versions, rollback, restore, checkpoints and usage", () => {
@@ -38,6 +38,29 @@ describe("SQLite repositories", () => {
     expect(artifacts.markDependentsStale(project.id, "source")).toEqual([
       "adaptation", "bible", "drafts", "export", "review", "routes",
     ]);
+    database.close();
+  });
+
+  it("persists project mode and an immutable approved artifact version", () => {
+    const database = openDatabase();
+    const projects = new ProjectRepository(database);
+    const artifacts = new ArtifactRepository(database);
+    const workflow = new WorkflowRepository(database);
+    const project = projects.create("Long story", undefined, "long-form");
+    const first = artifacts.saveArtifact({ projectId: project.id, artifactId: "brief", content: { title: "First" } });
+
+    expect(project.mode).toBe("long-form");
+    expect(workflow.markDraft(project.id, "brief")).toMatchObject({ status: "draft", approvedVersionId: null });
+    expect(workflow.approve(project.id, "brief", first.id)).toMatchObject({
+      status: "approved",
+      approvedVersionId: first.id,
+    });
+
+    artifacts.saveArtifact({ projectId: project.id, artifactId: "brief", content: { title: "Second" } });
+    expect(workflow.markDraft(project.id, "brief")).toMatchObject({
+      status: "draft",
+      approvedVersionId: first.id,
+    });
     database.close();
   });
 });

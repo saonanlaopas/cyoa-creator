@@ -3,9 +3,14 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'quick' CHECK(mode IN ('quick', 'long-form')),
   archived INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  applied_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS source_manifests (
   project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
@@ -29,6 +34,14 @@ CREATE TABLE IF NOT EXISTS artifact_versions (
 );
 CREATE INDEX IF NOT EXISTS artifact_versions_lookup
   ON artifact_versions(project_id, artifact_id, version DESC);
+CREATE TABLE IF NOT EXISTS artifact_workflow_state (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  artifact_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('empty', 'draft', 'reviewed', 'approved', 'stale')),
+  approved_version_id TEXT REFERENCES artifact_versions(id) ON DELETE SET NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, artifact_id)
+);
 CREATE TABLE IF NOT EXISTS artifact_dependencies (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   upstream_artifact_id TEXT NOT NULL,

@@ -7,6 +7,7 @@ export * from "./dependency-map.js";
 export * from "./schemas/story-bible.js";
 export * from "./schemas/adaptation-plan.js";
 export * from "./schemas/change-proposal.js";
+export * from "./schemas/project-brief.js";
 export * from "./stages/analyze-source.js";
 export * from "./stages/propose-adaptation.js";
 export * from "./stages/generate-routes.js";

@@ -1,7 +1,7 @@
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { ArtifactRepository, CommandRepository, JobRepository, openDatabase, ProjectRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, CommandRepository, JobRepository, openDatabase, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { JobRunner } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
@@ -23,6 +23,7 @@ import { registerCommandRoutes } from "./routes/commands.js";
 import { registerQuickDraftRoutes } from "./routes/quick-drafts.js";
 import { GenerationDiagnosticStore } from "./services/generation-diagnostic-store.js";
 import { createOfflineE2EClient } from "./services/fake-model-provider.js";
+import { registerLongFormRoutes } from "./routes/long-form.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -42,6 +43,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const projects = new ProjectRepository(database);
   const commands = new CommandRepository(database);
   const artifacts = new ArtifactRepository(database);
+  const workflow = new WorkflowRepository(database);
   const diagnostics = new GenerationDiagnosticStore();
   const runner = new JobRunner(new JobRepository(database));
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
@@ -65,6 +67,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }));
 
   registerProjectRoutes(app, projects, artifacts);
+  registerLongFormRoutes(app, projects, artifacts, workflow);
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024);

@@ -9,9 +9,13 @@ export function registerProjectRoutes(
   projects: ProjectRepository,
   artifacts: ArtifactRepository,
 ): void {
-  app.post<{ Body: { name?: string } }>("/api/projects", async (request, reply) => {
+  app.post<{ Body: { name?: string; mode?: "quick" | "long-form" } }>("/api/projects", async (request, reply) => {
     try {
-      return reply.code(201).send(projects.create(request.body?.name ?? ""));
+      return reply.code(201).send(projects.create(
+        request.body?.name ?? "",
+        undefined,
+        request.body?.mode ?? "quick",
+      ));
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
     }
