@@ -108,14 +108,13 @@ describe("quick generation stream", () => {
     await app.close();
   });
 
-  it("never streams source or secrets when reasoning arrives in short chunks", async () => {
+  it("streams provider reasoning while redacting key-shaped secrets", async () => {
     const fakeClient = new FakeStreamClient();
     fakeClient.projects = [validProject];
     fakeClient.reasoning = [
       { kind: "summary", text: source.slice(0, 25) },
       { kind: "summary", text: source.slice(25, 50) },
-      { kind: "summary", text: apiKey.slice(0, 18) },
-      { kind: "summary", text: apiKey.slice(18) },
+      { kind: "summary", text: apiKey },
     ];
     const app = buildApp({ openRouterClient: fakeClient as unknown as OpenRouterClient });
     const projectId = (await app.inject({ method: "POST", url: "/api/quick/drafts", payload: {} })).json().projectId as string;
@@ -126,8 +125,12 @@ describe("quick generation stream", () => {
     expect(reasoningEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "summary" }),
     ]));
-    expect(reasoningEvents.every((event) => !("text" in event))).toBe(true);
-    expect(JSON.stringify(events)).not.toContain(source.slice(0, 50));
+    expect(reasoningEvents.map((event) => event.text)).toEqual([
+      source.slice(0, 25),
+      source.slice(25, 50),
+      "[REDACTED]",
+    ]);
+    expect(JSON.stringify(events)).toContain(source.slice(0, 25));
     expect(JSON.stringify(events)).not.toContain(apiKey);
     await app.close();
   });

@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { ProjectSchema, validateGraph, type Project } from "@story-to-cyoa/domain";
 import { compileSugarCube, renderTwee } from "@story-to-cyoa/export-twine";
 import { importSource } from "@story-to-cyoa/importers";
-import { OpenRouterError, type CostRange, type GenerationAttempt, type GenerationUsage, type OpenRouterClient, type ReasoningEvent } from "@story-to-cyoa/openrouter";
+import { OpenRouterError, redactSecret, type CostRange, type GenerationAttempt, type GenerationUsage, type OpenRouterClient, type ReasoningEvent } from "@story-to-cyoa/openrouter";
 import type { ArtifactRepository, CommandRepository, ProjectRepository } from "@story-to-cyoa/persistence";
 import { GenerationDiagnosticStore } from "../services/generation-diagnostic-store.js";
 import type { GenerationStage, PublicGenerationError, QuickGenerationEvent } from "./quick-generation-events.js";
@@ -123,7 +123,7 @@ function publicError(error: unknown): PublicGenerationError {
   };
 }
 
-/** Browser activity intentionally exposes only provider event kinds, never reasoning text. */
+/** Streams provider-supplied reasoning while removing key-shaped secrets. */
 export function createReasoningActivityQueue(send: (event: ReasoningEvent) => void) {
   const queue: ReasoningEvent[] = [];
   let draining = false;
@@ -132,7 +132,9 @@ export function createReasoningActivityQueue(send: (event: ReasoningEvent) => vo
     draining = true;
     while (queue.length) {
       const event = queue.shift()!;
-      send({ kind: event.kind });
+      send(event.text === undefined
+        ? { kind: event.kind }
+        : { kind: event.kind, text: redactSecret(event.text) });
     }
     draining = false;
   };

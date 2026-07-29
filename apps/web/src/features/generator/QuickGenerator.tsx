@@ -234,7 +234,7 @@ export function QuickGenerator() {
           {busy ? "Designing and writing…" : "Generate CYOA"}
         </button>
       </div>
-      <p className="cost-note">Reasoning is enabled by default. Provider reasoning tokens can affect generation cost; provider text is withheld for privacy.</p>
+      <p className="cost-note">Reasoning is enabled by default. Provider reasoning tokens can affect generation cost; provider-supplied text is shown when available and is not saved.</p>
       {startedAt !== null && !generation && (busy || activityEvents.length > 0) && <GenerationActivity startedAt={startedAt} now={now} events={activityEvents} onCancel={busy ? cancelGeneration : undefined} />}
       {generationError && <GenerationErrorPanel
         error={generationError}

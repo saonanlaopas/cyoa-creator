@@ -25,7 +25,7 @@ Select **Forget key** to remove that stored encrypted key. `OPENROUTER_API_KEY` 
 
 Generation activity shows real server stages, elapsed time, received usage, validation, and bounded repair attempts; it does not show a made-up completion percentage. Select **Cancel generation** to stop the active local request when cancellation is still safe.
 
-**Show provider reasoning activity** is on by default. Reasoning tokens can affect cost. The app reports only the kind of OpenRouter activity received—text, summary, encrypted, or unavailable—and withholds raw provider reasoning text from the browser for privacy. It never represents unavailable, encrypted, or summarized provider activity as private model reasoning. Reasoning activity is session-only and is not saved in projects, exports, logs, or diagnostics.
+**Show provider reasoning activity** is on by default. Reasoning tokens can affect cost. The scrollable activity timeline displays provider-supplied reasoning text or summaries when OpenRouter makes them available. Encrypted or unavailable reasoning is labeled accurately rather than represented as displayable private reasoning. Reasoning activity is session-only and is not saved in projects, exports, logs, or diagnostics.
 
 The generator requests an existing-protagonist adaptation with visible stats, relationship state, meaningful divergence, controlled reconvergence, and multiple endings. It validates the structured output and branch graph, exposing any repair attempt in the activity timeline.
 

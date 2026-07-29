@@ -4,15 +4,18 @@ import { createReasoningActivityQueue } from "../src/routes/quick-generate.js";
 const source = "Mara returns to the flooded station before dawn carrying the brass key her father hid years ago.";
 
 describe("reasoning activity queue", () => {
-  it("never exposes raw source or secret text", () => {
+  it("shows provider text while redacting key-shaped secrets", () => {
     const events: Array<{ kind: string; text?: string }> = [];
     const queue = createReasoningActivityQueue((event) => events.push(event));
 
     queue.push({ kind: "text", text: source });
     queue.push({ kind: "summary", text: "sk-or-v1-test-secret-key-0123456789" });
 
-    expect(events).toEqual([{ kind: "text" }, { kind: "summary" }]);
-    expect(JSON.stringify(events)).not.toContain(source);
+    expect(events).toEqual([
+      { kind: "text", text: source },
+      { kind: "summary", text: "[REDACTED]" },
+    ]);
+    expect(JSON.stringify(events)).toContain(source);
     expect(JSON.stringify(events)).not.toContain("sk-or-v1-test-secret-key-0123456789");
   });
 
@@ -26,9 +29,9 @@ describe("reasoning activity queue", () => {
     queue.push({ kind: "unavailable" });
 
     expect(events).toEqual([
-      { kind: "summary" },
+      { kind: "summary", text: "first" },
       { kind: "encrypted" },
-      { kind: "text" },
+      { kind: "text", text: "second" },
       { kind: "unavailable" },
     ]);
   });
@@ -38,9 +41,9 @@ describe("reasoning activity queue", () => {
     const queue = createReasoningActivityQueue((event) => events.push(event));
 
     queue.push({ kind: "text", text: "provider is working" });
-    expect(events).toEqual([{ kind: "text" }]);
+    expect(events).toEqual([{ kind: "text", text: "provider is working" }]);
 
     queue.finish();
-    expect(events).toEqual([{ kind: "text" }]);
+    expect(events).toEqual([{ kind: "text", text: "provider is working" }]);
   });
 });

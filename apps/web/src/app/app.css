@@ -62,6 +62,9 @@ textarea.source { min-height: 20rem; }
 .generation-activity p { margin: 0; }
 .activity-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .generation-activity ol, .generation-activity ul { display: grid; gap: .45rem; margin: 0; padding-left: 1.35rem; }
+.generation-activity .activity-timeline { max-height: 22rem; overflow-y: auto; overscroll-behavior: contain; padding-top: .15rem; padding-right: .65rem; padding-bottom: .15rem; scrollbar-gutter: stable; }
+.generation-activity .reasoning-event { white-space: pre-wrap; overflow-wrap: anywhere; color: #dbe4f5; }
+.generation-activity .reasoning-event strong { color: #d5a963; }
 .generation-activity details { display: grid; gap: .6rem; }
 .generation-activity summary { cursor: pointer; color: #d5a963; font-weight: 700; }
 .generation-error { border-color: #a45b68; background: #321e28; }

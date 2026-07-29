@@ -151,7 +151,7 @@ function parseLine(line: string, onEvent: (event: QuickGenerationEvent) => void)
   if (!isQuickGenerationEvent(value)) {
     throw new LocalStreamError("The generation stream contained an invalid event.", line);
   }
-  onEvent(value.type === "reasoning" ? { ...value, text: undefined } : value);
+  onEvent(value);
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object";

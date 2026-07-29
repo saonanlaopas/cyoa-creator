@@ -39,7 +39,7 @@ describe("consumeNdjson", () => {
     ].join("\n")), (event) => events.push(event));
 
     expect(events.map((event) => event.type)).toEqual(["status", "reasoning", "usage", "validation", "repair", "result", "error"]);
-    expect(events[1]).toEqual({ type: "reasoning", kind: "summary", at: "t" });
+    expect(events[1]).toEqual({ type: "reasoning", kind: "summary", text: "sk-secret source text", at: "t" });
   });
 
   it("rejects malformed nested result data before it reaches the generator", async () => {

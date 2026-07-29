@@ -59,18 +59,19 @@ describe("QuickGenerator draft persistence", () => {
 });
 
 describe("generation activity and diagnostics", () => {
-  it("labels provider activity without rendering provider reasoning text", () => {
+  it("shows provider reasoning and accurately labels encrypted activity", () => {
     render(<GenerationActivity startedAt={0} now={65_000} events={[
       { type: "status", stage: "request", message: "Sending generation request", at: "t" },
-      { type: "reasoning", kind: "summary", text: "Never render this provider text.", at: "t" },
+      { type: "reasoning", kind: "summary", text: "Map three distinct routes.", at: "t" },
       { type: "reasoning", kind: "encrypted", at: "t" },
     ]} />);
 
     expect(screen.getByText("1:05 elapsed")).toBeTruthy();
     expect(screen.getByText("Sending generation request")).toBeTruthy();
-    expect(screen.getByText("Provider summary received; text withheld for privacy.")).toBeTruthy();
-    expect(screen.getByText("Encrypted provider reasoning received; text withheld for privacy.")).toBeTruthy();
-    expect(screen.queryByText("Never render this provider text.")).toBeNull();
+    expect(screen.getByText("Provider summary:")).toBeTruthy();
+    expect(screen.getByText("Map three distinct routes.")).toBeTruthy();
+    expect(screen.getByText("Encrypted provider reasoning received; no displayable text.")).toBeTruthy();
+    expect(screen.getByRole("list", { name: "Generation activity timeline" }).classList.contains("activity-timeline")).toBe(true);
   });
 
   it("loads safe diagnostics and confirms before copying source-containing evidence", async () => {
@@ -140,7 +141,7 @@ describe("generation activity and diagnostics", () => {
 
     expect(within(screen.getByRole("list", { name: "Generation activity timeline" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "Preparing project source",
-      "Provider summary received; text withheld for privacy.",
+      "Provider summary",
       "Usage updated: 12 input, 34 output tokens.",
       "Structured-output repair attempt 1.",
       "Schema validation: 1 finding.",
@@ -159,7 +160,7 @@ describe("QuickGenerator generation controls", () => {
       if (path === "/api/quick/generate") return new Response([
         '{"type":"status","stage":"request","message":"Sending generation request","at":"t"}',
         '{"type":"status","stage":"receiving","message":"Receiving streamed response","at":"t"}',
-        '{"type":"reasoning","kind":"summary","text":"do not expose this","at":"t"}',
+        '{"type":"reasoning","kind":"summary","text":"Check all route gates.","at":"t"}',
         '{"type":"error","error":{"code":"RATE_LIMITED","message":"OpenRouter generation failed.","retryable":true},"at":"t"}',
       ].join("\n"), { headers: { "content-type": "application/x-ndjson" } });
       return response([]);
@@ -174,11 +175,10 @@ describe("QuickGenerator generation controls", () => {
     expect(stages.map((item) => item.textContent)).toEqual([
       "Sending generation request",
       "Receiving streamed response",
-      "Provider summary received; text withheld for privacy.",
+      "Provider summary: Check all route gates.",
       "Generation failed: OpenRouter generation failed.",
     ]);
-    expect(screen.getByText("Provider summary received; text withheld for privacy.")).toBeTruthy();
-    expect(screen.queryByText("do not expose this")).toBeNull();
+    expect(screen.getByText("Check all route gates.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledWith("/api/quick/generate", expect.objectContaining({
       method: "POST",

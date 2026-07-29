@@ -11,7 +11,7 @@ test("complete private adaptation offline smoke", async ({ request }) => {
   await expect(app.text()).resolves.toContain("Story to CYOA");
 });
 
-test("observable quick generation stays offline and exposes privacy-safe activity", async ({ page }) => {
+test("observable quick generation stays offline and shows provider activity", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("OpenRouter API key").fill("sk-or-v1-e2e-fake-key-0123456789");
   await page.getByRole("button", { name: "Save key" }).click();
@@ -24,7 +24,7 @@ test("observable quick generation stays offline and exposes privacy-safe activit
   await page.locator("textarea.source").fill(source);
   await page.getByRole("button", { name: "Generate CYOA" }).click();
 
-  await expect(page.getByText("Provider reasoning received; text withheld for privacy.")).toBeVisible();
+  await expect(page.getByText("The offline provider planned the branch structure.")).toBeVisible();
   await expect(page.getByText("Repairing structured output")).toBeVisible();
   await expect(page.getByText("Generated game")).toBeVisible();
   await expect(page.getByText("48 tokens")).toBeVisible();

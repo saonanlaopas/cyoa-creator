@@ -30,7 +30,8 @@ function standaloneHtml(data: PlayableStoryData): string {
 <style>body{margin:0;background:#171b24;color:#f4efe5;font:18px/1.6 system-ui,sans-serif}.shell{display:grid;grid-template-columns:minmax(0,48rem) 16rem;gap:2rem;max-width:70rem;margin:auto;padding:3rem 1.5rem}main{background:#222938;padding:2rem;border-radius:1rem}aside{font-size:.9rem}button{display:block;width:100%;margin:.7rem 0;padding:.8rem 1rem;text-align:left;border:1px solid #ba9567;border-radius:.5rem;background:#30291f;color:#fff;cursor:pointer}button:hover{background:#483a2a}.ending{color:#e6bd7b}@media(max-width:750px){.shell{grid-template-columns:1fr;padding:1rem}aside{order:-1}}</style>
 </head><body><div class="shell"><main><h1 id="title"></h1><div id="prose"></div><div id="choices"></div></main><aside><h2>Story state</h2><div id="stats"></div><div id="relationships"></div><div id="inventory"></div><button id="restart">Restart</button></aside></div>
 <script>
-const story=JSON.parse(atob("${encoded}")), passages=new Map(story.passages.map(p=>[p.id,p]));
+const decodeUtf8Base64=value=>new TextDecoder("utf-8",{fatal:true}).decode(Uint8Array.from(atob(value),character=>character.charCodeAt(0)));
+const story=JSON.parse(decodeUtf8Base64("${encoded}")), passages=new Map(story.passages.map(p=>[p.id,p]));
 const initial=()=>({stats:Object.fromEntries(Object.entries(story.mechanics.visibleStats).map(([k,v])=>[k,v.initial])),relationships:Object.fromEntries(Object.entries(story.mechanics.relationships).map(([k,v])=>[k,v.initial])),flags:{...story.mechanics.hiddenFlags},inventory:[],pendingEffects:[]});
 let state=initial();
 const met=c=>c.kind==="statAtLeast"?(state.stats[c.key]||0)>=c.value:c.kind==="flagEquals"?state.flags[c.key]===c.value:c.kind==="hasItem"?state.inventory.includes(c.itemId):c.kind==="relationshipAtLeast"?(state.relationships[c.key]||0)>=c.value:false;

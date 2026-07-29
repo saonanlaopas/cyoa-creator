@@ -18,4 +18,23 @@ describe("compileSugarCube", () => {
     expect(html).toContain("<title>The &lt;Last&gt; Choice</title>");
     expect(html).not.toContain("must-not-export");
   });
+
+  it("decodes embedded story data as UTF-8 in the fallback player", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "story-export-unicode-"));
+    const outputPath = join(directory, "unicode.html");
+    const project = exportFixture();
+    project.name = "Professor Fanawë Eterúna";
+    project.passages[0].prose = "Easy tests—easier homework.";
+
+    await compileSugarCube(renderTwee(project), outputPath, {
+      tweegoPath: join(directory, "not-installed"),
+    });
+
+    const html = await readFile(outputPath, "utf8");
+    expect(html).toContain("<title>Professor Fanawë Eterúna</title>");
+    expect(html).toContain('new TextDecoder("utf-8",{fatal:true})');
+    expect(html).not.toContain('JSON.parse(atob(');
+    expect(html).not.toContain("FanawÃ«");
+    expect(html).not.toContain("â");
+  });
 });
