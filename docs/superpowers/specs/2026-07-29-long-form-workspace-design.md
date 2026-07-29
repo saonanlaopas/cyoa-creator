@@ -1,5 +1,10 @@
 # Long-form CYOA workspace design
 
+> Status on 2026-07-30: implemented through mechanics planning. The next-stage
+> roadmap and passage/runtime contracts are defined in
+> `docs/superpowers/plans/2026-07-30-long-form-production-roadmap.md` and
+> `docs/superpowers/specs/2026-07-30-passage-plan-and-runtime-design.md`.
+
 ## Purpose
 
 Extend Story to CYOA from a useful one-shot prototype into a persistent workspace for designing a 150,000–200,000-word branching project over many guided, conversational sessions.
