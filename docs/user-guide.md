@@ -29,6 +29,20 @@ Generation activity shows real server stages, elapsed time, received usage, vali
 
 The generator requests an existing-protagonist adaptation with visible stats, relationship state, meaningful divergence, controlled reconvergence, and multiple endings. It validates the structured output and branch graph, exposing any repair attempt in the activity timeline.
 
+## Plan a long-form project
+
+Choose **Long-form workspace** for a persistent 150,000–200,000-word project. The default target is editable and may be increased. Work through the visible stages rather than asking the assistant to generate all prose immediately:
+
+1. Write and approve the project brief.
+2. Create, edit, and approve the story bible.
+3. Create the route architecture.
+
+The route architecture is seeded locally from the approved brief and bible; creating it does not call OpenRouter. It allocates the project word target across shared and route-exclusive acts, then provides editable major routes, entry conditions, relationship trajectories, decision points, reconvergences, ending hooks, and unresolved questions. The budget summary always shows allocated, shared, route-exclusive, and remaining words. An imbalance may be saved as a draft but remains visibly flagged.
+
+Every saved artifact is an immutable local version. Approving a version makes it canonical for the next stage. Editing an approved brief, source, or bible marks dependent route work stale without deleting it. Export the current brief, bible, or route architecture as readable Markdown or structured JSON.
+
+The assistant follows the selected visible scope: whole project, brief, bible, or routes. **Discuss only** can answer and brainstorm but cannot mutate project artifacts. **Propose change** returns a complete candidate for review; **Apply changes** creates a new draft version and still does not approve it. Sending a message is an OpenRouter request and may be billable, while direct editing, saving, approval, and export stay local.
+
 ## Play and export
 
 Play the result directly below the generator. The preview tracks visible stats and relationship labels. Download editable Twee source or a standalone playable HTML file. If Tweego is not installed, the app uses its built-in standalone HTML compiler.

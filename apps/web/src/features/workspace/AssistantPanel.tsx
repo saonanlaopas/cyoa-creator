@@ -11,6 +11,7 @@ import {
   type ChangeSetRecord,
   type ConversationRecord,
   type LongFormStoryBible,
+  type LongFormRoutePlan,
   type MessageRecord,
   type ProjectBrief,
   type ProjectRecord,
@@ -23,7 +24,8 @@ export function AssistantPanel(props: {
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
   bible: ArtifactVersion<LongFormStoryBible> | null;
-  activeArtifact: "brief" | "bible";
+  routes: ArtifactVersion<LongFormRoutePlan> | null;
+  activeArtifact: "brief" | "bible" | "routes";
   onBriefApplied(): Promise<void>;
 }) {
   const [conversation, setConversation] = useState<ConversationRecord | null>(null);
@@ -63,10 +65,13 @@ export function AssistantPanel(props: {
     if (historyRef.current) historyRef.current.scrollTop = historyRef.current.scrollHeight;
   }, [messages, proposals]);
 
-  const changeScope = async (selection: "project" | "brief" | "bible") => {
+  const artifactFor = (selection: "brief" | "bible" | "routes") =>
+    selection === "routes" ? props.routes : selection === "bible" ? props.bible : props.brief;
+
+  const changeScope = async (selection: "project" | "brief" | "bible" | "routes") => {
     if (!conversation) return;
-    const selected = selection === "bible" ? props.bible : props.brief;
-    if (selection === "bible" && !selected) return;
+    const selected = selection === "project" ? null : artifactFor(selection);
+    if (selection !== "project" && !selected) return;
     const scope = selection === "project"
       ? { kind: "project" as const, projectId: props.project.id }
       : {
@@ -84,7 +89,7 @@ export function AssistantPanel(props: {
   };
 
   useEffect(() => {
-    const selected = props.activeArtifact === "bible" ? props.bible : props.brief;
+    const selected = artifactFor(props.activeArtifact);
     if (!conversation || busy) return;
     if (!selected) {
       if (conversation.scope.kind !== "project") void changeScope("project");
@@ -102,10 +107,16 @@ export function AssistantPanel(props: {
     props.activeArtifact,
     props.brief.id,
     props.bible?.id,
+    props.routes?.id,
     busy,
   ]);
 
-  const currentArtifact = props.activeArtifact === "bible" ? props.bible : props.brief;
+  const currentArtifact = artifactFor(props.activeArtifact);
+  const artifactLabel = props.activeArtifact === "routes"
+    ? "route architecture"
+    : props.activeArtifact === "bible"
+      ? "story bible"
+      : "project brief";
 
   useEffect(() => {
     if (conversation?.scope.kind === "project" && intent === "propose") setIntent("discuss");
@@ -183,10 +194,11 @@ export function AssistantPanel(props: {
         <select
           value={conversation?.scope.kind === "project" ? "project" : conversation?.scope.artifactId ?? props.activeArtifact}
           disabled={!conversation || busy}
-          onChange={(event) => void changeScope(event.target.value as "project" | "brief" | "bible")}
+          onChange={(event) => void changeScope(event.target.value as "project" | "brief" | "bible" | "routes")}
         >
           <option value="brief">Project brief · version {props.brief.version}</option>
           {props.bible && <option value="bible">Story bible · version {props.bible.version}</option>}
+          {props.routes && <option value="routes">Route architecture · version {props.routes.version}</option>}
           <option value="project">Whole project</option>
         </select>
       </label>
@@ -194,7 +206,7 @@ export function AssistantPanel(props: {
     </header>
 
     <div className="assistant-history" ref={historyRef}>
-      {messages.length === 0 && <p className="field-note">Ask questions freely, or choose “Propose change” when you want a reviewable edit to the {props.activeArtifact === "bible" ? "story bible" : "brief"}.</p>}
+      {messages.length === 0 && <p className="field-note">Ask questions freely, or choose “Propose change” when you want a reviewable edit to the {artifactLabel}.</p>}
       {messages.map((message) => <article className={`chat-message ${message.role}`} key={message.id}>
         <strong>{message.role === "user" ? "You" : "Assistant"}</strong>
         <p>{message.content}</p>
@@ -203,7 +215,11 @@ export function AssistantPanel(props: {
       {proposals.map((proposal) => <ProposalCard
         key={proposal.id}
         proposal={proposal}
-        currentVersionId={proposal.artifactId === "bible" ? props.bible?.id ?? "" : props.brief.id}
+        currentVersionId={proposal.artifactId === "routes"
+          ? props.routes?.id ?? ""
+          : proposal.artifactId === "bible"
+            ? props.bible?.id ?? ""
+            : props.brief.id}
         busy={busy}
         onApply={async () => {
           if (!conversation) return;
@@ -257,8 +273,8 @@ export function AssistantPanel(props: {
         value={content}
         onChange={(event) => setContent(event.target.value)}
         placeholder={intent === "discuss"
-          ? `Ask about the ${props.activeArtifact === "bible" ? "story bible" : "project brief"}…`
-          : `Describe the exact ${props.activeArtifact === "bible" ? "bible" : "brief"} change you want…`}
+          ? `Ask about the ${artifactLabel}…`
+          : `Describe the exact ${artifactLabel} change you want…`}
       />
       <button className="primary" disabled={busy || !conversation || !content.trim()}>
         {busy ? "Working…" : intent === "discuss" ? "Send to assistant" : "Request proposal"}
@@ -279,9 +295,10 @@ function ProposalCard(props: {
   const candidate = props.proposal.candidate;
   const bible = props.proposal.artifactId === "bible" ? candidate as LongFormStoryBible : null;
   const brief = props.proposal.artifactId === "brief" ? candidate as ProjectBrief : null;
+  const routes = props.proposal.artifactId === "routes" ? candidate as LongFormRoutePlan : null;
   return <article className={`proposal-card ${props.proposal.status}`}>
     <header>
-      <strong>{props.proposal.artifactId === "bible" ? "Bible" : "Brief"} change proposal</strong>
+      <strong>{props.proposal.artifactId === "routes" ? "Routes" : props.proposal.artifactId === "bible" ? "Bible" : "Brief"} change proposal</strong>
       <span>{stale ? "outdated" : props.proposal.status}</span>
     </header>
     <h3>{props.proposal.summary}</h3>
@@ -303,6 +320,13 @@ function ProposalCard(props: {
           <dt>Relationships</dt><dd>{bible.relationships.length}</dd>
           <dt>Canon facts</dt><dd>{bible.canonFacts.length}</dd>
           <dt>Open questions</dt><dd>{bible.unresolvedQuestions.length}</dd>
+        </>}
+        {routes && <>
+          <dt>Title</dt><dd>{routes.title}</dd>
+          <dt>Major routes</dt><dd>{routes.routes.length}</dd>
+          <dt>Acts</dt><dd>{routes.acts.length}</dd>
+          <dt>Allocated words</dt><dd>{routes.acts.reduce((total, act) => total + act.wordTarget, 0).toLocaleString()}</dd>
+          <dt>Ending hooks</dt><dd>{routes.endingHooks.length}</dd>
         </>}
       </dl>
     </details>

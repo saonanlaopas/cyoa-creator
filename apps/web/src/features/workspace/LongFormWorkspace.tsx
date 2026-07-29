@@ -8,6 +8,7 @@ import {
   saveProjectBrief,
   type ArtifactVersion,
   type LongFormStoryBible,
+  type LongFormRoutePlan,
   type ProjectBrief,
   type ProjectRecord,
   type WorkflowState,
@@ -15,6 +16,7 @@ import {
 import { BriefEditor } from "./BriefEditor.js";
 import { AssistantPanel } from "./AssistantPanel.js";
 import { BibleWorkspace } from "./BibleWorkspace.js";
+import { RoutePlanWorkspace } from "./RoutePlanWorkspace.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
@@ -27,8 +29,11 @@ export function LongFormWorkspace() {
   const [briefWorkflow, setBriefWorkflow] = useState<WorkflowState | null>(null);
   const [bible, setBible] = useState<ArtifactVersion<LongFormStoryBible> | null>(null);
   const [bibleWorkflow, setBibleWorkflow] = useState<WorkflowState | null>(null);
-  const [activeStage, setActiveStage] = useState<"brief" | "bible">(
-    localStorage.getItem(activeStageKey) === "bible" ? "bible" : "brief",
+  const [routes, setRoutes] = useState<ArtifactVersion<LongFormRoutePlan> | null>(null);
+  const [routesWorkflow, setRoutesWorkflow] = useState<WorkflowState | null>(null);
+  const storedStage = localStorage.getItem(activeStageKey);
+  const [activeStage, setActiveStage] = useState<"brief" | "bible" | "routes">(
+    storedStage === "bible" || storedStage === "routes" ? storedStage : "brief",
   );
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,6 +46,8 @@ export function LongFormWorkspace() {
     setBriefWorkflow(state.workflow.brief);
     setBible(state.bible);
     setBibleWorkflow(state.workflow.bible);
+    setRoutes(state.routes);
+    setRoutesWorkflow(state.workflow.routes);
     localStorage.setItem(activeProjectKey, projectId);
   };
 
@@ -71,6 +78,14 @@ export function LongFormWorkspace() {
         approvedVersionId: null,
         updatedAt: "",
       });
+      setRoutes(null);
+      setRoutesWorkflow({
+        projectId: created.project.id,
+        artifactId: "routes",
+        status: "empty",
+        approvedVersionId: null,
+        updatedAt: "",
+      });
       setActiveStage("brief");
       localStorage.setItem(activeStageKey, "brief");
       setNewName("");
@@ -82,7 +97,7 @@ export function LongFormWorkspace() {
     }
   };
 
-  if (!project || !brief || !briefWorkflow || !bibleWorkflow) {
+  if (!project || !brief || !briefWorkflow || !bibleWorkflow || !routesWorkflow) {
     return <main className="long-form-home">
       <header>
         <p className="eyebrow">Long-form workspace</p>
@@ -117,18 +132,24 @@ export function LongFormWorkspace() {
         setBriefWorkflow(null);
         setBible(null);
         setBibleWorkflow(null);
+        setRoutes(null);
+        setRoutesWorkflow(null);
         setMessage(null);
         setActiveStage("brief");
         localStorage.setItem(activeStageKey, "brief");
       }}>New project</button>
       <ol>
         {stages.map((stage, index) => {
-          const stageId = index === 0 ? "brief" : index === 1 ? "bible" : null;
-          const enabled = stageId === "brief" || (stageId === "bible" && (briefWorkflow.status === "approved" || Boolean(bible)));
+          const stageId = index === 0 ? "brief" : index === 1 ? "bible" : index === 2 ? "routes" : null;
+          const enabled = stageId === "brief"
+            || (stageId === "bible" && (briefWorkflow.status === "approved" || Boolean(bible)))
+            || (stageId === "routes" && (bibleWorkflow.status === "approved" || Boolean(routes)));
           const status = stageId === "brief"
             ? briefWorkflow.status
             : stageId === "bible"
               ? bibleWorkflow.status === "empty" ? "Not started" : bibleWorkflow.status
+              : stageId === "routes"
+                ? routesWorkflow.status === "empty" ? "Not started" : routesWorkflow.status
               : "Not started";
           return <li key={stage} className={stageId === activeStage ? "current" : ""}>
           <button disabled={!enabled} onClick={() => {
@@ -185,11 +206,21 @@ export function LongFormWorkspace() {
           setBusy(false);
         }
       }} />
-    </section> : <BibleWorkspace
+    </section> : activeStage === "bible" ? <BibleWorkspace
       projectId={project.id}
       briefApproved={briefWorkflow.status === "approved"}
       bible={bible}
       workflow={bibleWorkflow}
+      busy={busy}
+      message={message}
+      setBusy={setBusy}
+      setMessage={setMessage}
+      onChanged={() => openProject(project.id)}
+    /> : <RoutePlanWorkspace
+      projectId={project.id}
+      bibleApproved={bibleWorkflow.status === "approved"}
+      routes={routes}
+      workflow={routesWorkflow}
       busy={busy}
       message={message}
       setBusy={setBusy}
@@ -202,6 +233,7 @@ export function LongFormWorkspace() {
       project={project}
       brief={brief}
       bible={bible}
+      routes={routes}
       activeArtifact={activeStage}
       onBriefApplied={() => openProject(project.id)}
     />

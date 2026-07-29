@@ -72,6 +72,64 @@ export interface LongFormStoryBible {
   unresolvedQuestions: Array<{ id: string; question: string; answer: string }>;
 }
 
+export interface RouteAct {
+  id: string;
+  routeId: string | null;
+  label: string;
+  purpose: string;
+  summary: string;
+  wordTarget: number;
+}
+
+export interface MajorRoute {
+  id: string;
+  name: string;
+  promise: string;
+  summary: string;
+  entryConditions: string[];
+  relationshipArcs: Array<{ relationshipId: string; trajectory: string; keyMoments: string[] }>;
+  endingHookIds: string[];
+}
+
+export interface LongFormRoutePlan {
+  schemaVersion: 1;
+  title: string;
+  overview: string;
+  totalWordTarget: number;
+  acts: RouteAct[];
+  routes: MajorRoute[];
+  decisionPoints: Array<{
+    id: string;
+    label: string;
+    actId: string;
+    question: string;
+    choices: Array<{
+      id: string;
+      label: string;
+      destinationActId: string;
+      routeId: string | null;
+      conditions: string[];
+      consequences: string[];
+    }>;
+  }>;
+  reconvergences: Array<{
+    id: string;
+    label: string;
+    fromActIds: string[];
+    toActId: string;
+    requirements: string[];
+    preservedDifferences: string[];
+  }>;
+  endingHooks: Array<{
+    id: string;
+    label: string;
+    routeId: string;
+    type: "success" | "partial" | "failure" | "special";
+    summary: string;
+  }>;
+  unresolvedQuestions: Array<{ id: string; question: string; answer: string }>;
+}
+
 export interface ArtifactVersion<T> {
   id: string;
   projectId: string;
@@ -94,14 +152,15 @@ export interface LongFormProjectState {
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
   bible: ArtifactVersion<LongFormStoryBible> | null;
-  workflow: WorkflowState | { brief: WorkflowState; bible: WorkflowState };
+  routes: ArtifactVersion<LongFormRoutePlan> | null;
+  workflow: WorkflowState | { brief: WorkflowState; bible: WorkflowState; routes: WorkflowState };
 }
 
 export interface AssistantScope {
   kind: "project" | "artifact";
   projectId: string;
-  stage?: "brief" | "bible";
-  artifactId?: "brief" | "bible";
+  stage?: "brief" | "bible" | "routes";
+  artifactId?: "brief" | "bible" | "routes";
   versionId?: string;
 }
 
@@ -122,7 +181,7 @@ export interface MessageRecord {
   content: string;
   intent: "discuss" | "propose";
   scope: AssistantScope;
-  context: { briefVersionId?: string; bibleVersionId?: string };
+  context: { briefVersionId?: string; bibleVersionId?: string; routesVersionId?: string };
   metadata: Record<string, unknown>;
   createdAt: string;
 }
@@ -136,7 +195,7 @@ export interface ChangeSetRecord {
   status: "proposed" | "applied" | "rejected" | "superseded";
   summary: string;
   rationale: string;
-  candidate: ProjectBrief | LongFormStoryBible;
+  candidate: ProjectBrief | LongFormStoryBible | LongFormRoutePlan;
   invalidations: string[];
   appliedVersionId: string | null;
   createdAt: string;
@@ -171,7 +230,8 @@ export async function loadLongFormProject(projectId: string): Promise<{
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
   bible: ArtifactVersion<LongFormStoryBible> | null;
-  workflow: { brief: WorkflowState; bible: WorkflowState };
+  routes: ArtifactVersion<LongFormRoutePlan> | null;
+  workflow: { brief: WorkflowState; bible: WorkflowState; routes: WorkflowState };
 }> {
   return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}`));
 }
@@ -223,6 +283,34 @@ export async function approveStoryBible(projectId: string, versionId: string): P
   }));
 }
 
+export async function createRoutePlan(projectId: string): Promise<{
+  routes: ArtifactVersion<LongFormRoutePlan>;
+  workflow: WorkflowState;
+}> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/routes`, {
+    method: "POST",
+  }));
+}
+
+export async function saveRoutePlan(projectId: string, routes: LongFormRoutePlan): Promise<{
+  routes: ArtifactVersion<LongFormRoutePlan>;
+  workflow: WorkflowState;
+}> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/routes`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(routes),
+  }));
+}
+
+export async function approveRoutePlan(projectId: string, versionId: string): Promise<WorkflowState> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/routes/approve`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ versionId }),
+  }));
+}
+
 export async function downloadBrief(projectId: string, format: "markdown" | "json"): Promise<void> {
   const response = await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/brief/export?format=${format}`);
   if (!response.ok) throw new Error("Could not export the project brief");
@@ -243,6 +331,18 @@ export async function downloadStoryBible(projectId: string, format: "markdown" |
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = `${projectId}-bible.${format === "markdown" ? "md" : "json"}`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadRoutePlan(projectId: string, format: "markdown" | "json"): Promise<void> {
+  const response = await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/routes/export?format=${format}`);
+  if (!response.ok) throw new Error("Could not export the route architecture");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${projectId}-routes.${format === "markdown" ? "md" : "json"}`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -305,7 +405,7 @@ export async function sendConversationMessage(input: {
 
 export async function applyProposal(projectId: string, conversationId: string, proposalId: string): Promise<{
   changeSet: ChangeSetRecord;
-  version: ArtifactVersion<ProjectBrief | LongFormStoryBible>;
+  version: ArtifactVersion<ProjectBrief | LongFormStoryBible | LongFormRoutePlan>;
 }> {
   return json(await fetch(
     `${conversationBase(projectId)}/${encodeURIComponent(conversationId)}/proposals/${encodeURIComponent(proposalId)}/apply`,

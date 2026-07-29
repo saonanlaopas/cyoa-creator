@@ -160,6 +160,15 @@ textarea.source { min-height: 20rem; }
 .bible-card { display: grid; gap: .7rem; padding: .9rem; border: 1px solid #465269; border-radius: .65rem; background: #151a24; }
 .bible-card + .bible-card { margin-top: .2rem; }
 .danger-text { justify-self: end; color: #efb0a6; border-color: #74443d; background: transparent; }
+.route-plan-editor { padding-bottom: 2rem; }
+.route-budget { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
+.route-budget > div { display: grid; gap: .15rem; padding: .75rem; border: 1px solid #465269; border-radius: .65rem; background: #11151e; }
+.route-budget > div.warning { border-color: #9a743e; color: #f0c986; background: #322919; }
+.route-budget strong { font-size: 1.15rem; }
+.route-budget span { color: #aeb7c6; font-size: .82rem; }
+.route-detail-card > summary { cursor: pointer; color: #e1bd7f; font-weight: 700; }
+.route-detail-card[open] > summary { margin-bottom: .25rem; }
+.route-subcard { display: grid; gap: .65rem; padding: .75rem; border: 1px solid #3b465b; border-radius: .55rem; background: #11151e; }
 
 @media (max-width: 1050px) {
   .long-form-workspace { grid-template-columns: 14rem minmax(0, 1fr); }
@@ -176,4 +185,5 @@ textarea.source { min-height: 20rem; }
   .artifact-header { flex-direction: column; }
   .artifact-actions { justify-content: start; }
   .brief-grid, .brief-grid.targets { grid-template-columns: 1fr; }
+  .route-budget { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

@@ -1,9 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import {
   defaultLongFormStoryBible,
+  defaultLongFormRoutePlan,
   defaultProjectBrief,
+  LongFormRoutePlanSchema,
   LongFormStoryBibleSchema,
   ProjectBriefSchema,
+  type LongFormRoutePlan,
   type LongFormStoryBible,
   type ProjectBrief,
 } from "@story-to-cyoa/pipeline";
@@ -159,6 +162,75 @@ export function renderBibleMarkdown(bible: LongFormStoryBible): string {
   ].join("\n");
 }
 
+export function renderRoutePlanMarkdown(plan: LongFormRoutePlan): string {
+  const plannedWords = plan.acts.reduce((total, act) => total + act.wordTarget, 0);
+  return [
+    `# ${plan.title}`,
+    "",
+    plan.overview || "_Overview not written yet._",
+    "",
+    "## Word budget",
+    "",
+    `- Project target: ${plan.totalWordTarget.toLocaleString("en-US")}`,
+    `- Allocated across acts: ${plannedWords.toLocaleString("en-US")}`,
+    `- Remaining: ${(plan.totalWordTarget - plannedWords).toLocaleString("en-US")}`,
+    "",
+    "## Acts",
+    "",
+    ...plan.acts.flatMap((act) => [
+      `### ${act.label}`,
+      "",
+      `- Scope: ${act.routeId ? `Route \`${act.routeId}\`` : "Shared"}`,
+      `- Word target: ${act.wordTarget.toLocaleString("en-US")}`,
+      `- Purpose: ${act.purpose || "Not set"}`,
+      "",
+      act.summary || "_Summary not written yet._",
+      "",
+    ]),
+    "## Major routes",
+    "",
+    ...plan.routes.flatMap((route) => [
+      `### ${route.name}`,
+      "",
+      route.promise ? `**Promise:** ${route.promise}` : "**Promise:** Not set",
+      "",
+      route.summary || "_Summary not written yet._",
+      "",
+      `**Entry conditions:** ${route.entryConditions.join("; ") || "None yet"}`,
+      "",
+      `**Ending hooks:** ${route.endingHookIds.join(", ") || "None yet"}`,
+      "",
+    ]),
+    "## Decision points",
+    "",
+    ...(plan.decisionPoints.length
+      ? plan.decisionPoints.map((decision) =>
+          `- **${decision.label}:** ${decision.question || "No question yet"} (${decision.choices.length} choices)`)
+      : ["_None yet._"]),
+    "",
+    "## Reconvergences",
+    "",
+    ...(plan.reconvergences.length
+      ? plan.reconvergences.map((item) =>
+          `- **${item.label}:** ${item.fromActIds.join(", ")} → ${item.toActId}; preserves ${item.preservedDifferences.join("; ") || "no listed differences"}`)
+      : ["_None yet._"]),
+    "",
+    "## Ending hooks",
+    "",
+    ...(plan.endingHooks.length
+      ? plan.endingHooks.map((ending) =>
+          `- **${ending.label}** (${ending.type}, route \`${ending.routeId}\`): ${ending.summary || "Not developed yet"}`)
+      : ["_None yet._"]),
+    "",
+    "## Unresolved questions",
+    "",
+    ...(plan.unresolvedQuestions.length
+      ? plan.unresolvedQuestions.map((item) => `- ${item.question}${item.answer ? ` — ${item.answer}` : ""}`)
+      : ["_None yet._"]),
+    "",
+  ].join("\n");
+}
+
 export function registerLongFormRoutes(
   app: FastifyInstance,
   projects: ProjectRepository,
@@ -193,9 +265,11 @@ export function registerLongFormRoutes(
       project,
       brief: artifacts.getCurrent<ProjectBrief>(project.id, "brief") ?? null,
       bible: artifacts.getCurrent<LongFormStoryBible>(project.id, "bible") ?? null,
+      routes: artifacts.getCurrent<LongFormRoutePlan>(project.id, "routes") ?? null,
       workflow: {
         brief: workflow.get(project.id, "brief"),
         bible: workflow.get(project.id, "bible"),
+        routes: workflow.get(project.id, "routes"),
       },
     };
   });
@@ -214,6 +288,7 @@ export function registerLongFormRoutes(
           content: request.body,
         });
         if (artifacts.getCurrent(project.id, "bible")) workflow.markStale(project.id, "bible");
+        if (artifacts.getCurrent(project.id, "routes")) workflow.markStale(project.id, "routes");
         return reply.code(201).send({ brief, workflow: workflow.markDraft(project.id, "brief") });
       } catch (error) {
         return reply.code(400).send({ error: (error as Error).message });
@@ -269,6 +344,7 @@ export function registerLongFormRoutes(
           content: request.body,
           dependencies: ["brief", "source"],
         });
+        if (artifacts.getCurrent(project.id, "routes")) workflow.markStale(project.id, "routes");
         return reply.code(201).send({ bible, workflow: workflow.markDraft(project.id, "bible") });
       } catch (error) {
         return reply.code(400).send({ error: (error as Error).message });
@@ -310,6 +386,99 @@ export function registerLongFormRoutes(
           project: { id: project.id, name: project.name, mode: project.mode },
           artifact: bible,
           workflow: workflow.get(project.id, "bible"),
+        });
+    },
+  );
+
+  app.post<{ Params: ProjectParams }>(
+    "/api/long-form/projects/:projectId/routes",
+    async (request, reply) => {
+      const project = longFormProject(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
+      if (artifacts.getCurrent(project.id, "routes")) {
+        return reply.code(409).send({ error: "Route architecture already exists" });
+      }
+      const bibleState = workflow.get(project.id, "bible");
+      const approvedBible = bibleState.approvedVersionId
+        ? artifacts.getVersion<LongFormStoryBible>(bibleState.approvedVersionId)
+        : undefined;
+      const briefState = workflow.get(project.id, "brief");
+      const approvedBrief = briefState.approvedVersionId
+        ? artifacts.getVersion<ProjectBrief>(briefState.approvedVersionId)
+        : undefined;
+      if (!approvedBible || !approvedBrief) {
+        return reply.code(409).send({ error: "Approve the project brief and story bible first" });
+      }
+      const routes = artifacts.saveArtifact({
+        projectId: project.id,
+        artifactId: "routes",
+        artifactType: "routes",
+        schema: LongFormRoutePlanSchema,
+        content: defaultLongFormRoutePlan(approvedBrief.content),
+        dependencies: ["brief", "bible"],
+      });
+      return reply.code(201).send({ routes, workflow: workflow.markDraft(project.id, "routes") });
+    },
+  );
+
+  app.put<{ Params: ProjectParams; Body: LongFormRoutePlan }>(
+    "/api/long-form/projects/:projectId/routes",
+    async (request, reply) => {
+      const project = longFormProject(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
+      if (!artifacts.getCurrent(project.id, "routes")) {
+        return reply.code(409).send({ error: "Create the route architecture first" });
+      }
+      try {
+        const routes = artifacts.saveArtifact({
+          projectId: project.id,
+          artifactId: "routes",
+          artifactType: "routes",
+          schema: LongFormRoutePlanSchema,
+          content: request.body,
+          dependencies: ["brief", "bible"],
+        });
+        return reply.code(201).send({ routes, workflow: workflow.markDraft(project.id, "routes") });
+      } catch (error) {
+        return reply.code(400).send({ error: (error as Error).message });
+      }
+    },
+  );
+
+  app.post<{ Params: ProjectParams; Body: { versionId?: string } }>(
+    "/api/long-form/projects/:projectId/routes/approve",
+    async (request, reply) => {
+      const project = longFormProject(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Long-form project not found" });
+      const versionId = request.body?.versionId ?? artifacts.getCurrent(project.id, "routes")?.id;
+      if (!versionId) return reply.code(404).send({ error: "Route architecture not found" });
+      try {
+        return workflow.approve(project.id, "routes", versionId);
+      } catch (error) {
+        return reply.code(404).send({ error: (error as Error).message });
+      }
+    },
+  );
+
+  app.get<{ Params: ProjectParams; Querystring: { format?: string } }>(
+    "/api/long-form/projects/:projectId/routes/export",
+    async (request, reply) => {
+      const project = longFormProject(request.params.projectId);
+      const routes = project && artifacts.getCurrent<LongFormRoutePlan>(project.id, "routes");
+      if (!project || !routes) return reply.code(404).send({ error: "Route architecture not found" });
+      if (request.query.format === "markdown") {
+        return reply
+          .header("content-type", "text/markdown; charset=utf-8")
+          .header("content-disposition", `attachment; filename="${project.id}-routes.md"`)
+          .send(renderRoutePlanMarkdown(routes.content));
+      }
+      return reply
+        .header("content-type", "application/json; charset=utf-8")
+        .header("content-disposition", `attachment; filename="${project.id}-routes.json"`)
+        .send({
+          project: { id: project.id, name: project.name, mode: project.mode },
+          artifact: routes,
+          workflow: workflow.get(project.id, "routes"),
         });
     },
   );

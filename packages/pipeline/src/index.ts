@@ -11,6 +11,8 @@ export * from "./schemas/project-brief.js";
 export * from "./schemas/assistant-response.js";
 export * from "./schemas/long-form-story-bible.js";
 export * from "./schemas/bible-assistant-response.js";
+export * from "./schemas/long-form-route-plan.js";
+export * from "./schemas/route-plan-assistant-response.js";
 export * from "./stages/analyze-source.js";
 export * from "./stages/propose-adaptation.js";
 export * from "./stages/generate-routes.js";

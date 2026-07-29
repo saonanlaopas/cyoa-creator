@@ -32,6 +32,7 @@ export function registerImportRoutes(
       && artifacts.getCurrent(projectId, "bible")
     ) {
       workflow.markStale(projectId, "bible");
+      if (artifacts.getCurrent(projectId, "routes")) workflow.markStale(projectId, "routes");
     }
   };
   app.post<{
