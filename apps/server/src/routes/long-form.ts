@@ -3,13 +3,16 @@ import {
   defaultLongFormStoryBible,
   defaultLongFormRoutePlan,
   defaultLongFormEndingPlan,
+  defaultLongFormMechanicsPlan,
   defaultProjectBrief,
   LongFormRoutePlanSchema,
   LongFormEndingPlanSchema,
+  LongFormMechanicsPlanSchema,
   LongFormStoryBibleSchema,
   ProjectBriefSchema,
   type LongFormRoutePlan,
   type LongFormEndingPlan,
+  type LongFormMechanicsPlan,
   type LongFormStoryBible,
   type ProjectBrief,
 } from "@story-to-cyoa/pipeline";
@@ -304,6 +307,24 @@ export function renderEndingPlanMarkdown(plan: LongFormEndingPlan): string {
   ].join("\n");
 }
 
+function renderMechanicsMarkdown(plan: LongFormMechanicsPlan): string {
+  return [
+    `# ${plan.title}`, "", plan.overview, "",
+    "## Visible stats", "",
+    ...plan.visibleStats.map((item) => `- **${item.label}** (\`${item.key}\`, ${item.minimum}…${item.maximum}, starts ${item.initial}): ${item.description}`),
+    "", "## Relationships", "",
+    ...plan.relationships.map((item) => `- **${item.label}** (\`${item.key}\`): ${item.description}`),
+    "", "## Flags and resources", "",
+    ...[...plan.flags, ...plan.resources].map((item) => `- **${item.label}** (\`${item.key}\`): ${item.meaning}`),
+    "", "## Route and ending gates", "",
+    ...(plan.gates.length ? plan.gates.map((gate) => `- **${gate.targetType} \`${gate.targetId}\`**: ${gate.conditions.map((condition) => `${condition.mechanicKey} ${condition.operator}${condition.value === null ? "" : ` ${condition.value}`}`).join(` ${gate.logic} `)}`) : ["_None yet._"]),
+    "", "## Choice-effect plans", "",
+    ...(plan.choiceEffectPlans.length ? plan.choiceEffectPlans.map((effect) => `- **${effect.label}:** ${effect.mechanicKeys.join(", ")} — ${effect.effectGuidance.join("; ")}`) : ["_None yet._"]),
+    "", "## Balancing rules", "",
+    ...plan.balancingRules.map((rule) => `- **${rule.label}:** ${rule.description}`), "",
+  ].join("\n");
+}
+
 export function registerLongFormRoutes(
   app: FastifyInstance,
   projects: ProjectRepository,
@@ -340,11 +361,13 @@ export function registerLongFormRoutes(
       bible: artifacts.getCurrent<LongFormStoryBible>(project.id, "bible") ?? null,
       routes: artifacts.getCurrent<LongFormRoutePlan>(project.id, "routes") ?? null,
       endings: artifacts.getCurrent<LongFormEndingPlan>(project.id, "endings") ?? null,
+      mechanics: artifacts.getCurrent<LongFormMechanicsPlan>(project.id, "mechanics") ?? null,
       workflow: {
         brief: workflow.get(project.id, "brief"),
         bible: workflow.get(project.id, "bible"),
         routes: workflow.get(project.id, "routes"),
         endings: workflow.get(project.id, "endings"),
+        mechanics: workflow.get(project.id, "mechanics"),
       },
     };
   });
@@ -365,6 +388,7 @@ export function registerLongFormRoutes(
         if (artifacts.getCurrent(project.id, "bible")) workflow.markStale(project.id, "bible");
         if (artifacts.getCurrent(project.id, "routes")) workflow.markStale(project.id, "routes");
         if (artifacts.getCurrent(project.id, "endings")) workflow.markStale(project.id, "endings");
+        if (artifacts.getCurrent(project.id, "mechanics")) workflow.markStale(project.id, "mechanics");
         return reply.code(201).send({ brief, workflow: workflow.markDraft(project.id, "brief") });
       } catch (error) {
         return reply.code(400).send({ error: (error as Error).message });
@@ -422,6 +446,7 @@ export function registerLongFormRoutes(
         });
         if (artifacts.getCurrent(project.id, "routes")) workflow.markStale(project.id, "routes");
         if (artifacts.getCurrent(project.id, "endings")) workflow.markStale(project.id, "endings");
+        if (artifacts.getCurrent(project.id, "mechanics")) workflow.markStale(project.id, "mechanics");
         return reply.code(201).send({ bible, workflow: workflow.markDraft(project.id, "bible") });
       } catch (error) {
         return reply.code(400).send({ error: (error as Error).message });
@@ -516,6 +541,7 @@ export function registerLongFormRoutes(
           dependencies: ["brief", "bible"],
         });
         if (artifacts.getCurrent(project.id, "endings")) workflow.markStale(project.id, "endings");
+        if (artifacts.getCurrent(project.id, "mechanics")) workflow.markStale(project.id, "mechanics");
         return reply.code(201).send({ routes, workflow: workflow.markDraft(project.id, "routes") });
       } catch (error) {
         return reply.code(400).send({ error: (error as Error).message });
@@ -603,6 +629,7 @@ export function registerLongFormRoutes(
           content: request.body,
           dependencies: ["routes"],
         });
+        if (artifacts.getCurrent(project.id, "mechanics")) workflow.markStale(project.id, "mechanics");
         return reply.code(201).send({ endings, workflow: workflow.markDraft(project.id, "endings") });
       } catch (error) {
         return reply.code(400).send({ error: (error as Error).message });
@@ -657,6 +684,63 @@ export function registerLongFormRoutes(
         });
     },
   );
+
+  app.post<{ Params: ProjectParams }>("/api/long-form/projects/:projectId/mechanics", async (request, reply) => {
+    const project = longFormProject(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Long-form project not found" });
+    if (artifacts.getCurrent(project.id, "mechanics")) return reply.code(409).send({ error: "Mechanics already exist" });
+    const endingVersionId = workflow.get(project.id, "endings").approvedVersionId;
+    const bibleVersionId = workflow.get(project.id, "bible").approvedVersionId;
+    const endings = endingVersionId ? artifacts.getVersion<LongFormEndingPlan>(endingVersionId) : undefined;
+    const bible = bibleVersionId ? artifacts.getVersion<LongFormStoryBible>(bibleVersionId) : undefined;
+    if (!endings || !bible) return reply.code(409).send({ error: "Approve the story bible and ending architecture first" });
+    const mechanics = artifacts.saveArtifact({
+      projectId: project.id, artifactId: "mechanics", artifactType: "mechanics",
+      schema: LongFormMechanicsPlanSchema,
+      content: defaultLongFormMechanicsPlan(bible.content, endings.content),
+      dependencies: ["bible", "routes", "endings"],
+    });
+    return reply.code(201).send({ mechanics, workflow: workflow.markDraft(project.id, "mechanics") });
+  });
+
+  app.put<{ Params: ProjectParams; Body: LongFormMechanicsPlan }>("/api/long-form/projects/:projectId/mechanics", async (request, reply) => {
+    const project = longFormProject(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Long-form project not found" });
+    try {
+      const mechanics = artifacts.saveArtifact({
+        projectId: project.id, artifactId: "mechanics", artifactType: "mechanics",
+        schema: LongFormMechanicsPlanSchema, content: request.body,
+        dependencies: ["bible", "routes", "endings"],
+      });
+      return reply.code(201).send({ mechanics, workflow: workflow.markDraft(project.id, "mechanics") });
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  app.post<{ Params: ProjectParams; Body: { versionId?: string } }>("/api/long-form/projects/:projectId/mechanics/approve", async (request, reply) => {
+    const project = longFormProject(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Long-form project not found" });
+    const versionId = request.body?.versionId ?? artifacts.getCurrent(project.id, "mechanics")?.id;
+    const version = versionId ? artifacts.getVersion<LongFormMechanicsPlan>(versionId) : undefined;
+    if (!version) return reply.code(404).send({ error: "Mechanics not found" });
+    const used = new Set([
+      ...version.content.gates.flatMap((gate) => gate.conditions.map((condition) => condition.mechanicKey)),
+      ...version.content.choiceEffectPlans.flatMap((effect) => effect.mechanicKeys),
+    ]);
+    const declared = [...version.content.visibleStats, ...version.content.relationships, ...version.content.flags, ...version.content.resources];
+    const unused = declared.filter((item) => !used.has(item.key));
+    if (unused.length) return reply.code(409).send({ error: `Every mechanic must influence a gate or choice-effect plan. Unused: ${unused.map((item) => item.label).join(", ")}` });
+    return workflow.approve(project.id, "mechanics", version.id);
+  });
+
+  app.get<{ Params: ProjectParams; Querystring: { format?: string } }>("/api/long-form/projects/:projectId/mechanics/export", async (request, reply) => {
+    const project = longFormProject(request.params.projectId);
+    const mechanics = project && artifacts.getCurrent<LongFormMechanicsPlan>(project.id, "mechanics");
+    if (!project || !mechanics) return reply.code(404).send({ error: "Mechanics not found" });
+    if (request.query.format === "markdown") return reply.header("content-type", "text/markdown; charset=utf-8").send(renderMechanicsMarkdown(mechanics.content));
+    return reply.send({ project, artifact: mechanics, workflow: workflow.get(project.id, "mechanics") });
+  });
 
   app.post<{ Params: ProjectParams; Body: { versionId?: string } }>(
     "/api/long-form/projects/:projectId/brief/approve",

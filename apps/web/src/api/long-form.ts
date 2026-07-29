@@ -159,6 +159,18 @@ export interface LongFormEndingPlan {
   unresolvedQuestions: Array<{ id: string; question: string; answer: string }>;
 }
 
+export interface LongFormMechanicsPlan {
+  schemaVersion: 1; title: string; overview: string;
+  visibleStats: Array<{ id: string; key: string; label: string; description: string; minimum: number; maximum: number; initial: number; increaseSignals: string[]; decreaseSignals: string[] }>;
+  relationships: Array<{ id: string; relationshipId: string; key: string; label: string; description: string; minimum: number; maximum: number; initial: number; increaseSignals: string[]; decreaseSignals: string[]; bands: Array<{ id: string; minimum: number; label: string; meaning: string }> }>;
+  flags: Array<{ id: string; key: string; label: string; meaning: string }>;
+  resources: Array<{ id: string; key: string; label: string; kind: "inventory" | "currency" | "counter"; initial: number; meaning: string }>;
+  gates: Array<{ id: string; targetType: "route" | "ending"; targetId: string; logic: "all" | "any"; conditions: Array<{ id: string; mechanicKey: string; operator: "at-least" | "at-most" | "equals" | "present" | "absent"; value: number | null }>; rationale: string; fallback: string }>;
+  choiceEffectPlans: Array<{ id: string; label: string; sourceDecisionIds: string[]; mechanicKeys: string[]; effectGuidance: string[] }>;
+  balancingRules: Array<{ id: string; label: string; description: string }>;
+  unresolvedQuestions: Array<{ id: string; question: string; answer: string }>;
+}
+
 export interface ArtifactVersion<T> {
   id: string;
   projectId: string;
@@ -183,16 +195,17 @@ export interface LongFormProjectState {
   bible: ArtifactVersion<LongFormStoryBible> | null;
   routes: ArtifactVersion<LongFormRoutePlan> | null;
   endings: ArtifactVersion<LongFormEndingPlan> | null;
+  mechanics: ArtifactVersion<LongFormMechanicsPlan> | null;
   workflow: WorkflowState | {
-    brief: WorkflowState; bible: WorkflowState; routes: WorkflowState; endings: WorkflowState;
+    brief: WorkflowState; bible: WorkflowState; routes: WorkflowState; endings: WorkflowState; mechanics: WorkflowState;
   };
 }
 
 export interface AssistantScope {
   kind: "project" | "artifact";
   projectId: string;
-  stage?: "brief" | "bible" | "routes" | "endings";
-  artifactId?: "brief" | "bible" | "routes" | "endings";
+  stage?: "brief" | "bible" | "routes" | "endings" | "mechanics";
+  artifactId?: "brief" | "bible" | "routes" | "endings" | "mechanics";
   versionId?: string;
 }
 
@@ -229,7 +242,7 @@ export interface ChangeSetRecord {
   status: "proposed" | "applied" | "rejected" | "superseded";
   summary: string;
   rationale: string;
-  candidate: ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan;
+  candidate: ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan | LongFormMechanicsPlan;
   invalidations: string[];
   appliedVersionId: string | null;
   createdAt: string;
@@ -266,7 +279,8 @@ export async function loadLongFormProject(projectId: string): Promise<{
   bible: ArtifactVersion<LongFormStoryBible> | null;
   routes: ArtifactVersion<LongFormRoutePlan> | null;
   endings: ArtifactVersion<LongFormEndingPlan> | null;
-  workflow: { brief: WorkflowState; bible: WorkflowState; routes: WorkflowState; endings: WorkflowState };
+  mechanics: ArtifactVersion<LongFormMechanicsPlan> | null;
+  workflow: { brief: WorkflowState; bible: WorkflowState; routes: WorkflowState; endings: WorkflowState; mechanics: WorkflowState };
 }> {
   return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}`));
 }
@@ -372,6 +386,13 @@ export async function approveEndingPlan(projectId: string, versionId: string): P
   }));
 }
 
+export const createMechanicsPlan = async (projectId: string): Promise<{ mechanics: ArtifactVersion<LongFormMechanicsPlan>; workflow: WorkflowState }> =>
+  json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/mechanics`, { method: "POST" }));
+export const saveMechanicsPlan = async (projectId: string, mechanics: LongFormMechanicsPlan): Promise<{ mechanics: ArtifactVersion<LongFormMechanicsPlan>; workflow: WorkflowState }> =>
+  json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/mechanics`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(mechanics) }));
+export const approveMechanicsPlan = async (projectId: string, versionId: string): Promise<WorkflowState> =>
+  json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/mechanics/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ versionId }) }));
+
 export async function downloadBrief(projectId: string, format: "markdown" | "json"): Promise<void> {
   const response = await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/brief/export?format=${format}`);
   if (!response.ok) throw new Error("Could not export the project brief");
@@ -418,6 +439,13 @@ export async function downloadEndingPlan(projectId: string, format: "markdown" |
   anchor.download = `${projectId}-endings.${format === "markdown" ? "md" : "json"}`;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+export async function downloadMechanicsPlan(projectId: string, format: "markdown" | "json"): Promise<void> {
+  const response = await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/mechanics/export?format=${format}`);
+  if (!response.ok) throw new Error("Could not export mechanics");
+  const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
+  anchor.href = url; anchor.download = `${projectId}-mechanics.${format === "markdown" ? "md" : "json"}`; anchor.click(); URL.revokeObjectURL(url);
 }
 
 const conversationBase = (projectId: string) =>
@@ -478,7 +506,7 @@ export async function sendConversationMessage(input: {
 
 export async function applyProposal(projectId: string, conversationId: string, proposalId: string): Promise<{
   changeSet: ChangeSetRecord;
-  version: ArtifactVersion<ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan>;
+  version: ArtifactVersion<ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan | LongFormMechanicsPlan>;
 }> {
   return json(await fetch(
     `${conversationBase(projectId)}/${encodeURIComponent(conversationId)}/proposals/${encodeURIComponent(proposalId)}/apply`,

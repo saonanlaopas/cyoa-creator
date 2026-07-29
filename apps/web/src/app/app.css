@@ -176,6 +176,9 @@ textarea.source { min-height: 20rem; }
 .ending-coverage span, .ending-coverage small { color: #aeb7c6; }
 .ending-subsection { display: grid; gap: .65rem; padding-top: .5rem; border-top: 1px solid #364258; }
 .ending-subsection h4 { margin: 0; }
+.mechanics-editor { padding-bottom: 2rem; }
+.mechanic-condition { display: grid; grid-template-columns: 1.2fr 1fr .7fr; gap: .5rem; }
+.mechanic-condition select, .mechanic-condition input { min-width: 0; border: 1px solid #48536a; border-radius: .5rem; padding: .55rem; background: #11151e; color: #f4efe7; }
 
 @media (max-width: 1050px) {
   .long-form-workspace { grid-template-columns: 14rem minmax(0, 1fr); }
@@ -193,4 +196,5 @@ textarea.source { min-height: 20rem; }
   .artifact-actions { justify-content: start; }
   .brief-grid, .brief-grid.targets { grid-template-columns: 1fr; }
   .route-budget { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mechanic-condition { grid-template-columns: 1fr; }
 }

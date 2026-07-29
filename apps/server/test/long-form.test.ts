@@ -311,6 +311,32 @@ describe("long-form project brief", () => {
     expect(markdown.body).toContain("## Forgiveness");
     expect(markdown.body).toContain("Chose honesty");
 
+    const mechanicsCreated = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/mechanics`,
+    })).json();
+    expect(mechanicsCreated.mechanics.content.visibleStats).toHaveLength(3);
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/mechanics/approve`,
+      payload: { versionId: mechanicsCreated.mechanics.id },
+    })).statusCode).toBe(409);
+    const mechanicsSaved = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/mechanics`,
+      payload: {
+        ...mechanicsCreated.mechanics.content,
+        choiceEffectPlans: [{
+          id: "effect-core",
+          label: "Core choice consequences",
+          sourceDecisionIds: ["decision-route-selection"],
+          mechanicKeys: ["resolve", "insight", "integrity"],
+          effectGuidance: ["Choices change values only when they carry narrative cost."],
+        }],
+      },
+    })).json();
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/mechanics/approve`,
+      payload: { versionId: mechanicsSaved.mechanics.id },
+    })).statusCode).toBe(200);
+
     await app.inject({
       method: "PUT", url: `/api/long-form/projects/${projectId}/routes`,
       payload: { ...routes.routes.content, overview: "Revised routes." },
@@ -320,6 +346,7 @@ describe("long-form project brief", () => {
     })).json();
     expect(reloaded.workflow.endings.status).toBe("stale");
     expect(reloaded.endings.stale).toBe(true);
+    expect(reloaded.workflow.mechanics.status).toBe("stale");
     await app.close();
   });
 });

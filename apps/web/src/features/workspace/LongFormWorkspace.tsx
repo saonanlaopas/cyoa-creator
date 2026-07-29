@@ -10,6 +10,7 @@ import {
   type LongFormStoryBible,
   type LongFormRoutePlan,
   type LongFormEndingPlan,
+  type LongFormMechanicsPlan,
   type ProjectBrief,
   type ProjectRecord,
   type WorkflowState,
@@ -19,6 +20,7 @@ import { AssistantPanel } from "./AssistantPanel.js";
 import { BibleWorkspace } from "./BibleWorkspace.js";
 import { RoutePlanWorkspace } from "./RoutePlanWorkspace.js";
 import { EndingPlanWorkspace } from "./EndingPlanWorkspace.js";
+import { MechanicsWorkspace } from "./MechanicsWorkspace.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
@@ -35,9 +37,11 @@ export function LongFormWorkspace() {
   const [routesWorkflow, setRoutesWorkflow] = useState<WorkflowState | null>(null);
   const [endings, setEndings] = useState<ArtifactVersion<LongFormEndingPlan> | null>(null);
   const [endingsWorkflow, setEndingsWorkflow] = useState<WorkflowState | null>(null);
+  const [mechanics, setMechanics] = useState<ArtifactVersion<LongFormMechanicsPlan> | null>(null);
+  const [mechanicsWorkflow, setMechanicsWorkflow] = useState<WorkflowState | null>(null);
   const storedStage = localStorage.getItem(activeStageKey);
-  const [activeStage, setActiveStage] = useState<"brief" | "bible" | "routes" | "endings">(
-    storedStage === "bible" || storedStage === "routes" || storedStage === "endings" ? storedStage : "brief",
+  const [activeStage, setActiveStage] = useState<"brief" | "bible" | "routes" | "endings" | "mechanics">(
+    storedStage === "bible" || storedStage === "routes" || storedStage === "endings" || storedStage === "mechanics" ? storedStage : "brief",
   );
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -54,6 +58,8 @@ export function LongFormWorkspace() {
     setRoutesWorkflow(state.workflow.routes);
     setEndings(state.endings);
     setEndingsWorkflow(state.workflow.endings);
+    setMechanics(state.mechanics);
+    setMechanicsWorkflow(state.workflow.mechanics);
     localStorage.setItem(activeProjectKey, projectId);
   };
 
@@ -100,6 +106,8 @@ export function LongFormWorkspace() {
         approvedVersionId: null,
         updatedAt: "",
       });
+      setMechanics(null);
+      setMechanicsWorkflow({ projectId: created.project.id, artifactId: "mechanics", status: "empty", approvedVersionId: null, updatedAt: "" });
       setActiveStage("brief");
       localStorage.setItem(activeStageKey, "brief");
       setNewName("");
@@ -111,7 +119,7 @@ export function LongFormWorkspace() {
     }
   };
 
-  if (!project || !brief || !briefWorkflow || !bibleWorkflow || !routesWorkflow || !endingsWorkflow) {
+  if (!project || !brief || !briefWorkflow || !bibleWorkflow || !routesWorkflow || !endingsWorkflow || !mechanicsWorkflow) {
     return <main className="long-form-home">
       <header>
         <p className="eyebrow">Long-form workspace</p>
@@ -150,6 +158,7 @@ export function LongFormWorkspace() {
         setRoutesWorkflow(null);
         setEndings(null);
         setEndingsWorkflow(null);
+        setMechanics(null); setMechanicsWorkflow(null);
         setMessage(null);
         setActiveStage("brief");
         localStorage.setItem(activeStageKey, "brief");
@@ -164,12 +173,15 @@ export function LongFormWorkspace() {
                 ? "routes"
                 : index === 3
                   ? "endings"
+                  : index === 4
+                    ? "mechanics"
                   : null;
           const enabled = stageId === "brief"
             || (stageId === "bible" && (briefWorkflow.status === "approved" || Boolean(bible)))
             || (stageId === "routes" && (bibleWorkflow.status === "approved" || Boolean(routes)));
           const available = enabled
-            || (stageId === "endings" && (routesWorkflow.status === "approved" || Boolean(endings)));
+            || (stageId === "endings" && (routesWorkflow.status === "approved" || Boolean(endings)))
+            || (stageId === "mechanics" && (endingsWorkflow.status === "approved" || Boolean(mechanics)));
           const status = stageId === "brief"
             ? briefWorkflow.status
             : stageId === "bible"
@@ -178,6 +190,8 @@ export function LongFormWorkspace() {
                 ? routesWorkflow.status === "empty" ? "Not started" : routesWorkflow.status
                 : stageId === "endings"
                   ? endingsWorkflow.status === "empty" ? "Not started" : endingsWorkflow.status
+                  : stageId === "mechanics"
+                    ? mechanicsWorkflow.status === "empty" ? "Not started" : mechanicsWorkflow.status
               : "Not started";
           return <li key={stage} className={stageId === activeStage ? "current" : ""}>
           <button disabled={!available} onClick={() => {
@@ -254,7 +268,7 @@ export function LongFormWorkspace() {
       setBusy={setBusy}
       setMessage={setMessage}
       onChanged={() => openProject(project.id)}
-    /> : <EndingPlanWorkspace
+    /> : activeStage === "endings" ? <EndingPlanWorkspace
       projectId={project.id}
       routesApproved={routesWorkflow.status === "approved"}
       routePlan={routes?.content ?? null}
@@ -265,6 +279,11 @@ export function LongFormWorkspace() {
       setBusy={setBusy}
       setMessage={setMessage}
       onChanged={() => openProject(project.id)}
+    /> : <MechanicsWorkspace
+      projectId={project.id} endingsApproved={endingsWorkflow.status === "approved"}
+      routes={routes?.content ?? null} endings={endings?.content ?? null}
+      mechanics={mechanics} workflow={mechanicsWorkflow} busy={busy} message={message}
+      setBusy={setBusy} setMessage={setMessage} onChanged={() => openProject(project.id)}
     />}
 
     <AssistantPanel
@@ -274,6 +293,7 @@ export function LongFormWorkspace() {
       bible={bible}
       routes={routes}
       endings={endings}
+      mechanics={mechanics}
       activeArtifact={activeStage}
       onBriefApplied={() => openProject(project.id)}
     />

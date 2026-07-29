@@ -37,6 +37,7 @@ Choose **Long-form workspace** for a persistent 150,000–200,000-word project. 
 2. Create, edit, and approve the story bible.
 3. Create the route architecture.
 4. Turn the approved route hooks into detailed endings.
+5. Design the stats, relationships, flags, resources, gates, and choice effects.
 
 The route architecture is seeded locally from the approved brief and bible; creating it does not call OpenRouter. It allocates the project word target across shared and route-exclusive acts, then provides editable major routes, entry conditions, relationship trajectories, decision points, reconvergences, ending hooks, and unresolved questions. The budget summary always shows allocated, shared, route-exclusive, and remaining words. An imbalance may be saved as a draft but remains visibly flagged.
 
@@ -45,6 +46,8 @@ Every saved artifact is an immutable local version. Approving a version makes it
 The assistant follows the selected visible scope: whole project, brief, bible, routes, or endings. **Discuss only** can answer and brainstorm but cannot mutate project artifacts. **Propose change** returns a complete candidate for review; **Apply changes** creates a new draft version and still does not approve it. Sending a message is an OpenRouter request and may be billable, while direct editing, saving, approval, and export stay local.
 
 The ending stage tracks route coverage, outcome types, requirements and exclusions, contributing decisions, thematic payoff, foreshadowing, character and relationship outcomes, persistent consequences, and smaller ending variants. Its prose target is explicitly a subset of the full project budget. Coverage warnings identify routes without outcomes, while readiness reporting distinguishes placeholder endings from endings with an actual payoff and earned access conditions. Route changes mark the ending plan stale without deleting its history.
+
+The mechanics stage starts with candidate long-form stats and story-bible relationships, but does not pretend they matter automatically. Its influence summary shows which declared mechanics appear in a route or ending gate or a choice-effect plan. Mechanics approval is blocked while any tracked value is unused. Balancing rules explicitly discourage grinding, invisible consequences, and a single universally optimal stat.
 
 ## Play and export
 

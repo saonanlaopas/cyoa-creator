@@ -4,6 +4,8 @@ import {
   BibleAssistantResponseSchema,
   EndingPlanAssistantResponseSchema,
   LongFormEndingPlanSchema,
+  LongFormMechanicsPlanSchema,
+  MechanicsPlanAssistantResponseSchema,
   LongFormRoutePlanSchema,
   LongFormStoryBibleSchema,
   ProjectBriefAssistantResponseSchema,
@@ -11,6 +13,7 @@ import {
   RoutePlanAssistantResponseSchema,
   type LongFormRoutePlan,
   type LongFormEndingPlan,
+  type LongFormMechanicsPlan,
   type LongFormStoryBible,
   type ProjectBrief,
 } from "@story-to-cyoa/pipeline";
@@ -26,7 +29,7 @@ interface ProjectParams { projectId: string }
 interface ConversationParams extends ProjectParams { conversationId: string }
 interface ProposalParams extends ConversationParams { proposalId: string }
 
-type PlanningArtifactId = "brief" | "bible" | "routes" | "endings";
+type PlanningArtifactId = "brief" | "bible" | "routes" | "endings" | "mechanics";
 
 function artifactScope(projectId: string, artifactId: PlanningArtifactId, versionId: string): AssistantScope {
   return { kind: "artifact", projectId, stage: artifactId, artifactId, versionId };
@@ -35,12 +38,13 @@ function artifactScope(projectId: string, artifactId: PlanningArtifactId, versio
 function assistantPrompt(input: {
   intent: "discuss" | "propose";
   scope: AssistantScope;
-  selectedArtifact: { label: string; content: ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan };
+  selectedArtifact: { label: string; content: ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan | LongFormMechanicsPlan };
   projectContext: {
     brief: ProjectBrief;
     bible: LongFormStoryBible | null;
     routes: LongFormRoutePlan | null;
     endings: LongFormEndingPlan | null;
+    mechanics: LongFormMechanicsPlan | null;
   };
   recentMessages: Array<{ role: "user" | "assistant"; content: string }>;
   message: string;
@@ -137,7 +141,7 @@ export function registerLongFormChatRoutes(
         const version = scope.versionId ? artifacts.getVersion(scope.versionId) : undefined;
         if (
           !scope.artifactId
-          || !["brief", "bible", "routes", "endings"].includes(scope.artifactId)
+          || !["brief", "bible", "routes", "endings", "mechanics"].includes(scope.artifactId)
           || scope.stage !== scope.artifactId
           || !version
           || version.projectId !== request.params.projectId
@@ -164,6 +168,7 @@ export function registerLongFormChatRoutes(
     const currentBible = artifacts.getCurrent<LongFormStoryBible>(request.params.projectId, "bible");
     const currentRoutes = artifacts.getCurrent<LongFormRoutePlan>(request.params.projectId, "routes");
     const currentEndings = artifacts.getCurrent<LongFormEndingPlan>(request.params.projectId, "endings");
+    const currentMechanics = artifacts.getCurrent<LongFormMechanicsPlan>(request.params.projectId, "mechanics");
     const content = request.body?.content?.trim() ?? "";
     const intent = request.body?.intent === "propose" ? "propose" : "discuss";
     if (!content) return reply.code(400).send({ error: "Message is required" });
@@ -174,8 +179,10 @@ export function registerLongFormChatRoutes(
     const selectedArtifactId = conversation.scope.kind === "artifact"
       ? conversation.scope.artifactId ?? "brief"
       : "brief";
-    const selectedArtifact = selectedArtifactId === "endings"
-      ? currentEndings
+    const selectedArtifact = selectedArtifactId === "mechanics"
+      ? currentMechanics
+      : selectedArtifactId === "endings"
+        ? currentEndings
       : selectedArtifactId === "routes"
         ? currentRoutes
       : selectedArtifactId === "bible"
@@ -193,6 +200,7 @@ export function registerLongFormChatRoutes(
       ...(currentBible ? { bibleVersionId: currentBible.id } : {}),
       ...(currentRoutes ? { routesVersionId: currentRoutes.id } : {}),
       ...(currentEndings ? { endingsVersionId: currentEndings.id } : {}),
+      ...(currentMechanics ? { mechanicsVersionId: currentMechanics.id } : {}),
     };
     const userMessage = conversations.addMessage({
       conversationId: conversation.id,
@@ -217,8 +225,10 @@ export function registerLongFormChatRoutes(
               intent,
               scope,
               selectedArtifact: {
-                label: selectedArtifactId === "endings"
-                  ? "ending architecture"
+                label: selectedArtifactId === "mechanics"
+                  ? "mechanics plan"
+                  : selectedArtifactId === "endings"
+                    ? "ending architecture"
                   : selectedArtifactId === "routes"
                     ? "route architecture"
                   : selectedArtifactId === "bible"
@@ -231,6 +241,7 @@ export function registerLongFormChatRoutes(
                 bible: currentBible?.content ?? null,
                 routes: currentRoutes?.content ?? null,
                 endings: currentEndings?.content ?? null,
+                mechanics: currentMechanics?.content ?? null,
               },
               recentMessages,
               message: content,
@@ -243,8 +254,10 @@ export function registerLongFormChatRoutes(
         maxRepairAttempts: 1 as const,
       };
       const callbacks = { onReasoning: (event: ReasoningEvent) => activity.push({ kind: event.kind }) };
-      const generation = selectedArtifactId === "endings"
-        ? await client.generateStructuredStream(generationRequest, EndingPlanAssistantResponseSchema, callbacks)
+      const generation = selectedArtifactId === "mechanics"
+        ? await client.generateStructuredStream(generationRequest, MechanicsPlanAssistantResponseSchema, callbacks)
+        : selectedArtifactId === "endings"
+          ? await client.generateStructuredStream(generationRequest, EndingPlanAssistantResponseSchema, callbacks)
         : selectedArtifactId === "routes"
           ? await client.generateStructuredStream(generationRequest, RoutePlanAssistantResponseSchema, callbacks)
         : selectedArtifactId === "bible"
@@ -301,8 +314,10 @@ export function registerLongFormChatRoutes(
         return reply.code(404).send({ error: "Proposal not found" });
       }
       try {
-        const applied = proposal.artifactId === "endings"
-          ? changeSets.apply(request.params.proposalId, LongFormEndingPlanSchema)
+        const applied = proposal.artifactId === "mechanics"
+          ? changeSets.apply(request.params.proposalId, LongFormMechanicsPlanSchema)
+          : proposal.artifactId === "endings"
+            ? changeSets.apply(request.params.proposalId, LongFormEndingPlanSchema)
           : proposal.artifactId === "routes"
             ? changeSets.apply(request.params.proposalId, LongFormRoutePlanSchema)
           : proposal.artifactId === "bible"
