@@ -10,6 +10,7 @@ import {
   type ArtifactVersion,
   type ChangeSetRecord,
   type ConversationRecord,
+  type LongFormStoryBible,
   type MessageRecord,
   type ProjectBrief,
   type ProjectRecord,
@@ -21,6 +22,8 @@ const clampWidth = (value: number) => Math.max(320, Math.min(620, value));
 export function AssistantPanel(props: {
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
+  bible: ArtifactVersion<LongFormStoryBible> | null;
+  activeArtifact: "brief" | "bible";
   onBriefApplied(): Promise<void>;
 }) {
   const [conversation, setConversation] = useState<ConversationRecord | null>(null);
@@ -60,16 +63,18 @@ export function AssistantPanel(props: {
     if (historyRef.current) historyRef.current.scrollTop = historyRef.current.scrollHeight;
   }, [messages, proposals]);
 
-  const changeScope = async (kind: "project" | "artifact") => {
+  const changeScope = async (selection: "project" | "brief" | "bible") => {
     if (!conversation) return;
-    const scope = kind === "project"
+    const selected = selection === "bible" ? props.bible : props.brief;
+    if (selection === "bible" && !selected) return;
+    const scope = selection === "project"
       ? { kind: "project" as const, projectId: props.project.id }
       : {
           kind: "artifact" as const,
           projectId: props.project.id,
-          stage: "brief" as const,
-          artifactId: "brief" as const,
-          versionId: props.brief.id,
+          stage: selection,
+          artifactId: selection,
+          versionId: selected!.id,
         };
     try {
       setConversation(await updateConversationScope(props.project.id, conversation.id, scope));
@@ -79,14 +84,32 @@ export function AssistantPanel(props: {
   };
 
   useEffect(() => {
-    if (
-      conversation?.scope.kind === "artifact"
-      && conversation.scope.versionId !== props.brief.id
-      && !busy
-    ) {
-      void changeScope("artifact");
+    const selected = props.activeArtifact === "bible" ? props.bible : props.brief;
+    if (!conversation || busy) return;
+    if (!selected) {
+      if (conversation.scope.kind !== "project") void changeScope("project");
+      return;
     }
-  }, [conversation?.scope.kind, conversation?.scope.versionId, props.brief.id, busy]);
+    if (
+      conversation.scope.kind !== "artifact"
+      || conversation.scope.artifactId !== props.activeArtifact
+      || conversation.scope.versionId !== selected.id
+    ) void changeScope(props.activeArtifact);
+  }, [
+    conversation?.scope.kind,
+    conversation?.scope.artifactId,
+    conversation?.scope.versionId,
+    props.activeArtifact,
+    props.brief.id,
+    props.bible?.id,
+    busy,
+  ]);
+
+  const currentArtifact = props.activeArtifact === "bible" ? props.bible : props.brief;
+
+  useEffect(() => {
+    if (conversation?.scope.kind === "project" && intent === "propose") setIntent("discuss");
+  }, [conversation?.scope.kind, intent]);
 
   const send = async () => {
     if (!conversation || !content.trim()) return;
@@ -158,28 +181,29 @@ export function AssistantPanel(props: {
       </div>
       <label>Scope
         <select
-          value={conversation?.scope.kind ?? "artifact"}
+          value={conversation?.scope.kind === "project" ? "project" : conversation?.scope.artifactId ?? props.activeArtifact}
           disabled={!conversation || busy}
-          onChange={(event) => void changeScope(event.target.value as "project" | "artifact")}
+          onChange={(event) => void changeScope(event.target.value as "project" | "brief" | "bible")}
         >
-          <option value="artifact">Project brief · version {props.brief.version}</option>
+          <option value="brief">Project brief · version {props.brief.version}</option>
+          {props.bible && <option value="bible">Story bible · version {props.bible.version}</option>}
           <option value="project">Whole project</option>
         </select>
       </label>
-      <p className="scope-version">Project: {props.project.name} · Base: brief v{props.brief.version}</p>
+      <p className="scope-version">Project: {props.project.name} · Base: {currentArtifact ? `${props.activeArtifact} v${currentArtifact.version}` : "project only"}</p>
     </header>
 
     <div className="assistant-history" ref={historyRef}>
-      {messages.length === 0 && <p className="field-note">Ask questions freely, or choose “Propose change” when you want a reviewable edit to the brief.</p>}
+      {messages.length === 0 && <p className="field-note">Ask questions freely, or choose “Propose change” when you want a reviewable edit to the {props.activeArtifact === "bible" ? "story bible" : "brief"}.</p>}
       {messages.map((message) => <article className={`chat-message ${message.role}`} key={message.id}>
         <strong>{message.role === "user" ? "You" : "Assistant"}</strong>
         <p>{message.content}</p>
-        <small>{message.intent} · brief v{String(message.metadata.briefVersion ?? "?")}</small>
+        <small>{message.intent} · {String(message.metadata.artifactId ?? "artifact")} v{String(message.metadata.artifactVersion ?? "?")}</small>
       </article>)}
       {proposals.map((proposal) => <ProposalCard
         key={proposal.id}
         proposal={proposal}
-        currentBriefId={props.brief.id}
+        currentVersionId={proposal.artifactId === "bible" ? props.bible?.id ?? "" : props.brief.id}
         busy={busy}
         onApply={async () => {
           if (!conversation) return;
@@ -224,7 +248,7 @@ export function AssistantPanel(props: {
         <label>Intent
           <select value={intent} onChange={(event) => setIntent(event.target.value as typeof intent)}>
             <option value="discuss">Discuss only</option>
-            <option value="propose">Propose change</option>
+            <option value="propose" disabled={conversation?.scope.kind === "project"}>Propose change</option>
           </select>
         </label>
         <label>Model<input value={model} onChange={(event) => setModel(event.target.value)} /></label>
@@ -232,7 +256,9 @@ export function AssistantPanel(props: {
       <textarea
         value={content}
         onChange={(event) => setContent(event.target.value)}
-        placeholder={intent === "discuss" ? "Ask about the project brief…" : "Describe the exact brief change you want…"}
+        placeholder={intent === "discuss"
+          ? `Ask about the ${props.activeArtifact === "bible" ? "story bible" : "project brief"}…`
+          : `Describe the exact ${props.activeArtifact === "bible" ? "bible" : "brief"} change you want…`}
       />
       <button className="primary" disabled={busy || !conversation || !content.trim()}>
         {busy ? "Working…" : intent === "discuss" ? "Send to assistant" : "Request proposal"}
@@ -244,28 +270,40 @@ export function AssistantPanel(props: {
 
 function ProposalCard(props: {
   proposal: ChangeSetRecord;
-  currentBriefId: string;
+  currentVersionId: string;
   busy: boolean;
   onApply(): Promise<void>;
   onReject(): Promise<void>;
 }) {
-  const stale = props.proposal.status === "proposed" && props.proposal.baseVersionId !== props.currentBriefId;
+  const stale = props.proposal.status === "proposed" && props.proposal.baseVersionId !== props.currentVersionId;
+  const candidate = props.proposal.candidate;
+  const bible = props.proposal.artifactId === "bible" ? candidate as LongFormStoryBible : null;
+  const brief = props.proposal.artifactId === "brief" ? candidate as ProjectBrief : null;
   return <article className={`proposal-card ${props.proposal.status}`}>
     <header>
-      <strong>Brief change proposal</strong>
+      <strong>{props.proposal.artifactId === "bible" ? "Bible" : "Brief"} change proposal</strong>
       <span>{stale ? "outdated" : props.proposal.status}</span>
     </header>
     <h3>{props.proposal.summary}</h3>
     <p>{props.proposal.rationale}</p>
     <p className="field-note">Applying creates a new draft version; it does not approve the brief.</p>
     <details>
-      <summary>Review candidate brief</summary>
+      <summary>Review candidate {props.proposal.artifactId}</summary>
       <dl className="proposal-preview">
-        <dt>Working title</dt><dd>{props.proposal.candidate.workingTitle}</dd>
-        <dt>Total words</dt><dd>{props.proposal.candidate.totalWordTarget.toLocaleString()}</dd>
-        <dt>Routes</dt><dd>{props.proposal.candidate.routeTarget}</dd>
-        <dt>Endings</dt><dd>{props.proposal.candidate.endingTarget}</dd>
-        <dt>Premise</dt><dd>{props.proposal.candidate.premise || "Not set"}</dd>
+        {brief && <>
+          <dt>Working title</dt><dd>{brief.workingTitle}</dd>
+          <dt>Total words</dt><dd>{brief.totalWordTarget.toLocaleString()}</dd>
+          <dt>Routes</dt><dd>{brief.routeTarget}</dd>
+          <dt>Endings</dt><dd>{brief.endingTarget}</dd>
+          <dt>Premise</dt><dd>{brief.premise || "Not set"}</dd>
+        </>}
+        {bible && <>
+          <dt>Title</dt><dd>{bible.title}</dd>
+          <dt>Characters</dt><dd>{bible.characters.length}</dd>
+          <dt>Relationships</dt><dd>{bible.relationships.length}</dd>
+          <dt>Canon facts</dt><dd>{bible.canonFacts.length}</dd>
+          <dt>Open questions</dt><dd>{bible.unresolvedQuestions.length}</dd>
+        </>}
       </dl>
     </details>
     {props.proposal.status === "proposed" && <div className="proposal-actions">

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OpenRouterClient, StructuredGenerationStreamRequest } from "@story-to-cyoa/openrouter";
-import { defaultProjectBrief } from "@story-to-cyoa/pipeline";
+import { defaultLongFormStoryBible, defaultProjectBrief } from "@story-to-cyoa/pipeline";
 import { buildApp } from "../src/app.js";
 
 function fakeChatClient(): OpenRouterClient {
@@ -13,12 +13,32 @@ function fakeChatClient(): OpenRouterClient {
       callbacks.onReasoning?.({ kind: "summary" });
       const prompt = request.messages.at(-1)?.content ?? "";
       const proposing = prompt.includes("User intent: propose");
-      const candidate = { ...defaultProjectBrief("Chat Project"), routeTarget: 6 };
+      const bibleScope = prompt.includes("Selected story bible:");
+      const candidate = bibleScope
+        ? {
+            ...defaultLongFormStoryBible({ title: "Chat Project" }),
+            characters: [{
+              id: "character-mara",
+              name: "Mara",
+              role: "Protagonist",
+              summary: "A wary student.",
+              motivations: ["Learn the truth"],
+              knowledge: [],
+              plannedArc: "Trust selectively.",
+            }],
+          }
+        : { ...defaultProjectBrief("Chat Project"), routeTarget: 6 };
       return {
         data: schema.parse({
-          message: proposing ? "I prepared a six-route brief." : "Five routes is a sensible starting point.",
+          message: bibleScope
+            ? proposing ? "I added Mara for review." : "The bible needs a protagonist entry."
+            : proposing ? "I prepared a six-route brief." : "Five routes is a sensible starting point.",
           proposal: proposing
-            ? { summary: "Expand to six routes", rationale: "Adds room for the requested branch.", candidate }
+            ? {
+                summary: bibleScope ? "Add Mara to the bible" : "Expand to six routes",
+                rationale: bibleScope ? "The protagonist needs a canonical record." : "Adds room for the requested branch.",
+                candidate,
+              }
             : null,
         }),
         usage: { inputTokens: 100, outputTokens: 40, totalTokens: 140 },
@@ -139,6 +159,67 @@ describe("long-form scoped chat", () => {
     });
     expect(conflict.statusCode).toBe(409);
     expect(conflict.json().error).toContain("older brief version");
+    await app.close();
+  });
+
+  it("scopes a proposal to the current story-bible version", async () => {
+    const app = buildApp({ openRouterClient: fakeChatClient() });
+    const created = (await app.inject({
+      method: "POST",
+      url: "/api/long-form/projects",
+      payload: { name: "Bible Chat" },
+    })).json() as { project: { id: string }; brief: { id: string } };
+    await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${created.project.id}/brief/approve`,
+      payload: { versionId: created.brief.id },
+    });
+    const bible = (await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${created.project.id}/bible`,
+    })).json() as { bible: { id: string } };
+    const conversation = (await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${created.project.id}/conversations`,
+      payload: {},
+    })).json() as { id: string };
+    const scope = await app.inject({
+      method: "PATCH",
+      url: `/api/long-form/projects/${created.project.id}/conversations/${conversation.id}/scope`,
+      payload: {
+        scope: {
+          kind: "artifact",
+          projectId: created.project.id,
+          stage: "bible",
+          artifactId: "bible",
+          versionId: bible.bible.id,
+        },
+      },
+    });
+    expect(scope.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${created.project.id}/conversations/${conversation.id}/messages`,
+      payload: { content: "Add the protagonist.", intent: "propose", model: "offline/chat" },
+    });
+    expect(response.statusCode).toBe(201);
+    const proposal = response.json().proposal as {
+      id: string; artifactId: string; baseVersionId: string; candidate: { characters: unknown[] };
+    };
+    expect(proposal).toMatchObject({
+      artifactId: "bible",
+      baseVersionId: bible.bible.id,
+      candidate: { characters: [expect.objectContaining({ name: "Mara" })] },
+    });
+    const applied = await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${created.project.id}/conversations/${conversation.id}/proposals/${proposal.id}/apply`,
+    });
+    expect(applied.statusCode).toBe(201);
+    expect(applied.json()).toMatchObject({
+      version: { artifactId: "bible", version: 2, content: { characters: [{ name: "Mara" }] } },
+    });
     await app.close();
   });
 });

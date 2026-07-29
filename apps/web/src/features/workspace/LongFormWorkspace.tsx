@@ -7,14 +7,17 @@ import {
   loadLongFormProject,
   saveProjectBrief,
   type ArtifactVersion,
+  type LongFormStoryBible,
   type ProjectBrief,
   type ProjectRecord,
   type WorkflowState,
 } from "../../api/long-form.js";
 import { BriefEditor } from "./BriefEditor.js";
 import { AssistantPanel } from "./AssistantPanel.js";
+import { BibleWorkspace } from "./BibleWorkspace.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
+const activeStageKey = "story-to-cyoa.long-form-stage";
 const stages = ["Project brief", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Review", "Play & export"];
 
 export function LongFormWorkspace() {
@@ -22,6 +25,11 @@ export function LongFormWorkspace() {
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [brief, setBrief] = useState<ArtifactVersion<ProjectBrief> | null>(null);
   const [briefWorkflow, setBriefWorkflow] = useState<WorkflowState | null>(null);
+  const [bible, setBible] = useState<ArtifactVersion<LongFormStoryBible> | null>(null);
+  const [bibleWorkflow, setBibleWorkflow] = useState<WorkflowState | null>(null);
+  const [activeStage, setActiveStage] = useState<"brief" | "bible">(
+    localStorage.getItem(activeStageKey) === "bible" ? "bible" : "brief",
+  );
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -31,6 +39,8 @@ export function LongFormWorkspace() {
     setProject(state.project);
     setBrief(state.brief);
     setBriefWorkflow(state.workflow.brief);
+    setBible(state.bible);
+    setBibleWorkflow(state.workflow.bible);
     localStorage.setItem(activeProjectKey, projectId);
   };
 
@@ -53,6 +63,16 @@ export function LongFormWorkspace() {
       setProject(created.project);
       setBrief(created.brief);
       setBriefWorkflow(created.workflow);
+      setBible(null);
+      setBibleWorkflow({
+        projectId: created.project.id,
+        artifactId: "bible",
+        status: "empty",
+        approvedVersionId: null,
+        updatedAt: "",
+      });
+      setActiveStage("brief");
+      localStorage.setItem(activeStageKey, "brief");
       setNewName("");
       localStorage.setItem(activeProjectKey, created.project.id);
     } catch (error) {
@@ -62,7 +82,7 @@ export function LongFormWorkspace() {
     }
   };
 
-  if (!project || !brief || !briefWorkflow) {
+  if (!project || !brief || !briefWorkflow || !bibleWorkflow) {
     return <main className="long-form-home">
       <header>
         <p className="eyebrow">Long-form workspace</p>
@@ -95,19 +115,38 @@ export function LongFormWorkspace() {
         setProject(null);
         setBrief(null);
         setBriefWorkflow(null);
+        setBible(null);
+        setBibleWorkflow(null);
         setMessage(null);
+        setActiveStage("brief");
+        localStorage.setItem(activeStageKey, "brief");
       }}>New project</button>
       <ol>
-        {stages.map((stage, index) => <li key={stage} className={index === 0 ? "current" : ""}>
-          <button disabled={index > 0}>
+        {stages.map((stage, index) => {
+          const stageId = index === 0 ? "brief" : index === 1 ? "bible" : null;
+          const enabled = stageId === "brief" || (stageId === "bible" && (briefWorkflow.status === "approved" || Boolean(bible)));
+          const status = stageId === "brief"
+            ? briefWorkflow.status
+            : stageId === "bible"
+              ? bibleWorkflow.status === "empty" ? "Not started" : bibleWorkflow.status
+              : "Not started";
+          return <li key={stage} className={stageId === activeStage ? "current" : ""}>
+          <button disabled={!enabled} onClick={() => {
+            if (stageId) {
+              setActiveStage(stageId);
+              localStorage.setItem(activeStageKey, stageId);
+              setMessage(null);
+            }
+          }}>
             <span>{stage}</span>
-            <small>{index === 0 ? briefWorkflow.status : "Not started"}</small>
+            <small>{status}</small>
           </button>
-        </li>)}
+        </li>;
+        })}
       </ol>
     </nav>
 
-    <section className="artifact-pane">
+    {activeStage === "brief" ? <section className="artifact-pane">
       <header className="artifact-header">
         <div>
           <p className="eyebrow">Stage 1</p>
@@ -146,12 +185,24 @@ export function LongFormWorkspace() {
           setBusy(false);
         }
       }} />
-    </section>
+    </section> : <BibleWorkspace
+      projectId={project.id}
+      briefApproved={briefWorkflow.status === "approved"}
+      bible={bible}
+      workflow={bibleWorkflow}
+      busy={busy}
+      message={message}
+      setBusy={setBusy}
+      setMessage={setMessage}
+      onChanged={() => openProject(project.id)}
+    />}
 
     <AssistantPanel
       key={project.id}
       project={project}
       brief={brief}
+      bible={bible}
+      activeArtifact={activeStage}
       onBriefApplied={() => openProject(project.id)}
     />
   </main>;

@@ -31,6 +31,47 @@ export interface ProjectBrief {
   unresolvedQuestions: string[];
 }
 
+export interface BibleCharacter {
+  id: string;
+  name: string;
+  role: string;
+  summary: string;
+  motivations: string[];
+  knowledge: string[];
+  plannedArc: string;
+}
+
+export interface BibleRelationship {
+  id: string;
+  characterIds: string[];
+  label: string;
+  currentState: string;
+  plannedArc: string;
+}
+
+export interface BibleSectionEntry {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface LongFormStoryBible {
+  schemaVersion: 1;
+  title: string;
+  overview: string;
+  characters: BibleCharacter[];
+  relationships: BibleRelationship[];
+  settings: BibleSectionEntry[];
+  timeline: BibleSectionEntry[];
+  worldRules: BibleSectionEntry[];
+  themes: BibleSectionEntry[];
+  proseGuidance: { tone: string[]; pointOfView: string; style: string[]; avoid: string[] };
+  canonFacts: Array<{ id: string; statement: string; sourceExcerptIds: string[]; confidence: "confirmed" | "likely" | "uncertain" }>;
+  contradictions: Array<{ id: string; description: string; resolution: string }>;
+  adaptationOpportunities: Array<{ id: string; description: string; rationale: string }>;
+  unresolvedQuestions: Array<{ id: string; question: string; answer: string }>;
+}
+
 export interface ArtifactVersion<T> {
   id: string;
   projectId: string;
@@ -52,14 +93,15 @@ export interface WorkflowState {
 export interface LongFormProjectState {
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
+  bible: ArtifactVersion<LongFormStoryBible> | null;
   workflow: WorkflowState | { brief: WorkflowState; bible: WorkflowState };
 }
 
 export interface AssistantScope {
   kind: "project" | "artifact";
   projectId: string;
-  stage?: "brief";
-  artifactId?: "brief";
+  stage?: "brief" | "bible";
+  artifactId?: "brief" | "bible";
   versionId?: string;
 }
 
@@ -80,7 +122,7 @@ export interface MessageRecord {
   content: string;
   intent: "discuss" | "propose";
   scope: AssistantScope;
-  context: { briefVersionId?: string };
+  context: { briefVersionId?: string; bibleVersionId?: string };
   metadata: Record<string, unknown>;
   createdAt: string;
 }
@@ -94,7 +136,7 @@ export interface ChangeSetRecord {
   status: "proposed" | "applied" | "rejected" | "superseded";
   summary: string;
   rationale: string;
-  candidate: ProjectBrief;
+  candidate: ProjectBrief | LongFormStoryBible;
   invalidations: string[];
   appliedVersionId: string | null;
   createdAt: string;
@@ -128,6 +170,7 @@ export async function createLongFormProject(name: string): Promise<{
 export async function loadLongFormProject(projectId: string): Promise<{
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
+  bible: ArtifactVersion<LongFormStoryBible> | null;
   workflow: { brief: WorkflowState; bible: WorkflowState };
 }> {
   return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}`));
@@ -152,6 +195,34 @@ export async function approveProjectBrief(projectId: string, versionId: string):
   }));
 }
 
+export async function createStoryBible(projectId: string): Promise<{
+  bible: ArtifactVersion<LongFormStoryBible>;
+  workflow: WorkflowState;
+}> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/bible`, {
+    method: "POST",
+  }));
+}
+
+export async function saveStoryBible(projectId: string, bible: LongFormStoryBible): Promise<{
+  bible: ArtifactVersion<LongFormStoryBible>;
+  workflow: WorkflowState;
+}> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/bible`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(bible),
+  }));
+}
+
+export async function approveStoryBible(projectId: string, versionId: string): Promise<WorkflowState> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/bible/approve`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ versionId }),
+  }));
+}
+
 export async function downloadBrief(projectId: string, format: "markdown" | "json"): Promise<void> {
   const response = await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/brief/export?format=${format}`);
   if (!response.ok) throw new Error("Could not export the project brief");
@@ -160,6 +231,18 @@ export async function downloadBrief(projectId: string, format: "markdown" | "jso
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = `${projectId}-brief.${format === "markdown" ? "md" : "json"}`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadStoryBible(projectId: string, format: "markdown" | "json"): Promise<void> {
+  const response = await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/bible/export?format=${format}`);
+  if (!response.ok) throw new Error("Could not export the story bible");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${projectId}-bible.${format === "markdown" ? "md" : "json"}`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -222,7 +305,7 @@ export async function sendConversationMessage(input: {
 
 export async function applyProposal(projectId: string, conversationId: string, proposalId: string): Promise<{
   changeSet: ChangeSetRecord;
-  version: ArtifactVersion<ProjectBrief>;
+  version: ArtifactVersion<ProjectBrief | LongFormStoryBible>;
 }> {
   return json(await fetch(
     `${conversationBase(projectId)}/${encodeURIComponent(conversationId)}/proposals/${encodeURIComponent(proposalId)}/apply`,

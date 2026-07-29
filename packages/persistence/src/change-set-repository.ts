@@ -127,6 +127,7 @@ export class ChangeSetRepository {
         VALUES (?, ?, 'draft', NULL, ?)
         ON CONFLICT(project_id, artifact_id) DO UPDATE SET status = 'draft', updated_at = excluded.updated_at
       `).run(current.projectId, current.artifactId, now);
+      this.markDependentsStale(current.projectId, current.artifactId, now);
       this.database.prepare(`
         UPDATE change_sets SET status = 'applied', applied_version_id = ?, updated_at = ? WHERE id = ?
       `).run(versionId, now, id);
@@ -152,5 +153,34 @@ export class ChangeSetRepository {
     });
     if (!result) throw new Error("PROPOSAL_BASE_STALE");
     return result;
+  }
+
+  private markDependentsStale(projectId: string, artifactId: string, now: string): void {
+    const stale = new Set<string>();
+    const queue = [artifactId];
+    while (queue.length) {
+      const upstream = queue.shift()!;
+      const rows = this.database.prepare(`
+        SELECT dependent_artifact_id FROM artifact_dependencies
+        WHERE project_id = ? AND upstream_artifact_id = ?
+      `).all(projectId, upstream) as Array<{ dependent_artifact_id: string }>;
+      for (const row of rows) {
+        if (stale.has(row.dependent_artifact_id)) continue;
+        stale.add(row.dependent_artifact_id);
+        queue.push(row.dependent_artifact_id);
+      }
+    }
+    for (const dependent of stale) {
+      this.database.prepare(`
+        UPDATE artifact_versions SET stale = 1 WHERE id = (
+          SELECT id FROM artifact_versions WHERE project_id = ? AND artifact_id = ?
+          ORDER BY version DESC LIMIT 1
+        )
+      `).run(projectId, dependent);
+      this.database.prepare(`
+        UPDATE artifact_workflow_state SET status = 'stale', updated_at = ?
+        WHERE project_id = ? AND artifact_id = ?
+      `).run(now, projectId, dependent);
+    }
   }
 }

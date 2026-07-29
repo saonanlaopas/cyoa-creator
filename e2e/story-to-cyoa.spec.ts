@@ -76,12 +76,28 @@ test("long-form workspace persists and approves a project brief", async ({ page 
   await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator(".artifact-header").getByText(/Version 3/)).toBeVisible();
   await expect(page.getByLabel("Major routes")).toHaveValue("6");
+  await page.getByRole("button", { name: "Approve brief" }).click();
+
+  await page.getByRole("button", { name: "Story bible Not started" }).click();
+  await expect(page.getByRole("heading", { name: "Story bible" })).toBeVisible();
+  await page.getByRole("button", { name: "Create story bible" }).click();
+  await expect(page.locator(".artifact-header").getByText(/Version 1/)).toBeVisible();
+
+  await page.locator(".assistant-composer textarea").fill("What should the bible establish first?");
+  await page.getByRole("button", { name: "Send to assistant" }).click();
+  await expect(page.getByText("The bible has a solid foundation; the protagonist record should come next.")).toBeVisible();
+  await page.getByLabel("Intent").selectOption("propose");
+  await page.locator(".assistant-composer textarea").fill("Add Mara as the protagonist.");
+  await page.getByRole("button", { name: "Request proposal" }).click();
+  await expect(page.getByRole("heading", { name: "Add Mara to the story bible" })).toBeVisible();
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator(".artifact-header").getByText(/Version 2/)).toBeVisible();
+  await expect(page.getByLabel("Name")).toHaveValue("Mara");
+  await page.getByRole("button", { name: "Approve bible" }).click();
+  await expect(page.getByText("Story bible approved. Routes are the next planning stage.")).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Project brief" })).toBeVisible();
-  await expect(page.getByPlaceholder("What is this adaptation or original story about?")).toHaveValue(
-    "A student discovers why an apparently easy course has no surviving graduates.",
-  );
-  await expect(page.getByText("I prepared a six-route version for review.")).toBeVisible();
-  await expect(page.getByLabel("Major routes")).toHaveValue("6");
+  await expect(page.getByRole("heading", { name: "Story bible" })).toBeVisible();
+  await expect(page.getByLabel("Name")).toHaveValue("Mara");
+  await expect(page.getByText("I prepared a protagonist record for bible review.")).toBeVisible();
 });

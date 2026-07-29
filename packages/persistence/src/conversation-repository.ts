@@ -4,8 +4,8 @@ import type { StoryDatabase } from "./database.js";
 export interface AssistantScope {
   kind: "project" | "artifact";
   projectId: string;
-  stage?: "brief";
-  artifactId?: "brief";
+  stage?: "brief" | "bible";
+  artifactId?: "brief" | "bible";
   versionId?: string;
 }
 
@@ -26,7 +26,7 @@ export interface MessageRecord {
   content: string;
   intent: "discuss" | "propose";
   scope: AssistantScope;
-  context: { briefVersionId?: string };
+  context: { briefVersionId?: string; bibleVersionId?: string };
   metadata: Record<string, unknown>;
   createdAt: string;
 }

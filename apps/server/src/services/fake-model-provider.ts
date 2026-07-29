@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { boundedDiagnosticBody, OpenRouterError, type GenerationAttempt, type GenerationResult, type GenerationUsage, type OpenRouterClient, type ReasoningEvent, type StreamCallbacks, type StructuredGenerationStreamRequest } from "@story-to-cyoa/openrouter";
-import { defaultProjectBrief } from "@story-to-cyoa/pipeline";
+import { defaultLongFormStoryBible, defaultProjectBrief } from "@story-to-cyoa/pipeline";
 
 type ParseSchema<T> = { parse(value: unknown): T };
 
@@ -39,24 +39,51 @@ export class FakeModelProvider {
     if (request.model === "e2e/non-json") throw this.nonJsonFailure();
     if (request.model === "e2e/chat") {
       const prompt = request.messages.at(-1)?.content ?? "";
-      const briefMatch = prompt.match(/Current project brief:\n(.+)\n\nRecent scoped discussion:/s);
-      const currentBrief = briefMatch
-        ? JSON.parse(briefMatch[1]) as ReturnType<typeof defaultProjectBrief>
-        : defaultProjectBrief("The Long-form E2E Project");
+      const selectedMatch = prompt.match(/Selected (project brief|story bible):\n(.+)\n\nProject context:/s);
+      const bibleScope = selectedMatch?.[1] === "story bible";
+      const selected: Record<string, unknown> = selectedMatch
+        ? JSON.parse(selectedMatch[2]) as Record<string, unknown>
+        : bibleScope
+          ? { ...defaultLongFormStoryBible({ title: "The Long-form E2E Project" }) }
+          : { ...defaultProjectBrief("The Long-form E2E Project") };
       const proposing = prompt.includes("User intent: propose");
       callbacks.onReasoning?.({ kind: "summary" });
       const usage = { inputTokens: 80, outputTokens: 30, totalTokens: 110 };
       return {
         data: schema.parse({
-          message: proposing
-            ? "I prepared a six-route version for review."
-            : "Five routes is a practical baseline; six gives secondary relationships more room.",
+          message: bibleScope
+            ? proposing
+              ? "I prepared a protagonist record for bible review."
+              : "The bible has a solid foundation; the protagonist record should come next."
+            : proposing
+              ? "I prepared a six-route version for review."
+              : "Five routes is a practical baseline; six gives secondary relationships more room.",
           proposal: proposing
-            ? {
-                summary: "Expand the brief to six routes",
-                rationale: "A sixth route creates more room for relationship consequences.",
-                candidate: { ...currentBrief, routeTarget: 6 },
-              }
+            ? bibleScope
+              ? {
+                  summary: "Add Mara to the story bible",
+                  rationale: "The protagonist needs a stable canonical record before route planning.",
+                  candidate: {
+                    ...selected,
+                    characters: [
+                      ...((selected.characters as unknown[]) ?? []),
+                      {
+                        id: "character-mara",
+                        name: "Mara",
+                        role: "Protagonist",
+                        summary: "A student who dismissed FAE 200 as an easy requirement.",
+                        motivations: ["Survive the course", "Learn what Professor Eterúna is hiding"],
+                        knowledge: [],
+                        plannedArc: "From avoidance to deliberate responsibility.",
+                      },
+                    ],
+                  },
+                }
+              : {
+                  summary: "Expand the brief to six routes",
+                  rationale: "A sixth route creates more room for relationship consequences.",
+                  candidate: { ...selected, routeTarget: 6 },
+                }
             : null,
         }),
         usage,

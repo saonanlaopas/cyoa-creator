@@ -81,4 +81,86 @@ describe("long-form project brief", () => {
     })).statusCode).toBe(404);
     await app.close();
   });
+
+  it("gates, versions, approves, exports, and invalidates the long-form story bible", async () => {
+    const app = buildApp();
+    const created = (await app.inject({
+      method: "POST",
+      url: "/api/long-form/projects",
+      payload: { name: "Bible Project" },
+    })).json();
+    const projectId = created.project.id as string;
+    expect((await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/bible`,
+    })).statusCode).toBe(409);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/brief/approve`,
+      payload: { versionId: created.brief.id },
+    });
+    const bibleCreated = await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/bible`,
+    });
+    expect(bibleCreated.statusCode).toBe(201);
+    expect(bibleCreated.json()).toMatchObject({
+      bible: { version: 1, content: { title: "Bible Project story bible" } },
+      workflow: { status: "draft" },
+    });
+
+    const candidate = {
+      ...bibleCreated.json().bible.content,
+      characters: [{
+        id: "character-mara",
+        name: "Mara",
+        role: "Student",
+        summary: "She underestimated the course.",
+        motivations: ["Survive"],
+        knowledge: ["The professor is hiding something"],
+        plannedArc: "From avoidance to responsibility.",
+      }],
+      canonFacts: [{
+        id: "fact-course",
+        statement: "FAE 200 appears to be an easy general-education course.",
+        sourceExcerptIds: ["chapter-1-block-1"],
+        confidence: "confirmed",
+      }],
+    };
+    const saved = await app.inject({
+      method: "PUT",
+      url: `/api/long-form/projects/${projectId}/bible`,
+      payload: candidate,
+    });
+    expect(saved.statusCode).toBe(201);
+    const bibleVersionId = saved.json().bible.id as string;
+    expect((await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/bible/approve`,
+      payload: { versionId: bibleVersionId },
+    })).json()).toMatchObject({ status: "approved", approvedVersionId: bibleVersionId });
+
+    const markdown = await app.inject({
+      method: "GET",
+      url: `/api/long-form/projects/${projectId}/bible/export?format=markdown`,
+    });
+    expect(markdown.statusCode).toBe(200);
+    expect(markdown.body).toContain("# Bible Project story bible");
+    expect(markdown.body).toContain("### Mara");
+    expect(markdown.body).toContain("FAE 200");
+
+    await app.inject({
+      method: "PUT",
+      url: `/api/long-form/projects/${projectId}/brief`,
+      payload: { ...created.brief.content, premise: "A changed premise." },
+    });
+    const reloaded = (await app.inject({
+      method: "GET",
+      url: `/api/long-form/projects/${projectId}`,
+    })).json();
+    expect(reloaded.workflow.bible.status).toBe("stale");
+    expect(reloaded.bible.stale).toBe(true);
+    await app.close();
+  });
 });

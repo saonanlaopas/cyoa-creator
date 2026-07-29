@@ -116,4 +116,54 @@ describe("persistent scoped conversations and change sets", () => {
     expect(artifacts.getCurrent(project.id, "brief")?.content).toEqual({ title: "Manual edit", routes: 6 });
     database.close();
   });
+
+  it("stales downstream artifacts when a proposal changes their base artifact", () => {
+    const database = openDatabase();
+    const projects = new ProjectRepository(database);
+    const artifacts = new ArtifactRepository(database);
+    const conversations = new ConversationRepository(database);
+    const changeSets = new ChangeSetRepository(database);
+    const project = projects.create("Dependency story", undefined, "long-form");
+    const brief = artifacts.saveArtifact({
+      projectId: project.id,
+      artifactId: "brief",
+      artifactType: "brief",
+      content: { title: "Brief", routes: 5 },
+      schema: BriefSchema,
+    });
+    artifacts.saveArtifact({
+      projectId: project.id,
+      artifactId: "bible",
+      artifactType: "bible",
+      content: { title: "Bible" },
+      dependencies: ["brief"],
+    });
+    database.prepare(`
+      INSERT INTO artifact_workflow_state
+        (project_id, artifact_id, status, approved_version_id, updated_at)
+      VALUES (?, 'bible', 'approved', NULL, 't')
+    `).run(project.id);
+    const conversation = conversations.create(project.id, {
+      kind: "artifact",
+      projectId: project.id,
+      stage: "brief",
+      artifactId: "brief",
+      versionId: brief.id,
+    });
+    const proposal = changeSets.create({
+      projectId: project.id,
+      conversationId: conversation.id,
+      artifactId: "brief",
+      baseVersionId: brief.id,
+      summary: "Change routes",
+      rationale: "Test downstream invalidation",
+      candidate: { title: "Brief", routes: 6 },
+    });
+    changeSets.apply(proposal.id, BriefSchema);
+    expect(artifacts.getCurrent(project.id, "bible")?.stale).toBe(true);
+    expect(database.prepare(`
+      SELECT status FROM artifact_workflow_state WHERE project_id = ? AND artifact_id = 'bible'
+    `).get(project.id)).toEqual({ status: "stale" });
+    database.close();
+  });
 });

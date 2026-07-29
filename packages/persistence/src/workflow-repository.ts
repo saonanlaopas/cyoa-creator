@@ -46,6 +46,10 @@ export class WorkflowRepository {
     return this.set(projectId, artifactId, "draft");
   }
 
+  markStale(projectId: string, artifactId: string): ArtifactWorkflowState {
+    return this.set(projectId, artifactId, "stale");
+  }
+
   approve(projectId: string, artifactId: string, versionId: string): ArtifactWorkflowState {
     const version = this.database.prepare(`
       SELECT id FROM artifact_versions WHERE id = ? AND project_id = ? AND artifact_id = ?

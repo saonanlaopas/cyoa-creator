@@ -152,6 +152,14 @@ textarea.source { min-height: 20rem; }
 .proposal-preview dt { color: #aeb7c6; }
 .proposal-preview dd { margin: 0; }
 .proposal-actions { justify-content: end; }
+.stage-intro { align-content: start; }
+.stage-intro h2, .stage-intro p { margin: 0; }
+.bible-editor { padding-bottom: 2rem; }
+.bible-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.bible-section-heading h3 { margin: 0; }
+.bible-card { display: grid; gap: .7rem; padding: .9rem; border: 1px solid #465269; border-radius: .65rem; background: #151a24; }
+.bible-card + .bible-card { margin-top: .2rem; }
+.danger-text { justify-self: end; color: #efb0a6; border-color: #74443d; background: transparent; }
 
 @media (max-width: 1050px) {
   .long-form-workspace { grid-template-columns: 14rem minmax(0, 1fr); }
@@ -163,7 +171,7 @@ textarea.source { min-height: 20rem; }
   .app-mode-nav { justify-content: stretch; }
   .app-mode-nav button { flex: 1; }
   .long-form-workspace { grid-template-columns: 1fr; padding: 1rem; }
-  .workflow-nav { position: static; max-height: none; }
+  .workflow-nav { position: static; width: auto; height: auto; min-height: 0; max-height: none; }
   .workflow-nav ol { grid-template-columns: repeat(3, minmax(8rem, 1fr)); overflow-x: auto; }
   .artifact-header { flex-direction: column; }
   .artifact-actions { justify-content: start; }

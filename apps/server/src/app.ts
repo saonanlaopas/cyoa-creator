@@ -74,7 +74,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, changeSets);
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
-  registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024);
+  registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024, workflow);
   void registerSettingsRoutes(app, { credentials, client: openRouter });
   registerJobRoutes(app, runner);
   registerAnalysisRoutes(app, projects, artifacts, runner);

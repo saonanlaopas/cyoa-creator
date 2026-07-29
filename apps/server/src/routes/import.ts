@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { importSource, type NormalizedSource } from "@story-to-cyoa/importers";
-import type { ArtifactRepository, ProjectRepository } from "@story-to-cyoa/persistence";
+import type { ArtifactRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 
 interface Params { projectId: string }
 
@@ -23,7 +23,17 @@ export function registerImportRoutes(
   projects: ProjectRepository,
   artifacts: ArtifactRepository,
   maxImportBytes: number,
+  workflow?: WorkflowRepository,
 ): void {
+  const staleBibleIfNeeded = (projectId: string) => {
+    if (
+      workflow
+      && projects.get(projectId)?.mode === "long-form"
+      && artifacts.getCurrent(projectId, "bible")
+    ) {
+      workflow.markStale(projectId, "bible");
+    }
+  };
   app.post<{
     Params: Params;
     Body: { text?: string; filename?: string };
@@ -40,6 +50,7 @@ export function registerImportRoutes(
       const version = artifacts.saveArtifact({
         projectId: request.params.projectId, artifactId: "source", artifactType: "source", content: source,
       });
+      staleBibleIfNeeded(request.params.projectId);
       return reply.code(201).send(summary(source, version.id));
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
@@ -60,6 +71,7 @@ export function registerImportRoutes(
       const version = artifacts.saveArtifact({
         projectId: request.params.projectId, artifactId: "source", artifactType: "source", content: source,
       });
+      staleBibleIfNeeded(request.params.projectId);
       return reply.code(201).send(summary(source, version.id));
     } catch (error) {
       return reply.code(400).send({ error: (error as Error).message });
