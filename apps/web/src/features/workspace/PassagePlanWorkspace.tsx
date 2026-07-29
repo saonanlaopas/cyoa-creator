@@ -5,6 +5,7 @@ import type {
 import {
   acknowledgePassageFinding,
   approvePassagePlan,
+  clearPassageFindingAcknowledgement,
   createPassagePlan,
   createPassageSnapshot,
   downloadPassagePlan,
@@ -33,6 +34,7 @@ const move = <T,>(items: T[], index: number, direction: -1 | 1): T[] => {
 };
 const replace = <T extends { id: string }>(items: T[], value: T) =>
   items.map((item) => item.id === value.id ? value : item);
+const entityElementId = (type: string, entityId: string) => `passage-plan-${type}-${encodeURIComponent(entityId)}`;
 const conditionKeys = (condition: ChoicePlan["condition"]): string[] => {
   if (!condition) return [];
   if (condition.kind === "compare") return [condition.mechanicKey];
@@ -40,6 +42,33 @@ const conditionKeys = (condition: ChoicePlan["condition"]): string[] => {
   if (condition.kind === "all" || condition.kind === "any") return condition.items.flatMap(conditionKeys);
   return [];
 };
+type MechanicOption = {
+  key: string;
+  label: string;
+  valueKind: "number" | "boolean" | "string";
+  minimum?: number;
+  maximum?: number;
+  initial: number | boolean | string;
+};
+const mechanicOptions = (mechanics: LongFormMechanicsPlan | null): MechanicOption[] => [
+  ...(mechanics?.visibleStats ?? []).map((item) => ({
+    key: item.key, label: item.label, valueKind: "number" as const,
+    minimum: item.minimum, maximum: item.maximum, initial: item.initial,
+  })),
+  ...(mechanics?.relationships ?? []).map((item) => ({
+    key: item.key, label: item.label, valueKind: "number" as const,
+    minimum: item.minimum, maximum: item.maximum, initial: item.initial,
+  })),
+  ...(mechanics?.flags ?? []).map((item) => ({
+    key: item.key, label: item.label, valueKind: "boolean" as const, initial: false,
+  })),
+  ...(mechanics?.resources ?? []).map((item) => ({
+    key: item.key, label: item.label,
+    valueKind: item.kind === "inventory" ? "string" as const : "number" as const,
+    ...(item.kind === "inventory" ? {} : { minimum: 0 }),
+    initial: item.kind === "inventory" ? "" : item.initial,
+  })),
+];
 
 export function PassagePlanWorkspace(props: {
   projectId: string;
@@ -69,6 +98,7 @@ export function PassagePlanWorkspace(props: {
   const [bulkTag, setBulkTag] = useState("");
   const [overrideRationale, setOverrideRationale] = useState<Record<string, string>>({});
   const [history, setHistory] = useState<Array<{ id: string; version: number; createdAt: string }>>([]);
+  const [focusEntity, setFocusEntity] = useState<{ type: string; id: string } | null>(null);
 
   const load = async () => {
     const next = await loadPassagePlan(props.projectId);
@@ -97,6 +127,17 @@ export function PassagePlanWorkspace(props: {
     return map;
   }, [state?.report]);
   const sequenceById = useMemo(() => new Map(structure?.sequences.map((item) => [item.id, item]) ?? []), [structure]);
+  useEffect(() => {
+    if (!focusEntity || view !== "outline") return;
+    const frame = requestAnimationFrame(() => {
+      const target = document.getElementById(entityElementId(focusEntity.type, focusEntity.id));
+      if (typeof target?.scrollIntoView === "function") {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      setFocusEntity(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusEntity, view, filters]);
 
   const visible = useMemo(() => passages.filter((passage) => {
     const sequence = sequenceById.get(passage.sequenceId);
@@ -145,14 +186,38 @@ export function PassagePlanWorkspace(props: {
     catch (reason) { props.setMessage((reason as Error).message); }
     finally { setBusy(false); }
   };
-  const selectFinding = (finding: PassageFinding) => {
-    if (finding.entityType === "passage") setSelectedId(finding.entityId);
-    if (finding.entityType === "choice") {
-      const choice = choices.find((item) => item.id === finding.entityId);
-      if (choice) setSelectedId(choice.sourcePassageId);
+  const selectEntity = (entityType: PassageFinding["entityType"], entityId: string) => {
+    if (entityType === "passage") {
+      setSelectedId(entityId);
+      setFocusEntity({ type: "passage", id: entityId });
     }
+    if (entityType === "choice") {
+      const choice = choices.find((item) => item.id === entityId);
+      if (choice) {
+        setSelectedId(choice.sourcePassageId);
+        setFocusEntity({ type: "choice", id: choice.id });
+      }
+    }
+    if (entityType === "act") {
+      setFilters({ ...filters, act: entityId });
+      setFocusEntity({ type: "act", id: entityId });
+    }
+    if (entityType === "sequence") {
+      const sequence = sequenceById.get(entityId);
+      if (sequence) {
+        setFilters({ ...filters, act: sequence.actId });
+        const firstPassage = sequence.passageIds.find((id) => passages.some((item) => item.id === id));
+        if (firstPassage) setSelectedId(firstPassage);
+        setFocusEntity({ type: "sequence", id: sequence.id });
+      }
+    }
+    if (entityType === "thread") setFocusEntity({ type: "thread", id: entityId });
+    if (entityType === "mechanic") setFilters({ ...filters, mechanic: entityId });
+    if (entityType === "route") setFilters({ ...filters, route: entityId });
+    if (entityType === "ending") setFilters({ ...filters, ending: entityId });
     setView("outline");
   };
+  const selectFinding = (finding: PassageFinding) => selectEntity(finding.entityType, finding.entityId);
 
   return <section className="artifact-pane passage-plan-workspace">
     <header className="artifact-header">
@@ -192,10 +257,15 @@ export function PassagePlanWorkspace(props: {
       rationale={overrideRationale}
       setRationale={setOverrideRationale}
       onSelect={selectFinding}
+      onSelectEntity={selectEntity}
       onAcknowledge={async (finding) => {
         const rationale = overrideRationale[`${finding.code}:${finding.entityId}`] ?? "";
         if (!rationale.trim()) return props.setMessage("A warning override needs a rationale.");
         const result = await acknowledgePassageFinding(props.projectId, finding, rationale);
+        setState({ ...state, report: result.report });
+      }}
+      onClearAcknowledgement={async (finding) => {
+        const result = await clearPassageFindingAcknowledgement(props.projectId, finding);
         setState({ ...state, report: result.report });
       }}
     /> : view === "graph" ? <PassageGraph passages={visible} choices={choices} selectedId={selectedId} onSelect={setSelectedId} />
@@ -215,7 +285,8 @@ export function PassagePlanWorkspace(props: {
               selectedId={selectedId} setSelectedId={setSelectedId} />
             <StructureEditor structure={structure} setStructure={setStructure} />
             <p className="field-note">{visible.length} of {passages.length} passages shown</p>
-            {[...structure.acts].sort((a, b) => a.position - b.position).map((act, actIndex) => <details open key={act.id}>
+            {[...structure.acts].sort((a, b) => a.position - b.position).map((act, actIndex) =>
+            <details id={entityElementId("act", act.id)} open key={act.id}>
               <summary><strong>{act.label}</strong> · {act.wordTarget.toLocaleString()} words
                 <button type="button" disabled={actIndex === 0} onClick={(event) => {
                   event.preventDefault();
@@ -229,12 +300,12 @@ export function PassagePlanWorkspace(props: {
                 }}>↓</button>
               </summary>
               {structure.sequences.filter((sequence) => sequence.actId === act.id).sort((a, b) => a.position - b.position).map((sequence) =>
-                <div className="outline-sequence" key={sequence.id}><strong>{sequence.label}</strong><small>{sequence.wordTarget.toLocaleString()} words</small>
+                <div id={entityElementId("sequence", sequence.id)} className="outline-sequence" key={sequence.id}><strong>{sequence.label}</strong><small>{sequence.wordTarget.toLocaleString()} words</small>
                   {sequence.passageIds.map((passageId, passageIndex) => {
                     const passage = passages.find((item) => item.id === passageId);
                     if (!passage || !visible.some((item) => item.id === passage.id)) return null;
                     const severity = findingsByEntity.get(passage.id)?.[0]?.severity;
-                    return <label className={`outline-passage ${selectedId === passage.id ? "selected" : ""}`} key={passage.id}>
+                    return <label id={entityElementId("passage", passage.id)} className={`outline-passage ${selectedId === passage.id ? "selected" : ""}`} key={passage.id}>
                       <input type="checkbox" checked={selectedIds.has(passage.id)} onChange={(event) => setSelectedIds((current) => {
                         const next = new Set(current);
                         if (event.target.checked) next.add(passage.id); else next.delete(passage.id);
@@ -316,7 +387,8 @@ export function PassagePlanWorkspace(props: {
             /> : <p>Select a passage from the outline.</p>}
           </main>
         </div>
-        <ThreadEditor threads={threads} setThreads={setThreads} passages={passages} routes={props.routes} />
+        <ThreadEditor threads={threads} setThreads={setThreads} passages={passages} routes={props.routes}
+          focusedThreadId={focusEntity?.type === "thread" ? focusEntity.id : null} />
       </>}
 
     <details className="artifact-history">
@@ -369,8 +441,7 @@ function PassageFilters(props: {
   search: string; setSearch(value: string): void; filters: any; setFilters(value: any): void;
   jumpId: string; setJumpId(value: string): void; onJump(): void;
 }) {
-  const mechanics = [...(props.mechanics?.visibleStats ?? []), ...(props.mechanics?.relationships ?? []),
-    ...(props.mechanics?.flags ?? []), ...(props.mechanics?.resources ?? [])];
+  const mechanics = mechanicOptions(props.mechanics);
   return <section className="passage-filters">
     <input value={props.search} onChange={(event) => props.setSearch(event.target.value)} placeholder="Search titles, IDs, summaries, and tags" />
     <select value={props.filters.act} onChange={(event) => props.setFilters({ ...props.filters, act: event.target.value })}><option value="">All acts</option>{props.structure.acts.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select>
@@ -480,6 +551,37 @@ function StructureEditor(props: { structure: PassageStructure; setStructure(valu
           <Lines label="Ending hook IDs" values={sequence.endingHookIds} onChange={(endingHookIds) => props.setStructure({ ...props.structure, sequences: replace(props.structure.sequences, { ...sequence, endingHookIds }) })} />
         </details>)}
     </article>)}
+    <details className="brief-section">
+      <summary><strong>Character availability ({props.structure.characterAvailability.length})</strong></summary>
+      <button type="button" onClick={() => props.setStructure({
+        ...props.structure,
+        characterAvailability: [...props.structure.characterAvailability, {
+          characterId: "", actIds: [], routeIds: [],
+        }],
+      })}>Add availability rule</button>
+      {props.structure.characterAvailability.map((availability, index) =>
+        <article className="structure-record" key={`${availability.characterId}:${index}`}>
+          <label>Character ID<input value={availability.characterId} onChange={(event) => props.setStructure({
+            ...props.structure,
+            characterAvailability: props.structure.characterAvailability.map((item, itemIndex) =>
+              itemIndex === index ? { ...item, characterId: event.target.value } : item),
+          })} /></label>
+          <Lines label="Available act IDs" values={availability.actIds} onChange={(actIds) => props.setStructure({
+            ...props.structure,
+            characterAvailability: props.structure.characterAvailability.map((item, itemIndex) =>
+              itemIndex === index ? { ...item, actIds } : item),
+          })} />
+          <Lines label="Available route IDs" values={availability.routeIds} onChange={(routeIds) => props.setStructure({
+            ...props.structure,
+            characterAvailability: props.structure.characterAvailability.map((item, itemIndex) =>
+              itemIndex === index ? { ...item, routeIds } : item),
+          })} />
+          <button type="button" className="danger" onClick={() => props.setStructure({
+            ...props.structure,
+            characterAvailability: props.structure.characterAvailability.filter((_, itemIndex) => itemIndex !== index),
+          })}>Remove availability rule</button>
+        </article>)}
+    </details>
   </details>;
 }
 
@@ -492,8 +594,7 @@ function PassageEditor(props: {
   history: Array<{ id: string; version: number; createdAt: string }>; onRestore(versionId: string): Promise<void>;
 }) {
   const update = <K extends keyof PassagePlan>(key: K, value: PassagePlan[K]) => props.onChange({ ...props.passage, [key]: value });
-  const mechanicItems = [...(props.mechanics?.visibleStats ?? []), ...(props.mechanics?.relationships ?? []),
-    ...(props.mechanics?.flags ?? []), ...(props.mechanics?.resources ?? [])];
+  const mechanicItems = mechanicOptions(props.mechanics);
   return <article className="passage-editor">
     <header><div><p className="eyebrow">{props.passage.id}</p><h2>{props.passage.title}</h2></div>
       <button className="danger" onClick={props.onDelete}>Delete passage</button></header>
@@ -551,11 +652,12 @@ function PassageEditor(props: {
 }
 
 function ChoiceEditor(props: {
-  choice: ChoicePlan; passages: PassagePlan[]; mechanics: Array<{ key: string; label: string }>;
+  choice: ChoicePlan; passages: PassagePlan[]; mechanics: MechanicOption[];
   onChange(value: ChoicePlan): void; onRemove(): void; onMove(direction: -1 | 1): void;
 }) {
   const compare = props.choice.condition?.kind === "compare" ? props.choice.condition : null;
-  return <details className="choice-editor" open>
+  const conditionMechanic = compare ? props.mechanics.find((item) => item.key === compare.mechanicKey) : undefined;
+  return <details id={entityElementId("choice", props.choice.id)} className="choice-editor" open>
     <summary>{props.choice.label} → {props.choice.destinationPassageId}</summary>
     <div className="brief-grid">
       <label>Label<input value={props.choice.label} onChange={(event) => props.onChange({ ...props.choice, label: event.target.value })} /></label>
@@ -569,36 +671,100 @@ function ChoiceEditor(props: {
       })}><option value="none">Always available</option><option value="compare">Mechanic comparison</option></select></label>
     </div>
     {compare && <div className="mechanic-condition">
-      <select value={compare.mechanicKey} onChange={(event) => props.onChange({ ...props.choice, condition: { ...compare, mechanicKey: event.target.value } })}>{props.mechanics.map((item) => <option value={item.key} key={item.key}>{item.label}</option>)}</select>
-      <select value={compare.operator} onChange={(event) => props.onChange({ ...props.choice, condition: { ...compare, operator: event.target.value as typeof compare.operator } })}>{["eq", "neq", "gt", "gte", "lt", "lte"].map((item) => <option key={item}>{item}</option>)}</select>
-      <input value={String(compare.value)} onChange={(event) => props.onChange({ ...props.choice, condition: { ...compare, value: Number.isNaN(Number(event.target.value)) ? event.target.value : Number(event.target.value) } })} />
+      <select value={compare.mechanicKey} onChange={(event) => {
+        const mechanic = props.mechanics.find((item) => item.key === event.target.value)!;
+        props.onChange({ ...props.choice, condition: {
+          ...compare,
+          mechanicKey: mechanic.key,
+          operator: mechanic.valueKind === "number" ? "gte" : "eq",
+          value: mechanic.initial,
+        } });
+      }}>{props.mechanics.map((item) => <option value={item.key} key={item.key}>{item.label}</option>)}</select>
+      <select value={compare.operator} onChange={(event) => props.onChange({ ...props.choice, condition: { ...compare, operator: event.target.value as typeof compare.operator } })}>
+        {(conditionMechanic?.valueKind === "number" ? ["eq", "neq", "gt", "gte", "lt", "lte"] : ["eq", "neq"])
+          .map((item) => <option key={item}>{item}</option>)}
+      </select>
+      {conditionMechanic?.valueKind === "boolean"
+        ? <select value={String(compare.value)} onChange={(event) => props.onChange({
+          ...props.choice, condition: { ...compare, value: event.target.value === "true" },
+        })}><option value="true">true</option><option value="false">false</option></select>
+        : <input type={conditionMechanic?.valueKind === "number" ? "number" : "text"}
+          min={conditionMechanic?.minimum} max={conditionMechanic?.maximum}
+          value={String(compare.value)} onChange={(event) => props.onChange({
+            ...props.choice,
+            condition: { ...compare, value: conditionMechanic?.valueKind === "number" ? Number(event.target.value) : event.target.value },
+          })} />}
     </div>}
     <label>Narrative intent<textarea value={props.choice.narrativeIntent} onChange={(event) => props.onChange({ ...props.choice, narrativeIntent: event.target.value })} /></label>
     <label>Consequence preview<textarea value={props.choice.consequencePreview} onChange={(event) => props.onChange({ ...props.choice, consequencePreview: event.target.value })} /></label>
     <label>Unavailable explanation<textarea value={props.choice.unavailableExplanation} onChange={(event) => props.onChange({ ...props.choice, unavailableExplanation: event.target.value })} /></label>
-    <header className="bible-section-heading"><h4>Effects</h4><button type="button" disabled={!props.mechanics[0]} onClick={() => props.onChange({ ...props.choice, effects: [...props.choice.effects, {
-      id: id("effect"), mechanicKey: props.mechanics[0]?.key ?? "missing", operation: "add", value: 1, feedback: "", visibility: "visible",
-    }] })}>Add effect</button></header>
-    {props.choice.effects.map((effect, index) => <div className="mechanic-condition" key={effect.id}>
-      <select value={effect.mechanicKey} onChange={(event) => props.onChange({ ...props.choice, effects: props.choice.effects.map((item) => item.id === effect.id ? { ...item, mechanicKey: event.target.value } : item) })}>{props.mechanics.map((item) => <option value={item.key} key={item.key}>{item.label}</option>)}</select>
-      <select value={effect.operation} onChange={(event) => props.onChange({ ...props.choice, effects: props.choice.effects.map((item) => item.id === effect.id ? { ...item, operation: event.target.value as typeof effect.operation } : item) })}>{["set", "add", "subtract", "clear"].map((item) => <option key={item}>{item}</option>)}</select>
-      <input value={effect.value === null ? "" : String(effect.value)} onChange={(event) => props.onChange({ ...props.choice, effects: props.choice.effects.map((item) => item.id === effect.id ? { ...item, value: Number.isNaN(Number(event.target.value)) ? event.target.value : Number(event.target.value) } : item) })} />
+    <header className="bible-section-heading"><h4>Effects</h4><button type="button" disabled={!props.mechanics[0]} onClick={() => {
+      const mechanic = props.mechanics[0]!;
+      props.onChange({ ...props.choice, effects: [...props.choice.effects, {
+        id: id("effect"), mechanicKey: mechanic.key,
+        operation: mechanic.valueKind === "number" ? "add" : "set",
+        value: mechanic.valueKind === "number" ? 1 : mechanic.initial,
+        feedback: "", visibility: "visible",
+      }] });
+    }}>Add effect</button></header>
+    {props.choice.effects.map((effect, index) => {
+      const mechanic = props.mechanics.find((item) => item.key === effect.mechanicKey);
+      const operations = mechanic?.valueKind === "number"
+        ? ["set", "add", "subtract"] as const
+        : mechanic?.valueKind === "boolean"
+          ? ["set", "clear"] as const
+          : ["set"] as const;
+      return <div className="mechanic-condition mechanic-effect" key={effect.id}>
+      <select value={effect.mechanicKey} onChange={(event) => {
+        const nextMechanic = props.mechanics.find((item) => item.key === event.target.value)!;
+        props.onChange({ ...props.choice, effects: props.choice.effects.map((item) => item.id === effect.id ? {
+          ...item,
+          mechanicKey: nextMechanic.key,
+          operation: nextMechanic.valueKind === "number" ? "add" : "set",
+          value: nextMechanic.valueKind === "number" ? 1 : nextMechanic.initial,
+        } : item) });
+      }}>{props.mechanics.map((item) => <option value={item.key} key={item.key}>{item.label}</option>)}</select>
+      <select value={effect.operation} onChange={(event) => {
+        const operation = event.target.value as typeof effect.operation;
+        props.onChange({ ...props.choice, effects: props.choice.effects.map((item) => item.id === effect.id
+          ? { ...item, operation, value: operation === "clear" ? null : item.value ?? mechanic?.initial ?? 0 }
+          : item) });
+      }}>{operations.map((item) => <option key={item}>{item}</option>)}</select>
+      {mechanic?.valueKind === "boolean"
+        ? <select disabled={effect.operation === "clear"} value={String(effect.value ?? false)} onChange={(event) => props.onChange({
+          ...props.choice,
+          effects: props.choice.effects.map((item) => item.id === effect.id
+            ? { ...item, value: event.target.value === "true" } : item),
+        })}><option value="true">true</option><option value="false">false</option></select>
+        : <input disabled={effect.operation === "clear"} type={mechanic?.valueKind === "number" ? "number" : "text"}
+          min={mechanic?.minimum} max={mechanic?.maximum}
+          value={effect.value === null ? "" : String(effect.value)} onChange={(event) => props.onChange({
+            ...props.choice,
+            effects: props.choice.effects.map((item) => item.id === effect.id ? {
+              ...item, value: mechanic?.valueKind === "number" ? Number(event.target.value) : event.target.value,
+            } : item),
+          })} />}
       <input placeholder="Player feedback" value={effect.feedback} onChange={(event) => props.onChange({ ...props.choice, effects: props.choice.effects.map((item) => item.id === effect.id ? { ...item, feedback: event.target.value } : item) })} />
       <button type="button" onClick={() => props.onChange({ ...props.choice, effects: props.choice.effects.filter((_, itemIndex) => itemIndex !== index) })}>Remove</button>
-    </div>)}
+    </div>;
+    })}
     <div className="proposal-actions"><button type="button" onClick={() => props.onMove(-1)}>↑</button><button type="button" onClick={() => props.onMove(1)}>↓</button><button type="button" className="danger" onClick={props.onRemove}>Remove choice</button></div>
   </details>;
 }
 
 function ThreadEditor(props: {
-  threads: NarrativeThread[]; setThreads(value: NarrativeThread[]): void; passages: PassagePlan[]; routes: LongFormRoutePlan | null;
+  threads: NarrativeThread[]; setThreads(value: NarrativeThread[]): void; passages: PassagePlan[];
+  routes: LongFormRoutePlan | null; focusedThreadId: string | null;
 }) {
-  return <details className="brief-section"><summary><strong>Narrative threads ({props.threads.length})</strong></summary>
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (props.focusedThreadId) setOpen(true); }, [props.focusedThreadId]);
+  return <details className="brief-section" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary><strong>Narrative threads ({props.threads.length})</strong></summary>
     <button type="button" onClick={() => props.setThreads([...props.threads, {
       id: id("thread"), label: "New narrative thread", description: "", setupPassageIds: [], payoffPassageIds: [],
       routeIds: [], required: false, status: "planned", waiverRationale: "",
     }])}>Add thread</button>
-    {props.threads.map((thread) => <article className="bible-card" key={thread.id}>
+    {props.threads.map((thread) => <article id={entityElementId("thread", thread.id)} className="bible-card" key={thread.id}>
       <div className="brief-grid"><label>Label<input value={thread.label} onChange={(event) => props.setThreads(replace(props.threads, { ...thread, label: event.target.value }))} /></label>
         <label>Status<select value={thread.status} onChange={(event) => props.setThreads(replace(props.threads, { ...thread, status: event.target.value as NarrativeThread["status"] }))}>{["planned", "partially-covered", "covered", "waived"].map((item) => <option key={item}>{item}</option>)}</select></label>
         <label className="checkbox"><input type="checkbox" checked={thread.required} onChange={(event) => props.setThreads(replace(props.threads, { ...thread, required: event.target.checked }))} /> Required</label></div>
@@ -625,10 +791,14 @@ function PassageGraph(props: { passages: PassagePlan[]; choices: ChoicePlan[]; s
 
 function CoverageDashboard(props: {
   state: PassagePlanState; rationale: Record<string, string>; setRationale(value: Record<string, string>): void;
-  onSelect(finding: PassageFinding): void; onAcknowledge(finding: PassageFinding): Promise<void>;
+  onSelect(finding: PassageFinding): void;
+  onSelectEntity(type: PassageFinding["entityType"], id: string): void;
+  onAcknowledge(finding: PassageFinding): Promise<void>;
+  onClearAcknowledgement(finding: PassageFinding): Promise<void>;
 }) {
   const report = props.state.report!;
   return <section className="coverage-dashboard">
+    <p className="field-note">Static analysis is conservative. Warnings identify paths to review; they are not proof that every runtime state will fail.</p>
     <div className="route-budget">
       <Metric label="Reachable" value={report.coverage.reachablePassageIds.length} />
       <Metric label="Unreachable" value={report.coverage.unreachablePassageIds.length} />
@@ -638,11 +808,31 @@ function CoverageDashboard(props: {
     </div>
     <h3>Mechanics coverage</h3>
     <div className="coverage-table">{report.coverage.mechanicCoverage.map((item) =>
-      <div key={item.key}><strong>{item.key}</strong><span>{item.writes.length} writes</span><span>{item.reads.length} reads</span></div>)}</div>
-    <h3>Route and ending coverage</h3>
+      <div key={item.key}>
+        <button onClick={() => props.onSelectEntity("mechanic", item.key)}><strong>{item.key}</strong></button>
+        <span>{item.writes.length} writes</span><span>{item.reads.length} reads</span>
+        <span>{item.writes.map((id) => <button key={id} onClick={() => props.onSelectEntity("choice", id)}>{id}</button>)}</span>
+        <span>{item.reads.map((id) => <button key={id} onClick={() => props.onSelectEntity("choice", id)}>{id}</button>)}</span>
+      </div>)}</div>
+    <h3>Route coverage</h3>
     <div className="coverage-table">{report.coverage.routeCoverage.map((item) =>
-      <div key={item.routeId}><strong>{item.routeId}</strong><span>{item.passageCount} passages</span><span>{item.endingCount} endings</span></div>)}</div>
+      <div key={item.routeId}>
+        <button onClick={() => props.onSelectEntity("route", item.routeId)}><strong>{item.routeId}</strong></button>
+        <span>{item.passageCount} passages</span><span>{item.endingCount} endings</span>
+      </div>)}</div>
+    <h3>Ending coverage</h3>
+    <div className="coverage-table">{report.coverage.endingCoverage.map((item) =>
+      <div key={item.endingId}>
+        <button onClick={() => props.onSelectEntity("ending", item.endingId)}><strong>{item.endingId}</strong></button>
+        <span>{item.plausible ? "Plausible path" : "No plausible path"}</span>
+        <span>{item.incomingPassageIds.map((id) =>
+          <button key={id} onClick={() => props.onSelectEntity("passage", id)}>{id}</button>)}</span>
+      </div>)}</div>
+    {report.coverage.pathWords.truncated && <p className="warning">
+      Path enumeration reached its safety bound or encountered a cycle; displayed extrema cover analyzed simple paths only.
+    </p>}
     <h3>Findings</h3>
+    {report.findings.length === 0 && <p className="status good">No structural findings.</p>}
     {report.findings.map((finding) => {
       const key = `${finding.code}:${finding.entityId}`;
       return <article className={`finding-card validation-${finding.severity}`} key={key}>
@@ -651,7 +841,10 @@ function CoverageDashboard(props: {
         {finding.evidence.length > 0 && <details><summary>Evidence</summary><p>{finding.evidence.join(", ")}</p></details>}
         <p className="field-note">{finding.suggestion}</p>
         {finding.severity === "warning" && (finding.acknowledged
-          ? <p>Acknowledged: {finding.overrideRationale}</p>
+          ? <div className="finding-override">
+            <p>Acknowledged: {finding.overrideRationale}</p>
+            <button onClick={() => void props.onClearAcknowledgement(finding)}>Remove acknowledgement</button>
+          </div>
           : <div className="finding-override"><input value={props.rationale[key] ?? ""} onChange={(event) => props.setRationale({ ...props.rationale, [key]: event.target.value })} placeholder="Override rationale" /><button onClick={() => void props.onAcknowledge(finding)}>Acknowledge warning</button></div>)}
       </article>;
     })}

@@ -56,6 +56,10 @@ The passage-plan stage is also fully local and does not call OpenRouter. It star
 
 Word totals are shown for the project, acts, routes, sequences, individual passages, and estimated complete paths. Saving writes immutable versions only for changed entities. **Approve snapshot** first saves the current work, creates an immutable snapshot tied to the exact approved upstream versions, validates it, and then approves that snapshot. Hard structural errors block approval; warnings remain visible. Restoring a passage version or a project snapshot creates recoverable current versions and keeps intervening history.
 
+Open **Coverage & findings** to review the executable graph before prose drafting. It checks start and destination references, ownership links, reachability, dead ends, terminal passages, cycles, route and ending coverage, mechanic reads and writes, condition/effect types, apparently unavailable choices, fact revelation order, narrative-thread setup and payoff, preserved differences, character availability, and path-length estimates. Finding links return to the exact passage, choice, act, sequence, thread, route, ending, or mechanic scope. Static continuity and state analysis is intentionally conservative: warnings identify work to inspect and do not claim to prove every possible runtime state.
+
+Hard errors cannot be waived and block snapshot approval. A conservative warning can be acknowledged only while it is still current, and requires a persisted rationale. The warning remains visible with that rationale. If the plan changes so the warning no longer exists, the old rationale does not suppress a different finding.
+
 Use **Export Markdown** for a readable outline, **Export JSON** for the canonical current passage-plan data, and **Project bundle** for a recovery/interchange package containing project metadata, current and approved planning artifacts, passage-plan snapshots, entity versions, validation, and readable Markdown. Imported source bodies and conversations are excluded from this bundle by default for privacy.
 
 ## Planned long-form runtime and exports

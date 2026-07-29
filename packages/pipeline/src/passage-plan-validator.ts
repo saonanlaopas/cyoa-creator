@@ -15,7 +15,7 @@ export interface PassageFindingOverride {
 export interface PassagePlanFinding {
   code: string;
   severity: PassageFindingSeverity;
-  entityType: "project" | "act" | "sequence" | "passage" | "choice" | "thread" | "mechanic" | "ending";
+  entityType: "project" | "act" | "sequence" | "passage" | "choice" | "thread" | "mechanic" | "route" | "ending";
   entityId: string;
   message: string;
   evidence: string[];
@@ -44,7 +44,12 @@ export interface PassageValidationReport {
 }
 
 type MechanicKind = "number" | "boolean" | "string";
-type MechanicDefinition = { kind: MechanicKind; minimum?: number; maximum?: number };
+type MechanicDefinition = {
+  kind: MechanicKind;
+  minimum?: number;
+  maximum?: number;
+  initial?: number | boolean | string;
+};
 
 const findingKey = (finding: Pick<PassagePlanFinding, "code" | "entityId">) =>
   `${finding.code}:${finding.entityId}`;
@@ -65,32 +70,82 @@ function conditionVisitReferences(condition: ConditionExpression | null, target:
   return target;
 }
 
+type StaticTruth = "always-true" | "always-false" | "unknown";
+
+function compareValue(
+  actual: number | boolean | string,
+  operator: "eq" | "neq" | "gt" | "gte" | "lt" | "lte",
+  expected: number | boolean | string,
+): boolean {
+  if (operator === "eq") return actual === expected;
+  if (operator === "neq") return actual !== expected;
+  if (typeof actual !== "number" || typeof expected !== "number") return false;
+  if (operator === "gt") return actual > expected;
+  if (operator === "gte") return actual >= expected;
+  if (operator === "lt") return actual < expected;
+  return actual <= expected;
+}
+
+function conditionTruth(
+  condition: ConditionExpression | null,
+  mechanics: Map<string, MechanicDefinition>,
+  writableMechanics: Set<string>,
+): StaticTruth {
+  if (!condition) return "always-true";
+  if (condition.kind === "all") {
+    const values = condition.items.map((item) => conditionTruth(item, mechanics, writableMechanics));
+    if (values.includes("always-false")) return "always-false";
+    return values.every((value) => value === "always-true") ? "always-true" : "unknown";
+  }
+  if (condition.kind === "any") {
+    const values = condition.items.map((item) => conditionTruth(item, mechanics, writableMechanics));
+    if (values.includes("always-true")) return "always-true";
+    return values.every((value) => value === "always-false") ? "always-false" : "unknown";
+  }
+  if (condition.kind === "not") {
+    const value = conditionTruth(condition.item, mechanics, writableMechanics);
+    return value === "always-true" ? "always-false" : value === "always-false" ? "always-true" : "unknown";
+  }
+  if (condition.kind === "visit-count") return "unknown";
+  const definition = mechanics.get(condition.mechanicKey);
+  if (!definition) return "unknown";
+  if (!writableMechanics.has(condition.mechanicKey) && definition.initial !== undefined) {
+    return compareValue(definition.initial, condition.operator, condition.value) ? "always-true" : "always-false";
+  }
+  if (definition.kind !== "number" || typeof condition.value !== "number") return "unknown";
+  if (condition.operator === "gt" && definition.maximum !== undefined && condition.value >= definition.maximum) return "always-false";
+  if (condition.operator === "gte" && definition.maximum !== undefined && condition.value > definition.maximum) return "always-false";
+  if (condition.operator === "lt" && definition.minimum !== undefined && condition.value <= definition.minimum) return "always-false";
+  if (condition.operator === "lte" && definition.minimum !== undefined && condition.value < definition.minimum) return "always-false";
+  if (condition.operator === "eq" && definition.minimum !== undefined && definition.maximum !== undefined) {
+    return condition.value < definition.minimum || condition.value > definition.maximum ? "always-false" : "unknown";
+  }
+  if (condition.operator === "neq" && definition.minimum !== undefined && definition.maximum !== undefined
+    && definition.minimum === definition.maximum && condition.value === definition.minimum) return "always-false";
+  return "unknown";
+}
+
 function conditionDefinitelyImpossible(
   condition: ConditionExpression | null,
   mechanics: Map<string, MechanicDefinition>,
+  writableMechanics: Set<string>,
 ): boolean {
-  if (!condition) return false;
-  if (condition.kind === "all") return condition.items.some((item) => conditionDefinitelyImpossible(item, mechanics));
-  if (condition.kind === "any") return condition.items.every((item) => conditionDefinitelyImpossible(item, mechanics));
-  if (condition.kind === "not" || condition.kind === "visit-count") return false;
-  const definition = mechanics.get(condition.mechanicKey);
-  if (!definition || definition.kind !== "number" || typeof condition.value !== "number") return false;
-  if (condition.operator === "gt" && definition.maximum !== undefined) return condition.value >= definition.maximum;
-  if (condition.operator === "gte" && definition.maximum !== undefined) return condition.value > definition.maximum;
-  if (condition.operator === "lt" && definition.minimum !== undefined) return condition.value <= definition.minimum;
-  if (condition.operator === "lte" && definition.minimum !== undefined) return condition.value < definition.minimum;
-  if (condition.operator === "eq" && definition.minimum !== undefined && definition.maximum !== undefined) {
-    return condition.value < definition.minimum || condition.value > definition.maximum;
-  }
-  return false;
+  return conditionTruth(condition, mechanics, writableMechanics) === "always-false";
 }
 
 function mechanicRegistry(mechanics: LongFormMechanicsPlan | null): Map<string, MechanicDefinition> {
   const registry = new Map<string, MechanicDefinition>();
-  mechanics?.visibleStats.forEach((item) => registry.set(item.key, { kind: "number", minimum: item.minimum, maximum: item.maximum }));
-  mechanics?.relationships.forEach((item) => registry.set(item.key, { kind: "number", minimum: item.minimum, maximum: item.maximum }));
-  mechanics?.flags.forEach((item) => registry.set(item.key, { kind: "boolean" }));
-  mechanics?.resources.forEach((item) => registry.set(item.key, { kind: item.kind === "inventory" ? "string" : "number" }));
+  mechanics?.visibleStats.forEach((item) => registry.set(item.key, {
+    kind: "number", minimum: item.minimum, maximum: item.maximum, initial: item.initial,
+  }));
+  mechanics?.relationships.forEach((item) => registry.set(item.key, {
+    kind: "number", minimum: item.minimum, maximum: item.maximum, initial: item.initial,
+  }));
+  mechanics?.flags.forEach((item) => registry.set(item.key, { kind: "boolean", initial: false }));
+  mechanics?.resources.forEach((item) => registry.set(item.key, {
+    kind: item.kind === "inventory" ? "string" : "number",
+    ...(item.kind === "inventory" ? { initial: "" } : { minimum: 0, initial: item.initial }),
+  }));
   return registry;
 }
 
@@ -124,6 +179,43 @@ function reachable(startId: string | null, outgoing: Map<string, ChoicePlan[]>):
     if (seen.has(id)) continue;
     seen.add(id);
     outgoing.get(id)?.forEach((choice) => queue.push(choice.destinationPassageId));
+  }
+  return seen;
+}
+
+function canReach(
+  startIds: Iterable<string>,
+  targetId: string,
+  outgoing: Map<string, ChoicePlan[]>,
+): boolean {
+  const queue = [...startIds];
+  const seen = new Set<string>();
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (current === targetId) return true;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    outgoing.get(current)?.forEach((choice) => queue.push(choice.destinationPassageId));
+  }
+  return false;
+}
+
+function reachableBeforeFact(
+  startId: string | null,
+  factId: string,
+  passages: Map<string, PassagePlan>,
+  outgoing: Map<string, ChoicePlan[]>,
+): Set<string> {
+  const seen = new Set<string>();
+  if (!startId || !passages.has(startId)) return seen;
+  const queue = [startId];
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const passage = passages.get(current);
+    if (!passage || passage.revealedFactIds.includes(factId)) continue;
+    outgoing.get(current)?.forEach((choice) => queue.push(choice.destinationPassageId));
   }
   return seen;
 }
@@ -234,20 +326,39 @@ export function validatePassagePlan(input: {
   const { bundle, bible, routes, endings, mechanics } = input;
   const overrides = new Map((input.overrides ?? []).map((item) => [`${item.code}:${item.entityId}`, item.rationale]));
   const findings: PassagePlanFinding[] = [];
+  const findingIndexes = new Map<string, number>();
   const add = (finding: Omit<PassagePlanFinding, "acknowledged" | "overrideRationale">): void => {
-    const rationale = overrides.get(findingKey(finding));
+    const key = findingKey(finding);
+    const existingIndex = findingIndexes.get(key);
+    if (existingIndex !== undefined) {
+      const existing = findings[existingIndex]!;
+      findings[existingIndex] = {
+        ...existing,
+        evidence: [...new Set([...existing.evidence, ...finding.evidence])],
+      };
+      return;
+    }
+    const rationale = finding.severity === "warning" ? overrides.get(findingKey(finding)) : undefined;
+    findingIndexes.set(key, findings.length);
     findings.push({ ...finding, acknowledged: Boolean(rationale), ...(rationale ? { overrideRationale: rationale } : {}) });
   };
   const passageById = new Map(bundle.passages.map((item) => [item.id, item]));
   const choiceById = new Map(bundle.choices.map((item) => [item.id, item]));
   const threadById = new Map(bundle.threads.map((item) => [item.id, item]));
-  const sequenceIds = new Set(bundle.structure.sequences.map((item) => item.id));
+  const actById = new Map(bundle.structure.acts.map((item) => [item.id, item]));
+  const sequenceById = new Map(bundle.structure.sequences.map((item) => [item.id, item]));
   const routeIds = new Set(routes?.routes.map((item) => item.id) ?? []);
+  const decisionIds = new Set(routes?.decisionPoints.map((item) => item.id) ?? []);
+  const endingHookIds = new Set(routes?.endingHooks.map((item) => item.id) ?? []);
   const endingIds = new Set(endings?.endings.map((item) => item.id) ?? []);
   const characterIds = new Set(bible?.characters.map((item) => item.id) ?? []);
   const relationshipIds = new Set(bible?.relationships.map((item) => item.id) ?? []);
+  const locationIds = new Set(bible?.settings.map((item) => item.id) ?? []);
   const factIds = new Set(bible?.canonFacts.map((item) => item.id) ?? []);
   const registry = mechanicRegistry(mechanics);
+  const writableMechanics = new Set(bundle.choices.flatMap((choice) =>
+    choice.effects.filter((effect) => effectCompatible(effect, registry.get(effect.mechanicKey)))
+      .map((effect) => effect.mechanicKey)));
   const allIds = [
     ...bundle.structure.acts.map((item) => item.id), ...bundle.structure.sequences.map((item) => item.id),
     ...bundle.passages.map((item) => item.id), ...bundle.choices.map((item) => item.id), ...bundle.threads.map((item) => item.id),
@@ -257,14 +368,74 @@ export function validatePassagePlan(input: {
     code: "reference.duplicate-id", severity: "error", entityType: "project", entityId: id,
     message: `Stable ID ${id} is duplicated.`, evidence: [id], suggestion: "Assign a unique stable ID.",
   }));
-  const outgoing = new Map<string, ChoicePlan[]>();
-  const incoming = new Map<string, ChoicePlan[]>();
+
+  bundle.structure.acts.forEach((act) => {
+    const duplicateSequenceIds = act.sequenceIds.filter((id, index) => act.sequenceIds.indexOf(id) !== index);
+    if (duplicateSequenceIds.length) add({
+      code: "act.sequence.duplicate", severity: "error", entityType: "act", entityId: act.id,
+      message: "Act sequence list contains duplicate stable IDs.", evidence: [...new Set(duplicateSequenceIds)],
+      suggestion: "Keep each sequence ID once.",
+    });
+    act.sequenceIds.forEach((sequenceId) => {
+      const sequence = sequenceById.get(sequenceId);
+      if (!sequence || sequence.actId !== act.id) add({
+        code: "act.sequence.invalid", severity: "error", entityType: "act", entityId: act.id,
+        message: "Act sequence list contains a missing or differently owned sequence.", evidence: [sequenceId],
+        suggestion: "Repair the sequence ownership reference.",
+      });
+    });
+    act.routeIds.filter((id) => !routeIds.has(id)).forEach((id) => add({
+      code: "act.route.missing", severity: "error", entityType: "act", entityId: act.id,
+      message: "Act references an unknown route.", evidence: [id], suggestion: "Select an approved route.",
+    }));
+  });
+  bundle.structure.sequences.forEach((sequence) => {
+    const act = actById.get(sequence.actId);
+    if (!act || !act.sequenceIds.includes(sequence.id)) add({
+      code: "sequence.act.invalid", severity: "error", entityType: "sequence", entityId: sequence.id,
+      message: "Sequence is not owned by its declared act.", evidence: [sequence.actId],
+      suggestion: "Repair both sides of the act/sequence ownership reference.",
+    });
+    const duplicatePassageIds = sequence.passageIds.filter((id, index) => sequence.passageIds.indexOf(id) !== index);
+    if (duplicatePassageIds.length) add({
+      code: "sequence.passage.duplicate", severity: "error", entityType: "sequence", entityId: sequence.id,
+      message: "Sequence passage list contains duplicate stable IDs.", evidence: [...new Set(duplicatePassageIds)],
+      suggestion: "Keep each passage ID once.",
+    });
+    sequence.passageIds.forEach((passageId) => {
+      const passage = passageById.get(passageId);
+      if (!passage || passage.sequenceId !== sequence.id) add({
+        code: "sequence.passage.invalid", severity: "error", entityType: "sequence", entityId: sequence.id,
+        message: "Sequence passage list contains a missing or differently owned passage.", evidence: [passageId],
+        suggestion: "Repair the passage ownership reference.",
+      });
+    });
+    sequence.routeIds.filter((id) => !routeIds.has(id)).forEach((id) => add({
+      code: "sequence.route.missing", severity: "error", entityType: "sequence", entityId: sequence.id,
+      message: "Sequence references an unknown route.", evidence: [id], suggestion: "Select an approved route.",
+    }));
+    sequence.requiredDecisionIds.filter((id) => !decisionIds.has(id)).forEach((id) => add({
+      code: "sequence.decision.missing", severity: "error", entityType: "sequence", entityId: sequence.id,
+      message: "Sequence references an unknown route decision.", evidence: [id],
+      suggestion: "Select an approved route decision.",
+    }));
+    sequence.endingHookIds.filter((id) => !endingHookIds.has(id)).forEach((id) => add({
+      code: "sequence.ending-hook.missing", severity: "error", entityType: "sequence", entityId: sequence.id,
+      message: "Sequence references an unknown ending hook.", evidence: [id],
+      suggestion: "Select an approved ending hook.",
+    }));
+  });
+
   bundle.choices.forEach((choice) => {
-    outgoing.set(choice.sourcePassageId, [...(outgoing.get(choice.sourcePassageId) ?? []), choice]);
-    incoming.set(choice.destinationPassageId, [...(incoming.get(choice.destinationPassageId) ?? []), choice]);
-    if (!passageById.has(choice.sourcePassageId)) add({
+    const source = passageById.get(choice.sourcePassageId);
+    if (!source) add({
       code: "choice.source.missing", severity: "error", entityType: "choice", entityId: choice.id,
       message: "Choice source passage is missing.", evidence: [choice.sourcePassageId], suggestion: "Select an existing source passage.",
+    });
+    else if (!source.choiceIds.includes(choice.id)) add({
+      code: "choice.source.unlisted", severity: "error", entityType: "choice", entityId: choice.id,
+      message: "Choice is not listed by its source passage.", evidence: [choice.sourcePassageId],
+      suggestion: "Add the choice ID to its source passage or remove the orphan choice.",
     });
     if (!passageById.has(choice.destinationPassageId)) add({
       code: "choice.destination.missing", severity: "error", entityType: "choice", entityId: choice.id,
@@ -274,16 +445,28 @@ export function validatePassagePlan(input: {
       code: "condition.visit-passage.missing", severity: "error", entityType: "choice", entityId: choice.id,
       message: "Visit-count condition references a missing passage.", evidence: [id], suggestion: "Select an existing passage.",
     }));
+    choice.sourceDecisionIds.filter((id) => !decisionIds.has(id)).forEach((id) => add({
+      code: "choice.decision.missing", severity: "error", entityType: "choice", entityId: choice.id,
+      message: "Choice references an unknown route decision.", evidence: [id],
+      suggestion: "Select an approved route decision.",
+    }));
     if (!conditionCompatible(choice.condition, registry)) add({
       code: "condition.type.invalid", severity: "error", entityType: "choice", entityId: choice.id,
       message: "Choice condition is incompatible with the mechanics registry.", evidence: conditionReads(choice.condition),
       suggestion: "Use a compatible mechanic, comparator, and value.",
     });
-    if (conditionDefinitelyImpossible(choice.condition, registry)) add({
+    if (conditionDefinitelyImpossible(choice.condition, registry, writableMechanics)) {
+      add({
       code: "condition.threshold.unreachable", severity: "warning", entityType: "choice", entityId: choice.id,
-      message: "The choice condition appears unreachable within declared mechanic bounds.", evidence: conditionReads(choice.condition),
-      suggestion: "Adjust the threshold or mechanic bounds.",
-    });
+      message: "The choice condition appears unreachable within declared bounds and available state writes.", evidence: conditionReads(choice.condition),
+      suggestion: "Add a meaningful write, adjust the threshold, or revise mechanic bounds.",
+      });
+      add({
+        code: "choice.always-unavailable", severity: "warning", entityType: "choice", entityId: choice.id,
+        message: `Choice appears always ${choice.unavailableBehavior}.`, evidence: conditionReads(choice.condition),
+        suggestion: "Add a plausible state path or adjust the condition.",
+      });
+    }
     choice.effects.forEach((effect) => {
       if (!effectCompatible(effect, registry.get(effect.mechanicKey))) add({
         code: "effect.type.invalid", severity: "error", entityType: "choice", entityId: choice.id,
@@ -298,9 +481,21 @@ export function validatePassagePlan(input: {
     suggestion: "Choose an existing passage as the start.",
   });
   bundle.passages.forEach((passage) => {
-    if (!sequenceIds.has(passage.sequenceId)) add({
+    const sequence = sequenceById.get(passage.sequenceId);
+    if (!sequence) add({
       code: "passage.sequence.missing", severity: "error", entityType: "passage", entityId: passage.id,
       message: "Passage belongs to a missing sequence.", evidence: [passage.sequenceId], suggestion: "Move it to an existing sequence.",
+    });
+    else if (!sequence.passageIds.includes(passage.id)) add({
+      code: "passage.sequence.unlisted", severity: "error", entityType: "passage", entityId: passage.id,
+      message: "Passage is not listed by its declared sequence.", evidence: [passage.sequenceId],
+      suggestion: "Add the passage ID to its sequence or move it to another sequence.",
+    });
+    const duplicateChoiceIds = passage.choiceIds.filter((id, index) => passage.choiceIds.indexOf(id) !== index);
+    if (duplicateChoiceIds.length) add({
+      code: "passage.choice.duplicate", severity: "error", entityType: "passage", entityId: passage.id,
+      message: "Passage choice list contains duplicate stable IDs.", evidence: [...new Set(duplicateChoiceIds)],
+      suggestion: "Keep each choice ID once.",
     });
     passage.choiceIds.forEach((id) => {
       const choice = choiceById.get(id);
@@ -314,12 +509,22 @@ export function validatePassagePlan(input: {
       code: "graph.terminal.outgoing", severity: "error", entityType: "passage", entityId: passage.id,
       message: "Terminal passages cannot have outgoing choices.", evidence: passage.choiceIds, suggestion: "Remove choices or clear terminal status.",
     });
+    if (passage.terminal && !passage.endingId) add({
+      code: "graph.terminal.ending-missing", severity: "error", entityType: "passage", entityId: passage.id,
+      message: "Terminal passage is not linked to an approved ending.", evidence: [],
+      suggestion: "Link an approved ending or clear terminal status.",
+    });
     if (!passage.terminal && passage.choiceIds.length === 0) add({
       code: "graph.dead-end.accidental", severity: "error", entityType: "passage", entityId: passage.id,
       message: "Nonterminal passage has no outgoing choice.", evidence: [], suggestion: "Add a choice or mark it terminal.",
     });
-    if (!passage.terminal && passage.choiceIds.length > 0
-      && passage.choiceIds.every((id) => conditionDefinitelyImpossible(choiceById.get(id)?.condition ?? null, registry))) add({
+    const plausibleChoices = passage.choiceIds.map((id) => choiceById.get(id)).filter((choice): choice is ChoicePlan =>
+      Boolean(choice)
+      && choice!.sourcePassageId === passage.id
+      && passageById.has(choice!.destinationPassageId)
+      && conditionCompatible(choice!.condition, registry)
+      && !conditionDefinitelyImpossible(choice!.condition, registry, writableMechanics));
+    if (!passage.terminal && passage.choiceIds.length > 0 && plausibleChoices.length === 0) add({
       code: "graph.choice.none-plausible", severity: "error", entityType: "passage", entityId: passage.id,
       message: "No outgoing choice appears available under any plausible state.", evidence: passage.choiceIds,
       suggestion: "Add an unconditional fallback or repair gate thresholds.",
@@ -341,15 +546,29 @@ export function validatePassagePlan(input: {
       code: "passage.relationship.missing", severity: "error", entityType: "passage", entityId: passage.id,
       message: "Passage references an unknown relationship.", evidence: [id], suggestion: "Select a story-bible relationship.",
     }));
-    passage.requiredFactIds.filter((id) => !factIds.has(id)).forEach((id) => add({
+    passage.locationIds.filter((id) => !locationIds.has(id)).forEach((id) => add({
+      code: "passage.location.missing", severity: "error", entityType: "passage", entityId: passage.id,
+      message: "Passage references an unknown story-bible setting.", evidence: [id],
+      suggestion: "Select a story-bible setting.",
+    }));
+    [...passage.requiredFactIds, ...passage.revealedFactIds].filter((id) => !factIds.has(id)).forEach((id) => add({
       code: "passage.fact.missing", severity: "error", entityType: "passage", entityId: passage.id,
-      message: "Passage requires an unknown canon fact.", evidence: [id], suggestion: "Select a story-bible fact.",
+      message: "Passage references an unknown canon fact.", evidence: [id], suggestion: "Select a story-bible fact.",
     }));
     [...passage.setupThreadIds, ...passage.payoffThreadIds].filter((id) => !threadById.has(id)).forEach((id) => add({
       code: "passage.thread.missing", severity: "error", entityType: "passage", entityId: passage.id,
       message: "Passage references an unknown narrative thread.", evidence: [id], suggestion: "Create or select a narrative thread.",
     }));
   });
+
+  const outgoing = new Map<string, ChoicePlan[]>();
+  bundle.passages.forEach((passage) => passage.choiceIds.forEach((choiceId) => {
+    const choice = choiceById.get(choiceId);
+    if (!choice || choice.sourcePassageId !== passage.id || !passageById.has(choice.destinationPassageId)
+      || !conditionCompatible(choice.condition, registry)
+      || conditionDefinitelyImpossible(choice.condition, registry, writableMechanics)) return;
+    outgoing.set(passage.id, [...(outgoing.get(passage.id) ?? []), choice]);
+  }));
   const reached = reachable(bundle.structure.startPassageId, outgoing);
   bundle.passages.filter((passage) => !reached.has(passage.id)).forEach((passage) => add({
     code: "graph.passage.unreachable", severity: "warning", entityType: "passage", entityId: passage.id,
@@ -368,6 +587,26 @@ export function validatePassagePlan(input: {
       });
     });
   bundle.threads.forEach((thread) => {
+    thread.setupPassageIds.filter((id) => !passageById.has(id)).forEach((id) => add({
+      code: "thread.setup-passage.missing", severity: "error", entityType: "thread", entityId: thread.id,
+      message: "Narrative thread references a missing setup passage.", evidence: [id],
+      suggestion: "Select an existing setup passage.",
+    }));
+    thread.payoffPassageIds.filter((id) => !passageById.has(id)).forEach((id) => add({
+      code: "thread.payoff-passage.missing", severity: "error", entityType: "thread", entityId: thread.id,
+      message: "Narrative thread references a missing payoff passage.", evidence: [id],
+      suggestion: "Select an existing payoff passage.",
+    }));
+    thread.routeIds.filter((id) => !routeIds.has(id)).forEach((id) => add({
+      code: "thread.route.missing", severity: "error", entityType: "thread", entityId: thread.id,
+      message: "Narrative thread references an unknown route.", evidence: [id],
+      suggestion: "Select an approved route.",
+    }));
+    if (thread.status === "waived" && !thread.waiverRationale.trim()) add({
+      code: "continuity.thread.waiver-rationale.missing", severity: "error", entityType: "thread", entityId: thread.id,
+      message: "Waived narrative thread has no rationale.", evidence: [],
+      suggestion: "Record why the thread is intentionally waived.",
+    });
     if (thread.setupPassageIds.length === 0 && thread.payoffPassageIds.length > 0) add({
       code: "continuity.thread.payoff-without-setup", severity: "warning", entityType: "thread", entityId: thread.id,
       message: "Narrative thread has payoff passages but no setup.", evidence: thread.payoffPassageIds, suggestion: "Add an earlier setup or waive the warning.",
@@ -376,19 +615,46 @@ export function validatePassagePlan(input: {
       code: "continuity.thread.setup-without-payoff", severity: "warning", entityType: "thread", entityId: thread.id,
       message: "Narrative thread is set up but has no payoff.", evidence: thread.setupPassageIds, suggestion: "Add a payoff or record a waiver.",
     });
+    thread.payoffPassageIds.filter((payoffId) => passageById.has(payoffId)
+      && !canReach(thread.setupPassageIds.filter((id) => passageById.has(id) && reached.has(id)), payoffId, outgoing))
+      .forEach((payoffId) => add({
+        code: "continuity.thread.payoff-without-reachable-setup", severity: "warning", entityType: "thread", entityId: thread.id,
+        message: "No declared setup can reach this payoff on the plausible graph.", evidence: [payoffId],
+        suggestion: "Move the setup earlier, add a path-specific setup, or acknowledge the intentional exception.",
+      }));
   });
-  const revealing = new Map<string, Set<string>>();
-  bundle.passages.forEach((passage) => passage.revealedFactIds.forEach((fact) =>
-    revealing.set(fact, new Set([...(revealing.get(fact) ?? []), passage.id]))));
+  const reachableBeforeFactCache = new Map<string, Set<string>>();
   bundle.passages.forEach((passage) => passage.requiredFactIds.forEach((fact) => {
-    if (!(revealing.get(fact)?.size)) add({
+    if (!factIds.has(fact)) return;
+    if (!reachableBeforeFactCache.has(fact)) {
+      reachableBeforeFactCache.set(fact, reachableBeforeFact(
+        bundle.structure.startPassageId, fact, passageById, outgoing,
+      ));
+    }
+    if (reachableBeforeFactCache.get(fact)!.has(passage.id)) add({
       code: "continuity.fact.used-before-revelation", severity: "warning", entityType: "passage", entityId: passage.id,
-      message: "A required fact has no reachable planned revelation.", evidence: [fact], suggestion: "Reveal the fact earlier or remove the requirement.",
+      message: "A required fact may be used before revelation on a plausible path.", evidence: [fact],
+      suggestion: "Reveal the fact on every incoming path, gate the passage, or acknowledge the intentional uncertainty.",
     });
   }));
   bundle.structure.characterAvailability.forEach((availability) => {
+    if (!characterIds.has(availability.characterId)) add({
+      code: "continuity.character-availability.unknown", severity: "error", entityType: "project", entityId: "passage-plan",
+      message: "Character availability references an unknown story-bible character.", evidence: [availability.characterId],
+      suggestion: "Select a story-bible character.",
+    });
+    availability.actIds.filter((id) => !actById.has(id)).forEach((id) => add({
+      code: "continuity.character-availability.act-missing", severity: "error", entityType: "project", entityId: "passage-plan",
+      message: "Character availability references a missing act.", evidence: [availability.characterId, id],
+      suggestion: "Select an existing passage-plan act.",
+    }));
+    availability.routeIds.filter((id) => !routeIds.has(id)).forEach((id) => add({
+      code: "continuity.character-availability.route-missing", severity: "error", entityType: "project", entityId: "passage-plan",
+      message: "Character availability references an unknown route.", evidence: [availability.characterId, id],
+      suggestion: "Select an approved route.",
+    }));
     bundle.passages.filter((passage) => passage.characterIds.includes(availability.characterId)).forEach((passage) => {
-      const sequence = bundle.structure.sequences.find((item) => item.id === passage.sequenceId);
+      const sequence = sequenceById.get(passage.sequenceId);
       const outsideAct = availability.actIds.length > 0 && (!sequence || !availability.actIds.includes(sequence.actId));
       const outsideRoute = availability.routeIds.length > 0 && !passage.routeIds.some((id) => availability.routeIds.includes(id));
       if (outsideAct || outsideRoute) add({
@@ -402,16 +668,23 @@ export function validatePassagePlan(input: {
   bundle.passages.forEach((passage) => passage.preservedDifferenceIds.forEach((id) =>
     differenceUses.set(id, [...(differenceUses.get(id) ?? []), passage.id])));
   differenceUses.forEach((ids, id) => {
-    if (ids.length < 2) add({
+    const hasContinuation = ids.some((fromId) =>
+      ids.some((targetId) => targetId !== fromId && canReach([fromId], targetId, outgoing)));
+    if (!hasContinuation) add({
       code: "continuity.difference.disappears", severity: "warning", entityType: "passage", entityId: ids[0]!,
-      message: `Preserved difference ${id} has no later declared continuation.`, evidence: ids,
+      message: `Preserved difference ${id} has no later reachable declared continuation.`, evidence: ids,
       suggestion: "Carry it into a later passage, mechanic read, or ending contribution.",
     });
   });
   const mechanicCoverage = [...registry.keys()].map((key) => ({
     key,
-    reads: bundle.choices.filter((choice) => conditionReads(choice.condition).includes(key)).map((choice) => choice.id),
-    writes: bundle.choices.filter((choice) => choice.effects.some((effect) => effect.mechanicKey === key)).map((choice) => choice.id),
+    reads: bundle.choices.filter((choice) =>
+      conditionCompatible(choice.condition, registry)
+      && !conditionDefinitelyImpossible(choice.condition, registry, writableMechanics)
+      && conditionReads(choice.condition).includes(key)).map((choice) => choice.id),
+    writes: bundle.choices.filter((choice) =>
+      choice.effects.some((effect) => effect.mechanicKey === key && effectCompatible(effect, registry.get(key))))
+      .map((choice) => choice.id),
   }));
   mechanicCoverage.forEach((coverage) => {
     if (!coverage.reads.length) add({
@@ -436,15 +709,41 @@ export function validatePassagePlan(input: {
     });
     return { endingId: ending.id, incomingPassageIds, plausible };
   });
-  const routeCoverage = (routes?.routes ?? []).map((route) => ({
-    routeId: route.id,
-    passageCount: bundle.passages.filter((passage) => passage.routeIds.includes(route.id)).length,
-    endingCount: endingCoverage.filter((coverage) => {
+  const routeCoverage = (routes?.routes ?? []).map((route) => {
+    const passageCount = bundle.passages.filter((passage) => passage.routeIds.includes(route.id)).length;
+    const endingCount = endingCoverage.filter((coverage) => {
       const ending = endings?.endings.find((item) => item.id === coverage.endingId);
       return ending?.routeId === route.id && coverage.plausible;
-    }).length,
-  }));
+    }).length;
+    if (!passageCount) add({
+      code: "route.coverage.no-passages", severity: "warning", entityType: "route", entityId: route.id,
+      message: `Route ${route.id} has no passage-plan coverage.`, evidence: [route.id],
+      suggestion: "Assign at least one passage to the route or revise the route architecture.",
+    });
+    if (!endingCount) add({
+      code: "route.coverage.no-ending", severity: "warning", entityType: "route", entityId: route.id,
+      message: `Route ${route.id} has no plausibly reachable ending.`, evidence: [route.id],
+      suggestion: "Connect the route to at least one approved ending.",
+    });
+    return { routeId: route.id, passageCount, endingCount };
+  });
   const budgets = passageBudgetReport(bundle, routes);
+  if (Math.abs(budgets.project.difference) / budgets.project.target > 0.25) add({
+    code: "budget.project.outside-target", severity: "warning", entityType: "project", entityId: "passage-plan",
+    message: "Project planned words differ from the target by more than 25%.",
+    evidence: [`target=${budgets.project.target}`, `planned=${budgets.project.planned}`],
+    suggestion: "Rebalance passage word targets or the project budget.",
+  });
+  budgets.acts.filter((item) => item.target > 0 && Math.abs(item.difference) / item.target > 0.25).forEach((item) => add({
+    code: "budget.act.outside-target", severity: "warning", entityType: "act", entityId: item.id,
+    message: "Act planned words differ from its target by more than 25%.", evidence: [`target=${item.target}`, `planned=${item.planned}`],
+    suggestion: "Rebalance passage word targets or the act budget.",
+  }));
+  budgets.routes.filter((item) => item.target > 0 && Math.abs(item.difference) / item.target > 0.25).forEach((item) => add({
+    code: "budget.route.outside-target", severity: "warning", entityType: "route", entityId: item.id,
+    message: "Route planned words differ from its target by more than 25%.", evidence: [`target=${item.target}`, `planned=${item.planned}`],
+    suggestion: "Rebalance route passages or the route architecture.",
+  }));
   budgets.sequences.filter((item) => item.target > 0 && Math.abs(item.difference) / item.target > 0.25).forEach((item) => add({
     code: "budget.sequence.outside-target", severity: "warning", entityType: "sequence", entityId: item.id,
     message: "Sequence planned words differ from its target by more than 25%.", evidence: [`target=${item.target}`, `planned=${item.planned}`],

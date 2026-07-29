@@ -53,7 +53,7 @@ export interface StructureVersion {
 }
 export interface PassageFinding {
   code: string; severity: "error" | "warning" | "info";
-  entityType: "project" | "act" | "sequence" | "passage" | "choice" | "thread" | "mechanic" | "ending";
+  entityType: "project" | "act" | "sequence" | "passage" | "choice" | "thread" | "mechanic" | "route" | "ending";
   entityId: string; message: string; evidence: string[]; suggestion: string;
   acknowledged: boolean; overrideRationale?: string;
 }
@@ -134,6 +134,11 @@ export const acknowledgePassageFinding = async (projectId: string, finding: Pass
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ code: finding.code, entityId: finding.entityId, rationale }),
   }));
+export const clearPassageFindingAcknowledgement = async (projectId: string, finding: PassageFinding) =>
+  json<{ report: PassageValidationReport }>(await fetch(
+    `${base(projectId)}/overrides?code=${encodeURIComponent(finding.code)}&entityId=${encodeURIComponent(finding.entityId)}`,
+    { method: "DELETE" },
+  ));
 export async function downloadPassagePlan(projectId: string, format: "markdown" | "json" | "bundle"): Promise<void> {
   const response = await fetch(`${base(projectId)}/export?format=${format}`);
   if (!response.ok) throw new Error("Could not export passage plan");

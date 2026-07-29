@@ -229,6 +229,11 @@ export class PassagePlanService {
 
   setOverride(projectId: string, code: string, entityId: string, rationale: string) {
     if (!rationale.trim()) throw new Error("Override rationale is required");
+    const finding = this.validate(projectId).findings.find((item) =>
+      item.code === code && item.entityId === entityId);
+    if (!finding || finding.severity !== "warning") {
+      throw new Error("Only a current warning can be acknowledged");
+    }
     const override = this.repository.setOverride(projectId, code, entityId, rationale);
     return { override, report: this.validate(projectId) };
   }

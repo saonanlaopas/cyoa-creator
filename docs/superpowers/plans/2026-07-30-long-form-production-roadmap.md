@@ -17,7 +17,7 @@ Implementation checkpoints:
 
 - Foundation 1 is complete.
 - Foundation 2 is complete: the manual passage-plan workspace, entity history, immutable snapshots, stable-ID editing/reordering, budgets, search/filtering, exports, and a 300-passage offline acceptance test are implemented.
-- Foundation 3 is in progress.
+- Foundation 3 is complete: structural, state, continuity, budget, and path analysis feed a linked coverage dashboard with persisted warning rationales and hard-error approval blocking.
 
 The next objective is to turn that planning prototype into a safe production workspace for a configurable 150,000-200,000-word interactive novel with hundreds of passages.
 
@@ -172,6 +172,8 @@ Allow a full several-hundred-passage project to be planned manually, persisted, 
 - The stage can be completed without OpenRouter.
 
 ### Foundation 3: structural validator and coverage dashboard
+
+**Implementation status:** Complete and acceptance-tested offline on 2026-07-30.
 
 #### Goal
 

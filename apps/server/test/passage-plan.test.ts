@@ -260,4 +260,81 @@ describe("manual passage-plan workspace", () => {
     expect(restored.state.status).toBe("draft");
     await app.close();
   });
+
+  it("blocks approval on hard findings and persists rationales only for current warnings", async () => {
+    const app = buildApp();
+    const { projectId } = await createApprovedPlanningChain(app);
+    const created = (await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/passage-plan`,
+    })).json();
+    const invalidBundle = {
+      schemaVersion: 1,
+      structure: { ...created.structure.content, startPassageId: "missing-passage" },
+      passages: created.passages.map((item: { content: unknown }) => item.content),
+      choices: created.choices.map((item: { content: unknown }) => item.content),
+      threads: created.threads.map((item: { content: unknown }) => item.content),
+    };
+    const saved = (await app.inject({
+      method: "PUT",
+      url: `/api/long-form/projects/${projectId}/passage-plan`,
+      payload: invalidBundle,
+    })).json();
+    expect(saved.report.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "graph.start.invalid", severity: "error" }),
+    ]));
+
+    const snapshot = (await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/passage-plan/snapshots`,
+    })).json();
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/passage-plan/approve`,
+      payload: { snapshotId: snapshot.id },
+    });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "graph.start.invalid" }),
+    ]));
+
+    const warning = saved.report.findings.find((finding: { severity: string }) =>
+      finding.severity === "warning");
+    expect(warning).toBeTruthy();
+    const acknowledged = await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/passage-plan/overrides`,
+      payload: {
+        code: warning.code,
+        entityId: warning.entityId,
+        rationale: "This conservative warning is an intentional route exception.",
+      },
+    });
+    expect(acknowledged.statusCode).toBe(201);
+    expect(acknowledged.json().report.findings.find((finding: { code: string; entityId: string }) =>
+      finding.code === warning.code && finding.entityId === warning.entityId)).toMatchObject({
+      acknowledged: true,
+      overrideRationale: "This conservative warning is an intentional route exception.",
+    });
+    const cleared = await app.inject({
+      method: "DELETE",
+      url: `/api/long-form/projects/${projectId}/passage-plan/overrides?code=${encodeURIComponent(warning.code)}&entityId=${encodeURIComponent(warning.entityId)}`,
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().report.findings.find((finding: { code: string; entityId: string }) =>
+      finding.code === warning.code && finding.entityId === warning.entityId)).toMatchObject({
+      acknowledged: false,
+    });
+
+    expect((await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/passage-plan/overrides`,
+      payload: {
+        code: "graph.start.invalid",
+        entityId: "passage-plan",
+        rationale: "Errors cannot be suppressed.",
+      },
+    })).statusCode).toBe(400);
+    await app.close();
+  });
 });
