@@ -165,9 +165,11 @@ export class PassagePlanRepository {
     kind: PassageEntityKind; id: string; content: unknown;
   }>, retained: Record<PassageEntityKind, Set<string>>): void {
     transaction(this.database, () => {
+      let changed = false;
       const currentStructure = this.currentStructure(projectId);
       if (!currentStructure || JSON.stringify(currentStructure.content) !== JSON.stringify(structure)) {
         this.insertStructure(projectId, structure);
+        changed = true;
       }
       for (const entity of entities) {
         const current = this.database.prepare(`
@@ -177,6 +179,7 @@ export class PassagePlanRepository {
         `).get(projectId, entity.kind, entity.id) as { content_json: string; tombstoned: number } | undefined;
         if (!current || current.tombstoned || current.content_json !== JSON.stringify(entity.content)) {
           this.insertEntity(projectId, entity.kind, entity.id, entity.content);
+          changed = true;
         }
       }
       for (const kind of ["passage", "choice", "thread"] as PassageEntityKind[]) {
@@ -185,13 +188,14 @@ export class PassagePlanRepository {
           SELECT entity_id FROM passage_entity_heads WHERE project_id = ? AND entity_kind = ? AND tombstoned = 0
         `).all(projectId, kind) as Array<{ entity_id: string }>;
         heads.filter((head) => !keep.has(head.entity_id)).forEach((head) => {
-          this.database.prepare(`
+          const result = this.database.prepare(`
             UPDATE passage_entity_heads SET tombstoned = 1
             WHERE project_id = ? AND entity_kind = ? AND entity_id = ?
           `).run(projectId, kind, head.entity_id);
+          if (result.changes) changed = true;
         });
       }
-      this.setState(projectId, "draft");
+      if (changed) this.setState(projectId, "draft");
     });
   }
 

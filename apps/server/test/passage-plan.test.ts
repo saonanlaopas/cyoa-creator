@@ -63,7 +63,12 @@ async function createApprovedPlanningChain(app: ReturnType<typeof buildApp>) {
     url: `/api/long-form/projects/${projectId}/mechanics/approve`,
     payload: { versionId: mechanicsSaved.mechanics.id },
   })).statusCode).toBe(200);
-  return { projectId, routes: routes.routes.content, endings: endings.endings.content };
+  return {
+    projectId,
+    routes: routes.routes.content,
+    endings: endings.endings.content,
+    mechanics: mechanicsSaved.mechanics,
+  };
 }
 
 describe("manual passage-plan workspace", () => {
@@ -211,6 +216,16 @@ describe("manual passage-plan workspace", () => {
       url: `/api/long-form/projects/${projectId}/passage-plan/approve`,
       payload: { snapshotId: snapshot.id },
     })).statusCode).toBe(201);
+    const unchanged = await app.inject({
+      method: "PUT",
+      url: `/api/long-form/projects/${projectId}/passage-plan`,
+      payload: reordered,
+    });
+    expect(unchanged.statusCode).toBe(201);
+    expect(unchanged.json().state).toMatchObject({
+      status: "approved",
+      approvedSnapshotId: snapshot.id,
+    });
 
     const markdown = await app.inject({
       method: "GET",
@@ -335,6 +350,72 @@ describe("manual passage-plan workspace", () => {
         rationale: "Errors cannot be suppressed.",
       },
     })).statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("validates snapshots against their approved dependency versions, not newer drafts", async () => {
+    const app = buildApp();
+    const { projectId, mechanics } = await createApprovedPlanningChain(app);
+    const draftMechanics = {
+      ...mechanics.content,
+      visibleStats: [...mechanics.content.visibleStats, {
+        id: "stat-unapproved",
+        key: "unapproved",
+        label: "Unapproved stat",
+        description: "This must not be used by an approved passage-plan snapshot.",
+        minimum: 0,
+        maximum: 5,
+        initial: 0,
+        increaseSignals: [],
+        decreaseSignals: [],
+      }],
+    };
+    expect((await app.inject({
+      method: "PUT",
+      url: `/api/long-form/projects/${projectId}/mechanics`,
+      payload: draftMechanics,
+    })).statusCode).toBe(201);
+
+    const created = (await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/passage-plan`,
+    })).json();
+    const firstChoice = created.choices[0].content;
+    const bundle = {
+      schemaVersion: 1,
+      structure: created.structure.content,
+      passages: created.passages.map((item: { content: unknown }) => item.content),
+      choices: created.choices.map((item: { content: unknown }) => item.content).map((choice: typeof firstChoice) =>
+        choice.id === firstChoice.id ? {
+          ...choice,
+          effects: [{
+            id: "effect-unapproved",
+            mechanicKey: "unapproved",
+            operation: "add",
+            value: 1,
+            feedback: "",
+            visibility: "visible",
+          }],
+        } : choice),
+      threads: created.threads.map((item: { content: unknown }) => item.content),
+    };
+    const saved = (await app.inject({
+      method: "PUT",
+      url: `/api/long-form/projects/${projectId}/passage-plan`,
+      payload: bundle,
+    })).json();
+    expect(saved.report.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "effect.type.invalid", entityId: firstChoice.id }),
+    ]));
+
+    const snapshot = (await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/passage-plan/snapshots`,
+    })).json();
+    expect(snapshot.upstreamVersions.mechanics).toBe(mechanics.id);
+    expect(snapshot.validation.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "effect.type.invalid", entityId: firstChoice.id }),
+    ]));
     await app.close();
   });
 });

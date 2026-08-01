@@ -1,6 +1,126 @@
-import { expect, test } from "playwright/test";
+import { expect, test, type APIRequestContext } from "playwright/test";
 
 const source = "Mara returns to the flooded station before dawn, carrying the brass key her father hid years ago. She knows the town will blame her if the archive burns, but the last train still waits beyond the broken platform.";
+
+async function seedLargePassagePlan(request: APIRequestContext): Promise<string> {
+  const post = async (url: string, data?: unknown) => {
+    const response = await request.post(url, { data });
+    await expect(response).toBeOK();
+    return response.json();
+  };
+  const put = async (url: string, data: unknown) => {
+    const response = await request.put(url, { data });
+    await expect(response).toBeOK();
+    return response.json();
+  };
+  const created = await post("/api/long-form/projects", { name: "Browser large passage workspace" });
+  const projectId = created.project.id as string;
+  await post(`/api/long-form/projects/${projectId}/brief/approve`, { versionId: created.brief.id });
+  const bible = await post(`/api/long-form/projects/${projectId}/bible`);
+  await post(`/api/long-form/projects/${projectId}/bible/approve`, { versionId: bible.bible.id });
+  const routes = await post(`/api/long-form/projects/${projectId}/routes`);
+  await post(`/api/long-form/projects/${projectId}/routes/approve`, { versionId: routes.routes.id });
+  const endings = await post(`/api/long-form/projects/${projectId}/endings`);
+  await post(`/api/long-form/projects/${projectId}/endings/approve`, { versionId: endings.endings.id });
+  const mechanics = await post(`/api/long-form/projects/${projectId}/mechanics`);
+  const mechanicsSaved = await put(`/api/long-form/projects/${projectId}/mechanics`, {
+    ...mechanics.mechanics.content,
+    choiceEffectPlans: [{
+      id: "effect-core",
+      label: "Core choice consequences",
+      sourceDecisionIds: ["decision-route-selection"],
+      mechanicKeys: mechanics.mechanics.content.visibleStats.map((item: { key: string }) => item.key),
+      effectGuidance: ["Every tracked value changes only after a consequential choice."],
+    }],
+  });
+  await post(`/api/long-form/projects/${projectId}/mechanics/approve`, { versionId: mechanicsSaved.mechanics.id });
+  await post(`/api/long-form/projects/${projectId}/passage-plan`);
+
+  const routeId = routes.routes.content.routes[0].id as string;
+  const endingId = endings.endings.content.endings.find((item: { routeId: string }) => item.routeId === routeId).id as string;
+  const passageIds = Array.from({ length: 300 }, (_, index) => `passage-${String(index).padStart(3, "0")}`);
+  const passages = passageIds.map((passageId, index) => ({
+    id: passageId,
+    sequenceId: "sequence-main",
+    title: `Passage ${index}`,
+    kind: index === 299 ? "epilogue" : "scene",
+    purpose: `Plan beat ${index}`,
+    summary: "",
+    wordTarget: 500,
+    routeIds: [routeId],
+    tags: [],
+    characterIds: [],
+    relationshipIds: [],
+    locationIds: [],
+    requiredFactIds: [],
+    revealedFactIds: [],
+    setupThreadIds: [],
+    payoffThreadIds: [],
+    preservedDifferenceIds: [],
+    choiceIds: index === 299 ? [] : [`choice-${String(index).padStart(3, "0")}`],
+    terminal: index === 299,
+    endingId: index === 299 ? endingId : null,
+    draftingNotes: [],
+    unresolvedQuestions: [],
+    planningStatus: "planned",
+    position: index,
+  }));
+  const choices = passageIds.slice(0, -1).map((passageId, index) => ({
+    id: `choice-${String(index).padStart(3, "0")}`,
+    sourcePassageId: passageId,
+    label: "Continue",
+    destinationPassageId: passageIds[index + 1],
+    narrativeIntent: "",
+    consequencePreview: "",
+    condition: null,
+    unavailableBehavior: "disabled",
+    unavailableExplanation: "",
+    effects: [],
+    sourceDecisionIds: [],
+    position: 0,
+  }));
+  await put(`/api/long-form/projects/${projectId}/passage-plan`, {
+    schemaVersion: 1,
+    structure: {
+      schemaVersion: 1,
+      title: "Browser large passage plan",
+      projectWordTarget: 150_000,
+      typicalPathWordTarget: 150_000,
+      startPassageId: passageIds[0],
+      acts: [{
+        id: "act-main",
+        label: "Main act",
+        purpose: "",
+        summary: "",
+        wordTarget: 150_000,
+        routeIds: [routeId],
+        sequenceIds: ["sequence-main"],
+        position: 0,
+      }],
+      sequences: [{
+        id: "sequence-main",
+        actId: "act-main",
+        label: "Main sequence",
+        purpose: "",
+        summary: "",
+        wordTarget: 150_000,
+        routeIds: [routeId],
+        passageIds,
+        entryGoals: [],
+        exitGoals: [],
+        requiredDecisionIds: [],
+        endingHookIds: [],
+        position: 0,
+        planningStatus: "planned",
+      }],
+      characterAvailability: [],
+    },
+    passages,
+    choices,
+    threads: [],
+  });
+  return projectId;
+}
 
 test("complete private adaptation offline smoke", async ({ request }) => {
   const health = await request.get("/api/health");
@@ -100,4 +220,22 @@ test("long-form workspace persists and approves a project brief", async ({ page 
   await expect(page.getByRole("heading", { name: "Story bible" })).toBeVisible();
   await expect(page.getByLabel("Name")).toHaveValue("Mara");
   await expect(page.getByText("I prepared a protagonist record for bible review.")).toBeVisible();
+});
+
+test("long-form passage workspace renders, filters, and jumps within a 300-passage fixture", async ({ page, request }) => {
+  test.setTimeout(60_000);
+  const projectId = await seedLargePassagePlan(request);
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "passage-plan");
+  }, projectId);
+  await page.goto("/#long-form");
+
+  await expect(page.getByRole("heading", { name: "Passage plan" })).toBeVisible();
+  await expect(page.getByText("300 of 300 passages shown", { exact: true })).toBeVisible();
+  await page.getByPlaceholder("Search titles, IDs, summaries, and tags").fill("passage-299");
+  await expect(page.getByText("1 of 300 passages shown", { exact: true })).toBeVisible({ timeout: 5_000 });
+  await page.getByPlaceholder("Jump to stable ID").fill("passage-299");
+  await page.getByRole("button", { name: "Jump" }).click();
+  await expect(page.locator(".passage-editor input").first()).toHaveValue("Passage 299");
 });

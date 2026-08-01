@@ -193,13 +193,9 @@ export class PassagePlanService {
   }
 
   createSnapshot(projectId: string) {
-    const report = this.validate(projectId);
-    const upstreamVersions = Object.fromEntries(["brief", "bible", "routes", "endings", "mechanics"].map((id) => {
-      const state = this.workflow.get(projectId, id);
-      if (!state.approvedVersionId) throw new Error(`Approve ${id} first`);
-      return [id, state.approvedVersionId];
-    }));
-    return this.repository.createSnapshot(projectId, upstreamVersions, report);
+    const dependencies = this.approvedDependencies(projectId);
+    const report = this.validate(projectId, this.bundle(projectId), dependencies);
+    return this.repository.createSnapshot(projectId, dependencies.versions, report);
   }
 
   approve(projectId: string, snapshotId?: string) {
@@ -243,13 +239,17 @@ export class PassagePlanService {
     return { report: this.validate(projectId) };
   }
 
-  validate(projectId: string, bundle = this.bundle(projectId)): PassageValidationReport {
+  validate(
+    projectId: string,
+    bundle = this.bundle(projectId),
+    dependencies = this.approvedDependencies(projectId),
+  ): PassageValidationReport {
     return validatePassagePlan({
       bundle,
-      bible: this.artifacts.getCurrent<LongFormStoryBible>(projectId, "bible")?.content ?? null,
-      routes: this.artifacts.getCurrent<LongFormRoutePlan>(projectId, "routes")?.content ?? null,
-      endings: this.artifacts.getCurrent<LongFormEndingPlan>(projectId, "endings")?.content ?? null,
-      mechanics: this.artifacts.getCurrent<LongFormMechanicsPlan>(projectId, "mechanics")?.content ?? null,
+      bible: dependencies.bible.content,
+      routes: dependencies.routes.content,
+      endings: dependencies.endings.content,
+      mechanics: dependencies.mechanics.content,
       overrides: this.repository.listOverrides(projectId),
     });
   }
@@ -263,5 +263,29 @@ export class PassagePlanService {
   private approved<T>(projectId: string, artifactId: string) {
     const id = this.workflow.get(projectId, artifactId).approvedVersionId;
     return id ? this.artifacts.getVersion<T>(id) : undefined;
+  }
+
+  private approvedDependencies(projectId: string) {
+    const brief = this.approved<ProjectBrief>(projectId, "brief");
+    const bible = this.approved<LongFormStoryBible>(projectId, "bible");
+    const routes = this.approved<LongFormRoutePlan>(projectId, "routes");
+    const endings = this.approved<LongFormEndingPlan>(projectId, "endings");
+    const mechanics = this.approved<LongFormMechanicsPlan>(projectId, "mechanics");
+    if (!brief || !bible || !routes || !endings || !mechanics) {
+      throw new Error("Approve brief, bible, routes, endings, and mechanics first");
+    }
+    return {
+      versions: {
+        brief: brief.id,
+        bible: bible.id,
+        routes: routes.id,
+        endings: endings.id,
+        mechanics: mechanics.id,
+      },
+      bible,
+      routes,
+      endings,
+      mechanics,
+    };
   }
 }

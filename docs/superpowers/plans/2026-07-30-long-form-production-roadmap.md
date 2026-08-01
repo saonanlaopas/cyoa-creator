@@ -18,6 +18,7 @@ Implementation checkpoints:
 - Foundation 1 is complete.
 - Foundation 2 is complete: the manual passage-plan workspace, entity history, immutable snapshots, stable-ID editing/reordering, budgets, search/filtering, exports, and a 300-passage offline acceptance test are implemented.
 - Foundation 3 is complete: structural, state, continuity, budget, and path analysis feed a linked coverage dashboard with persisted warning rationales and hard-error approval blocking.
+- The post-Foundation cleanup gate is complete: passage-plan validation now uses exact approved dependencies, unchanged saves preserve approval state, and a browser-level 300-passage fixture verifies rendering, filtering, and stable-ID jump behavior offline.
 
 The next objective is to turn that planning prototype into a safe production workspace for a configurable 150,000-200,000-word interactive novel with hundreds of passages.
 
@@ -77,14 +78,14 @@ These are foundation issues, not reasons to discard the current design.
 
 ## Post-Foundation review and cleanup gate
 
-A focused review after Foundations 1-3 found that the overall architecture is sound, the repository is clean, and the relevant offline regression tests pass. Before Foundation 4 begins, complete this small consistency checkpoint:
+A focused review after Foundations 1-3 found that the overall architecture is sound, the repository is clean, and the relevant offline regression tests pass. This cleanup checkpoint was completed offline on 2026-08-01 before Foundation 4:
 
 1. Passage-plan validation and snapshot creation must use the exact approved bible, route, ending, and mechanics versions recorded as snapshot dependencies. They must not validate against newer unapproved drafts while recording older approved version IDs.
 2. Saving a passage-plan bundle that has no content changes must not demote an approved plan to draft status. A real content change may create a draft while retaining the last approved snapshot for recovery and comparison.
 3. Add a browser-level large-fixture check for the 300-passage workspace. Existing tests prove persistence, reordering, validation, snapshots, exports, and restore, but do not measure interactive browser responsiveness.
 4. Keep the existing provider-activity behavior: reasoning activity is visible in bounded, scrollable session UI, while raw reasoning is not persisted as project memory.
 
-The first two items are correctness fixes and must pass focused regression tests. The large-fixture browser check is an evidence gap rather than a known data-loss defect. This cleanup checkpoint remains fully offline and requires no OpenRouter request.
+The first two items were correctness fixes covered by focused regressions. The large-fixture browser check closes the earlier evidence gap by loading, filtering, and stable-ID jumping in the actual browser workspace. This checkpoint remained fully offline and required no OpenRouter request.
 
 ## Target workflow
 
