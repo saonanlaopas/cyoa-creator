@@ -75,6 +75,17 @@ These decisions are settled unless later evidence justifies revisiting them:
 
 These are foundation issues, not reasons to discard the current design.
 
+## Post-Foundation review and cleanup gate
+
+A focused review after Foundations 1-3 found that the overall architecture is sound, the repository is clean, and the relevant offline regression tests pass. Before Foundation 4 begins, complete this small consistency checkpoint:
+
+1. Passage-plan validation and snapshot creation must use the exact approved bible, route, ending, and mechanics versions recorded as snapshot dependencies. They must not validate against newer unapproved drafts while recording older approved version IDs.
+2. Saving a passage-plan bundle that has no content changes must not demote an approved plan to draft status. A real content change may create a draft while retaining the last approved snapshot for recovery and comparison.
+3. Add a browser-level large-fixture check for the 300-passage workspace. Existing tests prove persistence, reordering, validation, snapshots, exports, and restore, but do not measure interactive browser responsiveness.
+4. Keep the existing provider-activity behavior: reasoning activity is visible in bounded, scrollable session UI, while raw reasoning is not persisted as project memory.
+
+The first two items are correctness fixes and must pass focused regression tests. The large-fixture browser check is an evidence gap rather than a known data-loss defect. This cleanup checkpoint remains fully offline and requires no OpenRouter request.
+
 ## Target workflow
 
 ```text
@@ -95,6 +106,26 @@ Premise or source
 Chat remains available throughout. It can discuss the whole project or operate on a selected artifact, section, sequence, passage, choice, mechanic, route, or ending.
 
 ## Milestone sequence
+
+### Remaining milestone naming
+
+The canonical remaining roadmap uses Foundations 4-8. Earlier versions of this document called the implementation slices Production 1-5; those names map into the foundations as follows and do not represent a second body of work:
+
+- **Foundation 4 — AI-assisted production:** Production 1 (bounded AI passage planning) followed by Production 2 (passage drafting).
+- **Foundation 5 — Structural review and simulation:** Production 3's deterministic and AI-assisted review work.
+- **Foundation 6 — Revision workflow:** scoped repairs arising from drafting, validation, simulation, and narrative review. This reuses the proposal, versioning, and transactional application systems rather than regenerating the whole project.
+- **Foundation 7 — Runtime and export:** Production 4.
+- **Foundation 8 — Large-project production hardening:** Production 5 plus final recovery and performance verification.
+
+### Codex engineering model guidance
+
+Model choice here concerns Codex implementing the application, not the OpenRouter model later used to author a CYOA. Use the least expensive model that reliably passes the checkpoint's tests and review:
+
+- **Terra High is the default** for Foundations 4-8. It is appropriate for sustained full-stack implementation when the roadmap and acceptance criteria are already explicit.
+- **Luna Max is acceptable** for bounded, well-specified slices such as UI work, export adapters, fixtures, documentation, and focused test implementation. Max reasoning does not make it identical to Terra or Sol, so keep tasks narrow and verify at the checkpoint boundary.
+- **Sol High** is reserved for the highest-risk architectural work: resumable job semantics, transactional state changes, migrations, save compatibility, deterministic runtime behavior, and difficult failures spanning several packages.
+
+Switching models between coherent slices is safe because the repository, roadmap, tests, and continuation notes are the persistent source of truth. No engineering model choice authorizes a paid or live OpenRouter request.
 
 ### Foundation 1: consistency, scope, and safe changes
 
@@ -214,7 +245,7 @@ Demonstrate that routes, choices, mechanics, relationships, and endings material
 - Hard graph/reference errors block passage-plan approval.
 - Warnings remain visible and reviewable without pretending heuristic analysis is proof.
 
-### Production 1: bounded AI passage planning
+### Foundation 4A: bounded AI passage planning (formerly Production 1)
 
 #### Goal
 
@@ -246,7 +277,7 @@ Use AI to propose passage-plan work in small, resumable, inspectable units.
 - Failed units do not mutate project artifacts.
 - No paid call occurs without explicit user action.
 
-### Production 2: passage drafting
+### Foundation 4B: passage drafting (formerly Production 2)
 
 #### Goal
 
@@ -276,7 +307,7 @@ Draft prose in bounded batches while keeping passage specifications and accepted
 - Regeneration of one passage does not rewrite unrelated passages.
 - Drafted and remaining word counts reconcile against planning budgets.
 
-### Production 3: simulation and narrative review
+### Foundation 5: simulation and narrative review (formerly Production 3)
 
 #### Goal
 
@@ -300,7 +331,29 @@ Evaluate both the executable state model and the quality of the authored experie
 - Important stats and relationships display observable consequences.
 - Findings are traceable to the snapshot and entities reviewed.
 
-### Production 4: native player and publishing exports
+### Foundation 6: revision workflow
+
+#### Goal
+
+Turn validation, simulation, playtest, and narrative-review findings into bounded repairs without regenerating unrelated work.
+
+#### Work
+
+1. Convert findings into proposals scoped to passages, choices, route sections, mechanics, relationships, or endings.
+2. Show affected entities, dependencies, expected base versions, and validation impact before application.
+3. Split large repairs into coherent, independently reviewable groups.
+4. Apply selected groups transactionally through stable-ID operations.
+5. Preserve accepted prose unless its exact passage is included in an approved repair.
+6. Re-run only the validations and simulations affected by the accepted change, followed by a milestone-level verification pass when the repair batch is complete.
+
+#### Acceptance gate
+
+- A finding can produce a reviewable repair proposal linked to its evidence and snapshot.
+- Repairing one passage, route section, mechanic, or ending does not rewrite unrelated content.
+- Stale repair proposals cannot overwrite newer entity versions.
+- Applied repairs remain versioned, comparable, and restorable.
+
+### Foundation 7: native player and publishing exports (formerly Production 4)
 
 #### Goal
 
@@ -331,7 +384,7 @@ Play and distribute the project without depending on Twine, ChoiceScript, or a h
 - Canonical project export round-trips without content loss.
 - Twee export compiles and passes representative route tests.
 
-### Production 5: scale, recovery, and authoring polish
+### Foundation 8: scale, recovery, and authoring polish (formerly Production 5)
 
 #### Goal
 
@@ -398,6 +451,7 @@ When a live smoke test becomes useful:
 
 ## External technical basis
 
+- OpenAI model-selection guidance for Sol, Terra, Luna, and reasoning levels: <https://developers.openai.com/api/docs/guides/latest-model>
 - Ordered patch operations and preconditions: <https://www.rfc-editor.org/info/rfc6902/>
 - JSON Pointer semantics: <https://www.rfc-editor.org/info/rfc6901/>
 - SQLite transactions: <https://www.sqlite.org/lang_transaction.html>
