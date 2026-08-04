@@ -2,7 +2,7 @@
   "name": "story-to-cyoa",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@10.14.0",
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "pnpm --parallel --filter @story-to-cyoa/server --filter @story-to-cyoa/web dev",
     "build": "pnpm -r build",
