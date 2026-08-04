@@ -311,6 +311,20 @@ CREATE TABLE generation_unit_attempts (
 );
 `;
 
+export const generationJobParentLineageTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS generation_jobs_lineage_update
+BEFORE UPDATE OF project_id, id, plan_id ON generation_jobs
+FOR EACH ROW
+WHEN EXISTS (
+  SELECT 1 FROM generation_job_units
+  WHERE project_id = OLD.project_id AND job_id = OLD.id
+    AND (project_id != NEW.project_id OR job_id != NEW.id OR plan_id != NEW.plan_id)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Generation job lineage update would orphan attached units');
+END;
+`;
+
 export const generationLineageMigrationSql = `
 CREATE TRIGGER generation_job_units_lineage_insert
 BEFORE INSERT ON generation_job_units
@@ -333,4 +347,6 @@ WHEN NOT EXISTS (
 BEGIN
   SELECT RAISE(ABORT, 'Generation job unit lineage mismatch');
 END;
+
+${generationJobParentLineageTriggerSql}
 `;

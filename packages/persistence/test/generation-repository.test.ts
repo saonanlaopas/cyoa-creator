@@ -205,4 +205,43 @@ describe("GenerationRepository", () => {
     expect(fixture.generations.getJob(fixture.project.id, first.jobId)?.planId).toBe(first.id);
     fixture.database.close();
   });
+
+  it("rejects direct SQL that reassigns a job away from its attached units", () => {
+    const fixture = setup();
+    const first = fixture.generations.createPlan(planInput(
+      fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId,
+    ));
+    const secondInput = planInput(
+      fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId,
+    );
+    secondInput.fingerprint = "second-parent-plan-fingerprint";
+    secondInput.units = [{
+      id: "unit-c", position: 0, sequenceId: "sequence-b", passageIds: ["passage-b"],
+      passageVersionIds: ["pb-v1"], inputFingerprint: "parent-input-c",
+      estimatedInputTokens: 10, estimatedOutputTokens: 20,
+    }];
+    const second = fixture.generations.createPlan(secondInput);
+    fixture.database.prepare("DELETE FROM generation_jobs WHERE project_id = ? AND id = ?")
+      .run(fixture.project.id, second.jobId);
+
+    expect(() => fixture.database.prepare(`
+      UPDATE generation_jobs SET plan_id = ? WHERE project_id = ? AND id = ?
+    `).run(second.id, fixture.project.id, first.jobId))
+      .toThrow("Generation job lineage update would orphan attached units");
+    expect(fixture.database.prepare(`
+      SELECT project_id, id, plan_id FROM generation_jobs WHERE id = ?
+    `).get(first.jobId)).toEqual({
+      project_id: fixture.project.id,
+      id: first.jobId,
+      plan_id: first.id,
+    });
+    expect(fixture.database.prepare(`
+      SELECT DISTINCT project_id, job_id, plan_id FROM generation_job_units WHERE job_id = ?
+    `).all(first.jobId)).toEqual([{
+      project_id: fixture.project.id,
+      job_id: first.jobId,
+      plan_id: first.id,
+    }]);
+    fixture.database.close();
+  });
 });

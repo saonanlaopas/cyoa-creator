@@ -1,5 +1,10 @@
 import type { StoryDatabase } from "./database.js";
-import { generationKernelMigrationSql, generationLineageMigrationSql, schemaSql } from "./schema.js";
+import {
+  generationJobParentLineageTriggerSql,
+  generationKernelMigrationSql,
+  generationLineageMigrationSql,
+  schemaSql,
+} from "./schema.js";
 
 export function migrate(database: StoryDatabase): void {
   database.exec(schemaSql);
@@ -48,6 +53,7 @@ export function migrate(database: StoryDatabase): void {
   if (!generationLineageApplied) {
     database.exec("BEGIN IMMEDIATE");
     try {
+      assertValidGenerationJobUnitLineage(database);
       database.exec(generationLineageMigrationSql);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (6, ?)",
@@ -57,7 +63,37 @@ export function migrate(database: StoryDatabase): void {
       database.exec("ROLLBACK");
       throw error;
     }
+  } else if (!hasTrigger(database, "generation_jobs_lineage_update")) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      assertValidGenerationJobUnitLineage(database);
+      database.exec(generationJobParentLineageTriggerSql);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
   }
+}
+
+function assertValidGenerationJobUnitLineage(database: StoryDatabase): void {
+  const invalid = database.prepare(`
+    SELECT units.project_id, units.job_id, units.plan_id
+    FROM generation_job_units units
+    LEFT JOIN generation_jobs jobs
+      ON jobs.project_id = units.project_id
+      AND jobs.id = units.job_id
+      AND jobs.plan_id = units.plan_id
+    WHERE jobs.id IS NULL
+    LIMIT 1
+  `).get();
+  if (invalid) throw new Error("Cannot migrate generation data with invalid job-unit lineage");
+}
+
+function hasTrigger(database: StoryDatabase, name: string): boolean {
+  return Boolean(database.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?",
+  ).get(name));
 }
 
 function addColumn(database: StoryDatabase, table: string, column: string, definition: string): void {

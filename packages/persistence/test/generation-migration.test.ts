@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { openDatabase } from "../src/index.js";
+import { migrate, openDatabase } from "../src/index.js";
 
 const fixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const v4FixturePath = join(fixtureDirectory, "schema-v4.sqlite");
@@ -83,11 +83,50 @@ describe("generation kernel migration", () => {
     expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'generation_job_units_lineage_insert'").get()).toEqual({
       name: "generation_job_units_lineage_insert",
     });
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'generation_jobs_lineage_update'").get()).toEqual({
+      name: "generation_jobs_lineage_update",
+    });
+    database.exec("DROP TRIGGER generation_jobs_lineage_update");
+    migrate(database);
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'generation_jobs_lineage_update'").get()).toEqual({
+      name: "generation_jobs_lineage_update",
+    });
     database.close();
 
     expect(digest(v5FixturePath)).toBe(originalHash);
     const stillFrozen = new DatabaseSync(v5FixturePath, { readOnly: true });
     expect((stillFrozen.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(5);
     stillFrozen.close();
+  });
+
+  it("rejects corrupted v5 lineage without recording v6 or leaving triggers", () => {
+    const originalHash = digest(v5FixturePath);
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v5-corrupt-migration-"));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v5-corrupt.sqlite");
+    copyFileSync(v5FixturePath, copyPath);
+    const database = new DatabaseSync(copyPath);
+    database.exec("PRAGMA foreign_keys = OFF");
+    database.prepare(`
+      UPDATE generation_job_units SET plan_id = 'corrupt-plan-id'
+      WHERE rowid = (SELECT MIN(rowid) FROM generation_job_units)
+    `).run();
+
+    expect(() => migrate(database)).toThrow("invalid job-unit lineage");
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(5);
+    expect(database.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'trigger' AND name IN (
+        'generation_job_units_lineage_insert',
+        'generation_job_units_lineage_update',
+        'generation_jobs_lineage_update'
+      )
+    `).all()).toEqual([]);
+    expect((database.prepare(`
+      SELECT COUNT(*) AS count FROM generation_job_units WHERE plan_id = 'corrupt-plan-id'
+    `).get() as { count: number }).count).toBe(1);
+    database.close();
+
+    expect(digest(v5FixturePath)).toBe(originalHash);
   });
 });
