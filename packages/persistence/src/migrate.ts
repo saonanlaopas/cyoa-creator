@@ -1,5 +1,5 @@
 import type { StoryDatabase } from "./database.js";
-import { schemaSql } from "./schema.js";
+import { generationKernelMigrationSql, schemaSql } from "./schema.js";
 
 export function migrate(database: StoryDatabase): void {
   database.exec(schemaSql);
@@ -26,6 +26,22 @@ export function migrate(database: StoryDatabase): void {
   database.prepare(`
     INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (4, ?)
   `).run(new Date().toISOString());
+  const generationKernelApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 5",
+  ).get();
+  if (!generationKernelApplied) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(generationKernelMigrationSql);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (5, ?)",
+      ).run(new Date().toISOString());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
 }
 
 function addColumn(database: StoryDatabase, table: string, column: string, definition: string): void {

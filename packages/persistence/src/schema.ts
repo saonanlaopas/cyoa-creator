@@ -198,3 +198,115 @@ CREATE TABLE IF NOT EXISTS passage_finding_overrides (
 `;
 
 export const artifactChain = ["source", "bible", "adaptation", "routes", "drafts", "review", "export"] as const;
+
+export const generationKernelMigrationSql = `
+CREATE UNIQUE INDEX IF NOT EXISTS passage_plan_snapshots_project_identity
+  ON passage_plan_snapshots(project_id, id);
+
+CREATE TABLE generation_plans (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  fingerprint TEXT NOT NULL,
+  passage_snapshot_id TEXT NOT NULL,
+  structure_version_id TEXT NOT NULL,
+  upstream_versions_json TEXT NOT NULL,
+  scope_json TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  estimated_input_tokens INTEGER NOT NULL CHECK(estimated_input_tokens >= 0),
+  estimated_output_tokens INTEGER NOT NULL CHECK(estimated_output_tokens >= 0),
+  cost_estimate_json TEXT NOT NULL,
+  validation_stages_json TEXT NOT NULL,
+  execution_policy_id TEXT NOT NULL,
+  execution_policy_json TEXT NOT NULL,
+  authorization_state TEXT NOT NULL CHECK(authorization_state IN ('planned', 'authorized')),
+  authorization_fingerprint TEXT,
+  authorized_at TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, id),
+  FOREIGN KEY(project_id, passage_snapshot_id)
+    REFERENCES passage_plan_snapshots(project_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX generation_plans_project_created
+  ON generation_plans(project_id, created_at DESC);
+
+CREATE TABLE generation_plan_units (
+  plan_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  unit_id TEXT NOT NULL,
+  position INTEGER NOT NULL CHECK(position >= 0),
+  sequence_id TEXT NOT NULL,
+  passage_ids_json TEXT NOT NULL,
+  passage_version_ids_json TEXT NOT NULL,
+  input_fingerprint TEXT NOT NULL,
+  estimated_input_tokens INTEGER NOT NULL CHECK(estimated_input_tokens >= 0),
+  estimated_output_tokens INTEGER NOT NULL CHECK(estimated_output_tokens >= 0),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(plan_id, unit_id),
+  UNIQUE(plan_id, position),
+  UNIQUE(project_id, plan_id, unit_id),
+  FOREIGN KEY(project_id, plan_id) REFERENCES generation_plans(project_id, id) ON DELETE CASCADE
+);
+
+CREATE TABLE generation_jobs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  plan_id TEXT NOT NULL UNIQUE,
+  plan_fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('planned', 'authorized', 'running', 'completed', 'partially_failed', 'failed', 'cancelled')),
+  execution_policy_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  authorized_at TEXT,
+  started_at TEXT,
+  finished_at TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE(project_id, id),
+  FOREIGN KEY(project_id, plan_id) REFERENCES generation_plans(project_id, id) ON DELETE CASCADE
+);
+
+CREATE TABLE generation_job_units (
+  job_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  unit_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  attempt_number INTEGER NOT NULL DEFAULT 0 CHECK(attempt_number >= 0),
+  retry_of_attempt_id TEXT,
+  normalized_error_json TEXT,
+  usage_json TEXT,
+  input_fingerprint TEXT NOT NULL,
+  execution_policy_id TEXT NOT NULL,
+  candidate_reference TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(job_id, unit_id),
+  UNIQUE(project_id, job_id, unit_id),
+  FOREIGN KEY(project_id, job_id) REFERENCES generation_jobs(project_id, id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, plan_id, unit_id)
+    REFERENCES generation_plan_units(project_id, plan_id, unit_id) ON DELETE CASCADE
+);
+
+CREATE TABLE generation_unit_attempts (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  unit_id TEXT NOT NULL,
+  attempt_number INTEGER NOT NULL CHECK(attempt_number > 0),
+  retry_of_attempt_id TEXT REFERENCES generation_unit_attempts(id) ON DELETE SET NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  normalized_error_json TEXT,
+  usage_json TEXT,
+  input_fingerprint TEXT NOT NULL,
+  execution_policy_id TEXT NOT NULL,
+  candidate_reference TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE(job_id, unit_id, attempt_number),
+  FOREIGN KEY(project_id, job_id, unit_id)
+    REFERENCES generation_job_units(project_id, job_id, unit_id) ON DELETE CASCADE
+);
+`;

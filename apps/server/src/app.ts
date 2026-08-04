@@ -1,9 +1,9 @@
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, JobRepository, openDatabase, PassagePlanRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, GenerationRepository, JobRepository, openDatabase, PassagePlanRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
-import { JobRunner } from "@story-to-cyoa/pipeline";
+import { JobRunner, type PassagePlanningProvider } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,12 +28,16 @@ import { registerLongFormChatRoutes } from "./routes/long-form-chat.js";
 import { LongFormProjectService } from "./services/long-form-project-service.js";
 import { PassagePlanService } from "./services/passage-plan-service.js";
 import { registerPassagePlanRoutes } from "./routes/passage-plan.js";
+import { registerPassageGenerationRoutes } from "./routes/passage-generation.js";
+import { PassageGenerationService } from "./services/passage-generation-service.js";
+import { DeterministicPassagePlanningProvider } from "./services/passage-planning-provider.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
   maxImportBytes?: number;
   credentials?: CredentialStore;
   openRouterClient?: OpenRouterClient;
+  passagePlanningProvider?: PassagePlanningProvider;
 }
 
 const webDistPath = resolve(
@@ -51,8 +55,17 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const conversations = new ConversationRepository(database);
   const changeSets = new ChangeSetRepository(database);
   const passagePlans = new PassagePlanRepository(database);
+  const generations = new GenerationRepository(database);
   const longFormProjects = new LongFormProjectService(projects, artifacts, workflow, changeSets, passagePlans);
   const passagePlanService = new PassagePlanService(projects, artifacts, workflow, passagePlans);
+  const passageGenerationService = new PassageGenerationService(
+    projects, passagePlans, generations,
+    options.passagePlanningProvider ?? new DeterministicPassagePlanningProvider({
+      delayMs: process.env.E2E_PASSAGE_PLANNING_DELAY_MS
+        ? Number(process.env.E2E_PASSAGE_PLANNING_DELAY_MS) : undefined,
+      failFirstRequest: process.env.E2E_PASSAGE_PLANNING_FAIL_FIRST === "1",
+    }),
+  );
   const diagnostics = new GenerationDiagnosticStore();
   const runner = new JobRunner(new JobRepository(database));
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
@@ -68,7 +81,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   void app.register(fastifyMultipart, {
     limits: { files: 1, fileSize: options.maxImportBytes ?? 25 * 1024 * 1024 },
   });
-  app.addHook("onClose", async () => database.close());
+  app.addHook("onClose", async () => {
+    await passageGenerationService.shutdown();
+    database.close();
+  });
 
   app.get("/api/health", async () => ({
     ok: true,
@@ -79,6 +95,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerLongFormRoutes(app, projects, artifacts, workflow, longFormProjects);
   registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, changeSets, longFormProjects);
   registerPassagePlanRoutes(app, passagePlanService);
+  registerPassageGenerationRoutes(app, passageGenerationService);
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024, workflow);

@@ -112,6 +112,12 @@ export class PassagePlanRepository {
     `).all(projectId) as StructureRow[]).map(mapStructure<T>);
   }
 
+  getStructureVersion<T = unknown>(versionId: string): StructureVersion<T> | undefined {
+    const row = this.database.prepare("SELECT * FROM passage_structure_versions WHERE id = ?")
+      .get(versionId) as StructureRow | undefined;
+    return row ? mapStructure<T>(row) : undefined;
+  }
+
   currentEntities<T = unknown>(projectId: string, kind: PassageEntityKind): PassageVersion<T>[] {
     return (this.database.prepare(`
       SELECT versions.* FROM passage_entity_heads heads

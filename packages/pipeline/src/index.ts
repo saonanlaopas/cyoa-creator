@@ -21,6 +21,8 @@ export * from "./schemas/planning-assistant-response.js";
 export * from "./long-form-foundation.js";
 export * from "./schemas/passage-plan.js";
 export * from "./passage-plan-validator.js";
+export * from "./passage-generation-plan.js";
+export * from "./passage-planning-provider.js";
 export * from "./stages/analyze-source.js";
 export * from "./stages/propose-adaptation.js";
 export * from "./stages/generate-routes.js";

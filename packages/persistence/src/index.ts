@@ -9,3 +9,4 @@ export * from "./workflow-repository.js";
 export * from "./conversation-repository.js";
 export * from "./change-set-repository.js";
 export * from "./passage-plan-repository.js";
+export * from "./generation-repository.js";

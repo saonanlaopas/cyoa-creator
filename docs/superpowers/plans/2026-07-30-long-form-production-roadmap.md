@@ -248,6 +248,8 @@ Demonstrate that routes, choices, mechanics, relationships, and endings material
 
 ### Foundation 4A: bounded AI passage planning (formerly Production 1)
 
+**Checkpoint status:** 4A-1 is complete. It adds immutable generation-plan preview and persistence, exact authorization fingerprints, deterministic sequence-bounded units, dedicated job/unit/attempt state machines, cancellation, independent retry, restart recovery, an offline provider boundary, and minimal browser controls. It deliberately produces no passage proposals and makes no OpenRouter request. Context construction, structured output, consolidation, validation preview, and proposal application remain later 4A checkpoints.
+
 #### Goal
 
 Use AI to propose passage-plan work in small, resumable, inspectable units.

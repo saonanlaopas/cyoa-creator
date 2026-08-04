@@ -39,7 +39,9 @@ export class FakeModelProvider {
     if (request.model === "e2e/non-json") throw this.nonJsonFailure();
     if (request.model === "e2e/chat") {
       const prompt = request.messages.at(-1)?.content ?? "";
-      const selectedMatch = prompt.match(/Selected (project brief|story bible):\n(.+)\n\nProject context:/s);
+      const selectedMatch = prompt.match(
+        /Selected (project brief|story bible) section:\n(.+?)\n\nBounded project summaries:/s,
+      );
       const bibleScope = selectedMatch?.[1] === "story bible";
       const selected: Record<string, unknown> = selectedMatch
         ? JSON.parse(selectedMatch[2]) as Record<string, unknown>
@@ -63,11 +65,17 @@ export class FakeModelProvider {
               ? {
                   summary: "Add Mara to the story bible",
                   rationale: "The protagonist needs a stable canonical record before route planning.",
-                  candidate: {
-                    ...selected,
-                    characters: [
-                      ...((selected.characters as unknown[]) ?? []),
-                      {
+                  groups: [{
+                    id: "add-mara",
+                    label: "Add Mara",
+                    summary: "Add the protagonist record requested by the writer.",
+                    dependsOnGroupIds: [],
+                    safeToApplyIndependently: true,
+                    operations: [{
+                      kind: "add-item",
+                      targetId: "root",
+                      collection: "characters",
+                      item: {
                         id: "character-mara",
                         name: "Mara",
                         role: "Protagonist",
@@ -76,13 +84,20 @@ export class FakeModelProvider {
                         knowledge: [],
                         plannedArc: "From avoidance to deliberate responsibility.",
                       },
-                    ],
-                  },
+                    }],
+                  }],
                 }
               : {
                   summary: "Expand the brief to six routes",
                   rationale: "A sixth route creates more room for relationship consequences.",
-                  candidate: { ...selected, routeTarget: 6 },
+                  groups: [{
+                    id: "expand-routes",
+                    label: "Expand to six routes",
+                    summary: "Change only the approved route target.",
+                    dependsOnGroupIds: [],
+                    safeToApplyIndependently: true,
+                    operations: [{ kind: "set-fields", targetId: "root", changes: { routeTarget: 6 } }],
+                  }],
                 }
             : null,
         }),

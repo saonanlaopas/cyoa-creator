@@ -22,6 +22,7 @@ import {
   type PassageStructure,
   type PlanningStatus,
 } from "../../api/passage-plan.js";
+import { PassageGenerationPanel } from "./PassageGenerationPanel.js";
 
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const lines = (value: string) => value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
@@ -244,6 +245,13 @@ export function PassagePlanWorkspace(props: {
     {props.message && <p className={props.message.includes("approved") || props.message.includes("saved") ? "status good" : "error"} role="status">{props.message}</p>}
 
     <BudgetStrip report={state.report} />
+    <PassageGenerationPanel
+      projectId={props.projectId}
+      approved={state.state.status === "approved"}
+      structure={structure}
+      passages={passages}
+      setMessage={props.setMessage}
+    />
     <nav className="passage-view-tabs">
       <button className={view === "outline" ? "primary" : ""} onClick={() => setView("outline")}>Outline</button>
       <button className={view === "graph" ? "primary" : ""} onClick={() => setView("graph")}>Graph</button>

@@ -193,7 +193,7 @@ test("long-form workspace persists and approves a project brief", async ({ page 
   await page.locator(".assistant-composer textarea").fill("Change the brief to six major routes.");
   await page.getByRole("button", { name: "Request proposal" }).click();
   await expect(page.getByRole("heading", { name: "Expand the brief to six routes" })).toBeVisible();
-  await page.getByRole("button", { name: "Apply changes" }).click();
+  await page.getByRole("button", { name: "Apply selected" }).click();
   await expect(page.locator(".artifact-header").getByText(/Version 3/)).toBeVisible();
   await expect(page.getByLabel("Major routes")).toHaveValue("6");
   await page.getByRole("button", { name: "Approve brief" }).click();
@@ -210,7 +210,7 @@ test("long-form workspace persists and approves a project brief", async ({ page 
   await page.locator(".assistant-composer textarea").fill("Add Mara as the protagonist.");
   await page.getByRole("button", { name: "Request proposal" }).click();
   await expect(page.getByRole("heading", { name: "Add Mara to the story bible" })).toBeVisible();
-  await page.getByRole("button", { name: "Apply changes" }).click();
+  await page.getByRole("button", { name: "Apply selected" }).click();
   await expect(page.locator(".artifact-header").getByText(/Version 2/)).toBeVisible();
   await expect(page.getByLabel("Name")).toHaveValue("Mara");
   await page.getByRole("button", { name: "Approve bible" }).click();
@@ -238,4 +238,43 @@ test("long-form passage workspace renders, filters, and jumps within a 300-passa
   await page.getByPlaceholder("Jump to stable ID").fill("passage-299");
   await page.getByRole("button", { name: "Jump" }).click();
   await expect(page.locator(".passage-editor input").first()).toHaveValue("Passage 299");
+});
+
+test("bounded passage generation previews, authorizes, retries, cancels, and reopens offline", async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const projectId = await seedLargePassagePlan(request);
+  const snapshotResponse = await request.post(`/api/long-form/projects/${projectId}/passage-plan/snapshots`);
+  await expect(snapshotResponse).toBeOK();
+  const snapshot = await snapshotResponse.json();
+  const approvalResponse = await request.post(`/api/long-form/projects/${projectId}/passage-plan/approve`, {
+    data: { snapshotId: snapshot.id },
+  });
+  await expect(approvalResponse).toBeOK();
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "passage-plan");
+  }, projectId);
+  await page.goto("/#long-form");
+
+  await page.getByRole("button", { name: "Preview plan" }).click();
+  await expect(page.getByRole("region", { name: "Generation plan inspection" })).toContainText("12 bounded units");
+  await expect(page.getByRole("region", { name: "Generation plan inspection" })).toContainText("Cost: unavailable offline");
+  await page.getByRole("button", { name: "Save exact plan" }).click();
+  await page.getByRole("button", { name: "Authorize exact plan" }).click();
+  await page.getByRole("button", { name: "Start offline kernel" }).click();
+  await expect(page.getByText("Job: partially_failed")).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Retry unit" }).click();
+  await page.getByRole("button", { name: "Resume offline kernel" }).click();
+  await expect(page.getByText("Job: completed")).toBeVisible({ timeout: 15_000 });
+
+  await page.reload();
+  await expect(page.getByText("Job: completed")).toBeVisible();
+  await expect(page.getByText("12/12 units complete")).toBeVisible();
+
+  await page.getByRole("button", { name: "Preview plan" }).click();
+  await page.getByRole("button", { name: "Save exact plan" }).click();
+  await page.getByRole("button", { name: "Authorize exact plan" }).click();
+  await page.getByRole("button", { name: "Start offline kernel" }).click();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByText("Job: cancelled")).toBeVisible();
 });

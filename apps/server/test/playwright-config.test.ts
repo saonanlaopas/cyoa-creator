@@ -19,6 +19,8 @@ describe("createE2EWebServerEnv", () => {
       NODE_ENV: "test",
       DATABASE_PATH: ":memory:",
       E2E_FAKE_MODEL_PROVIDER: "1",
+      E2E_PASSAGE_PLANNING_DELAY_MS: "60",
+      E2E_PASSAGE_PLANNING_FAIL_FIRST: "1",
     });
   });
 });
