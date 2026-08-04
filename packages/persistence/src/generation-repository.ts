@@ -100,6 +100,11 @@ type JobRow = {
   status: GenerationJobStatus; execution_policy_id: string; created_at: string;
   authorized_at: string | null; started_at: string | null; finished_at: string | null; updated_at: string;
 };
+type SnapshotDependencyRow = {
+  structure_version_id: string;
+  upstream_versions_json: string;
+  status: "draft" | "approved";
+};
 
 const jobTransitions: Record<GenerationJobStatus, GenerationJobStatus[]> = {
   planned: ["authorized", "cancelled"],
@@ -131,6 +136,20 @@ export class GenerationRepository {
 
   createPlan(input: GenerationPlanInput): GenerationPlanRecord {
     return transaction(this.database, () => {
+      const snapshot = this.database.prepare(`
+        SELECT structure_version_id, upstream_versions_json, status
+        FROM passage_plan_snapshots
+        WHERE project_id = ? AND id = ?
+      `).get(input.projectId, input.snapshotId) as SnapshotDependencyRow | undefined;
+      if (!snapshot) throw new Error("Approved passage-plan snapshot not found");
+      if (snapshot.status !== "approved") throw new Error("Passage-plan snapshot is not approved");
+      if (snapshot.structure_version_id !== input.structureVersionId) {
+        throw new Error("Generation plan structure version does not match its passage-plan snapshot");
+      }
+      const snapshotUpstreamVersions = JSON.parse(snapshot.upstream_versions_json) as Record<string, string>;
+      if (canonicalRecordJson(snapshotUpstreamVersions) !== canonicalRecordJson(input.upstreamVersions)) {
+        throw new Error("Generation plan upstream versions do not match its passage-plan snapshot");
+      }
       const id = randomUUID();
       const jobId = randomUUID();
       const now = new Date().toISOString();
@@ -483,6 +502,12 @@ export class GenerationRepository {
     if (!unit) throw new Error("Generation unit not found");
     return unit;
   }
+}
+
+function canonicalRecordJson(value: Record<string, string>): string {
+  return JSON.stringify(Object.fromEntries(
+    Object.entries(value).sort(([left], [right]) => left.localeCompare(right)),
+  ));
 }
 
 function mapUnit(row: UnitRow): GenerationJobUnitRecord {

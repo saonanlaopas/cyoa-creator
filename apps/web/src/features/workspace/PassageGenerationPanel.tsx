@@ -28,7 +28,7 @@ export function PassageGenerationPanel(props: {
   const routeIds = useMemo(() => [...new Set(props.passages.flatMap((item) => item.routeIds))].sort(), [props.passages]);
   const [routeId, setRouteId] = useState(routeIds[0] ?? "");
   const [segmentIds, setSegmentIds] = useState(() => props.passages
-    .filter((item) => item.routeIds.includes(routeIds[0] ?? ""))
+    .filter((item) => item.routeIds.length === 0 || item.routeIds.includes(routeIds[0] ?? ""))
     .map((item) => item.id).join(", "));
   const [preview, setPreview] = useState<GenerationPlanPreview | null>(null);
   const [plan, setPlan] = useState<GenerationPlan | null>(null);
@@ -84,7 +84,9 @@ export function PassageGenerationPanel(props: {
       {scopeKind === "route-segment" && <>
         <label>Route<select value={routeId} onChange={(event) => {
           const next = event.target.value; setRouteId(next);
-          setSegmentIds(props.passages.filter((item) => item.routeIds.includes(next)).map((item) => item.id).join(", "));
+          setSegmentIds(props.passages
+            .filter((item) => item.routeIds.length === 0 || item.routeIds.includes(next))
+            .map((item) => item.id).join(", "));
         }}>{routeIds.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
         <label>Ordered passage IDs<input aria-label="Route segment passage IDs" value={segmentIds} onChange={(event) => setSegmentIds(event.target.value)} placeholder="passage-001, passage-002" /></label>
       </>}

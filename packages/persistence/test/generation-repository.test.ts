@@ -27,12 +27,17 @@ function setup(path = ":memory:") {
   return { database, projects, passages, project, snapshot, generations: new GenerationRepository(database) };
 }
 
-const planInput = (projectId: string, snapshotId: string) => ({
+const planInput = (
+  projectId: string,
+  snapshotId: string,
+  structureVersionId: string,
+  upstreamVersions = { brief: "brief-v1", mechanics: "mechanics-v1" },
+) => ({
   projectId,
   fingerprint: "plan-fingerprint",
   snapshotId,
-  structureVersionId: "structure-v1",
-  upstreamVersions: { brief: "brief-v1", mechanics: "mechanics-v1" },
+  structureVersionId,
+  upstreamVersions,
   scope: { kind: "sequence", sequenceId: "sequence-a" },
   providerId: "offline-kernel",
   modelId: "fixture-v1",
@@ -52,7 +57,9 @@ describe("GenerationRepository", () => {
     const fixture = setup();
     const beforeVersions = fixture.passages.listAllEntityVersions(fixture.project.id);
     const beforeSnapshots = fixture.passages.listSnapshots(fixture.project.id);
-    const plan = fixture.generations.createPlan(planInput(fixture.project.id, fixture.snapshot.id));
+    const plan = fixture.generations.createPlan(planInput(
+      fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId,
+    ));
     expect(plan).toMatchObject({ authorizationState: "planned", jobStatus: "planned" });
     expect(() => fixture.generations.authorize(fixture.project.id, plan.id, "wrong")).toThrow("fingerprint");
     fixture.generations.authorize(fixture.project.id, plan.id, plan.fingerprint);
@@ -84,7 +91,9 @@ describe("GenerationRepository", () => {
 
   it("cancels pending work while preserving completed units", () => {
     const fixture = setup();
-    const plan = fixture.generations.createPlan(planInput(fixture.project.id, fixture.snapshot.id));
+    const plan = fixture.generations.createPlan(planInput(
+      fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId,
+    ));
     fixture.generations.authorize(fixture.project.id, plan.id, plan.fingerprint);
     fixture.generations.startJob(fixture.project.id, plan.jobId);
     const first = fixture.generations.startUnit(fixture.project.id, plan.jobId, "unit-a");
@@ -100,7 +109,9 @@ describe("GenerationRepository", () => {
     temporaryDirectories.push(directory);
     const path = join(directory, "fixture.sqlite");
     const first = setup(path);
-    const plan = first.generations.createPlan(planInput(first.project.id, first.snapshot.id));
+    const plan = first.generations.createPlan(planInput(
+      first.project.id, first.snapshot.id, first.snapshot.structureVersionId,
+    ));
     first.generations.authorize(first.project.id, plan.id, plan.fingerprint);
     first.generations.startJob(first.project.id, plan.jobId);
     const completedAttempt = first.generations.startUnit(first.project.id, plan.jobId, "unit-a");
@@ -123,14 +134,75 @@ describe("GenerationRepository", () => {
 
   it("rolls back multi-record creation and rejects cross-project ownership", () => {
     const fixture = setup();
-    const invalid = planInput(fixture.project.id, fixture.snapshot.id);
+    const invalid = planInput(fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId);
     invalid.units[1]!.position = 0;
     expect(() => fixture.generations.createPlan(invalid)).toThrow();
     expect(fixture.generations.listPlans(fixture.project.id)).toEqual([]);
-    const plan = fixture.generations.createPlan(planInput(fixture.project.id, fixture.snapshot.id));
+    const plan = fixture.generations.createPlan(planInput(
+      fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId,
+    ));
     const other = fixture.projects.create("Other", undefined, "long-form");
     expect(fixture.generations.getPlan(other.id, plan.id)).toBeUndefined();
     expect(() => fixture.generations.authorize(other.id, plan.id, plan.fingerprint)).toThrow("not found");
+    fixture.database.close();
+  });
+
+  it("rejects snapshot dependency mismatches before persisting any generation rows", () => {
+    const fixture = setup();
+    const counts = () => ["generation_plans", "generation_jobs", "generation_plan_units", "generation_job_units"]
+      .map((table) => (fixture.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
+
+    expect(() => fixture.generations.createPlan(planInput(
+      fixture.project.id, fixture.snapshot.id, "wrong-structure-version",
+    ))).toThrow("structure version");
+    expect(counts()).toEqual([0, 0, 0, 0]);
+
+    expect(() => fixture.generations.createPlan(planInput(
+      fixture.project.id,
+      fixture.snapshot.id,
+      fixture.snapshot.structureVersionId,
+      { brief: "brief-v1", mechanics: "wrong-mechanics-version" },
+    ))).toThrow("upstream versions");
+    expect(counts()).toEqual([0, 0, 0, 0]);
+
+    const valid = fixture.generations.createPlan(planInput(
+      fixture.project.id,
+      fixture.snapshot.id,
+      fixture.snapshot.structureVersionId,
+      { mechanics: "mechanics-v1", brief: "brief-v1" },
+    ));
+    expect(valid).toMatchObject({
+      structureVersionId: fixture.snapshot.structureVersionId,
+      upstreamVersions: { brief: "brief-v1", mechanics: "mechanics-v1" },
+    });
+    expect(counts()).toEqual([1, 1, 2, 2]);
+    fixture.database.close();
+  });
+
+  it("rejects direct SQL that attaches a job to a unit from another plan", () => {
+    const fixture = setup();
+    const first = fixture.generations.createPlan(planInput(
+      fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId,
+    ));
+    const secondInput = planInput(
+      fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId,
+    );
+    secondInput.fingerprint = "second-plan-fingerprint";
+    secondInput.units = [{
+      id: "unit-c", position: 0, sequenceId: "sequence-b", passageIds: ["passage-b"],
+      passageVersionIds: ["pb-v1"], inputFingerprint: "input-c",
+      estimatedInputTokens: 10, estimatedOutputTokens: 20,
+    }];
+    const second = fixture.generations.createPlan(secondInput);
+
+    expect(() => fixture.database.prepare(`
+      INSERT INTO generation_job_units (
+        job_id, project_id, plan_id, unit_id, status, input_fingerprint,
+        execution_policy_id, created_at, updated_at
+      ) VALUES (?, ?, ?, 'unit-c', 'pending', 'cross-plan-input', 'policy-v1', ?, ?)
+    `).run(first.jobId, fixture.project.id, second.id, "2026-08-05T00:00:00.000Z", "2026-08-05T00:00:00.000Z"))
+      .toThrow("Generation job unit lineage mismatch");
+    expect(fixture.generations.getJob(fixture.project.id, first.jobId)?.planId).toBe(first.id);
     fixture.database.close();
   });
 });

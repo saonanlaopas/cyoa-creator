@@ -215,7 +215,7 @@ function selectPassages(
   for (const id of requested) {
     const passage = passageById.get(id)?.content;
     if (!passage) throw new Error(`Route segment passage ${id} is not part of the approved snapshot`);
-    if (!passage.routeIds.includes(scope.routeId)) {
+    if (passage.routeIds.length !== 0 && !passage.routeIds.includes(scope.routeId)) {
       throw new Error(`Passage ${id} does not belong to route ${scope.routeId}`);
     }
   }

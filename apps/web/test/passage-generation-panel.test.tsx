@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PassageGenerationPanel } from "../src/features/workspace/PassageGenerationPanel.js";
@@ -8,7 +8,7 @@ const structure = {
   schemaVersion: 1 as const,
   title: "Plan", projectWordTarget: 1_000, typicalPathWordTarget: 1_000, startPassageId: "passage-a",
   acts: [{ id: "act-a", label: "Act A", purpose: "", summary: "", wordTarget: 1_000, routeIds: ["route-a"], sequenceIds: ["sequence-a"], position: 0 }],
-  sequences: [{ id: "sequence-a", actId: "act-a", label: "Sequence A", purpose: "", summary: "", wordTarget: 1_000, routeIds: ["route-a"], passageIds: ["passage-a"], entryGoals: [], exitGoals: [], requiredDecisionIds: [], endingHookIds: [], position: 0, planningStatus: "planned" as const }],
+  sequences: [{ id: "sequence-a", actId: "act-a", label: "Sequence A", purpose: "", summary: "", wordTarget: 1_000, routeIds: ["route-a"], passageIds: ["passage-a", "passage-shared"], entryGoals: [], exitGoals: [], requiredDecisionIds: [], endingHookIds: [], position: 0, planningStatus: "planned" as const }],
   characterAvailability: [],
 };
 const passages = [{
@@ -16,6 +16,11 @@ const passages = [{
   wordTarget: 1_000, routeIds: ["route-a"], tags: [], characterIds: [], relationshipIds: [], locationIds: [],
   requiredFactIds: [], revealedFactIds: [], setupThreadIds: [], payoffThreadIds: [], preservedDifferenceIds: [],
   choiceIds: [], terminal: false, endingId: null, draftingNotes: [], unresolvedQuestions: [], planningStatus: "planned" as const, position: 0,
+}, {
+  id: "passage-shared", sequenceId: "sequence-a", title: "Shared", kind: "scene" as const, purpose: "", summary: "",
+  wordTarget: 1_000, routeIds: [], tags: [], characterIds: [], relationshipIds: [], locationIds: [],
+  requiredFactIds: [], revealedFactIds: [], setupThreadIds: [], payoffThreadIds: [], preservedDifferenceIds: [],
+  choiceIds: [], terminal: false, endingId: null, draftingNotes: [], unresolvedQuestions: [], planningStatus: "planned" as const, position: 1,
 }];
 const unit = {
   id: "unit-a", position: 0, sequenceId: "sequence-a", passageIds: ["passage-a"], passageVersionIds: ["passage-v1"],
@@ -38,9 +43,29 @@ const job = {
   status: "planned" as const, units: [{ ...unit, status: "pending" as const, attemptNumber: 0 }], updatedAt: "t",
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("PassageGenerationPanel", () => {
+  it("includes shared passages in the default route segment", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("[]", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    const user = userEvent.setup();
+    render(<PassageGenerationPanel
+      projectId="project-a" approved structure={structure} passages={passages} setMessage={vi.fn()}
+    />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Generation scope" }), "route-segment");
+
+    expect((screen.getByRole("textbox", {
+      name: "Route segment passage IDs",
+    }) as HTMLInputElement).value).toBe("passage-a, passage-shared");
+  });
+
   it("previews locally, inspects bounded units, persists, and authorizes the exact fingerprint", async () => {
     const requests: Array<{ path: string; body?: unknown }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {

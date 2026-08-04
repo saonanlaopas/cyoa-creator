@@ -76,4 +76,27 @@ describe("bounded passage generation planning", () => {
       scope: { kind: "route-segment", routeId: "route-other", passageIds: ["a-02"] },
     })).toThrow("does not belong");
   });
+
+  it("includes shared passages with no route IDs in a route segment", () => {
+    const shared = passage("shared-01", "sequence-a", 30, []);
+    const withShared = {
+      ...base,
+      structure: {
+        ...structure,
+        sequences: structure.sequences.map((sequence) => sequence.id === "sequence-a"
+          ? { ...sequence, passageIds: [...sequence.passageIds, shared.id] }
+          : sequence),
+      },
+      passages: [...base.passages, { versionId: "shared-01-v1", content: shared }],
+      scope: {
+        kind: "route-segment" as const,
+        routeId: "route-a",
+        passageIds: [shared.id, "a-02"],
+      },
+    };
+
+    const plan = buildPassageGenerationPlan(withShared);
+
+    expect(plan.units.map((unit) => unit.passageIds)).toEqual([["a-02", "shared-01"]]);
+  });
 });

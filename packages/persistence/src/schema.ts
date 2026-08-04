@@ -310,3 +310,27 @@ CREATE TABLE generation_unit_attempts (
     REFERENCES generation_job_units(project_id, job_id, unit_id) ON DELETE CASCADE
 );
 `;
+
+export const generationLineageMigrationSql = `
+CREATE TRIGGER generation_job_units_lineage_insert
+BEFORE INSERT ON generation_job_units
+FOR EACH ROW
+WHEN NOT EXISTS (
+  SELECT 1 FROM generation_jobs
+  WHERE project_id = NEW.project_id AND id = NEW.job_id AND plan_id = NEW.plan_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Generation job unit lineage mismatch');
+END;
+
+CREATE TRIGGER generation_job_units_lineage_update
+BEFORE UPDATE OF project_id, job_id, plan_id ON generation_job_units
+FOR EACH ROW
+WHEN NOT EXISTS (
+  SELECT 1 FROM generation_jobs
+  WHERE project_id = NEW.project_id AND id = NEW.job_id AND plan_id = NEW.plan_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Generation job unit lineage mismatch');
+END;
+`;
