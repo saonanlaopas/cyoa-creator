@@ -2,7 +2,7 @@ import { expect, test, type APIRequestContext } from "playwright/test";
 
 const source = "Mara returns to the flooded station before dawn, carrying the brass key her father hid years ago. She knows the town will blame her if the archive burns, but the last train still waits beyond the broken platform.";
 
-async function seedLargePassagePlan(request: APIRequestContext): Promise<string> {
+async function seedLargePassagePlan(request: APIRequestContext, passageCount = 300): Promise<string> {
   const post = async (url: string, data?: unknown) => {
     const response = await request.post(url, { data });
     await expect(response).toBeOK();
@@ -38,12 +38,12 @@ async function seedLargePassagePlan(request: APIRequestContext): Promise<string>
 
   const routeId = routes.routes.content.routes[0].id as string;
   const endingId = endings.endings.content.endings.find((item: { routeId: string }) => item.routeId === routeId).id as string;
-  const passageIds = Array.from({ length: 300 }, (_, index) => `passage-${String(index).padStart(3, "0")}`);
+  const passageIds = Array.from({ length: passageCount }, (_, index) => `passage-${String(index).padStart(3, "0")}`);
   const passages = passageIds.map((passageId, index) => ({
     id: passageId,
     sequenceId: "sequence-main",
     title: `Passage ${index}`,
-    kind: index === 299 ? "epilogue" : "scene",
+    kind: index === passageCount - 1 ? "epilogue" : "scene",
     purpose: `Plan beat ${index}`,
     summary: "",
     wordTarget: 500,
@@ -57,9 +57,9 @@ async function seedLargePassagePlan(request: APIRequestContext): Promise<string>
     setupThreadIds: [],
     payoffThreadIds: [],
     preservedDifferenceIds: [],
-    choiceIds: index === 299 ? [] : [`choice-${String(index).padStart(3, "0")}`],
-    terminal: index === 299,
-    endingId: index === 299 ? endingId : null,
+    choiceIds: index === passageCount - 1 ? [] : [`choice-${String(index).padStart(3, "0")}`],
+    terminal: index === passageCount - 1,
+    endingId: index === passageCount - 1 ? endingId : null,
     draftingNotes: [],
     unresolvedQuestions: [],
     planningStatus: "planned",
@@ -120,6 +120,53 @@ async function seedLargePassagePlan(request: APIRequestContext): Promise<string>
     threads: [],
   });
   return projectId;
+}
+
+async function approveCurrentPassagePlan(request: APIRequestContext, projectId: string) {
+  const snapshotResponse = await request.post(`/api/long-form/projects/${projectId}/passage-plan/snapshots`);
+  await expect(snapshotResponse).toBeOK();
+  const snapshot = await snapshotResponse.json();
+  const approvalResponse = await request.post(`/api/long-form/projects/${projectId}/passage-plan/approve`, {
+    data: { snapshotId: snapshot.id },
+  });
+  await expect(approvalResponse).toBeOK();
+  return snapshot;
+}
+
+async function completePassageGeneration(request: APIRequestContext, projectId: string, modelId: string) {
+  const createdResponse = await request.post(`/api/long-form/projects/${projectId}/passage-generation/plans`, { data: {
+    scope: { kind: "sequence", sequenceId: "sequence-main" }, providerId: "offline-kernel", modelId,
+  } });
+  await expect(createdResponse).toBeOK();
+  const created = await createdResponse.json();
+  const authorized = await request.post(`/api/long-form/projects/${projectId}/passage-generation/plans/${created.id}/authorize`, {
+    data: { fingerprint: created.fingerprint },
+  });
+  await expect(authorized).toBeOK();
+  const started = await request.post(`/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}/start`);
+  await expect(started).toBeOK();
+  let terminal: { status: string; units?: unknown[] } | undefined;
+  await expect.poll(async () => {
+    terminal = await (await request.get(`/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}`)).json();
+    return ["completed", "partially_failed", "failed", "cancelled"].includes(terminal!.status);
+  }, { timeout: 20_000 }).toBe(true);
+  if (terminal?.status === "failed" || terminal?.status === "partially_failed") {
+    const retryableUnits = (terminal.units ?? []) as Array<{ id: string; status: string; normalizedError?: { retryable?: boolean } }>;
+    for (const unit of retryableUnits.filter((item) => item.status === "failed" && item.normalizedError?.retryable)) {
+      const retried = await request.post(
+        `/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}/units/${unit.id}/retry`,
+      );
+      await expect(retried).toBeOK();
+    }
+    const resumed = await request.post(`/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}/start`);
+    await expect(resumed).toBeOK();
+    await expect.poll(async () => {
+      terminal = await (await request.get(`/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}`)).json();
+      return terminal!.status;
+    }, { timeout: 20_000 }).toBe("completed");
+  }
+  expect(terminal?.status, JSON.stringify(terminal)).toBe("completed");
+  return created;
 }
 
 test("complete private adaptation offline smoke", async ({ request }) => {
@@ -241,7 +288,7 @@ test("long-form passage workspace renders, filters, and jumps within a 300-passa
 });
 
 test("bounded passage generation previews, authorizes, retries, cancels, and reopens offline", async ({ page, request }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
   const projectId = await seedLargePassagePlan(request);
   const snapshotResponse = await request.post(`/api/long-form/projects/${projectId}/passage-plan/snapshots`);
   await expect(snapshotResponse).toBeOK();
@@ -272,10 +319,38 @@ test("bounded passage generation previews, authorizes, retries, cancels, and reo
   await page.getByText("Context diagnostics").first().click();
   await expect(page.getByText(/Schema: cyoa\.passage-planning-unit-candidate\/v1/).first()).toBeVisible();
 
+  await page.getByRole("button", { name: "Create proposal set" }).click();
+  await expect(page.getByText("12 coherent groups / 12 validated candidates", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".proposal-review .proposal-group")).toHaveCount(12);
+  await page.getByText("Operation details (25)").first().click();
+  await expect(page.locator(".proposal-operation").first()).toContainText("planningStatus");
+  await page.getByRole("button", { name: "Refresh validation preview" }).click();
+  await expect(page.getByRole("region", { name: "Proposal validation preview" })).toContainText("Preview valid", { timeout: 20_000 });
+  await expect(page.getByRole("region", { name: "Proposal validation preview" })).toContainText("planned -> reviewed");
+  await page.getByRole("button", { name: "Apply reviewed selection" }).click();
+  await expect(page.getByText("Application history (1)")).toBeVisible({ timeout: 30_000 });
+
+  const afterApply = await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).json();
+  expect(afterApply.passages).toHaveLength(300);
+  expect(afterApply.passages.every((item: { content: { planningStatus: string } }) => item.content.planningStatus === "reviewed")).toBe(true);
+  expect(afterApply.snapshots.some((item: { id: string }) => item.id === snapshot.id)).toBe(true);
+  expect(afterApply.state.approvedSnapshotId).toBe(snapshot.id);
+
   await page.reload();
   await expect(page.getByText("Job: completed")).toBeVisible();
   await expect(page.getByText("12/12 units complete")).toBeVisible();
   await expect(page.getByText(/Validated candidate retained/).first()).toBeVisible();
+  await expect(page.getByText("Application history (1)")).toBeVisible();
+
+  const refreshedSnapshotResponse = await request.post(`/api/long-form/projects/${projectId}/passage-plan/snapshots`);
+  await expect(refreshedSnapshotResponse).toBeOK();
+  const refreshedSnapshot = await refreshedSnapshotResponse.json();
+  const refreshedApproval = await request.post(`/api/long-form/projects/${projectId}/passage-plan/approve`, {
+    data: { snapshotId: refreshedSnapshot.id },
+  });
+  await expect(refreshedApproval).toBeOK();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Preview plan" })).toBeEnabled();
 
   await page.getByRole("button", { name: "Preview plan" }).click();
   await page.getByRole("button", { name: "Save exact plan" }).click();
@@ -283,6 +358,66 @@ test("bounded passage generation previews, authorizes, retries, cancels, and reo
   await page.getByRole("button", { name: "Start offline kernel" }).click();
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByText("Job: cancelled")).toBeVisible();
+});
+
+test("passage proposal review blocks stale and hard-invalid selections without mutation", async ({ page, request }) => {
+  test.setTimeout(120_000);
+
+  const staleProjectId = await seedLargePassagePlan(request, 10);
+  const staleSnapshot = await approveCurrentPassagePlan(request, staleProjectId);
+  const staleGeneration = await completePassageGeneration(request, staleProjectId, "deterministic-fixture-v1");
+  const proposalResponse = await request.post(
+    `/api/long-form/projects/${staleProjectId}/passage-generation/jobs/${staleGeneration.jobId}/proposals`,
+  );
+  await expect(proposalResponse).toBeOK();
+  const staleProposal = await proposalResponse.json();
+  const previewResponse = await request.post(
+    `/api/long-form/projects/${staleProjectId}/passage-generation/proposals/${staleProposal.id}/preview`,
+    { data: { groupIds: staleProposal.groups.map((group: { id: string }) => group.id) } },
+  );
+  await expect(previewResponse).toBeOK();
+  const current = await (await request.get(`/api/long-form/projects/${staleProjectId}/passage-plan`)).json();
+  const manuallyEdited = { ...current.passages[0].content, title: "Manual head wins" };
+  const manualSave = await request.put(
+    `/api/long-form/projects/${staleProjectId}/passage-plan/entities/passage/${manuallyEdited.id}`,
+    { data: manuallyEdited },
+  );
+  await expect(manualSave).toBeOK();
+
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "passage-plan");
+  }, staleProjectId);
+  await page.goto("/#long-form");
+  await expect(page.getByRole("heading", { name: "Passage proposal review" })).toBeVisible();
+  await page.getByRole("button", { name: "Refresh validation preview" }).click();
+  const stalePreview = page.getByRole("region", { name: "Proposal validation preview" });
+  await expect(stalePreview).toContainText("Application blocked");
+  await expect(stalePreview).toContainText(/base|stale|version/i);
+  await expect(page.getByRole("button", { name: "Apply reviewed selection" })).toBeDisabled();
+  const afterStaleReview = await (await request.get(`/api/long-form/projects/${staleProjectId}/passage-plan`)).json();
+  expect(afterStaleReview.passages[0].content.title).toBe("Manual head wins");
+  expect(afterStaleReview.passages[0].content.planningStatus).toBe("planned");
+  expect(afterStaleReview.snapshots.some((item: { id: string }) => item.id === staleSnapshot.id)).toBe(true);
+
+  const hardProjectId = await seedLargePassagePlan(request, 10);
+  await approveCurrentPassagePlan(request, hardProjectId);
+  const hardBefore = await (await request.get(`/api/long-form/projects/${hardProjectId}/passage-plan`)).json();
+  await completePassageGeneration(request, hardProjectId, "deterministic-fixture-uncontrolled-cycle-v1");
+  await page.reload();
+  await page.getByLabel("Switch project").selectOption(hardProjectId);
+  await expect(page.getByText("Job: completed")).toBeVisible();
+  await page.getByRole("button", { name: "Create proposal set" }).click();
+  await page.getByRole("checkbox", { name: "Select Generation unit 1" }).check();
+  await page.getByRole("button", { name: "Refresh validation preview" }).click();
+  const hardPreview = page.getByRole("region", { name: "Proposal validation preview" });
+  await expect(hardPreview).toContainText("Application blocked");
+  await expect(hardPreview).toContainText(/cycle|ending|reachable|choice/i);
+  await expect(page.getByRole("button", { name: "Apply reviewed selection" })).toBeDisabled();
+  const hardAfter = await (await request.get(`/api/long-form/projects/${hardProjectId}/passage-plan`)).json();
+  expect(hardAfter.structure).toEqual(hardBefore.structure);
+  expect(hardAfter.passages).toEqual(hardBefore.passages);
+  expect(hardAfter.choices).toEqual(hardBefore.choices);
 });
 
 test("failed passage candidate validation remains inspectable without mutating the project", async ({ page, request }) => {

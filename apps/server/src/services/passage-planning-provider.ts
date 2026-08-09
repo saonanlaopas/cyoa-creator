@@ -15,6 +15,8 @@ export interface DeterministicPassagePlanningProviderOptions {
   invalidRepairForUnitIds?: string[];
   oversizedRepairOutputForUnitIds?: string[];
   oversizedOutputForUnitIds?: string[];
+  unchangedOutputForUnitIds?: string[];
+  uncontrolledCycleForUnitIds?: string[];
 }
 
 export class DeterministicPassagePlanningProvider implements PassagePlanningProvider {
@@ -56,7 +58,11 @@ export class DeterministicPassagePlanningProvider implements PassagePlanningProv
       candidate.passages[0] = { ...candidate.passages[0]!, summary: "x".repeat(6_000) };
       output = JSON.stringify(candidate);
     } else {
-      output = JSON.stringify(candidateFor(request, this.contexts.get(request.unitId)));
+      output = JSON.stringify(candidateFor(request, this.contexts.get(request.unitId), {
+        unchanged: this.options.unchangedOutputForUnitIds?.includes(request.unitId) ?? false,
+        uncontrolledCycle: request.modelId === "deterministic-fixture-uncontrolled-cycle-v1"
+          || (this.options.uncontrolledCycleForUnitIds?.includes(request.unitId) ?? false),
+      }));
     }
     return {
       output,
@@ -69,16 +75,27 @@ export class DeterministicPassagePlanningProvider implements PassagePlanningProv
   }
 }
 
-function candidateFor(request: PassagePlanningProviderRequest, context = request.boundedContext as PassagePlanningContextPack) {
+function candidateFor(
+  request: PassagePlanningProviderRequest,
+  context = request.boundedContext as PassagePlanningContextPack,
+  options: { unchanged?: boolean; uncontrolledCycle?: boolean } = {},
+) {
   const selectedIds = new Set(context.selectedPassages.map((item) => item.content.id));
+  const choices = context.choices.filter((item) => selectedIds.has(item.content.sourcePassageId)).map((item) => ({
+    ...item.content,
+    ...(options.uncontrolledCycle ? { destinationPassageId: item.content.sourcePassageId } : {}),
+  }));
   return {
     schemaId: passagePlanningCandidateSchema.id,
     schemaVersion: passagePlanningCandidateSchema.version,
     jobId: request.jobId,
     unitId: request.unitId,
     inputFingerprint: request.inputFingerprint,
-    passages: context.selectedPassages.map((item) => item.content),
-    choices: context.choices.filter((item) => selectedIds.has(item.content.sourcePassageId)).map((item) => item.content),
+    passages: context.selectedPassages.map((item) => options.unchanged ? item.content : ({
+      ...item.content,
+      planningStatus: item.content.planningStatus === "locked" ? "locked" as const : "reviewed" as const,
+    })),
+    choices,
     threads: context.threads.map((item) => item.content),
     generatedIds: [],
   };

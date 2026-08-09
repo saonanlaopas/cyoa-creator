@@ -14,6 +14,7 @@ import {
   type GenerationScope,
 } from "../../api/passage-generation.js";
 import type { PassagePlan, PassageStructure } from "../../api/passage-plan.js";
+import { PassageProposalReview } from "./PassageProposalReview.js";
 
 export function PassageGenerationPanel(props: {
   projectId: string;
@@ -21,6 +22,7 @@ export function PassageGenerationPanel(props: {
   structure: PassageStructure;
   passages: PassagePlan[];
   setMessage(value: string | null): void;
+  onApplied?(): Promise<void>;
 }) {
   const [scopeKind, setScopeKind] = useState<GenerationScope["kind"]>("sequence");
   const [actId, setActId] = useState(props.structure.acts[0]?.id ?? "");
@@ -68,7 +70,7 @@ export function PassageGenerationPanel(props: {
   };
 
   return <details className="generation-kernel" open>
-    <summary><strong>Bounded AI passage planning</strong> <span>Checkpoint 4A-2 · validated unit candidates</span></summary>
+    <summary><strong>Bounded AI passage planning</strong> <span>Foundation 4A complete · candidates to reviewed proposals</span></summary>
     <p className="field-note">Preview is local and free. Explicit execution generates immutable, validated unit candidates; it never changes the canonical passage plan.</p>
     {!props.approved && <p className="warning">Approve a passage-plan snapshot before planning generation.</p>}
     <div className="generation-scope-grid">
@@ -137,6 +139,14 @@ export function PassageGenerationPanel(props: {
         })}>Retry unit</button>}
       </div>)}
     </section>}
+    {job && <PassageProposalReview
+      projectId={props.projectId}
+      job={job}
+      busy={busy}
+      setBusy={setBusy}
+      setMessage={props.setMessage}
+      onApplied={props.onApplied ?? (async () => {})}
+    />}
   </details>;
 }
 

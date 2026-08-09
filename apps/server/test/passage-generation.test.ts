@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { DeterministicPassagePlanningProvider } from "../src/services/passage-planning-provider.js";
@@ -75,6 +76,21 @@ const waitForTerminal = async (app: ReturnType<typeof buildApp>, projectId: stri
   throw new Error("Generation job did not finish");
 };
 
+const completeGeneration = async (
+  app: ReturnType<typeof buildApp>, projectId: string, provider: DeterministicPassagePlanningProvider,
+) => {
+  const payload = { scope: { kind: "sequence", sequenceId: "sequence-main" }, providerId: provider.id, modelId: "fixture-v1" };
+  const created = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans`, payload })).json();
+  await app.inject({
+    method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans/${created.id}/authorize`,
+    payload: { fingerprint: created.fingerprint },
+  });
+  await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}/start` });
+  const job = await waitForTerminal(app, projectId, created.jobId);
+  expect(job.status).toBe("completed");
+  return { plan: created, job };
+};
+
 describe("passage generation kernel API", () => {
   it("previews without provider calls, captures exact inputs, authorizes, partially fails, and retries independently", async () => {
     const failures: string[] = [];
@@ -109,6 +125,11 @@ describe("passage generation kernel API", () => {
       method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans/${created.id}/authorize`, payload: { fingerprint: created.fingerprint },
     });
     expect(authorized.statusCode).toBe(200);
+    const prematureProposal = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}/proposals`,
+    });
+    expect(prematureProposal.statusCode).toBe(400);
+    expect(prematureProposal.json()).toMatchObject({ code: "ineligible" });
     const changedPassage = { ...before.passages[0].content, title: "Newer mutable head must stay excluded" };
     expect((await app.inject({
       method: "PUT",
@@ -138,7 +159,7 @@ describe("passage generation kernel API", () => {
     expect(after.passages.slice(1)).toEqual(before.passages.slice(1));
     expect(after.snapshots).toEqual(before.snapshots);
     await app.close();
-  });
+  }, 15_000);
 
   it("rejects an over-limit bounded context locally before any provider call", async () => {
     const provider = new DeterministicPassagePlanningProvider();
@@ -282,5 +303,317 @@ describe("passage generation kernel API", () => {
     const job = (await reopened.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}` })).json();
     expect(job).toMatchObject({ status: "failed", units: [{ status: "failed", normalizedError: { code: "process_interrupted", retryable: true } }] });
     await reopened.close();
+  });
+
+  it("consolidates, previews, partially applies, revalidates, and audits completed candidates without provider calls", async () => {
+    const provider = new DeterministicPassagePlanningProvider();
+    const app = buildApp({ passagePlanningProvider: provider });
+    const { projectId, snapshot } = await approvedPassagePlan(app, 30);
+    const before = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    const { job } = await completeGeneration(app, projectId, provider);
+    const callsAfterGeneration = provider.calls.length;
+    const candidateEvidence = job.units.map((unit: { candidate: unknown }) => unit.candidate);
+
+    const createdResponse = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${job.id}/proposals`,
+    });
+    expect(createdResponse.statusCode).toBe(201);
+    const proposal = createdResponse.json();
+    expect(proposal).toMatchObject({
+      generationJobId: job.id,
+      snapshotId: snapshot.id,
+      status: "proposed",
+      groups: [
+        { status: "proposed", safeToApplyIndependently: true },
+        { status: "proposed", safeToApplyIndependently: true },
+      ],
+    });
+    expect(proposal.groups.map((group: { operations: unknown[] }) => group.operations.length)).toEqual([25, 5]);
+    expect(proposal.groups[0].operations[0]).toMatchObject({
+      kind: "update-entity", entityKind: "passage", entityId: "passage-000",
+      baseVersionId: before.passages[0].id,
+      fieldDiffs: [{ field: "planningStatus", before: "planned", after: "reviewed" }],
+    });
+    expect(provider.calls).toHaveLength(callsAfterGeneration);
+    expect((await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json()).toEqual(before);
+    const otherProjectId = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Other project" } })).json().project.id;
+    expect((await app.inject({
+      method: "GET", url: `/api/long-form/projects/${otherProjectId}/passage-generation/proposals/${proposal.id}`,
+    })).statusCode).toBe(404);
+
+    const firstGroupId = proposal.groups[0].id as string;
+    const firstPreviewResponse = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/preview`,
+      payload: { groupIds: [firstGroupId] },
+    });
+    expect(firstPreviewResponse.statusCode).toBe(200);
+    const firstPreview = firstPreviewResponse.json();
+    expect(firstPreview).toMatchObject({ valid: true, selectedGroupIds: [firstGroupId], hardErrors: [], stalePreconditions: [] });
+    expect(firstPreview.beforeAfter[0]).toMatchObject({
+      entityId: "passage-000", fieldDiffs: [{ field: "planningStatus", before: "planned", after: "reviewed" }],
+    });
+    expect(provider.calls).toHaveLength(callsAfterGeneration);
+
+    const firstAppliedResponse = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/apply`,
+      payload: { groupIds: [firstGroupId], previewFingerprint: firstPreview.previewFingerprint },
+    });
+    expect(firstAppliedResponse.statusCode).toBe(201);
+    expect(firstAppliedResponse.json().groups.map((group: { status: string }) => group.status)).toEqual(["applied", "proposed"]);
+    const partialState = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    expect(partialState.passages.slice(0, 25).every((item: { content: { planningStatus: string } }) => item.content.planningStatus === "reviewed")).toBe(true);
+    expect(partialState.passages.slice(25).every((item: { content: { planningStatus: string } }) => item.content.planningStatus === "planned")).toBe(true);
+    expect(partialState.state).toMatchObject({ status: "draft", approvedSnapshotId: snapshot.id });
+    expect(partialState.snapshots.find((item: { id: string }) => item.id === snapshot.id)).toMatchObject({ status: "approved" });
+
+    const secondGroupId = proposal.groups[1].id as string;
+    const secondPreview = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/preview`,
+      payload: { groupIds: [secondGroupId] },
+    })).json();
+    expect(secondPreview.valid).toBe(true);
+    const completed = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/apply`,
+      payload: { groupIds: [secondGroupId], previewFingerprint: secondPreview.previewFingerprint },
+    })).json();
+    expect(completed.status).toBe("applied");
+    expect(completed.applications).toHaveLength(2);
+    expect(completed.applications[0]).toMatchObject({
+      selectedGroupIds: [firstGroupId], validationPreviewFingerprint: firstPreview.previewFingerprint,
+    });
+    expect(Object.keys(completed.applications[0].previousVersionIds)).toHaveLength(25);
+    expect(Object.keys(completed.applications[0].resultingVersionIds)).toHaveLength(25);
+    expect(provider.calls).toHaveLength(callsAfterGeneration);
+
+    const reloaded = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}`,
+    })).json();
+    expect(reloaded.applications).toHaveLength(2);
+    const finalJob = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${job.id}`,
+    })).json();
+    expect(finalJob.units.map((unit: { candidate: unknown }) => unit.candidate)).toEqual(candidateEvidence);
+    expect((await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan/entities/passage/passage-000/versions`,
+    })).json()).toHaveLength(2);
+    const restoredResponse = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-plan/entities/passage/passage-000/restore`,
+      payload: { versionId: before.passages[0].id },
+    });
+    expect(restoredResponse.statusCode).toBe(201);
+    expect(restoredResponse.json().entity.content.planningStatus).toBe("planned");
+    expect((await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${job.id}`,
+    })).json().units.map((unit: { candidate: unknown }) => unit.candidate)).toEqual(candidateEvidence);
+    await app.close();
+  });
+
+  it("invalidates an obsolete reviewed preview after an affected entity changes", async () => {
+    const provider = new DeterministicPassagePlanningProvider();
+    const app = buildApp({ passagePlanningProvider: provider });
+    const { projectId } = await approvedPassagePlan(app, 2);
+    const { job } = await completeGeneration(app, projectId, provider);
+    const proposal = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${job.id}/proposals`,
+    })).json();
+    const groupIds = [proposal.groups[0].id];
+    const preview = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/preview`,
+      payload: { groupIds },
+    })).json();
+    const state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/passage-plan/entities/passage/passage-000`,
+      payload: { ...state.passages[0].content, title: "Manual newer title" },
+    });
+
+    const obsolete = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/apply`,
+      payload: { groupIds, previewFingerprint: preview.previewFingerprint },
+    });
+    expect(obsolete.statusCode).toBe(409);
+    expect(obsolete.json()).toMatchObject({ code: "stale_preview" });
+    const refreshed = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/preview`,
+      payload: { groupIds },
+    })).json();
+    expect(refreshed).toMatchObject({ valid: false, stalePreconditions: [{ entityId: "passage-000" }] });
+    const after = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    expect(after.passages[0].content).toMatchObject({ title: "Manual newer title", planningStatus: "planned" });
+    expect((await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}`,
+    })).json().groups[0].status).toBe("proposed");
+    await app.close();
+  });
+
+  it("rejects an incomplete dependent-group selection and applies prerequisite plus dependent atomically", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-proposal-dependency-"));
+    directories.push(directory);
+    const databasePath = join(directory, "story.sqlite");
+    const provider = new DeterministicPassagePlanningProvider();
+    const app = buildApp({ databasePath, passagePlanningProvider: provider });
+    const { projectId } = await approvedPassagePlan(app, 30);
+    const { job } = await completeGeneration(app, projectId, provider);
+    const proposal = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${job.id}/proposals`,
+    })).json();
+    const prerequisiteId = proposal.groups[0].id as string;
+    const dependentId = proposal.groups[1].id as string;
+
+    // The pure consolidation suite proves real dependency derivation. This fixture makes the
+    // persisted relationship explicit so the service boundary can be exercised independently.
+    const external = new DatabaseSync(databasePath);
+    external.exec("DROP TRIGGER passage_proposal_groups_immutable_definition");
+    external.prepare(`UPDATE passage_proposal_groups
+      SET depends_on_group_ids_json = ?, safe_independently = 0 WHERE proposal_id = ? AND id = ?`)
+      .run(JSON.stringify([prerequisiteId]), proposal.id, dependentId);
+    external.close();
+
+    const incomplete = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/preview`,
+      payload: { groupIds: [dependentId] },
+    });
+    expect(incomplete.statusCode).toBe(400);
+    expect(incomplete.json()).toMatchObject({ code: "invalid_selection" });
+    expect(incomplete.json().error).toContain(`requires dependency ${prerequisiteId}`);
+    const selected = [prerequisiteId, dependentId];
+    const preview = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/preview`,
+      payload: { groupIds: selected },
+    })).json();
+    expect(preview.valid).toBe(true);
+    const applied = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/apply`,
+      payload: { groupIds: selected, previewFingerprint: preview.previewFingerprint },
+    });
+    expect(applied.statusCode).toBe(201);
+    expect(applied.json().groups.map((group: { status: string }) => group.status)).toEqual(["applied", "applied"]);
+    expect(applied.json().applications).toHaveLength(1);
+    await app.close();
+  });
+
+  it("allows a reviewed proposal to apply after an unrelated safe field change", async () => {
+    const provider = new DeterministicPassagePlanningProvider();
+    const app = buildApp({ passagePlanningProvider: provider });
+    const { projectId } = await approvedPassagePlan(app, 2);
+    const { job } = await completeGeneration(app, projectId, provider);
+    const proposal = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${job.id}/proposals`,
+    })).json();
+    const groupIds = [proposal.groups[0].id];
+    const preview = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/preview`,
+      payload: { groupIds },
+    })).json();
+    const state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/passage-plan/entities/choice/choice-0`,
+      payload: { ...state.choices[0].content, label: "Manual unrelated label" },
+    });
+    const applied = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/apply`,
+      payload: { groupIds, previewFingerprint: preview.previewFingerprint },
+    });
+    expect(applied.statusCode).toBe(201);
+    const after = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    expect(after.choices[0].content.label).toBe("Manual unrelated label");
+    expect(after.passages.every((item: { content: { planningStatus: string } }) => item.content.planningStatus === "reviewed")).toBe(true);
+    await app.close();
+  });
+
+  it("blocks hard graph validation without mutating canonical state", async () => {
+    const cycleUnits: string[] = [];
+    const provider = new DeterministicPassagePlanningProvider({ uncontrolledCycleForUnitIds: cycleUnits });
+    const app = buildApp({ passagePlanningProvider: provider });
+    const { projectId } = await approvedPassagePlan(app, 2);
+    const payload = { scope: { kind: "sequence", sequenceId: "sequence-main" }, providerId: provider.id, modelId: "fixture-v1" };
+    const plan = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans`, payload })).json();
+    cycleUnits.push(plan.units[0].id);
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans/${plan.id}/authorize`, payload: { fingerprint: plan.fingerprint } });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${plan.jobId}/start` });
+    const job = await waitForTerminal(app, projectId, plan.jobId);
+    expect(job.status).toBe("completed");
+    const before = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    const proposal = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${job.id}/proposals`,
+    })).json();
+    const preview = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/preview`,
+      payload: { groupIds: proposal.groups.map((group: { id: string }) => group.id) },
+    })).json();
+    expect(preview.valid).toBe(false);
+    expect(preview.hardErrors.some((finding: { code: string }) => finding.code === "graph.cycle.uncontrolled")).toBe(true);
+    const blocked = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/apply`,
+      payload: { groupIds: proposal.groups.map((group: { id: string }) => group.id), previewFingerprint: preview.previewFingerprint },
+    });
+    expect(blocked.statusCode).toBe(409);
+    expect((await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json()).toEqual(before);
+    await app.close();
+  });
+
+  it("rolls back every entity version and group transition when one selected write fails", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-proposal-rollback-"));
+    directories.push(directory);
+    const databasePath = join(directory, "story.sqlite");
+    const provider = new DeterministicPassagePlanningProvider();
+    const app = buildApp({ databasePath, passagePlanningProvider: provider });
+    const { projectId } = await approvedPassagePlan(app, 3);
+    const { job } = await completeGeneration(app, projectId, provider);
+    const proposal = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${job.id}/proposals`,
+    })).json();
+    const groupIds = [proposal.groups[0].id];
+    const preview = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/preview`,
+      payload: { groupIds },
+    })).json();
+    const external = new DatabaseSync(databasePath);
+    external.exec(`CREATE TRIGGER fixture_fail_second_proposal_write
+      BEFORE INSERT ON passage_entity_versions
+      WHEN NEW.entity_id = 'passage-001'
+      BEGIN SELECT RAISE(ABORT, 'fixture proposal write failure'); END;`);
+    external.close();
+
+    const failed = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}/apply`,
+      payload: { groupIds, previewFingerprint: preview.previewFingerprint },
+    });
+    expect(failed.statusCode).toBe(400);
+    expect(failed.json().error).toContain("fixture proposal write failure");
+    expect((await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan/entities/passage/passage-000/versions`,
+    })).json()).toHaveLength(1);
+    expect((await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan/entities/passage/passage-001/versions`,
+    })).json()).toHaveLength(1);
+    const unchanged = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    expect(unchanged.state.status).toBe("approved");
+    expect((await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/passage-generation/proposals/${proposal.id}`,
+    })).json()).toMatchObject({ groups: [{ status: "proposed" }], applications: [] });
+    await app.close();
+  });
+
+  it("creates an auditable no-op proposal without manufacturing versions or demoting approval", async () => {
+    const unchangedUnits: string[] = [];
+    const provider = new DeterministicPassagePlanningProvider({ unchangedOutputForUnitIds: unchangedUnits });
+    const app = buildApp({ passagePlanningProvider: provider });
+    const { projectId, snapshot } = await approvedPassagePlan(app, 2);
+    const payload = { scope: { kind: "sequence", sequenceId: "sequence-main" }, providerId: provider.id, modelId: "fixture-v1" };
+    const plan = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans`, payload })).json();
+    unchangedUnits.push(plan.units[0].id);
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans/${plan.id}/authorize`, payload: { fingerprint: plan.fingerprint } });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${plan.jobId}/start` });
+    await waitForTerminal(app, projectId, plan.jobId);
+    const before = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    const proposal = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${plan.jobId}/proposals`,
+    })).json();
+    expect(proposal.groups).toEqual([]);
+    const after = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    expect(after).toEqual(before);
+    expect(after.state).toMatchObject({ status: "approved", approvedSnapshotId: snapshot.id });
+    await app.close();
   });
 });

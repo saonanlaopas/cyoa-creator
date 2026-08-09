@@ -127,6 +127,15 @@ export class PassagePlanRepository {
     `).all(projectId, kind) as EntityRow[]).map(mapEntity<T>);
   }
 
+  currentEntity<T = unknown>(projectId: string, kind: PassageEntityKind, entityId: string): PassageVersion<T> | undefined {
+    const row = this.database.prepare(`
+      SELECT versions.* FROM passage_entity_heads heads
+      JOIN passage_entity_versions versions ON versions.id = heads.version_id
+      WHERE heads.project_id = ? AND heads.entity_kind = ? AND heads.entity_id = ? AND heads.tombstoned = 0
+    `).get(projectId, kind, entityId) as EntityRow | undefined;
+    return row ? mapEntity<T>(row) : undefined;
+  }
+
   getEntityVersion<T = unknown>(versionId: string): PassageVersion<T> | undefined {
     const row = this.database.prepare("SELECT * FROM passage_entity_versions WHERE id = ?")
       .get(versionId) as EntityRow | undefined;
@@ -320,6 +329,19 @@ export class PassagePlanRepository {
 
   markStale(projectId: string): PassagePlanState {
     return this.setState(projectId, "stale");
+  }
+
+  insertEntityVersionInTransaction<T>(
+    projectId: string,
+    kind: PassageEntityKind,
+    entityId: string,
+    content: T,
+  ): PassageVersion<T> {
+    return this.insertEntity(projectId, kind, entityId, content);
+  }
+
+  markDraftInTransaction(projectId: string): PassagePlanState {
+    return this.setState(projectId, "draft");
   }
 
   listOverrides(projectId: string): FindingOverrideRecord[] {

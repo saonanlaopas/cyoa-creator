@@ -19,6 +19,7 @@ Implementation checkpoints:
 - Foundation 2 is complete: the manual passage-plan workspace, entity history, immutable snapshots, stable-ID editing/reordering, budgets, search/filtering, exports, and a 300-passage offline acceptance test are implemented.
 - Foundation 3 is complete: structural, state, continuity, budget, and path analysis feed a linked coverage dashboard with persisted warning rationales and hard-error approval blocking.
 - The post-Foundation cleanup gate is complete: passage-plan validation now uses exact approved dependencies, unchanged saves preserve approval state, and a browser-level 300-passage fixture verifies rendering, filtering, and stable-ID jump behavior offline.
+- Foundation 4A is complete: approved snapshots can be planned in bounded units, executed into immutable validated candidates, consolidated into deterministic stable-ID proposal groups, previewed against current heads, selectively applied in one transaction, audited, reloaded, and restored without a provider call during proposal work.
 
 The next objective is to turn that planning prototype into a safe production workspace for a configurable 150,000-200,000-word interactive novel with hundreds of passages.
 
@@ -248,7 +249,7 @@ Demonstrate that routes, choices, mechanics, relationships, and endings material
 
 ### Foundation 4A: bounded AI passage planning (formerly Production 1)
 
-**Checkpoint status:** 4A-1 is complete. It adds immutable generation-plan preview and persistence, exact authorization fingerprints, deterministic sequence-bounded units, dedicated job/unit/attempt state machines, cancellation, independent retry, restart recovery, an offline provider boundary, and minimal browser controls. It deliberately produces no passage proposals and makes no OpenRouter request. Context construction, structured output, consolidation, validation preview, and proposal application remain later 4A checkpoints.
+**Implementation status:** Complete and acceptance-tested offline on 2026-08-10. Checkpoint 4A-1 added immutable generation plans, authorization, bounded jobs, retry, cancellation, and recovery. Checkpoint 4A-2 added exact persisted context packs, structured candidates, bounded repair, relational validation, and immutable provenance. Checkpoint 4A-3 adds deterministic consolidation, exact-base stable-ID operations, dependency-safe proposal groups, local validation previews, explicit review, transactional selective application, ordinary passage-plan versions, and immutable audit history. No 4A-3 operation calls a provider, and Foundation 4B has not started.
 
 #### Goal
 

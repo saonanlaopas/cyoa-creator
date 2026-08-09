@@ -5,6 +5,7 @@ import {
   generationKernelMigrationSql,
   generationLineageMigrationSql,
   passagePlanningCandidatesMigrationSql,
+  passageProposalMigrationSql,
   schemaSql,
 } from "./schema.js";
 
@@ -102,6 +103,23 @@ export function migrate(database: StoryDatabase): void {
       database.exec(generationCandidateLineageMigrationSql);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (8, ?)",
+      ).run(new Date().toISOString());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const passageProposalApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 9",
+  ).get();
+  if (!passageProposalApplied) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      assertValidGenerationCandidateLineage(database);
+      database.exec(passageProposalMigrationSql);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (9, ?)",
       ).run(new Date().toISOString());
       database.exec("COMMIT");
     } catch (error) {

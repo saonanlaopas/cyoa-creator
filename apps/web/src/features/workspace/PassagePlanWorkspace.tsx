@@ -251,6 +251,7 @@ export function PassagePlanWorkspace(props: {
       structure={structure}
       passages={passages}
       setMessage={props.setMessage}
+      onApplied={load}
     />
     <nav className="passage-view-tabs">
       <button className={view === "outline" ? "primary" : ""} onClick={() => setView("outline")}>Outline</button>

@@ -25,6 +25,7 @@ export * from "./passage-generation-plan.js";
 export * from "./passage-planning-provider.js";
 export * from "./passage-planning-context.js";
 export * from "./passage-planning-candidate.js";
+export * from "./passage-planning-proposal.js";
 export * from "./stages/analyze-source.js";
 export * from "./stages/propose-adaptation.js";
 export * from "./stages/generate-routes.js";
