@@ -3,6 +3,7 @@ import {
   generationJobParentLineageTriggerSql,
   generationKernelMigrationSql,
   generationLineageMigrationSql,
+  passagePlanningCandidatesMigrationSql,
   schemaSql,
 } from "./schema.js";
 
@@ -68,6 +69,22 @@ export function migrate(database: StoryDatabase): void {
     try {
       assertValidGenerationJobUnitLineage(database);
       database.exec(generationJobParentLineageTriggerSql);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const passagePlanningCandidatesApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 7",
+  ).get();
+  if (!passagePlanningCandidatesApplied) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(passagePlanningCandidatesMigrationSql);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (7, ?)",
+      ).run(new Date().toISOString());
       database.exec("COMMIT");
     } catch (error) {
       database.exec("ROLLBACK");

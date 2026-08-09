@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { PassagePlan, PassageStructure } from "./schemas/passage-plan.js";
+import type { PassagePlanningContextDiagnostics, PassagePlanningContextPack } from "./passage-planning-context.js";
 
 export const PassageGenerationScopeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("act"), actId: z.string().min(1) }),
@@ -43,6 +44,12 @@ export interface PassageGenerationPlanInput {
   providerId: string;
   modelId: string;
   policy?: PassageGenerationPolicy;
+  buildUnitContext?: (input: {
+    sequenceId: string;
+    passageIds: string[];
+    requestedMaximumOutputTokens: number;
+    maximumEstimatedInputTokens: number;
+  }) => { context: PassagePlanningContextPack; diagnostics: PassagePlanningContextDiagnostics };
 }
 
 export interface PlannedPassageGenerationUnit {
@@ -54,6 +61,9 @@ export interface PlannedPassageGenerationUnit {
   inputFingerprint: string;
   estimatedInputTokens: number;
   estimatedOutputTokens: number;
+  contextFingerprint?: string;
+  context?: PassagePlanningContextPack;
+  contextDiagnostics?: PassagePlanningContextDiagnostics;
 }
 
 export interface PlannedPassageGeneration {
@@ -128,13 +138,24 @@ export function buildPassageGenerationPlan(input: PassageGenerationPlanInput): P
       if (!item) throw new Error(`Snapshot passage ${id} is missing its immutable version`);
       return item;
     });
+    const estimatedOutputTokens = Math.min(
+      policy.maxOutputTokensPerUnit,
+      Math.max(600, passageItems.length * 260),
+    );
+    const builtContext = input.buildUnitContext?.({
+      sequenceId: group.sequenceId,
+      passageIds: group.passageIds,
+      requestedMaximumOutputTokens: estimatedOutputTokens,
+      maximumEstimatedInputTokens: policy.maxEstimatedInputTokensPerUnit,
+    });
     const unitBase = {
       ...immutableBase,
       sequenceId: group.sequenceId,
       passages: passageItems.map((item) => ({ id: item.content.id, versionId: item.versionId })),
+      contextFingerprint: builtContext?.diagnostics.contextFingerprint,
     };
     const inputFingerprint = hash(unitBase);
-    const estimatedInputTokens = estimateTokens({
+    const estimatedInputTokens = builtContext?.diagnostics.estimatedInputTokens ?? estimateTokens({
       dependencies: immutableBase.upstreamVersions,
       scope,
       passages: passageItems.map((item) => item.content),
@@ -142,10 +163,6 @@ export function buildPassageGenerationPlan(input: PassageGenerationPlanInput): P
     if (estimatedInputTokens > policy.maxEstimatedInputTokensPerUnit) {
       throw new Error(`Unit ${group.sequenceId} exceeds the execution-policy input limit`);
     }
-    const estimatedOutputTokens = Math.min(
-      policy.maxOutputTokensPerUnit,
-      Math.max(600, passageItems.length * 260),
-    );
     return {
       id: `pgu_${inputFingerprint.slice(0, 24)}`,
       position,
@@ -155,6 +172,9 @@ export function buildPassageGenerationPlan(input: PassageGenerationPlanInput): P
       inputFingerprint,
       estimatedInputTokens,
       estimatedOutputTokens,
+      contextFingerprint: builtContext?.diagnostics.contextFingerprint,
+      context: builtContext?.context,
+      contextDiagnostics: builtContext?.diagnostics,
     };
   });
   const estimatedInputTokens = units.reduce((total, unit) => total + unit.estimatedInputTokens, 0);

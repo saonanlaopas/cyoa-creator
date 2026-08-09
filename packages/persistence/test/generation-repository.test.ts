@@ -244,4 +244,87 @@ describe("GenerationRepository", () => {
     }]);
     fixture.database.close();
   });
+
+  it("persists immutable candidates atomically with exact provenance and rejects cross-project ownership", () => {
+    const fixture = setup();
+    const input = planInput(fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId);
+    input.units = input.units.map((unit) => ({
+      ...unit,
+      contextFingerprint: `context-${unit.id}`,
+      context: { unitId: unit.id },
+      contextDiagnostics: { contextFingerprint: `context-${unit.id}` },
+    }));
+    const plan = fixture.generations.createPlan(input);
+    fixture.generations.authorize(fixture.project.id, plan.id, plan.fingerprint);
+    fixture.generations.startJob(fixture.project.id, plan.jobId);
+    const first = fixture.generations.startUnit(fixture.project.id, plan.jobId, "unit-a");
+    const completed = fixture.generations.completeUnitWithCandidate(
+      fixture.project.id, plan.jobId, "unit-a", first.attemptId,
+      {
+        id: "candidate-fixed",
+        contextFingerprint: "context-unit-a",
+        providerId: plan.providerId,
+        modelId: plan.modelId,
+        outputSchemaId: "cyoa.passage-planning-unit-candidate",
+        outputSchemaVersion: 1,
+        content: { exact: true },
+        validation: { valid: true },
+        usage: { inputTokens: 10, outputTokens: 20, cost: 0 },
+        repair: { repairsPerformed: 1, maximumRepairs: 1 },
+      },
+    );
+    expect(completed.units[0]).toMatchObject({ status: "completed", candidateReference: "candidate-fixed" });
+    expect(fixture.generations.getCandidate(fixture.project.id, "candidate-fixed")).toMatchObject({
+      projectId: fixture.project.id,
+      planId: plan.id,
+      jobId: plan.jobId,
+      unitId: "unit-a",
+      attemptId: first.attemptId,
+      inputFingerprint: "input-a",
+      contextFingerprint: "context-unit-a",
+      providerId: "offline-kernel",
+      modelId: "fixture-v1",
+      executionPolicyId: "policy-v1",
+      outputSchemaVersion: 1,
+      content: { exact: true },
+    });
+    expect(() => fixture.database.prepare("UPDATE generation_unit_candidates SET model_id = 'changed' WHERE id = 'candidate-fixed'").run())
+      .toThrow("immutable");
+    expect(() => fixture.database.prepare("DELETE FROM generation_unit_candidates WHERE id = 'candidate-fixed'").run())
+      .toThrow("append-only");
+
+    const second = fixture.generations.startUnit(fixture.project.id, plan.jobId, "unit-b");
+    expect(() => fixture.generations.completeUnitWithCandidate(
+      fixture.project.id, plan.jobId, "unit-b", second.attemptId,
+      {
+        id: "candidate-fixed",
+        contextFingerprint: "context-unit-b",
+        providerId: plan.providerId,
+        modelId: plan.modelId,
+        outputSchemaId: "cyoa.passage-planning-unit-candidate",
+        outputSchemaVersion: 1,
+        content: { duplicate: true },
+        validation: { valid: true },
+        repair: { repairsPerformed: 0, maximumRepairs: 1 },
+      },
+    )).toThrow();
+    expect(fixture.generations.getJob(fixture.project.id, plan.jobId)?.units[1]).toMatchObject({
+      status: "running", candidateReference: null,
+    });
+    expect(fixture.generations.listCandidates(fixture.project.id, plan.jobId)).toHaveLength(1);
+
+    const other = fixture.projects.create("Other candidate owner", undefined, "long-form");
+    expect(() => fixture.database.prepare(`INSERT INTO generation_unit_candidates (
+      id, project_id, plan_id, job_id, unit_id, attempt_id, input_fingerprint,
+      context_fingerprint, provider_id, model_id, execution_policy_id,
+      output_schema_id, output_schema_version, content_json, validation_json,
+      usage_json, repair_json, created_at
+    ) VALUES ('cross-project', ?, ?, ?, 'unit-a', ?, 'input-a', 'context-unit-a',
+      'offline-kernel', 'fixture-v1', 'policy-v1', 'schema', 1, '{}', '{}', NULL, '{}', ?)`)
+      .run(other.id, plan.id, plan.jobId, first.attemptId, "2026-08-09T00:00:00.000Z"))
+      .toThrow();
+    expect(() => fixture.database.prepare("DELETE FROM projects WHERE id = ?").run(fixture.project.id)).not.toThrow();
+    expect((fixture.database.prepare("SELECT COUNT(*) AS count FROM generation_unit_candidates").get() as { count: number }).count).toBe(0);
+    fixture.database.close();
+  });
 });

@@ -1,13 +1,30 @@
 import {
+  buildPassagePlanningContext,
   buildPassageGenerationPlan,
+  fingerprintPassagePlanningContext,
   normalizePassagePlanningError,
+  passagePlanningCandidateLimits,
+  passagePlanningCandidateSchema,
   PassageGenerationScopeSchema,
   passageGenerationPolicyV1,
+  validatePassagePlanningCandidate,
+  type ChoicePlan,
+  type LongFormEndingPlan,
+  type LongFormMechanicsPlan,
+  type LongFormRoutePlan,
+  type LongFormStoryBible,
+  type NarrativeThread,
   type PassagePlan,
+  type PassagePlanningContextPack,
   type PassagePlanningProvider,
+  type PassagePlanningProviderUsage,
   type PassageStructure,
+  type ProjectBrief,
 } from "@story-to-cyoa/pipeline";
+import { redactSecret } from "@story-to-cyoa/openrouter";
+import { createHash } from "node:crypto";
 import type {
+  ArtifactRepository,
   GenerationJobRecord,
   GenerationPlanRecord,
   GenerationRepository,
@@ -27,12 +44,16 @@ export class PassageGenerationService {
 
   public constructor(
     private readonly projects: ProjectRepository,
+    private readonly artifacts: ArtifactRepository,
     private readonly passagePlans: PassagePlanRepository,
     private readonly generations: GenerationRepository,
-    private readonly provider: PassagePlanningProvider,
+    provider: PassagePlanningProvider | PassagePlanningProvider[],
   ) {
+    this.providers = new Map((Array.isArray(provider) ? provider : [provider]).map((item) => [item.id, item]));
     this.generations.recoverInterrupted();
   }
+
+  private readonly providers: Map<string, PassagePlanningProvider>;
 
   preview(projectId: string, request: PassageGenerationPlanRequest) {
     return this.build(projectId, request);
@@ -87,9 +108,7 @@ export class PassageGenerationService {
     this.requireProject(projectId);
     const job = this.getJob(projectId, jobId);
     const plan = this.getPlan(projectId, job.planId);
-    if (plan.providerId !== this.provider.id) {
-      throw new Error(`Provider ${plan.providerId} is not available for this offline checkpoint`);
-    }
+    this.requireProvider(plan.providerId);
     const running = this.generations.startJob(projectId, jobId);
     const controller = new AbortController();
     this.controllers.set(jobId, controller);
@@ -131,6 +150,16 @@ export class PassageGenerationService {
     const structure = this.passagePlans.getStructureVersion<PassageStructure>(snapshot.structureVersionId);
     if (!structure || structure.projectId !== projectId) throw new Error("Approved passage-plan structure not found");
     const passages = this.passagePlans.snapshotEntities<PassagePlan>(snapshot.id, "passage");
+    const choices = this.passagePlans.snapshotEntities<ChoicePlan>(snapshot.id, "choice");
+    const threads = this.passagePlans.snapshotEntities<NarrativeThread>(snapshot.id, "thread");
+    const exact = {
+      brief: this.exactArtifact<ProjectBrief>(projectId, "brief", snapshot.upstreamVersions.brief),
+      bible: this.exactArtifact<LongFormStoryBible>(projectId, "bible", snapshot.upstreamVersions.bible),
+      routes: this.exactArtifact<LongFormRoutePlan>(projectId, "routes", snapshot.upstreamVersions.routes),
+      endings: this.exactArtifact<LongFormEndingPlan>(projectId, "endings", snapshot.upstreamVersions.endings),
+      mechanics: this.exactArtifact<LongFormMechanicsPlan>(projectId, "mechanics", snapshot.upstreamVersions.mechanics),
+    };
+    const scope = PassageGenerationScopeSchema.parse(request.scope);
     return buildPassageGenerationPlan({
       projectId,
       snapshotId: snapshot.id,
@@ -138,52 +167,186 @@ export class PassageGenerationService {
       upstreamVersions: snapshot.upstreamVersions,
       structure: structure.content,
       passages: passages.map((item) => ({ versionId: item.id, content: item.content })),
-      scope: PassageGenerationScopeSchema.parse(request.scope),
-      providerId: request.providerId ?? this.provider.id,
+      scope,
+      providerId: request.providerId ?? "offline-kernel",
       modelId: request.modelId ?? "deterministic-fixture-v1",
       policy: passageGenerationPolicyV1,
+      buildUnitContext: ({ passageIds, requestedMaximumOutputTokens, maximumEstimatedInputTokens }) =>
+        buildPassagePlanningContext({
+          projectId,
+          snapshotId: snapshot.id,
+          structureVersionId: snapshot.structureVersionId,
+          upstreamVersions: snapshot.upstreamVersions,
+          scope,
+          structure: structure.content,
+          passages: passages.map((item) => ({ versionId: item.id, content: item.content })),
+          choices: choices.map((item) => ({ versionId: item.id, content: item.content })),
+          threads: threads.map((item) => ({ versionId: item.id, content: item.content })),
+          selectedPassageIds: passageIds,
+          brief: exact.brief,
+          bible: exact.bible,
+          routes: exact.routes,
+          endings: exact.endings,
+          mechanics: exact.mechanics,
+          outputSchema: passagePlanningCandidateSchema,
+          requestedMaximumOutputTokens,
+          maximumEstimatedInputTokens,
+        }),
     });
   }
 
   private async run(projectId: string, jobId: string, controller: AbortController): Promise<void> {
     let job = this.getJob(projectId, jobId);
     const plan = this.getPlan(projectId, job.planId);
+    const provider = this.requireProvider(plan.providerId);
     for (const unit of job.units) {
       if (controller.signal.aborted || unit.status !== "pending") continue;
       const { attemptId } = this.generations.startUnit(projectId, jobId, unit.id);
+      const repairAudit: { maximumRepairs: number; repairsPerformed: number; history: Array<{ kind: string; issues: string[]; malformedBytes: number; malformedSha256: string }> } = {
+        maximumRepairs: passagePlanningCandidateLimits.maximumRepairsPerExecutionAttempt,
+        repairsPerformed: 0,
+        history: [],
+      };
       try {
-        const result = await this.provider.generate({
-          jobId,
-          unitId: unit.id,
-          providerId: plan.providerId,
-          modelId: plan.modelId,
-          inputFingerprint: unit.inputFingerprint,
-          boundedContext: {
-            snapshotId: plan.snapshotId,
-            upstreamVersions: plan.upstreamVersions,
-            scope: plan.scope,
-            sequenceId: unit.sequenceId,
-            passageIds: unit.passageIds,
-            passageVersionIds: unit.passageVersionIds,
-          },
-          outputSchema: { checkpoint: "lifecycle-only", proposalOutputEnabled: false },
-          maximumOutputTokens: unit.estimatedOutputTokens,
+        const context = this.exactStoredContext(unit.context, unit.contextFingerprint);
+        const baseRequest = {
+          jobId, unitId: unit.id, providerId: plan.providerId, modelId: plan.modelId,
+          inputFingerprint: unit.inputFingerprint, boundedContext: context,
+          outputSchema: passagePlanningCandidateSchema,
+          capabilityRequirements: { structuredOutput: true, localValidation: true },
+          maximumOutputTokens: Math.min(unit.estimatedOutputTokens, passageGenerationPolicyV1.maxOutputTokensPerUnit),
           signal: controller.signal,
-        });
+        } as const;
+        const first = await provider.generate({ ...baseRequest, mode: "generate" });
+        const usage: PassagePlanningProviderUsage[] = first.usage ? [first.usage] : [];
+        const providerMetadata: Record<string, unknown>[] = first.providerMetadata ? [first.providerMetadata] : [];
+        let output = first.output;
+        let repairs = first.providerRepairCount ?? 0;
+        repairAudit.repairsPerformed = repairs;
+        let validated;
+        try {
+          validated = validatePassagePlanningCandidate({
+            raw: output, jobId, unitId: unit.id, inputFingerprint: unit.inputFingerprint, context,
+            maximumOutputTokens: baseRequest.maximumOutputTokens,
+          });
+        } catch (validationError) {
+          if (repairs >= passagePlanningCandidateLimits.maximumRepairsPerExecutionAttempt) throw validationError;
+          const issues = candidateIssues(validationError);
+          if (Buffer.byteLength(output, "utf8") > passagePlanningCandidateLimits.maximumRepairInputBytes) {
+            throw Object.assign(new Error("Malformed candidate exceeds the repair-payload limit"), {
+              code: "repair_payload_too_large", retryable: true,
+            });
+          }
+          repairAudit.history.push({
+            kind: "structured-output-repair",
+            issues,
+            malformedBytes: Buffer.byteLength(output, "utf8"),
+            malformedSha256: createHash("sha256").update(output).digest("hex"),
+          });
+          const repaired = await provider.generate({
+            ...baseRequest,
+            mode: "repair",
+            boundedContext: {
+              schemaId: passagePlanningCandidateSchema.id,
+              schemaVersion: passagePlanningCandidateSchema.version,
+              jobId,
+              unitId: unit.id,
+              inputFingerprint: unit.inputFingerprint,
+            },
+            maximumOutputTokens: Math.min(baseRequest.maximumOutputTokens, passagePlanningCandidateLimits.maximumRepairOutputTokens),
+            repair: { malformedOutput: output, validationIssues: issues.slice(0, 50) },
+          });
+          repairs += 1 + (repaired.providerRepairCount ?? 0);
+          repairAudit.repairsPerformed = repairs;
+          if (repairs > passagePlanningCandidateLimits.maximumRepairsPerExecutionAttempt) {
+            throw Object.assign(new Error("Provider exceeded the structured-output repair limit"), {
+              code: "repair_limit_exceeded", retryable: false,
+            });
+          }
+          if (repaired.usage) usage.push(repaired.usage);
+          if (repaired.providerMetadata) providerMetadata.push(repaired.providerMetadata);
+          output = repaired.output;
+          validated = validatePassagePlanningCandidate({
+            raw: output, jobId, unitId: unit.id, inputFingerprint: unit.inputFingerprint, context,
+            maximumOutputTokens: passagePlanningCandidateLimits.maximumRepairOutputTokens,
+          });
+        }
         if (controller.signal.aborted) break;
-        job = this.generations.completeUnit(projectId, jobId, unit.id, attemptId, result);
+        job = this.generations.completeUnitWithCandidate(projectId, jobId, unit.id, attemptId, {
+          contextFingerprint: unit.contextFingerprint!, providerId: plan.providerId, modelId: plan.modelId,
+          outputSchemaId: passagePlanningCandidateSchema.id,
+          outputSchemaVersion: passagePlanningCandidateSchema.version,
+          content: validated.candidate,
+          validation: validated.diagnostics,
+          usage: { ...totalUsage(usage), providerMetadata },
+          repair: repairAudit,
+        });
       } catch (error) {
         if (controller.signal.aborted) break;
+        const providerRepairs = error && typeof error === "object"
+          ? Number((error as { structuredRepairAttempts?: unknown }).structuredRepairAttempts ?? 0) : 0;
+        repairAudit.repairsPerformed = Math.max(repairAudit.repairsPerformed, Math.min(1, providerRepairs));
+        const normalized = normalizePassagePlanningError(error);
         job = this.generations.failUnit(
-          projectId, jobId, unit.id, attemptId, normalizePassagePlanningError(error),
+          projectId, jobId, unit.id, attemptId, {
+            ...normalized,
+            message: redactSecret(normalized.message),
+            validationIssues: candidateIssues(error),
+            repair: repairAudit,
+          },
         );
       }
     }
     if (!controller.signal.aborted && job.status === "running") this.generations.finalizeJob(projectId, jobId);
   }
 
+  private exactArtifact<T>(projectId: string, artifactId: string, versionId: string | undefined): T {
+    if (!versionId) throw new Error(`Approved snapshot is missing exact ${artifactId} dependency`);
+    const version = this.artifacts.getVersion<T>(versionId);
+    if (!version || version.projectId !== projectId || version.artifactId !== artifactId) {
+      throw new Error(`Exact approved ${artifactId} dependency is missing or inconsistent`);
+    }
+    return version.content;
+  }
+
+  private exactStoredContext(value: unknown, fingerprint: string | undefined): PassagePlanningContextPack {
+    if (!value || typeof value !== "object" || !fingerprint) {
+      throw Object.assign(new Error("Authorized unit has no persisted bounded context"), {
+        code: "bounded_context_missing", retryable: false,
+      });
+    }
+    const context = value as PassagePlanningContextPack;
+    if (fingerprintPassagePlanningContext(context) !== fingerprint) {
+      throw Object.assign(new Error("Persisted bounded context fingerprint is inconsistent"), {
+        code: "bounded_context_inconsistent", retryable: false,
+      });
+    }
+    return context;
+  }
+
+  private requireProvider(providerId: string): PassagePlanningProvider {
+    const provider = this.providers.get(providerId);
+    if (!provider) throw new Error(`Passage-planning provider ${providerId} is not available`);
+    return provider;
+  }
+
   private requireProject(projectId: string): void {
     const project = this.projects.get(projectId);
     if (!project || project.mode !== "long-form") throw new Error("Long-form project not found");
   }
+}
+
+function candidateIssues(error: unknown): string[] {
+  if (error && typeof error === "object" && Array.isArray((error as { issues?: unknown }).issues)) {
+    return (error as { issues: unknown[] }).issues.slice(0, 50).map(String);
+  }
+  return [error instanceof Error ? error.message : String(error)];
+}
+
+function totalUsage(items: PassagePlanningProviderUsage[]) {
+  return items.reduce((total, item) => ({
+    inputTokens: total.inputTokens + item.inputTokens,
+    outputTokens: total.outputTokens + item.outputTokens,
+    cost: total.cost === null || item.cost === null ? null : total.cost + item.cost,
+  }), { inputTokens: 0, outputTokens: 0, cost: 0 as number | null });
 }

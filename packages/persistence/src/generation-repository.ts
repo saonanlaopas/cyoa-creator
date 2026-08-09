@@ -15,6 +15,9 @@ export interface GenerationPlanUnitInput {
   inputFingerprint: string;
   estimatedInputTokens: number;
   estimatedOutputTokens: number;
+  contextFingerprint?: string;
+  context?: unknown;
+  contextDiagnostics?: unknown;
 }
 
 export interface GenerationPlanInput {
@@ -56,10 +59,45 @@ export interface GenerationJobUnitRecord extends GenerationPlanUnitInput {
   usage: unknown | null;
   executionPolicyId: string;
   candidateReference: string | null;
+  candidate: GenerationUnitCandidateRecord | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
   updatedAt: string;
+}
+
+export interface GenerationUnitCandidateRecord {
+  id: string;
+  projectId: string;
+  planId: string;
+  jobId: string;
+  unitId: string;
+  attemptId: string;
+  inputFingerprint: string;
+  contextFingerprint: string;
+  providerId: string;
+  modelId: string;
+  executionPolicyId: string;
+  outputSchemaId: string;
+  outputSchemaVersion: number;
+  content: unknown;
+  validation: unknown;
+  usage: unknown | null;
+  repair: unknown;
+  createdAt: string;
+}
+
+export interface CompleteGenerationUnitCandidateInput {
+  id?: string;
+  contextFingerprint: string;
+  providerId: string;
+  modelId: string;
+  outputSchemaId: string;
+  outputSchemaVersion: number;
+  content: unknown;
+  validation: unknown;
+  usage?: unknown;
+  repair: unknown;
 }
 
 export interface GenerationJobRecord {
@@ -90,10 +128,18 @@ type UnitRow = {
   unit_id: string; position: number; sequence_id: string; passage_ids_json: string;
   passage_version_ids_json: string; input_fingerprint: string; estimated_input_tokens: number;
   estimated_output_tokens: number; job_id: string; project_id: string; plan_id: string;
+  context_json: string; context_diagnostics_json: string; context_fingerprint: string;
   status: GenerationUnitStatus; attempt_number: number; retry_of_attempt_id: string | null;
   normalized_error_json: string | null; usage_json: string | null; execution_policy_id: string;
   candidate_reference: string | null; created_at: string; started_at: string | null;
   finished_at: string | null; updated_at: string;
+};
+type CandidateRow = {
+  id: string; project_id: string; plan_id: string; job_id: string; unit_id: string;
+  attempt_id: string; input_fingerprint: string; context_fingerprint: string;
+  provider_id: string; model_id: string; execution_policy_id: string;
+  output_schema_id: string; output_schema_version: number; content_json: string;
+  validation_json: string; usage_json: string | null; repair_json: string; created_at: string;
 };
 type JobRow = {
   id: string; project_id: string; plan_id: string; plan_fingerprint: string;
@@ -136,6 +182,14 @@ export class GenerationRepository {
 
   createPlan(input: GenerationPlanInput): GenerationPlanRecord {
     return transaction(this.database, () => {
+      if (input.executionPolicyId === "passage-plan-generation-v1") {
+        for (const unit of input.units) {
+          const diagnostics = unit.contextDiagnostics as { contextFingerprint?: unknown } | undefined;
+          if (!unit.context || !unit.contextFingerprint || diagnostics?.contextFingerprint !== unit.contextFingerprint) {
+            throw new Error("Passage-planning units require an exact persisted bounded context and matching diagnostics");
+          }
+        }
+      }
       const snapshot = this.database.prepare(`
         SELECT structure_version_id, upstream_versions_json, status
         FROM passage_plan_snapshots
@@ -176,8 +230,9 @@ export class GenerationRepository {
         INSERT INTO generation_plan_units (
           plan_id, project_id, unit_id, position, sequence_id, passage_ids_json,
           passage_version_ids_json, input_fingerprint, estimated_input_tokens,
-          estimated_output_tokens, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          estimated_output_tokens, context_json, context_diagnostics_json,
+          context_fingerprint, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const insertJobUnit = this.database.prepare(`
         INSERT INTO generation_job_units (
@@ -189,7 +244,8 @@ export class GenerationRepository {
         insertPlanUnit.run(
           id, input.projectId, unit.id, unit.position, unit.sequenceId,
           JSON.stringify(unit.passageIds), JSON.stringify(unit.passageVersionIds), unit.inputFingerprint,
-          unit.estimatedInputTokens, unit.estimatedOutputTokens, now,
+          unit.estimatedInputTokens, unit.estimatedOutputTokens, JSON.stringify(unit.context ?? {}),
+          JSON.stringify(unit.contextDiagnostics ?? {}), unit.contextFingerprint ?? "", now,
         );
         insertJobUnit.run(jobId, input.projectId, id, unit.id, unit.inputFingerprint, input.executionPolicyId, now, now);
       }
@@ -231,6 +287,9 @@ export class GenerationRepository {
         inputFingerprint: unit.inputFingerprint,
         estimatedInputTokens: unit.estimatedInputTokens,
         estimatedOutputTokens: unit.estimatedOutputTokens,
+        contextFingerprint: unit.contextFingerprint,
+        context: unit.context,
+        contextDiagnostics: unit.contextDiagnostics,
       })),
       authorizationState: row.authorization_state,
       authorizationFingerprint: row.authorization_fingerprint,
@@ -278,7 +337,8 @@ export class GenerationRepository {
     if (!row) return undefined;
     const unitRows = this.database.prepare(`
       SELECT current.*, planned.position, planned.sequence_id, planned.passage_ids_json,
-        planned.passage_version_ids_json, planned.estimated_input_tokens, planned.estimated_output_tokens
+        planned.passage_version_ids_json, planned.estimated_input_tokens, planned.estimated_output_tokens,
+        planned.context_json, planned.context_diagnostics_json, planned.context_fingerprint
       FROM generation_job_units current
       JOIN generation_plan_units planned
         ON planned.project_id = current.project_id AND planned.plan_id = current.plan_id
@@ -292,7 +352,13 @@ export class GenerationRepository {
       executionPolicyId: row.execution_policy_id, createdAt: row.created_at,
       authorizedAt: row.authorized_at, startedAt: row.started_at,
       finishedAt: row.finished_at, updatedAt: row.updated_at,
-      units: unitRows.map(mapUnit),
+      units: unitRows.map((unitRow) => {
+        const unit = mapUnit(unitRow);
+        return {
+          ...unit,
+          candidate: unit.candidateReference ? this.getCandidate(projectId, unit.candidateReference) ?? null : null,
+        };
+      }),
     };
   }
 
@@ -351,6 +417,68 @@ export class GenerationRepository {
     result: { usage?: unknown; candidateReference?: string },
   ): GenerationJobRecord {
     return this.finishUnit(projectId, jobId, unitId, attemptId, "completed", result);
+  }
+
+  completeUnitWithCandidate(
+    projectId: string,
+    jobId: string,
+    unitId: string,
+    attemptId: string,
+    candidate: CompleteGenerationUnitCandidateInput,
+  ): GenerationJobRecord {
+    return transaction(this.database, () => {
+      const job = this.requireJob(projectId, jobId);
+      const unit = this.requireUnit(job, unitId);
+      assertGenerationUnitTransition(unit.status, "completed");
+      const attempt = this.database.prepare(`SELECT id FROM generation_unit_attempts
+        WHERE id = ? AND project_id = ? AND job_id = ? AND unit_id = ? AND status = 'running'`)
+        .get(attemptId, projectId, jobId, unitId);
+      if (!attempt) throw new Error("Running generation attempt not found");
+      if (!unit.contextFingerprint || unit.contextFingerprint !== candidate.contextFingerprint) {
+        throw new Error("Candidate context fingerprint does not match the authorized unit");
+      }
+      const plan = this.getPlan(projectId, job.planId)!;
+      if (plan.providerId !== candidate.providerId || plan.modelId !== candidate.modelId) {
+        throw new Error("Candidate provider or model does not match the authorized plan");
+      }
+      const id = candidate.id ?? randomUUID();
+      const now = new Date().toISOString();
+      const usageJson = candidate.usage === undefined ? null : JSON.stringify(candidate.usage);
+      this.database.prepare(`INSERT INTO generation_unit_candidates (
+        id, project_id, plan_id, job_id, unit_id, attempt_id, input_fingerprint,
+        context_fingerprint, provider_id, model_id, execution_policy_id,
+        output_schema_id, output_schema_version, content_json, validation_json,
+        usage_json, repair_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(
+          id, projectId, job.planId, jobId, unitId, attemptId, unit.inputFingerprint,
+          candidate.contextFingerprint, candidate.providerId, candidate.modelId,
+          unit.executionPolicyId, candidate.outputSchemaId, candidate.outputSchemaVersion,
+          JSON.stringify(candidate.content), JSON.stringify(candidate.validation), usageJson,
+          JSON.stringify(candidate.repair), now,
+        );
+      this.database.prepare(`UPDATE generation_job_units SET status = 'completed', normalized_error_json = NULL,
+        usage_json = ?, candidate_reference = ?, finished_at = ?, updated_at = ?
+        WHERE project_id = ? AND job_id = ? AND unit_id = ?`)
+        .run(usageJson, id, now, now, projectId, jobId, unitId);
+      this.database.prepare(`UPDATE generation_unit_attempts SET status = 'completed', normalized_error_json = NULL,
+        usage_json = ?, candidate_reference = ?, finished_at = ?, updated_at = ? WHERE id = ?`)
+        .run(usageJson, id, now, now, attemptId);
+      return this.requireJob(projectId, jobId);
+    });
+  }
+
+  getCandidate(projectId: string, candidateId: string): GenerationUnitCandidateRecord | undefined {
+    const row = this.database.prepare(`SELECT * FROM generation_unit_candidates
+      WHERE project_id = ? AND id = ?`).get(projectId, candidateId) as CandidateRow | undefined;
+    return row ? mapCandidate(row) : undefined;
+  }
+
+  listCandidates(projectId: string, jobId: string, unitId?: string): GenerationUnitCandidateRecord[] {
+    const rows = this.database.prepare(`SELECT * FROM generation_unit_candidates
+      WHERE project_id = ? AND job_id = ? AND (? IS NULL OR unit_id = ?)
+      ORDER BY created_at, id`).all(projectId, jobId, unitId ?? null, unitId ?? null) as CandidateRow[];
+    return rows.map(mapCandidate);
   }
 
   failUnit(
@@ -516,12 +644,29 @@ function mapUnit(row: UnitRow): GenerationJobUnitRecord {
     passageIds: JSON.parse(row.passage_ids_json), passageVersionIds: JSON.parse(row.passage_version_ids_json),
     inputFingerprint: row.input_fingerprint, estimatedInputTokens: row.estimated_input_tokens,
     estimatedOutputTokens: row.estimated_output_tokens, jobId: row.job_id,
+    contextFingerprint: row.context_fingerprint || undefined,
+    context: row.context_json && row.context_json !== "{}" ? JSON.parse(row.context_json) : undefined,
+    contextDiagnostics: row.context_diagnostics_json && row.context_diagnostics_json !== "{}"
+      ? JSON.parse(row.context_diagnostics_json) : undefined,
     projectId: row.project_id, planId: row.plan_id, status: row.status,
     attemptNumber: row.attempt_number, retryOfAttemptId: row.retry_of_attempt_id,
     normalizedError: row.normalized_error_json ? JSON.parse(row.normalized_error_json) : null,
     usage: row.usage_json ? JSON.parse(row.usage_json) : null,
     executionPolicyId: row.execution_policy_id, candidateReference: row.candidate_reference,
+    candidate: row.candidate_reference ? null : null,
     createdAt: row.created_at, startedAt: row.started_at, finishedAt: row.finished_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapCandidate(row: CandidateRow): GenerationUnitCandidateRecord {
+  return {
+    id: row.id, projectId: row.project_id, planId: row.plan_id, jobId: row.job_id,
+    unitId: row.unit_id, attemptId: row.attempt_id, inputFingerprint: row.input_fingerprint,
+    contextFingerprint: row.context_fingerprint, providerId: row.provider_id, modelId: row.model_id,
+    executionPolicyId: row.execution_policy_id, outputSchemaId: row.output_schema_id,
+    outputSchemaVersion: row.output_schema_version, content: JSON.parse(row.content_json),
+    validation: JSON.parse(row.validation_json), usage: row.usage_json ? JSON.parse(row.usage_json) : null,
+    repair: JSON.parse(row.repair_json), createdAt: row.created_at,
   };
 }

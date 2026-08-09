@@ -43,6 +43,13 @@ export interface GenerationResult<T> {
   attempts: GenerationAttempt[];
 }
 
+export interface RawStructuredGenerationResult {
+  content: string;
+  usage: GenerationUsage;
+  cost: CostRange | null;
+  attempt: GenerationAttempt;
+}
+
 export interface GenerationAttempt {
   usage: GenerationUsage;
   cost: CostRange | null;
@@ -182,6 +189,43 @@ export class OpenRouterClient {
         : "OpenRouter returned completion data that did not match the required schema",
       { diagnostic: lastDiagnostic },
     );
+  }
+
+  /** One provider request with structured-output controls and no implicit repair or local parsing. */
+  public async generateStructuredRaw(
+    request: StructuredGenerationRequest,
+    schema: ZodType<unknown>,
+  ): Promise<RawStructuredGenerationResult> {
+    const payload: Record<string, unknown> = {
+      model: request.model,
+      messages: request.messages,
+      provider: { require_parameters: true },
+      ...(request.maxTokens === undefined ? {} : { max_tokens: request.maxTokens }),
+      ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+      response_format: supportsStrictJsonSchema(request.modelCapabilities)
+        ? { type: "json_schema", json_schema: { name: "structured_response", strict: true, schema: zodToJsonSchema(schema) } }
+        : { type: "json_object" },
+    };
+    const response = await this.request("/chat/completions", {
+      method: "POST",
+      signal: request.signal,
+      body: JSON.stringify(payload),
+    });
+    const { data: parsed, diagnostic } = await this.json<ChatResponse>(response);
+    const usage: GenerationUsage = {
+      inputTokens: toNumber(parsed.usage?.prompt_tokens),
+      outputTokens: toNumber(parsed.usage?.completion_tokens),
+      totalTokens: toNumber(parsed.usage?.total_tokens),
+    };
+    const cost = request.modelCapabilities
+      ? actualCost(request.modelCapabilities, {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cost: parsed.usage?.cost ?? parsed.cost,
+        })
+      : null;
+    const attempt = { usage, cost, provider: diagnostic.provider ?? null, generationId: diagnostic.generationId ?? null, diagnostic };
+    return { content: contentFrom(parsed, diagnostic), usage, cost, attempt };
   }
 
   private async request(path: string, init: RequestInit & { signal?: AbortSignal }): Promise<Response> {

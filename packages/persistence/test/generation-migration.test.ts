@@ -10,6 +10,7 @@ import { migrate, openDatabase } from "../src/index.js";
 const fixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const v4FixturePath = join(fixtureDirectory, "schema-v4.sqlite");
 const v5FixturePath = join(fixtureDirectory, "schema-v5.sqlite");
+const v6FixturePath = join(fixtureDirectory, "schema-v6.sqlite");
 const temporaryDirectories: string[] = [];
 afterEach(() => temporaryDirectories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
 const digest = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -28,7 +29,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v4FixturePath, copyPath);
     const database = openDatabase(copyPath);
 
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(6);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(7);
     expect((database.prepare("SELECT COUNT(*) AS count FROM generation_plans").get() as { count: number }).count).toBe(0);
     expect(database.prepare("SELECT name, mode FROM projects WHERE id = 'fixture-project'").get()).toEqual({
       name: "Frozen v4 project", mode: "long-form",
@@ -65,7 +66,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v5FixturePath, copyPath);
     const database = openDatabase(copyPath);
 
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(6);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(7);
     expect(database.prepare("SELECT name FROM projects WHERE id = 'fixture-project-v5'").get()).toEqual({
       name: "Frozen v5 project",
     });
@@ -128,5 +129,55 @@ describe("generation kernel migration", () => {
     database.close();
 
     expect(digest(v5FixturePath)).toBe(originalHash);
+  });
+
+  it("migrates the frozen accepted schema-v6 fixture losslessly to v7 without changing its bytes", () => {
+    const originalHash = digest(v6FixturePath);
+    const frozen = new DatabaseSync(v6FixturePath, { readOnly: true });
+    expect((frozen.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(6);
+    const before = {
+      plans: (frozen.prepare("SELECT COUNT(*) AS count FROM generation_plans").get() as { count: number }).count,
+      jobs: (frozen.prepare("SELECT COUNT(*) AS count FROM generation_jobs").get() as { count: number }).count,
+      units: (frozen.prepare("SELECT COUNT(*) AS count FROM generation_job_units").get() as { count: number }).count,
+      attempts: (frozen.prepare("SELECT COUNT(*) AS count FROM generation_unit_attempts").get() as { count: number }).count,
+    };
+    frozen.close();
+
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v6-migration-"));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v6.sqlite");
+    copyFileSync(v6FixturePath, copyPath);
+    const database = openDatabase(copyPath);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(7);
+    expect({
+      plans: (database.prepare("SELECT COUNT(*) AS count FROM generation_plans").get() as { count: number }).count,
+      jobs: (database.prepare("SELECT COUNT(*) AS count FROM generation_jobs").get() as { count: number }).count,
+      units: (database.prepare("SELECT COUNT(*) AS count FROM generation_job_units").get() as { count: number }).count,
+      attempts: (database.prepare("SELECT COUNT(*) AS count FROM generation_unit_attempts").get() as { count: number }).count,
+    }).toEqual(before);
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'generation_unit_candidates'").get()).toEqual({ name: "generation_unit_candidates" });
+    expect(database.prepare("SELECT context_json, context_fingerprint FROM generation_plan_units LIMIT 1").get()).toEqual({ context_json: "{}", context_fingerprint: "" });
+    database.close();
+    expect(digest(v6FixturePath)).toBe(originalHash);
+  });
+
+  it("rolls back every v7 schema change when candidate migration cannot complete", () => {
+    const originalHash = digest(v6FixturePath);
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v7-rollback-"));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v6-conflict.sqlite");
+    copyFileSync(v6FixturePath, copyPath);
+    const database = new DatabaseSync(copyPath);
+    database.exec("CREATE TABLE generation_unit_candidates (conflict TEXT)");
+    expect(() => migrate(database)).toThrow();
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(6);
+    expect((database.prepare("PRAGMA table_info(generation_plan_units)").all() as Array<{ name: string }>).some((item) => item.name === "context_json")).toBe(false);
+    expect(database.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'generation_unit_candidates'").get()).toEqual({
+      sql: "CREATE TABLE generation_unit_candidates (conflict TEXT)",
+    });
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'generation_unit_candidates_immutable_update'").get()).toBeUndefined();
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'generation_unit_attempts_lineage_identity'").get()).toBeUndefined();
+    database.close();
+    expect(digest(v6FixturePath)).toBe(originalHash);
   });
 });

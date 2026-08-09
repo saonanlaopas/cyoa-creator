@@ -1,12 +1,15 @@
 export interface PassagePlanningProviderRequest {
+  mode: "generate" | "repair";
   jobId: string;
   unitId: string;
   providerId: string;
   modelId: string;
   inputFingerprint: string;
   boundedContext: unknown;
-  outputSchema: unknown;
+  outputSchema: { id: string; version: number };
+  capabilityRequirements: { structuredOutput: boolean; localValidation: boolean };
   maximumOutputTokens: number;
+  repair?: { malformedOutput: string; validationIssues: string[] };
   signal: AbortSignal;
 }
 export interface PassagePlanningProviderUsage {
@@ -16,12 +19,15 @@ export interface PassagePlanningProviderUsage {
 }
 
 export interface PassagePlanningProviderResult {
-  candidateReference?: string;
+  output: string;
   usage?: PassagePlanningProviderUsage;
+  providerRepairCount?: number;
+  providerMetadata?: Record<string, unknown>;
 }
 
 export interface PassagePlanningProvider {
   readonly id: string;
+  readonly capabilities: { structuredOutput: boolean };
   generate(request: PassagePlanningProviderRequest): Promise<PassagePlanningProviderResult>;
 }
 

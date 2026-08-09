@@ -259,6 +259,7 @@ test("bounded passage generation previews, authorizes, retries, cancels, and reo
   await page.getByRole("button", { name: "Preview plan" }).click();
   await expect(page.getByRole("region", { name: "Generation plan inspection" })).toContainText("12 bounded units");
   await expect(page.getByRole("region", { name: "Generation plan inspection" })).toContainText("Cost: unavailable offline");
+  await expect(page.getByRole("region", { name: "Generation plan inspection" })).toContainText("cyoa.passage-planning-unit-candidate");
   await page.getByRole("button", { name: "Save exact plan" }).click();
   await page.getByRole("button", { name: "Authorize exact plan" }).click();
   await page.getByRole("button", { name: "Start offline kernel" }).click();
@@ -266,10 +267,15 @@ test("bounded passage generation previews, authorizes, retries, cancels, and reo
   await page.getByRole("button", { name: "Retry unit" }).click();
   await page.getByRole("button", { name: "Resume offline kernel" }).click();
   await expect(page.getByText("Job: completed")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Validated candidate retained/).first()).toBeVisible();
+  await expect(page.getByText(/repairs 1\/1/).first()).toBeVisible();
+  await page.getByText("Context diagnostics").first().click();
+  await expect(page.getByText(/Schema: cyoa\.passage-planning-unit-candidate\/v1/).first()).toBeVisible();
 
   await page.reload();
   await expect(page.getByText("Job: completed")).toBeVisible();
   await expect(page.getByText("12/12 units complete")).toBeVisible();
+  await expect(page.getByText(/Validated candidate retained/).first()).toBeVisible();
 
   await page.getByRole("button", { name: "Preview plan" }).click();
   await page.getByRole("button", { name: "Save exact plan" }).click();
@@ -277,4 +283,40 @@ test("bounded passage generation previews, authorizes, retries, cancels, and reo
   await page.getByRole("button", { name: "Start offline kernel" }).click();
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByText("Job: cancelled")).toBeVisible();
+});
+
+test("failed passage candidate validation remains inspectable without mutating the project", async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const projectId = await seedLargePassagePlan(request);
+  const snapshotResponse = await request.post(`/api/long-form/projects/${projectId}/passage-plan/snapshots`);
+  await expect(snapshotResponse).toBeOK();
+  const snapshot = await snapshotResponse.json();
+  const approveResponse = await request.post(`/api/long-form/projects/${projectId}/passage-plan/approve`, { data: { snapshotId: snapshot.id } });
+  await expect(approveResponse).toBeOK();
+  const before = await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).json();
+  const createdResponse = await request.post(`/api/long-form/projects/${projectId}/passage-generation/plans`, { data: {
+    scope: { kind: "sequence", sequenceId: "sequence-main" },
+    providerId: "offline-kernel",
+    modelId: "deterministic-fixture-invalid-v1",
+  } });
+  await expect(createdResponse).toBeOK();
+  const created = await createdResponse.json();
+  const authorizeResponse = await request.post(`/api/long-form/projects/${projectId}/passage-generation/plans/${created.id}/authorize`, { data: { fingerprint: created.fingerprint } });
+  await expect(authorizeResponse).toBeOK();
+  const startResponse = await request.post(`/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}/start`);
+  await expect(startResponse).toBeOK();
+  await expect.poll(async () => (await (await request.get(`/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}`)).json()).status).toBe("failed");
+
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "passage-plan");
+  }, projectId);
+  await page.goto("/#long-form");
+  await expect(page.getByText("Job: failed")).toBeVisible();
+  await expect(page.getByText("Candidate response is not valid JSON").first()).toBeVisible();
+  await expect(page.getByText(/Validated candidate retained/)).toHaveCount(0);
+  const after = await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).json();
+  expect(after.structure).toEqual(before.structure);
+  expect(after.passages).toEqual(before.passages);
+  expect(after.snapshots).toEqual(before.snapshots);
 });

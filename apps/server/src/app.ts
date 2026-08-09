@@ -31,6 +31,7 @@ import { registerPassagePlanRoutes } from "./routes/passage-plan.js";
 import { registerPassageGenerationRoutes } from "./routes/passage-generation.js";
 import { PassageGenerationService } from "./services/passage-generation-service.js";
 import { DeterministicPassagePlanningProvider } from "./services/passage-planning-provider.js";
+import { OpenRouterPassagePlanningProvider } from "./services/openrouter-passage-planning-provider.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -58,16 +59,6 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const generations = new GenerationRepository(database);
   const longFormProjects = new LongFormProjectService(projects, artifacts, workflow, changeSets, passagePlans);
   const passagePlanService = new PassagePlanService(projects, artifacts, workflow, passagePlans);
-  const passageGenerationService = new PassageGenerationService(
-    projects, passagePlans, generations,
-    options.passagePlanningProvider ?? new DeterministicPassagePlanningProvider({
-      delayMs: process.env.E2E_PASSAGE_PLANNING_DELAY_MS
-        ? Number(process.env.E2E_PASSAGE_PLANNING_DELAY_MS) : undefined,
-      failFirstRequest: process.env.E2E_PASSAGE_PLANNING_FAIL_FIRST === "1",
-    }),
-  );
-  const diagnostics = new GenerationDiagnosticStore();
-  const runner = new JobRunner(new JobRepository(database));
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
     && process.env.E2E_FAKE_MODEL_PROVIDER === "1";
   const credentials = options.credentials
@@ -78,6 +69,18 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     ?? (useOfflineE2EProvider
       ? createOfflineE2EClient()
       : new OpenRouterClient({ credentialStore: credentials }));
+  const offlinePassageProvider = options.passagePlanningProvider ?? new DeterministicPassagePlanningProvider({
+    delayMs: process.env.E2E_PASSAGE_PLANNING_DELAY_MS
+      ? Number(process.env.E2E_PASSAGE_PLANNING_DELAY_MS) : undefined,
+    failFirstRequest: process.env.E2E_PASSAGE_PLANNING_FAIL_FIRST === "1",
+    malformedFirstSuccessfulRequest: process.env.E2E_PASSAGE_PLANNING_MALFORMED === "1",
+  });
+  const passageGenerationService = new PassageGenerationService(
+    projects, artifacts, passagePlans, generations,
+    [offlinePassageProvider, new OpenRouterPassagePlanningProvider(openRouter)],
+  );
+  const diagnostics = new GenerationDiagnosticStore();
+  const runner = new JobRunner(new JobRepository(database));
   void app.register(fastifyMultipart, {
     limits: { files: 1, fileSize: options.maxImportBytes ?? 25 * 1024 * 1024 },
   });

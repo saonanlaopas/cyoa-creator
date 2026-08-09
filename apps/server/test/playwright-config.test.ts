@@ -21,6 +21,7 @@ describe("createE2EWebServerEnv", () => {
       E2E_FAKE_MODEL_PROVIDER: "1",
       E2E_PASSAGE_PLANNING_DELAY_MS: "60",
       E2E_PASSAGE_PLANNING_FAIL_FIRST: "1",
+      E2E_PASSAGE_PLANNING_MALFORMED: "1",
     });
   });
 });

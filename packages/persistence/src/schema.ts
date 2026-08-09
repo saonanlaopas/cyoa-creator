@@ -350,3 +350,62 @@ END;
 
 ${generationJobParentLineageTriggerSql}
 `;
+
+export const passagePlanningCandidatesMigrationSql = `
+ALTER TABLE generation_plan_units ADD COLUMN context_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE generation_plan_units ADD COLUMN context_diagnostics_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE generation_plan_units ADD COLUMN context_fingerprint TEXT NOT NULL DEFAULT '';
+
+CREATE UNIQUE INDEX generation_unit_attempts_lineage_identity
+  ON generation_unit_attempts(project_id, id, job_id, unit_id);
+
+CREATE TABLE generation_unit_candidates (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  unit_id TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  input_fingerprint TEXT NOT NULL,
+  context_fingerprint TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  execution_policy_id TEXT NOT NULL,
+  output_schema_id TEXT NOT NULL,
+  output_schema_version INTEGER NOT NULL CHECK(output_schema_version > 0),
+  content_json TEXT NOT NULL,
+  validation_json TEXT NOT NULL,
+  usage_json TEXT,
+  repair_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, id),
+  UNIQUE(attempt_id),
+  FOREIGN KEY(project_id, plan_id, unit_id)
+    REFERENCES generation_plan_units(project_id, plan_id, unit_id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, job_id, unit_id)
+    REFERENCES generation_job_units(project_id, job_id, unit_id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, attempt_id, job_id, unit_id)
+    REFERENCES generation_unit_attempts(project_id, id, job_id, unit_id) ON DELETE CASCADE
+);
+CREATE INDEX generation_unit_candidates_job_order
+  ON generation_unit_candidates(project_id, job_id, unit_id, created_at);
+
+CREATE TRIGGER generation_unit_candidates_immutable_update
+BEFORE UPDATE ON generation_unit_candidates
+BEGIN
+  SELECT RAISE(ABORT, 'Generation unit candidates are immutable');
+END;
+
+CREATE TRIGGER generation_plan_unit_context_immutable
+BEFORE UPDATE OF context_json, context_diagnostics_json, context_fingerprint ON generation_plan_units
+BEGIN
+  SELECT RAISE(ABORT, 'Generation plan unit context is immutable');
+END;
+
+CREATE TRIGGER generation_unit_candidates_immutable_delete
+BEFORE DELETE ON generation_unit_candidates
+WHEN EXISTS (SELECT 1 FROM generation_jobs WHERE project_id = OLD.project_id AND id = OLD.job_id)
+BEGIN
+  SELECT RAISE(ABORT, 'Generation unit candidates are append-only');
+END;
+`;

@@ -68,8 +68,8 @@ export function PassageGenerationPanel(props: {
   };
 
   return <details className="generation-kernel" open>
-    <summary><strong>Bounded AI passage planning</strong> <span>Checkpoint 4A-1 · lifecycle only</span></summary>
-    <p className="field-note">Preview is local and free. This checkpoint runs only the deterministic offline lifecycle kernel; it does not generate or apply passage proposals.</p>
+    <summary><strong>Bounded AI passage planning</strong> <span>Checkpoint 4A-2 · validated unit candidates</span></summary>
+    <p className="field-note">Preview is local and free. Explicit execution generates immutable, validated unit candidates; it never changes the canonical passage plan.</p>
     {!props.approved && <p className="warning">Approve a passage-plan snapshot before planning generation.</p>}
     <div className="generation-scope-grid">
       <label>Scope<select aria-label="Generation scope" value={scopeKind} onChange={(event) => setScopeKind(event.target.value as GenerationScope["kind"])}>
@@ -121,6 +121,16 @@ export function PassageGenerationPanel(props: {
       {job.units.map((unit) => <div className="generation-unit" key={unit.id}>
         <span>Unit {unit.position + 1} · {unit.sequenceId} · {unit.passageIds.length} passages</span>
         <span>{unit.status} · attempt {unit.attemptNumber ?? 0}</span>
+        {unit.contextDiagnostics && <details>
+          <summary>Context diagnostics</summary>
+          <small>Fingerprint: <code>{unit.contextDiagnostics.contextFingerprint.slice(0, 16)}</code></small>
+          <small>{unit.contextDiagnostics.estimatedInputTokens.toLocaleString()} estimated input tokens · {unit.contextDiagnostics.requestedMaximumOutputTokens.toLocaleString()} max output tokens</small>
+          <small>Schema: {unit.contextDiagnostics.outputSchema.id}/v{unit.contextDiagnostics.outputSchema.version}</small>
+          <small>Included: {Object.entries(unit.contextDiagnostics.includedRecords).map(([name, value]) => `${name} ${value.ids.length}`).join(", ")}</small>
+          <small>Excluded: {Object.entries(unit.contextDiagnostics.excludedRecordCounts).map(([name, value]) => `${name} ${value}`).join(", ")}</small>
+        </details>}
+        {unit.usage && <small>Usage: {unit.usage.inputTokens ?? 0} input · {unit.usage.outputTokens ?? 0} output tokens</small>}
+        {unit.candidate && <small>Validated candidate retained · {unit.candidate.outputSchemaId}/v{unit.candidate.outputSchemaVersion} · repairs {unit.candidate.repair.repairsPerformed ?? 0}/{unit.candidate.repair.maximumRepairs ?? 1}</small>}
         {unit.normalizedError?.message && <span className="error">{unit.normalizedError.message}</span>}
         {unit.status === "failed" && <button disabled={busy} onClick={() => void perform(async () => {
           setJob(await retryGenerationUnit(props.projectId, job.id, unit.id));
@@ -138,6 +148,8 @@ function PlanInspection({ plan }: { plan: GenerationPlanPreview | GenerationPlan
     <span>Cost: unavailable offline</span>
     <span>Fingerprint: <code>{plan.fingerprint.slice(0, 16)}</code></span>
     <span>Snapshot: <code>{plan.snapshotId}</code></span>
-    {plan.units.map((unit) => <small key={unit.id}>{unit.id} · {unit.sequenceId} · {unit.passageIds.length} passages</small>)}
+    <span>Provider/model: {plan.providerId} · {plan.modelId}</span>
+    {plan.units[0]?.contextDiagnostics && <span>Output: {plan.units[0].contextDiagnostics.outputSchema.id}/v{plan.units[0].contextDiagnostics.outputSchema.version}</span>}
+    {plan.units.map((unit) => <small key={unit.id}>{unit.id} · {unit.sequenceId} · {unit.passageIds.length} passages · context <code>{unit.contextFingerprint?.slice(0, 12)}</code></small>)}
   </section>;
 }

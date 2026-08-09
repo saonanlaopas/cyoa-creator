@@ -15,6 +15,26 @@ export interface GenerationUnit {
   status?: "pending" | "running" | "completed" | "failed" | "cancelled";
   attemptNumber?: number;
   normalizedError?: { message?: string; retryable?: boolean } | null;
+  contextFingerprint?: string;
+  contextDiagnostics?: {
+    includedRecords: Record<string, { ids: string[]; versionIds?: string[] }>;
+    excludedRecordCounts: Record<string, number>;
+    estimatedInputTokens: number;
+    outputSchema: { id: string; version: number };
+    requestedMaximumOutputTokens: number;
+    capabilityRequirements: { structuredOutput: boolean; localValidation: boolean };
+    contextFingerprint: string;
+  };
+  usage?: { inputTokens?: number; outputTokens?: number; cost?: number | null } | null;
+  candidateReference?: string | null;
+  candidate?: {
+    id: string;
+    outputSchemaId: string;
+    outputSchemaVersion: number;
+    validation: { valid?: boolean; checks?: string[] };
+    repair: { repairsPerformed?: number; maximumRepairs?: number };
+    createdAt: string;
+  } | null;
 }
 
 export interface GenerationPlanPreview {

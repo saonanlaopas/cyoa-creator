@@ -25,6 +25,16 @@ const passages = [{
 const unit = {
   id: "unit-a", position: 0, sequenceId: "sequence-a", passageIds: ["passage-a"], passageVersionIds: ["passage-v1"],
   inputFingerprint: "input", estimatedInputTokens: 100, estimatedOutputTokens: 200,
+  contextFingerprint: "c".repeat(64),
+  contextDiagnostics: {
+    includedRecords: { passages: { ids: ["passage-a"], versionIds: ["passage-v1"] }, choices: { ids: [] } },
+    excludedRecordCounts: { passages: 1, choices: 0 },
+    estimatedInputTokens: 100,
+    outputSchema: { id: "cyoa.passage-planning-unit-candidate", version: 1 },
+    requestedMaximumOutputTokens: 200,
+    capabilityRequirements: { structuredOutput: true, localValidation: true },
+    contextFingerprint: "c".repeat(64),
+  },
 };
 const preview = {
   fingerprint: "f".repeat(64), snapshotId: "snapshot-v1", upstreamVersions: { brief: "brief-v1" },
@@ -95,5 +105,42 @@ describe("PassageGenerationPanel", () => {
     expect(requests.find((item) => item.path.endsWith("/plans/preview"))?.body).toMatchObject({
       providerId: "offline-kernel", modelId: "deterministic-fixture-v1",
     });
+  });
+
+  it("shows persisted context diagnostics, repair audit, usage, and validated candidate status", async () => {
+    const completedJob = {
+      ...job,
+      status: "completed" as const,
+      units: [{
+        ...unit,
+        status: "completed" as const,
+        attemptNumber: 1,
+        usage: { inputTokens: 120, outputTokens: 80, cost: 0 },
+        candidateReference: "candidate-a",
+        candidate: {
+          id: "candidate-a",
+          outputSchemaId: "cyoa.passage-planning-unit-candidate",
+          outputSchemaVersion: 1,
+          validation: { valid: true, checks: ["schema"] },
+          repair: { repairsPerformed: 1, maximumRepairs: 1 },
+          createdAt: "2026-08-09T00:00:00.000Z",
+        },
+      }],
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = String(input);
+      const body = path.endsWith("/plans") ? [plan] : completedJob;
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const user = userEvent.setup();
+    render(<PassageGenerationPanel
+      projectId="project-a" approved structure={structure} passages={passages} setMessage={vi.fn()}
+    />);
+    expect(await screen.findByText("Validated candidate retained · cyoa.passage-planning-unit-candidate/v1 · repairs 1/1")).toBeTruthy();
+    expect(screen.getByText("Usage: 120 input · 80 output tokens")).toBeTruthy();
+    await user.click(screen.getByText("Context diagnostics"));
+    expect(screen.getByText("Schema: cyoa.passage-planning-unit-candidate/v1")).toBeTruthy();
+    expect(screen.getByText(/Included: passages 1, choices 0/)).toBeTruthy();
+    expect(screen.getByText(/Excluded: passages 1, choices 0/)).toBeTruthy();
   });
 });
