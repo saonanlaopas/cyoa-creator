@@ -11,6 +11,7 @@ const fixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "fixtures
 const v4FixturePath = join(fixtureDirectory, "schema-v4.sqlite");
 const v5FixturePath = join(fixtureDirectory, "schema-v5.sqlite");
 const v6FixturePath = join(fixtureDirectory, "schema-v6.sqlite");
+const v7FixturePath = join(fixtureDirectory, "schema-v7.sqlite");
 const temporaryDirectories: string[] = [];
 afterEach(() => temporaryDirectories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
 const digest = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -29,7 +30,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v4FixturePath, copyPath);
     const database = openDatabase(copyPath);
 
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(7);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(8);
     expect((database.prepare("SELECT COUNT(*) AS count FROM generation_plans").get() as { count: number }).count).toBe(0);
     expect(database.prepare("SELECT name, mode FROM projects WHERE id = 'fixture-project'").get()).toEqual({
       name: "Frozen v4 project", mode: "long-form",
@@ -66,7 +67,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v5FixturePath, copyPath);
     const database = openDatabase(copyPath);
 
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(7);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(8);
     expect(database.prepare("SELECT name FROM projects WHERE id = 'fixture-project-v5'").get()).toEqual({
       name: "Frozen v5 project",
     });
@@ -131,7 +132,7 @@ describe("generation kernel migration", () => {
     expect(digest(v5FixturePath)).toBe(originalHash);
   });
 
-  it("migrates the frozen accepted schema-v6 fixture losslessly to v7 without changing its bytes", () => {
+  it("migrates the frozen accepted schema-v6 fixture losslessly to the latest schema without changing its bytes", () => {
     const originalHash = digest(v6FixturePath);
     const frozen = new DatabaseSync(v6FixturePath, { readOnly: true });
     expect((frozen.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(6);
@@ -148,7 +149,7 @@ describe("generation kernel migration", () => {
     const copyPath = join(directory, "schema-v6.sqlite");
     copyFileSync(v6FixturePath, copyPath);
     const database = openDatabase(copyPath);
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(7);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(8);
     expect({
       plans: (database.prepare("SELECT COUNT(*) AS count FROM generation_plans").get() as { count: number }).count,
       jobs: (database.prepare("SELECT COUNT(*) AS count FROM generation_jobs").get() as { count: number }).count,
@@ -179,5 +180,96 @@ describe("generation kernel migration", () => {
     expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'generation_unit_attempts_lineage_identity'").get()).toBeUndefined();
     database.close();
     expect(digest(v6FixturePath)).toBe(originalHash);
+  });
+
+  it("migrates the frozen accepted schema-v7 fixture losslessly to v8 without changing its bytes", () => {
+    const originalHash = digest(v7FixturePath);
+    const frozen = new DatabaseSync(v7FixturePath, { readOnly: true });
+    expect((frozen.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(7);
+    const before = {
+      unit: frozen.prepare(`
+        SELECT context_json, context_diagnostics_json, context_fingerprint
+        FROM generation_plan_units WHERE unit_id = 'unit-shared'
+      `).get(),
+      job: frozen.prepare(`
+        SELECT project_id, plan_id, status FROM generation_jobs
+        WHERE project_id = 'fixture-project-v7'
+      `).get(),
+      attempt: frozen.prepare(`
+        SELECT project_id, job_id, unit_id, status FROM generation_unit_attempts
+        WHERE project_id = 'fixture-project-v7'
+      `).get(),
+      candidate: frozen.prepare(`
+        SELECT project_id, plan_id, job_id, unit_id, attempt_id, content_json
+        FROM generation_unit_candidates WHERE id = 'candidate-v7'
+      `).get(),
+    };
+    expect(frozen.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'trigger' AND name = 'generation_unit_candidates_lineage_insert'
+    `).get()).toBeUndefined();
+    frozen.close();
+
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v7-migration-"));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v7.sqlite");
+    copyFileSync(v7FixturePath, copyPath);
+    const database = openDatabase(copyPath);
+
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(8);
+    expect({
+      unit: database.prepare(`
+        SELECT context_json, context_diagnostics_json, context_fingerprint
+        FROM generation_plan_units WHERE unit_id = 'unit-shared'
+      `).get(),
+      job: database.prepare(`
+        SELECT project_id, plan_id, status FROM generation_jobs
+        WHERE project_id = 'fixture-project-v7'
+      `).get(),
+      attempt: database.prepare(`
+        SELECT project_id, job_id, unit_id, status FROM generation_unit_attempts
+        WHERE project_id = 'fixture-project-v7'
+      `).get(),
+      candidate: database.prepare(`
+        SELECT project_id, plan_id, job_id, unit_id, attempt_id, content_json
+        FROM generation_unit_candidates WHERE id = 'candidate-v7'
+      `).get(),
+    }).toEqual(before);
+    expect(database.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'trigger' AND name = 'generation_unit_candidates_lineage_insert'
+    `).get()).toEqual({ name: "generation_unit_candidates_lineage_insert" });
+    database.close();
+
+    expect(digest(v7FixturePath)).toBe(originalHash);
+  });
+
+  it("rejects corrupted v7 candidate lineage transactionally without installing v8", () => {
+    const originalHash = digest(v7FixturePath);
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v7-corrupt-migration-"));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v7-corrupt.sqlite");
+    copyFileSync(v7FixturePath, copyPath);
+    const database = new DatabaseSync(copyPath);
+    database.exec("PRAGMA foreign_keys = OFF");
+    database.exec("DROP TRIGGER generation_unit_candidates_immutable_update");
+    database.prepare(`
+      UPDATE generation_unit_candidates SET plan_id = 'corrupt-plan-id'
+      WHERE id = 'candidate-v7'
+    `).run();
+
+    expect(() => migrate(database)).toThrow("invalid candidate lineage");
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(7);
+    expect(database.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'trigger' AND name = 'generation_unit_candidates_lineage_insert'
+    `).get()).toBeUndefined();
+    expect(database.prepare(`
+      SELECT plan_id FROM generation_unit_candidates WHERE id = 'candidate-v7'
+    `).get()).toEqual({ plan_id: "corrupt-plan-id" });
+    expect((database.prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 8").get() as { count: number }).count).toBe(0);
+    database.close();
+
+    expect(digest(v7FixturePath)).toBe(originalHash);
   });
 });

@@ -119,6 +119,42 @@ describe("bounded passage-planning context", () => {
     expect(() => buildPassagePlanningContext(input)).toThrow(BoundedPassagePlanningContextError);
   });
 
+  it("includes a non-adjacent direct inbound choice and its exact source passage while excluding unrelated passages", () => {
+    const input = fixture();
+    const inbound = {
+      ...input.passages[0]!,
+      versionId: "pv-inbound",
+      content: {
+        ...input.passages[0]!.content,
+        id: "passage-inbound",
+        title: "Inbound",
+        position: 4,
+        choiceIds: ["choice-inbound"],
+      },
+    };
+    input.passages.push(inbound);
+    input.structure.sequences[0]!.passageIds.push("passage-inbound");
+    input.choices.push({
+      versionId: "cv-inbound",
+      content: {
+        ...input.choices[0]!.content,
+        id: "choice-inbound",
+        sourcePassageId: "passage-inbound",
+        destinationPassageId: "passage-a",
+      },
+    });
+
+    const built = buildPassagePlanningContext(input);
+    expect(built.diagnostics.includedRecords.choices.ids).toEqual(["choice-a", "choice-inbound"]);
+    expect(built.diagnostics.includedRecords.neighboringPassages).toEqual({
+      ids: ["passage-after", "passage-before", "passage-inbound"],
+      versionIds: ["pv-after", "pv-before", "pv-inbound"],
+    });
+    expect(built.context.neighboringPassages.find((item) => item.content.id === "passage-inbound")?.versionId).toBe("pv-inbound");
+    expect(built.context.selectedPassages.some((item) => item.content.id === "passage-unrelated")).toBe(false);
+    expect(built.context.neighboringPassages.some((item) => item.content.id === "passage-unrelated")).toBe(false);
+  });
+
   it("accepts a strict shared-route candidate and enforces references and deterministic generated IDs", () => {
     const built = buildPassagePlanningContext(fixture());
     const selected = built.context.selectedPassages[0]!.content;
@@ -146,6 +182,37 @@ describe("bounded passage-planning context", () => {
     expect(() => validatePassagePlanningCandidate({
       raw: JSON.stringify(withGenerated), jobId: "job-a", unitId: "unit-a", inputFingerprint: "a".repeat(64), context: built.context,
     })).not.toThrow();
+
+    expect(() => validatePassagePlanningCandidate({
+      raw: JSON.stringify({ ...base, passages: [{ ...selected, choiceIds: [] }], choices: [] }),
+      jobId: "job-a", unitId: "unit-a", inputFingerprint: "a".repeat(64), context: built.context,
+    })).toThrow("must have an outgoing choice");
+
+    expect(() => validatePassagePlanningCandidate({
+      raw: JSON.stringify({ ...base, passages: [{ ...selected, endingId: "ending-a" }] }),
+      jobId: "job-a", unitId: "unit-a", inputFingerprint: "a".repeat(64), context: built.context,
+    })).toThrow("cannot reference an ending unless it is terminal");
+
+    expect(() => validatePassagePlanningCandidate({
+      raw: JSON.stringify({
+        ...base,
+        choices: [{ ...base.choices[0]!, sourcePassageId: "passage-after" }],
+      }),
+      jobId: "job-a", unitId: "unit-a", inputFingerprint: "a".repeat(64), context: built.context,
+    })).toThrow("does not originate from passage");
+
+    expect(() => validatePassagePlanningCandidate({
+      raw: JSON.stringify({ ...withGenerated, passages: [selected] }),
+      jobId: "job-a", unitId: "unit-a", inputFingerprint: "a".repeat(64), context: built.context,
+    })).toThrow("is not represented in source passage");
+
+    expect(() => validatePassagePlanningCandidate({
+      raw: JSON.stringify({
+        ...base,
+        choices: [{ ...base.choices[0]!, sourceDecisionIds: ["decision-unauthorized"] }],
+      }),
+      jobId: "job-a", unitId: "unit-a", inputFingerprint: "a".repeat(64), context: built.context,
+    })).toThrow("Unauthorized source decision");
 
     const invalid = { ...base, passages: [{ ...selected, characterIds: ["character-unrelated"] }] };
     expect(() => validatePassagePlanningCandidate({

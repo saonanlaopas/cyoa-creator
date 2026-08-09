@@ -94,13 +94,14 @@ export function buildPassagePlanningContext(input: PassagePlanningContextInput):
       if (candidate && !selectedSet.has(candidate)) neighborIds.add(candidate);
     }
   }
-  const authorizedPassageIds = new Set([...selectedSet, ...neighborIds]);
   const connectedChoices = input.choices.filter((item) =>
     selectedSet.has(item.content.sourcePassageId)
-    || (selectedSet.has(item.content.destinationPassageId) && authorizedPassageIds.has(item.content.sourcePassageId)));
+    || selectedSet.has(item.content.destinationPassageId));
   for (const choice of connectedChoices) {
     for (const passageId of [choice.content.sourcePassageId, choice.content.destinationPassageId]) {
-      if (passageById.has(passageId) && !selectedSet.has(passageId)) neighborIds.add(passageId);
+      if (selectedSet.has(passageId)) continue;
+      required(passageById.get(passageId), `Missing exact directly connected passage ${passageId}`);
+      neighborIds.add(passageId);
     }
   }
   const neighboringPassages = [...neighborIds].sort().map((id) => required(passageById.get(id), `Missing exact neighboring passage ${id}`));

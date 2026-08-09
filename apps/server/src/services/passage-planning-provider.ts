@@ -13,6 +13,7 @@ export interface DeterministicPassagePlanningProviderOptions {
   malformedFirstOutputForUnitIds?: string[];
   malformedFirstSuccessfulRequest?: boolean;
   invalidRepairForUnitIds?: string[];
+  oversizedRepairOutputForUnitIds?: string[];
   oversizedOutputForUnitIds?: string[];
 }
 
@@ -50,6 +51,10 @@ export class DeterministicPassagePlanningProvider implements PassagePlanningProv
       output = "{ malformed";
     } else if (request.mode === "repair" && this.options.invalidRepairForUnitIds?.includes(request.unitId)) {
       output = "{ still-malformed";
+    } else if (request.mode === "repair" && this.options.oversizedRepairOutputForUnitIds?.includes(request.unitId)) {
+      const candidate = candidateFor(request, this.contexts.get(request.unitId));
+      candidate.passages[0] = { ...candidate.passages[0]!, summary: "x".repeat(6_000) };
+      output = JSON.stringify(candidate);
     } else {
       output = JSON.stringify(candidateFor(request, this.contexts.get(request.unitId)));
     }

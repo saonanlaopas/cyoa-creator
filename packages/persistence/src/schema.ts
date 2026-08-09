@@ -409,3 +409,24 @@ BEGIN
   SELECT RAISE(ABORT, 'Generation unit candidates are append-only');
 END;
 `;
+
+export const generationCandidateLineageMigrationSql = `
+CREATE TRIGGER generation_unit_candidates_lineage_insert
+BEFORE INSERT ON generation_unit_candidates
+FOR EACH ROW
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM generation_job_units units
+  JOIN generation_jobs jobs
+    ON jobs.project_id = units.project_id
+    AND jobs.id = units.job_id
+    AND jobs.plan_id = units.plan_id
+  WHERE units.project_id = NEW.project_id
+    AND units.job_id = NEW.job_id
+    AND units.plan_id = NEW.plan_id
+    AND units.unit_id = NEW.unit_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Generation unit candidate lineage mismatch');
+END;
+`;

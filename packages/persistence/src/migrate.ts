@@ -1,5 +1,6 @@
 import type { StoryDatabase } from "./database.js";
 import {
+  generationCandidateLineageMigrationSql,
   generationJobParentLineageTriggerSql,
   generationKernelMigrationSql,
   generationLineageMigrationSql,
@@ -91,6 +92,23 @@ export function migrate(database: StoryDatabase): void {
       throw error;
     }
   }
+  const generationCandidateLineageApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 8",
+  ).get();
+  if (!generationCandidateLineageApplied) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      assertValidGenerationCandidateLineage(database);
+      database.exec(generationCandidateLineageMigrationSql);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (8, ?)",
+      ).run(new Date().toISOString());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
 }
 
 function assertValidGenerationJobUnitLineage(database: StoryDatabase): void {
@@ -105,6 +123,25 @@ function assertValidGenerationJobUnitLineage(database: StoryDatabase): void {
     LIMIT 1
   `).get();
   if (invalid) throw new Error("Cannot migrate generation data with invalid job-unit lineage");
+}
+
+function assertValidGenerationCandidateLineage(database: StoryDatabase): void {
+  const invalid = database.prepare(`
+    SELECT candidates.project_id, candidates.job_id, candidates.plan_id, candidates.unit_id
+    FROM generation_unit_candidates candidates
+    LEFT JOIN generation_job_units units
+      ON units.project_id = candidates.project_id
+      AND units.job_id = candidates.job_id
+      AND units.plan_id = candidates.plan_id
+      AND units.unit_id = candidates.unit_id
+    LEFT JOIN generation_jobs jobs
+      ON jobs.project_id = candidates.project_id
+      AND jobs.id = candidates.job_id
+      AND jobs.plan_id = candidates.plan_id
+    WHERE units.job_id IS NULL OR jobs.id IS NULL
+    LIMIT 1
+  `).get();
+  if (invalid) throw new Error("Cannot migrate generation data with invalid candidate lineage");
 }
 
 function hasTrigger(database: StoryDatabase, name: string): boolean {

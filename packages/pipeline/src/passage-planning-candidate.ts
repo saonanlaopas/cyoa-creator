@@ -101,7 +101,12 @@ export function validatePassagePlanningCandidate(input: CandidateValidationInput
     ...(input.context.upstream.mechanics.resources ?? []).map((item) => item.key),
   ]);
   const contextChoiceIds = new Set(input.context.choices.map((item) => item.content.id));
+  const contextChoiceById = new Map(input.context.choices.map((item) => [item.content.id, item.content]));
   const contextThreadIds = new Set(input.context.threads.map((item) => item.content.id));
+  const authorizedDecisionIds = new Set([
+    ...input.context.structure.sequence.requiredDecisionIds,
+    ...(input.context.upstream.routes.decisionPoints ?? []).map((item) => item.id),
+  ]);
   const generated = new Map(candidate.generatedIds.map((item) => [`${item.entityKind}:${item.logicalKey}`, item.id]));
   if (generated.size !== candidate.generatedIds.length) issues.push("Generated logical identities must be unique");
   for (const item of candidate.generatedIds) {
@@ -110,6 +115,9 @@ export function validatePassagePlanningCandidate(input: CandidateValidationInput
     }
   }
   const choiceIds = new Set(candidate.choices.map((item) => item.id));
+  const effectiveChoiceById = new Map(contextChoiceById);
+  candidate.choices.forEach((item) => effectiveChoiceById.set(item.id, item));
+  const candidatePassageById = new Map(candidate.passages.map((item) => [item.id, item]));
   const threadIds = new Set(candidate.threads.map((item) => item.id));
   duplicateIssues(candidate.passages.map((item) => item.id), "passage", issues);
   duplicateIssues([...choiceIds], "choice", issues);
@@ -125,9 +133,15 @@ export function validatePassagePlanningCandidate(input: CandidateValidationInput
     [...passage.setupThreadIds, ...passage.payoffThreadIds].forEach((id) => {
       if (!threadIds.has(id) && !contextThreadIds.has(id)) issues.push(`Unknown thread ${id}`);
     });
-    passage.choiceIds.forEach((id) => { if (!choiceIds.has(id) && !contextChoiceIds.has(id)) issues.push(`Unknown choice ${id}`); });
+    passage.choiceIds.forEach((id) => {
+      const choice = effectiveChoiceById.get(id);
+      if (!choice) issues.push(`Unknown choice ${id}`);
+      else if (choice.sourcePassageId !== passage.id) issues.push(`Choice ${id} does not originate from passage ${passage.id}`);
+    });
+    if (!passage.terminal && passage.choiceIds.length === 0) issues.push(`Nonterminal passage ${passage.id} must have an outgoing choice`);
     if (passage.terminal && passage.choiceIds.length) issues.push(`Terminal passage ${passage.id} cannot have choices`);
     if (passage.terminal && !passage.endingId) issues.push(`Terminal passage ${passage.id} must reference an ending`);
+    if (!passage.terminal && passage.endingId) issues.push(`Passage ${passage.id} cannot reference an ending unless it is terminal`);
     if (passage.endingId && !endingIds.has(passage.endingId)) issues.push(`Unknown ending ${passage.endingId}`);
   }
   for (const choice of candidate.choices) {
@@ -135,6 +149,11 @@ export function validatePassagePlanningCandidate(input: CandidateValidationInput
     if (!allowedPassageIds.has(choice.destinationPassageId)) issues.push(`Choice ${choice.id} destination is not an authorized neighbor`);
     choice.effects.forEach((effect) => { if (!mechanicKeys.has(effect.mechanicKey)) issues.push(`Unknown mechanic key ${effect.mechanicKey}`); });
     validateCondition(choice.condition, mechanicKeys, allowedPassageIds, issues, 1);
+    choice.sourceDecisionIds.forEach((id) => { if (!authorizedDecisionIds.has(id)) issues.push(`Unauthorized source decision ${id}`); });
+    const governedSource = candidatePassageById.get(choice.sourcePassageId);
+    if (governedSource && !governedSource.choiceIds.includes(choice.id)) {
+      issues.push(`Choice ${choice.id} is not represented in source passage ${choice.sourcePassageId}`);
+    }
     if (!contextChoiceIds.has(choice.id) && !candidate.generatedIds.some((item) => item.entityKind === "choice" && item.id === choice.id)) {
       issues.push(`New choice ${choice.id} lacks deterministic generated-ID provenance`);
     }

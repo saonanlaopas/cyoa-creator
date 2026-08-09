@@ -243,6 +243,10 @@ export class PassageGenerationService {
             malformedBytes: Buffer.byteLength(output, "utf8"),
             malformedSha256: createHash("sha256").update(output).digest("hex"),
           });
+          const repairMaximumOutputTokens = Math.min(
+            baseRequest.maximumOutputTokens,
+            passagePlanningCandidateLimits.maximumRepairOutputTokens,
+          );
           const repaired = await provider.generate({
             ...baseRequest,
             mode: "repair",
@@ -253,7 +257,7 @@ export class PassageGenerationService {
               unitId: unit.id,
               inputFingerprint: unit.inputFingerprint,
             },
-            maximumOutputTokens: Math.min(baseRequest.maximumOutputTokens, passagePlanningCandidateLimits.maximumRepairOutputTokens),
+            maximumOutputTokens: repairMaximumOutputTokens,
             repair: { malformedOutput: output, validationIssues: issues.slice(0, 50) },
           });
           repairs += 1 + (repaired.providerRepairCount ?? 0);
@@ -268,7 +272,7 @@ export class PassageGenerationService {
           output = repaired.output;
           validated = validatePassagePlanningCandidate({
             raw: output, jobId, unitId: unit.id, inputFingerprint: unit.inputFingerprint, context,
-            maximumOutputTokens: passagePlanningCandidateLimits.maximumRepairOutputTokens,
+            maximumOutputTokens: repairMaximumOutputTokens,
           });
         }
         if (controller.signal.aborted) break;

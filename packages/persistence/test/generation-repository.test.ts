@@ -245,6 +245,38 @@ describe("GenerationRepository", () => {
     fixture.database.close();
   });
 
+  it("rejects direct SQL candidate lineage assembled from two plans sharing a unit ID", () => {
+    const fixture = setup();
+    const planA = fixture.generations.createPlan(planInput(
+      fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId,
+    ));
+    const planBInput = planInput(
+      fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId,
+    );
+    planBInput.fingerprint = "candidate-plan-b-fingerprint";
+    const planB = fixture.generations.createPlan(planBInput);
+    fixture.generations.authorize(fixture.project.id, planB.id, planB.fingerprint);
+    fixture.generations.startJob(fixture.project.id, planB.jobId);
+    const attemptB = fixture.generations.startUnit(fixture.project.id, planB.jobId, "unit-a");
+
+    expect(() => fixture.database.prepare(`INSERT INTO generation_unit_candidates (
+      id, project_id, plan_id, job_id, unit_id, attempt_id, input_fingerprint,
+      context_fingerprint, provider_id, model_id, execution_policy_id,
+      output_schema_id, output_schema_version, content_json, validation_json,
+      usage_json, repair_json, created_at
+    ) VALUES ('cross-plan-candidate', ?, ?, ?, 'unit-a', ?, 'input-a', 'context-a',
+      'offline-kernel', 'fixture-v1', 'policy-v1', 'schema', 1, '{}', '{}', NULL, '{}', ?)`)
+      .run(fixture.project.id, planA.id, planB.jobId, attemptB.attemptId, "2026-08-10T00:00:00.000Z"))
+      .toThrow("Generation unit candidate lineage mismatch");
+    expect((fixture.database.prepare(`
+      SELECT COUNT(*) AS count FROM generation_unit_candidates WHERE id = 'cross-plan-candidate'
+    `).get() as { count: number }).count).toBe(0);
+    expect(fixture.generations.getJob(fixture.project.id, planB.jobId)?.units[0]).toMatchObject({
+      id: "unit-a", status: "running", candidateReference: null,
+    });
+    fixture.database.close();
+  });
+
   it("persists immutable candidates atomically with exact provenance and rejects cross-project ownership", () => {
     const fixture = setup();
     const input = planInput(fixture.project.id, fixture.snapshot.id, fixture.snapshot.structureVersionId);

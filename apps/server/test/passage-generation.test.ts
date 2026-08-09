@@ -212,6 +212,41 @@ describe("passage generation kernel API", () => {
     await app.close();
   });
 
+  it("rejects repaired output against the unit's smaller requested output ceiling", async () => {
+    const malformed: string[] = [];
+    const oversizedRepair: string[] = [];
+    const provider = new DeterministicPassagePlanningProvider({
+      malformedFirstOutputForUnitIds: malformed,
+      oversizedRepairOutputForUnitIds: oversizedRepair,
+    });
+    const app = buildApp({ passagePlanningProvider: provider });
+    const { projectId } = await approvedPassagePlan(app, 2);
+    const before = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    const terminalPassage = before.passages[1].content;
+    const payload = {
+      scope: { kind: "route-segment", routeId: terminalPassage.routeIds[0], passageIds: [terminalPassage.id] },
+      providerId: provider.id,
+      modelId: "fixture-v1",
+    };
+    const created = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans`, payload })).json();
+    malformed.push(created.units[0].id);
+    oversizedRepair.push(created.units[0].id);
+    expect(created.units[0].estimatedOutputTokens).toBe(600);
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans/${created.id}/authorize`, payload: { fingerprint: created.fingerprint } });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}/start` });
+    const failed = await waitForTerminal(app, projectId, created.jobId);
+
+    expect(failed).toMatchObject({ status: "failed", units: [{ status: "failed", candidate: null }] });
+    expect(failed.units[0].normalizedError.validationIssues).toContain("Candidate response exceeds the serialized-size limit");
+    expect(provider.calls.map((call) => call.mode)).toEqual(["generate", "repair"]);
+    expect(provider.calls[1]!.maximumOutputTokens).toBe(600);
+    const after = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan` })).json();
+    expect(after.structure).toEqual(before.structure);
+    expect(after.passages).toEqual(before.passages);
+    expect(after.snapshots).toEqual(before.snapshots);
+    await app.close();
+  });
+
   it("cancels scheduling and rejects cross-project access", async () => {
     const provider = new DeterministicPassagePlanningProvider({ delayMs: 100 });
     const app = buildApp({ passagePlanningProvider: provider });
