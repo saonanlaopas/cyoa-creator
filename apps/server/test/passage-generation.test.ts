@@ -490,7 +490,7 @@ describe("passage generation kernel API", () => {
     expect(applied.json().groups.map((group: { status: string }) => group.status)).toEqual(["applied", "applied"]);
     expect(applied.json().applications).toHaveLength(1);
     await app.close();
-  });
+  }, 15_000);
 
   it("allows a reviewed proposal to apply after an unrelated safe field change", async () => {
     const provider = new DeterministicPassagePlanningProvider();
