@@ -249,7 +249,7 @@ Demonstrate that routes, choices, mechanics, relationships, and endings material
 
 ### Foundation 4A: bounded AI passage planning (formerly Production 1)
 
-**Implementation status:** Complete and acceptance-tested offline on 2026-08-10. Checkpoint 4A-1 added immutable generation plans, authorization, bounded jobs, retry, cancellation, and recovery. Checkpoint 4A-2 added exact persisted context packs, structured candidates, bounded repair, relational validation, and immutable provenance. Checkpoint 4A-3 adds deterministic consolidation, exact-base stable-ID operations, dependency-safe proposal groups, local validation previews, explicit review, transactional selective application, ordinary passage-plan versions, and immutable audit history. No 4A-3 operation calls a provider, and Foundation 4B has not started.
+**Implementation status:** Complete, externally accepted, and acceptance-tested offline on 2026-08-10 at `9a3316a8efbbd758f6a9d46e1ce0d5fecbf82713`. Checkpoint 4A-1 added immutable generation plans, authorization, bounded jobs, retry, cancellation, and recovery. Checkpoint 4A-2 added exact persisted context packs, structured candidates, bounded repair, relational validation, and immutable provenance. Checkpoint 4A-3 added deterministic consolidation, exact-base stable-ID operations, dependency-safe proposal groups, local validation previews, explicit review, transactional selective application, ordinary passage-plan versions, and immutable audit history. No 4A-3 operation calls a provider, and Foundation 4B has not started.
 
 #### Goal
 
@@ -287,22 +287,58 @@ Use AI to propose passage-plan work in small, resumable, inspectable units.
 
 Draft prose in bounded batches while keeping passage specifications and accepted prose independently versioned.
 
-#### Work
+#### Checkpoint 4B-1: draft architecture and lifecycle
 
-1. Add passage-draft versions linked to exact passage-plan versions.
-2. Generate one scene or approximately 3-8 connected passages per unit.
-3. Build drafting context from:
+This checkpoint establishes the durable corpus and job architecture only. It does not generate prose.
+
+1. Add passage-draft entities, immutable draft versions, and current heads.
+2. Link each draft version to its exact `basedOnPassagePlanVersionId` and exact approved upstream dependency provenance.
+3. Add explicit draft statuses and lifecycle transitions for candidate, accepted, reviewed, locked, and stale drafts.
+4. Define deterministic staleness rules for passage-plan changes and required upstream-context changes.
+5. Add bounded drafting plans, jobs, and units with unit/context budgets and diagnostics.
+6. Define retry, cancellation, restart, and recovery behavior for interrupted drafting work.
+7. Add word-count bookkeeping for the durable draft corpus.
+
+**Recommended engineering model:** Sol High.
+
+#### Checkpoint 4B-2: bounded prose generation
+
+1. Generate one passage or approximately 3-8 connected passages per unit.
+2. Build bounded drafting context from:
    - exact passage specifications;
    - incoming/outgoing state requirements;
-   - relevant bible records;
+   - relevant story-bible records;
+   - route and ending obligations;
    - nearby accepted prose;
-   - style guidance;
-   - route and ending obligations.
-4. Add individual and batch acceptance.
-5. Add accepted-text locking.
-6. Mark drafts stale when their passage plan or required upstream context changes.
-7. Add prose word-count and completion reporting.
-8. Add scoped revision proposals rather than complete-corpus rewrites.
+   - style and prose guidance.
+3. Bound provider input and output, and persist generated prose as immutable draft candidates.
+4. Add a deterministic offline prose provider and a stubbed real-provider/OpenRouter HTTP boundary.
+5. Add bounded retry and repair where appropriate, plus cancellation and recovery.
+6. Never silently replace accepted prose with generated prose.
+
+No live or paid provider calls are required for engineering or testing.
+
+**Recommended engineering model:** Sol High or Terra High.
+
+#### Checkpoint 4B-3: draft review and acceptance
+
+1. Add a readable prose-review interface.
+2. Support individual passage acceptance and dependency-safe batch acceptance where appropriate.
+3. Produce immutable accepted draft versions and support accepted-text locking.
+4. Add draft history, comparison, and restore.
+5. Show stale drafts and accepted, drafted, and remaining word counts, plus completion reporting.
+6. Support explicit regeneration or replacement of unaccepted draft candidates.
+7. Support drafting-specific scoped replacement only through explicit review.
+
+Foundation 4B-3 does not include the generalized Foundation 6 revision workflow. Foundation 6 remains responsible for repairs generated from validation, simulation, playtesting, or narrative-review findings across passages, choices, mechanics, routes, endings, and other project artifacts.
+
+**Recommended engineering model:** Sol High.
+
+#### Implementation sequence
+
+Implement the checkpoints sequentially: `4B-1 -> 4B-2 -> 4B-3`. Each checkpoint must be committed, pushed, verified in CI, externally reviewed, fixed if needed, and recorded at an accepted SHA before the next checkpoint begins.
+
+Do not implement all of Foundation 4B in one commit.
 
 #### Acceptance gate
 
