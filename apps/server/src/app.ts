@@ -1,7 +1,7 @@
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, GenerationRepository, JobRepository, openDatabase, PassagePlanRepository, PassageProposalRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, openDatabase, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { JobRunner, type PassagePlanningProvider } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
@@ -34,6 +34,10 @@ import { DeterministicPassagePlanningProvider } from "./services/passage-plannin
 import { OpenRouterPassagePlanningProvider } from "./services/openrouter-passage-planning-provider.js";
 import { PassageProposalService } from "./services/passage-proposal-service.js";
 import { registerPassageProposalRoutes } from "./routes/passage-proposals.js";
+import { PassageDraftService } from "./services/passage-draft-service.js";
+import { PassageDraftingService } from "./services/passage-drafting-service.js";
+import { registerPassageDraftRoutes } from "./routes/passage-drafts.js";
+import { registerPassageDraftingRoutes } from "./routes/passage-drafting.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -57,11 +61,20 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const workflow = new WorkflowRepository(database);
   const conversations = new ConversationRepository(database);
   const changeSets = new ChangeSetRepository(database);
-  const passagePlans = new PassagePlanRepository(database);
+  const passageDrafts = new PassageDraftRepository(database);
+  const passagePlans = new PassagePlanRepository(
+    database,
+    (mutation) => passageDrafts.handlePassagePlanMutationInTransaction(mutation),
+  );
   const generations = new GenerationRepository(database);
+  const drafting = new DraftingRepository(database);
   const passageProposals = new PassageProposalRepository(database);
-  const longFormProjects = new LongFormProjectService(projects, artifacts, workflow, changeSets, passagePlans);
+  const longFormProjects = new LongFormProjectService(
+    projects, artifacts, workflow, changeSets, passagePlans, passageDrafts,
+  );
   const passagePlanService = new PassagePlanService(projects, artifacts, workflow, passagePlans);
+  const passageDraftService = new PassageDraftService(projects, workflow, passagePlans, passageDrafts);
+  const passageDraftingService = new PassageDraftingService(projects, passagePlans, drafting);
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
     && process.env.E2E_FAKE_MODEL_PROVIDER === "1";
   const credentials = options.credentials
@@ -106,6 +119,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerPassagePlanRoutes(app, passagePlanService);
   registerPassageGenerationRoutes(app, passageGenerationService);
   registerPassageProposalRoutes(app, passageProposalService);
+  registerPassageDraftRoutes(app, passageDraftService);
+  registerPassageDraftingRoutes(app, passageDraftingService);
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024, workflow);

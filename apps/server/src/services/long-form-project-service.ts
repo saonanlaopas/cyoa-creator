@@ -27,6 +27,7 @@ import type {
   ArtifactVersion,
   ChangeSetRepository,
   PassagePlanRepository,
+  PassageDraftRepository,
   ProjectRepository,
   WorkflowRepository,
 } from "@story-to-cyoa/persistence";
@@ -62,6 +63,7 @@ export class LongFormProjectService {
     private readonly workflow: WorkflowRepository,
     private readonly changeSets?: ChangeSetRepository,
     private readonly passagePlans?: PassagePlanRepository,
+    private readonly passageDrafts?: PassageDraftRepository,
   ) {}
 
   project(projectId: string) {
@@ -184,7 +186,9 @@ export class LongFormProjectService {
       Object.assign(error, { findings });
       throw error;
     }
-    return this.workflow.approve(projectId, artifactId, versionId);
+    const approved = this.workflow.approve(projectId, artifactId, versionId);
+    this.passageDrafts?.markStaleForUpstreamVersion(projectId, artifactId, versionId);
+    return approved;
   }
 
   restoreArtifact(projectId: string, artifactId: string, versionId: string) {

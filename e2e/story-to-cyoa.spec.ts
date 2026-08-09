@@ -287,6 +287,71 @@ test("long-form passage workspace renders, filters, and jumps within a 300-passa
   await expect(page.locator(".passage-editor input").first()).toHaveValue("Passage 299");
 });
 
+test("manual passage drafts persist, stale selectively, and stay separate in a 300-passage workspace", async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const projectId = await seedLargePassagePlan(request);
+  await approveCurrentPassagePlan(request, projectId);
+  const observedRequests: string[] = [];
+  page.on("request", (entry) => observedRequests.push(entry.url()));
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "passage-plan");
+  }, projectId);
+  await page.goto("/#long-form");
+
+  await expect(page.getByRole("heading", { name: "Passage draft" })).toBeVisible();
+  await page.getByLabel("Prose Markdown").fill("Fanawë enters 東京. This private marker stays in draft storage only.");
+  await page.getByLabel("Author note").fill("Manual browser fixture");
+  await page.getByRole("button", { name: "Save new candidate version" }).click();
+  await expect(page.getByText(/Manual draft saved as a new immutable candidate version/)).toBeVisible();
+  await expect(page.getByText(/11 \/ 500/)).toBeVisible();
+  await expect(page.getByText("Draft history (1)")).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByLabel("Prose Markdown")).toHaveValue("Fanawë enters 東京. This private marker stays in draft storage only.");
+  await expect(page.getByText("Draft history (1)")).toBeVisible();
+  await expect(page.locator(".draft-status-badges").getByText("candidate", { exact: true })).toBeVisible();
+
+  let passagePlanResponse = await request.get(`/api/long-form/projects/${projectId}/passage-plan`);
+  const passagePlanBody = await passagePlanResponse.text();
+  expect(passagePlanBody).not.toContain("private marker stays in draft storage");
+  const passagePlan = JSON.parse(passagePlanBody);
+  expect(passagePlan.passages).toHaveLength(300);
+  const summary = await (await request.get(`/api/long-form/projects/${projectId}/drafts/summary`)).json();
+  expect(summary).toMatchObject({ passageCount: 300, currentDraftCount: 1, acceptedDraftCount: 0 });
+  expect(JSON.stringify(summary)).not.toContain("Fanawë");
+
+  const unrelated = passagePlan.passages.find((item: { entityId: string }) => item.entityId === "passage-001");
+  const unrelatedSave = await request.put(
+    `/api/long-form/projects/${projectId}/passage-plan/entities/passage/passage-001`,
+    { data: { ...unrelated.content, purpose: "An unrelated material change" } },
+  );
+  await expect(unrelatedSave).toBeOK();
+  await page.reload();
+  await expect(page.getByText("This draft is stale.")).toHaveCount(0);
+  await expect(page.getByLabel("Prose Markdown")).toHaveValue("Fanawë enters 東京. This private marker stays in draft storage only.");
+
+  passagePlanResponse = await request.get(`/api/long-form/projects/${projectId}/passage-plan`);
+  const current = await passagePlanResponse.json();
+  const selected = current.passages.find((item: { entityId: string }) => item.entityId === "passage-000");
+  const selectedSave = await request.put(
+    `/api/long-form/projects/${projectId}/passage-plan/entities/passage/passage-000`,
+    { data: { ...selected.content, wordTarget: 650 } },
+  );
+  await expect(selectedSave).toBeOK();
+  await page.reload();
+  await expect(page.getByText("This draft is stale.")).toBeVisible();
+  await expect(page.getByText(/passage-plan-material-change: passage passage-000 \(wordTarget\)/)).toBeVisible();
+  await expect(page.getByLabel("Prose Markdown")).toHaveValue("Fanawë enters 東京. This private marker stays in draft storage only.");
+
+  await page.getByPlaceholder("Search titles, IDs, summaries, and tags").fill("passage-299");
+  await expect(page.getByText("1 of 300 passages shown", { exact: true })).toBeVisible();
+  await page.getByPlaceholder("Jump to stable ID").fill("passage-299");
+  await page.getByRole("button", { name: "Jump" }).click();
+  await expect(page.locator(".passage-editor input").first()).toHaveValue("Passage 299");
+  expect(observedRequests.some((url) => /openrouter|passage-generation\/jobs\/.*\/start/i.test(url))).toBe(false);
+});
+
 test("bounded passage generation previews, authorizes, retries, cancels, and reopens offline", async ({ page, request }) => {
   test.setTimeout(180_000);
   const projectId = await seedLargePassagePlan(request);

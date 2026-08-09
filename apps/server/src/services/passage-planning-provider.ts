@@ -17,6 +17,7 @@ export interface DeterministicPassagePlanningProviderOptions {
   oversizedOutputForUnitIds?: string[];
   unchangedOutputForUnitIds?: string[];
   uncontrolledCycleForUnitIds?: string[];
+  materialPurposeChangeForUnitIds?: string[];
 }
 
 export class DeterministicPassagePlanningProvider implements PassagePlanningProvider {
@@ -62,6 +63,8 @@ export class DeterministicPassagePlanningProvider implements PassagePlanningProv
         unchanged: this.options.unchangedOutputForUnitIds?.includes(request.unitId) ?? false,
         uncontrolledCycle: request.modelId === "deterministic-fixture-uncontrolled-cycle-v1"
           || (this.options.uncontrolledCycleForUnitIds?.includes(request.unitId) ?? false),
+        materialPurposeChange: request.modelId === "deterministic-fixture-material-purpose-v1"
+          || (this.options.materialPurposeChangeForUnitIds?.includes(request.unitId) ?? false),
       }));
     }
     return {
@@ -78,7 +81,7 @@ export class DeterministicPassagePlanningProvider implements PassagePlanningProv
 function candidateFor(
   request: PassagePlanningProviderRequest,
   context = request.boundedContext as PassagePlanningContextPack,
-  options: { unchanged?: boolean; uncontrolledCycle?: boolean } = {},
+  options: { unchanged?: boolean; uncontrolledCycle?: boolean; materialPurposeChange?: boolean } = {},
 ) {
   const selectedIds = new Set(context.selectedPassages.map((item) => item.content.id));
   const choices = context.choices.filter((item) => selectedIds.has(item.content.sourcePassageId)).map((item) => ({
@@ -94,6 +97,7 @@ function candidateFor(
     passages: context.selectedPassages.map((item) => options.unchanged ? item.content : ({
       ...item.content,
       planningStatus: item.content.planningStatus === "locked" ? "locked" as const : "reviewed" as const,
+      ...(options.materialPurposeChange ? { purpose: `${item.content.purpose} (proposal revised)` } : {}),
     })),
     choices,
     threads: context.threads.map((item) => item.content),

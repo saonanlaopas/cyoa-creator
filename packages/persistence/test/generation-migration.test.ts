@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrate, openDatabase } from "../src/index.js";
+import { migrate, openDatabase, passageDraftArchitectureMigrationSql } from "../src/index.js";
 
 const fixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const v4FixturePath = join(fixtureDirectory, "schema-v4.sqlite");
@@ -13,6 +13,7 @@ const v5FixturePath = join(fixtureDirectory, "schema-v5.sqlite");
 const v6FixturePath = join(fixtureDirectory, "schema-v6.sqlite");
 const v7FixturePath = join(fixtureDirectory, "schema-v7.sqlite");
 const v8FixturePath = join(fixtureDirectory, "schema-v8.sqlite");
+const v9FixturePath = join(fixtureDirectory, "schema-v9.sqlite");
 const temporaryDirectories: string[] = [];
 afterEach(() => temporaryDirectories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
 const digest = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -31,7 +32,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v4FixturePath, copyPath);
     const database = openDatabase(copyPath);
 
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(9);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(10);
     expect((database.prepare("SELECT COUNT(*) AS count FROM generation_plans").get() as { count: number }).count).toBe(0);
     expect(database.prepare("SELECT name, mode FROM projects WHERE id = 'fixture-project'").get()).toEqual({
       name: "Frozen v4 project", mode: "long-form",
@@ -68,7 +69,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v5FixturePath, copyPath);
     const database = openDatabase(copyPath);
 
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(9);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(10);
     expect(database.prepare("SELECT name FROM projects WHERE id = 'fixture-project-v5'").get()).toEqual({
       name: "Frozen v5 project",
     });
@@ -150,7 +151,7 @@ describe("generation kernel migration", () => {
     const copyPath = join(directory, "schema-v6.sqlite");
     copyFileSync(v6FixturePath, copyPath);
     const database = openDatabase(copyPath);
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(9);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(10);
     expect({
       plans: (database.prepare("SELECT COUNT(*) AS count FROM generation_plans").get() as { count: number }).count,
       jobs: (database.prepare("SELECT COUNT(*) AS count FROM generation_jobs").get() as { count: number }).count,
@@ -217,7 +218,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v7FixturePath, copyPath);
     const database = openDatabase(copyPath);
 
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(9);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(10);
     expect({
       unit: database.prepare(`
         SELECT context_json, context_diagnostics_json, context_fingerprint
@@ -294,7 +295,7 @@ describe("generation kernel migration", () => {
     const copyPath = join(directory, "schema-v8.sqlite");
     copyFileSync(v8FixturePath, copyPath);
     const database = openDatabase(copyPath);
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(9);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(10);
     expect({
       project: database.prepare("SELECT id, name, mode FROM projects WHERE id = 'fixture-project-v7'").get(),
       snapshot: database.prepare("SELECT id, status, structure_version_id FROM passage_plan_snapshots LIMIT 1").get(),
@@ -344,5 +345,107 @@ describe("generation kernel migration", () => {
     expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'passage_proposal_sets_lineage_insert'").get()).toBeUndefined();
     database.close();
     expect(digest(v8FixturePath)).toBe(originalHash);
+  });
+
+  it("migrates the frozen representative schema-v9 fixture losslessly to v10 without changing its bytes", () => {
+    const originalHash = digest(v9FixturePath);
+    const frozen = new DatabaseSync(v9FixturePath, { readOnly: true });
+    expect((frozen.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(9);
+    const before = {
+      project: frozen.prepare("SELECT id, name, mode FROM projects WHERE id = 'fixture-project-v7'").get(),
+      snapshot: frozen.prepare("SELECT id, status, structure_version_id FROM passage_plan_snapshots LIMIT 1").get(),
+      generationPlan: frozen.prepare("SELECT id, fingerprint, authorization_state FROM generation_plans LIMIT 1").get(),
+      candidate: frozen.prepare("SELECT id, plan_id, job_id, unit_id, attempt_id FROM generation_unit_candidates LIMIT 1").get(),
+      proposal: frozen.prepare("SELECT id, generation_plan_id, generation_job_id, status FROM passage_proposal_sets WHERE id = 'proposal-v9'").get(),
+      group: frozen.prepare("SELECT proposal_id, id, generation_unit_id, status FROM passage_proposal_groups WHERE id = 'group-v9'").get(),
+      operation: frozen.prepare("SELECT proposal_id, id, entity_kind, entity_id, base_version_id FROM passage_proposal_operations WHERE id = 'operation-v9'").get(),
+      preview: frozen.prepare("SELECT id, proposal_id, preview_fingerprint, valid FROM passage_proposal_previews WHERE id = 'preview-v9'").get(),
+      application: frozen.prepare("SELECT id, proposal_id, validation_preview_fingerprint FROM passage_proposal_applications WHERE id = 'application-v9'").get(),
+    };
+    expect(frozen.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'passage_draft_versions'").get()).toBeUndefined();
+    frozen.close();
+
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v9-migration-"));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v9.sqlite");
+    copyFileSync(v9FixturePath, copyPath);
+    const database = openDatabase(copyPath);
+
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(10);
+    expect({
+      project: database.prepare("SELECT id, name, mode FROM projects WHERE id = 'fixture-project-v7'").get(),
+      snapshot: database.prepare("SELECT id, status, structure_version_id FROM passage_plan_snapshots LIMIT 1").get(),
+      generationPlan: database.prepare("SELECT id, fingerprint, authorization_state FROM generation_plans LIMIT 1").get(),
+      candidate: database.prepare("SELECT id, plan_id, job_id, unit_id, attempt_id FROM generation_unit_candidates LIMIT 1").get(),
+      proposal: database.prepare("SELECT id, generation_plan_id, generation_job_id, status FROM passage_proposal_sets WHERE id = 'proposal-v9'").get(),
+      group: database.prepare("SELECT proposal_id, id, generation_unit_id, status FROM passage_proposal_groups WHERE id = 'group-v9'").get(),
+      operation: database.prepare("SELECT proposal_id, id, entity_kind, entity_id, base_version_id FROM passage_proposal_operations WHERE id = 'operation-v9'").get(),
+      preview: database.prepare("SELECT id, proposal_id, preview_fingerprint, valid FROM passage_proposal_previews WHERE id = 'preview-v9'").get(),
+      application: database.prepare("SELECT id, proposal_id, validation_preview_fingerprint FROM passage_proposal_applications WHERE id = 'application-v9'").get(),
+    }).toEqual(before);
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'passage_draft_versions'").get())
+      .toEqual({ name: "passage_draft_versions" });
+    expect((database.prepare("SELECT COUNT(*) AS count FROM passage_draft_versions").get() as { count: number }).count).toBe(0);
+    database.close();
+
+    expect(digest(v9FixturePath)).toBe(originalHash);
+    const stillFrozen = new DatabaseSync(v9FixturePath, { readOnly: true });
+    expect((stillFrozen.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(9);
+    stillFrozen.close();
+  });
+
+  it("rejects pre-existing corrupt draft lineage transactionally without recording v10 or repairing partial schema", () => {
+    const originalHash = digest(v9FixturePath);
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v9-corrupt-draft-migration-"));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v9-corrupt.sqlite");
+    copyFileSync(v9FixturePath, copyPath);
+    const database = new DatabaseSync(copyPath);
+    database.exec("PRAGMA foreign_keys = ON");
+    database.exec(passageDraftArchitectureMigrationSql);
+    database.prepare(`INSERT INTO passage_draft_versions (
+      id, project_id, passage_id, version, based_on_passage_plan_version_id,
+      prose_markdown, word_count, lifecycle_status, source_kind, author_note, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      "corrupt-draft-v1", "fixture-project-v7", "passage-shared", 1,
+      "ab320a80-ed8e-43db-9aad-d277692944ac", "Fixture prose", 2,
+      "candidate", "manual", "", "2026-08-10T00:00:00.000Z",
+    );
+    database.prepare(`INSERT INTO passage_draft_heads (
+      project_id, passage_id, current_version_id, accepted_version_id, accepted_locked, updated_at
+    ) VALUES (?, ?, ?, NULL, 0, ?)`).run(
+      "fixture-project-v7", "passage-shared", "corrupt-draft-v1", "2026-08-10T00:00:00.000Z",
+    );
+    database.exec("DROP TRIGGER passage_draft_versions_immutable_update");
+    database.exec("PRAGMA foreign_keys = OFF");
+    database.prepare("UPDATE passage_draft_versions SET based_on_passage_plan_version_id = 'missing-version' WHERE id = 'corrupt-draft-v1'").run();
+
+    expect(() => migrate(database)).toThrow("invalid passage-version lineage");
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(9);
+    expect(database.prepare("SELECT based_on_passage_plan_version_id FROM passage_draft_versions WHERE id = 'corrupt-draft-v1'").get())
+      .toEqual({ based_on_passage_plan_version_id: "missing-version" });
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'passage_draft_versions_immutable_update'").get())
+      .toBeUndefined();
+    expect((database.prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 10").get() as { count: number }).count).toBe(0);
+    database.close();
+    expect(digest(v9FixturePath)).toBe(originalHash);
+  });
+
+  it("rolls back every v10 schema object when the draft migration cannot complete", () => {
+    const originalHash = digest(v9FixturePath);
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v10-rollback-"));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v9-conflict.sqlite");
+    copyFileSync(v9FixturePath, copyPath);
+    const database = new DatabaseSync(copyPath);
+    database.exec("CREATE TABLE passage_draft_versions (conflict TEXT)");
+    expect(() => migrate(database)).toThrow();
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(9);
+    expect(database.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'passage_draft_versions'").get())
+      .toEqual({ sql: "CREATE TABLE passage_draft_versions (conflict TEXT)" });
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'drafting_plans'").get()).toBeUndefined();
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'passage_draft_versions_base_lineage_insert'").get()).toBeUndefined();
+    database.close();
+    expect(digest(v9FixturePath)).toBe(originalHash);
   });
 });

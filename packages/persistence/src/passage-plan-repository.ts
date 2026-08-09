@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
+import type { PassagePlanEntityMutation } from "./draft-staleness.js";
 
 export type PassageEntityKind = "passage" | "choice" | "thread";
 export interface PassageVersion<T = unknown> {
@@ -76,7 +77,10 @@ const mapSnapshot = (row: SnapshotRow): PassageSnapshot => ({
 });
 
 export class PassagePlanRepository {
-  public constructor(private readonly database: StoryDatabase) {}
+  public constructor(
+    private readonly database: StoryDatabase,
+    private readonly mutationObserver?: (mutation: PassagePlanEntityMutation) => void,
+  ) {}
 
   initialize(projectId: string, structure: unknown, entities: Array<{
     kind: PassageEntityKind; id: string; content: unknown;
@@ -203,11 +207,19 @@ export class PassagePlanRepository {
           SELECT entity_id FROM passage_entity_heads WHERE project_id = ? AND entity_kind = ? AND tombstoned = 0
         `).all(projectId, kind) as Array<{ entity_id: string }>;
         heads.filter((head) => !keep.has(head.entity_id)).forEach((head) => {
+          const before = this.currentEntity(projectId, kind, head.entity_id);
           const result = this.database.prepare(`
             UPDATE passage_entity_heads SET tombstoned = 1
             WHERE project_id = ? AND entity_kind = ? AND entity_id = ?
           `).run(projectId, kind, head.entity_id);
-          if (result.changes) changed = true;
+          if (result.changes) {
+            changed = true;
+            this.mutationObserver?.({
+              projectId, kind, entityId: head.entity_id,
+              beforeVersionId: before?.id ?? null, afterVersionId: null,
+              before: before?.content ?? null, after: null,
+            });
+          }
         });
       }
       if (changed) this.setState(projectId, "draft");
@@ -216,11 +228,16 @@ export class PassagePlanRepository {
 
   tombstone(projectId: string, kind: PassageEntityKind, entityId: string): void {
     transaction(this.database, () => {
+      const before = this.currentEntity(projectId, kind, entityId);
       const result = this.database.prepare(`
         UPDATE passage_entity_heads SET tombstoned = 1
         WHERE project_id = ? AND entity_kind = ? AND entity_id = ?
       `).run(projectId, kind, entityId);
       if (!result.changes) throw new Error("Passage-plan entity not found");
+      this.mutationObserver?.({
+        projectId, kind, entityId, beforeVersionId: before?.id ?? null, afterVersionId: null,
+        before: before?.content ?? null, after: null,
+      });
       this.setState(projectId, "draft");
     });
   }
@@ -389,6 +406,7 @@ export class PassagePlanRepository {
   private insertEntity<T>(
     projectId: string, kind: PassageEntityKind, entityId: string, content: T, restoredFromVersionId?: string,
   ): PassageVersion<T> {
+    const before = this.currentEntity<T>(projectId, kind, entityId);
     const latest = this.database.prepare(`
       SELECT COALESCE(MAX(version), 0) version FROM passage_entity_versions
       WHERE project_id = ? AND entity_kind = ? AND entity_id = ?
@@ -404,7 +422,13 @@ export class PassagePlanRepository {
       VALUES (?, ?, ?, ?, 0)
       ON CONFLICT(project_id, entity_kind, entity_id) DO UPDATE SET version_id = excluded.version_id, tombstoned = 0
     `).run(projectId, kind, entityId, id);
-    return this.getEntityVersion<T>(id)!;
+    const result = this.getEntityVersion<T>(id)!;
+    this.mutationObserver?.({
+      projectId, kind, entityId,
+      beforeVersionId: before?.id ?? null, afterVersionId: result.id,
+      before: before?.content ?? null, after: result.content,
+    });
+    return result;
   }
 
   private setState(

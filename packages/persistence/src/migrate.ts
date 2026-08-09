@@ -5,6 +5,7 @@ import {
   generationKernelMigrationSql,
   generationLineageMigrationSql,
   passagePlanningCandidatesMigrationSql,
+  passageDraftArchitectureMigrationSql,
   passageProposalMigrationSql,
   schemaSql,
 } from "./schema.js";
@@ -127,6 +128,24 @@ export function migrate(database: StoryDatabase): void {
       throw error;
     }
   }
+  const passageDraftArchitectureApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 10",
+  ).get();
+  if (!passageDraftArchitectureApplied) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      if (hasTable(database, "passage_draft_versions")) assertValidPassageDraftLineage(database);
+      database.exec(passageDraftArchitectureMigrationSql);
+      assertValidPassageDraftLineage(database);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (10, ?)",
+      ).run(new Date().toISOString());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
 }
 
 function assertValidGenerationJobUnitLineage(database: StoryDatabase): void {
@@ -166,6 +185,111 @@ function hasTrigger(database: StoryDatabase, name: string): boolean {
   return Boolean(database.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?",
   ).get(name));
+}
+
+function hasTable(database: StoryDatabase, name: string): boolean {
+  return Boolean(database.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+  ).get(name));
+}
+
+function assertValidPassageDraftLineage(database: StoryDatabase): void {
+  const invalidDraft = database.prepare(`
+    SELECT drafts.id
+    FROM passage_draft_versions drafts
+    LEFT JOIN passage_entity_versions passages
+      ON passages.project_id = drafts.project_id
+      AND passages.id = drafts.based_on_passage_plan_version_id
+      AND passages.entity_kind = 'passage'
+      AND passages.entity_id = drafts.passage_id
+    WHERE passages.id IS NULL
+    LIMIT 1
+  `).get();
+  if (invalidDraft) throw new Error("Cannot migrate passage drafts with invalid passage-version lineage");
+  const invalidHead = database.prepare(`
+    SELECT heads.passage_id
+    FROM passage_draft_heads heads
+    LEFT JOIN passage_draft_versions current_versions
+      ON current_versions.project_id = heads.project_id
+      AND current_versions.id = heads.current_version_id
+      AND current_versions.passage_id = heads.passage_id
+    LEFT JOIN passage_draft_versions accepted_versions
+      ON accepted_versions.project_id = heads.project_id
+      AND accepted_versions.id = heads.accepted_version_id
+      AND accepted_versions.passage_id = heads.passage_id
+      AND accepted_versions.lifecycle_status IN ('accepted', 'reviewed', 'locked')
+    WHERE current_versions.id IS NULL
+      OR (heads.accepted_version_id IS NOT NULL AND accepted_versions.id IS NULL)
+      OR (heads.accepted_locked = 1 AND heads.accepted_version_id IS NULL)
+    LIMIT 1
+  `).get();
+  if (invalidHead) throw new Error("Cannot migrate passage drafts with invalid head lineage");
+  const invalidUpstream = database.prepare(`
+    SELECT dependencies.draft_version_id
+    FROM passage_draft_upstream_artifacts dependencies
+    LEFT JOIN passage_draft_versions drafts
+      ON drafts.project_id = dependencies.project_id AND drafts.id = dependencies.draft_version_id
+    LEFT JOIN artifact_versions artifacts
+      ON artifacts.project_id = dependencies.project_id
+      AND artifacts.id = dependencies.artifact_version_id
+      AND artifacts.artifact_id = dependencies.artifact_id
+    WHERE drafts.id IS NULL OR artifacts.id IS NULL
+    LIMIT 1
+  `).get();
+  if (invalidUpstream) throw new Error("Cannot migrate passage drafts with invalid upstream lineage");
+  const invalidGeneration = database.prepare(`
+    SELECT drafts.id
+    FROM passage_draft_versions drafts
+    LEFT JOIN drafting_job_units units
+      ON units.project_id = drafts.project_id
+      AND units.job_id = drafts.generation_job_id
+      AND units.plan_id = drafts.generation_plan_id
+      AND units.unit_id = drafts.generation_unit_id
+    WHERE (drafts.source_kind = 'generated' AND units.job_id IS NULL)
+      OR (drafts.source_kind IN ('manual', 'restore')
+        AND (drafts.generation_plan_id IS NOT NULL OR drafts.generation_job_id IS NOT NULL
+          OR drafts.generation_unit_id IS NOT NULL))
+      OR (drafts.source_kind = 'lifecycle'
+        AND ((drafts.generation_plan_id IS NULL) != (drafts.generation_job_id IS NULL)
+          OR (drafts.generation_job_id IS NULL) != (drafts.generation_unit_id IS NULL)
+          OR (drafts.generation_plan_id IS NOT NULL AND units.job_id IS NULL)))
+    LIMIT 1
+  `).get();
+  if (invalidGeneration) throw new Error("Cannot migrate passage drafts with invalid generation lineage");
+  const invalidUnit = database.prepare(`
+    SELECT inputs.unit_id
+    FROM drafting_plan_unit_passages inputs
+    LEFT JOIN drafting_plans plans
+      ON plans.project_id = inputs.project_id AND plans.id = inputs.plan_id
+    LEFT JOIN passage_plan_snapshot_items items
+      ON items.snapshot_id = plans.passage_snapshot_id
+      AND items.entity_kind = 'passage'
+      AND items.entity_id = inputs.passage_id
+      AND items.version_id = inputs.passage_plan_version_id
+    WHERE plans.id IS NULL OR items.version_id IS NULL
+    LIMIT 1
+  `).get();
+  if (invalidUnit) throw new Error("Cannot migrate drafting plans with invalid snapshot lineage");
+  const invalidJob = database.prepare(`
+    SELECT units.job_id
+    FROM drafting_job_units units
+    LEFT JOIN drafting_jobs jobs
+      ON jobs.project_id = units.project_id AND jobs.id = units.job_id AND jobs.plan_id = units.plan_id
+    WHERE jobs.id IS NULL
+    LIMIT 1
+  `).get();
+  if (invalidJob) throw new Error("Cannot migrate drafting jobs with invalid job-unit lineage");
+  const invalidAttempt = database.prepare(`
+    SELECT attempts.id
+    FROM drafting_unit_attempts attempts
+    LEFT JOIN drafting_job_units units
+      ON units.project_id = attempts.project_id
+      AND units.job_id = attempts.job_id
+      AND units.unit_id = attempts.unit_id
+    WHERE units.job_id IS NULL
+    LIMIT 1
+  `).get();
+  if (invalidAttempt) throw new Error("Cannot migrate drafting jobs with invalid attempt lineage");
 }
 
 function addColumn(database: StoryDatabase, table: string, column: string, definition: string): void {

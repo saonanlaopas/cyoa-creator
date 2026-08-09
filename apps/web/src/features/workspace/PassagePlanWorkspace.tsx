@@ -23,6 +23,7 @@ import {
   type PlanningStatus,
 } from "../../api/passage-plan.js";
 import { PassageGenerationPanel } from "./PassageGenerationPanel.js";
+import { PassageDraftPanel } from "./PassageDraftPanel.js";
 
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const lines = (value: string) => value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
@@ -353,7 +354,7 @@ export function PassagePlanWorkspace(props: {
             </div>}
           </aside>
           <main className="passage-detail">
-            {selected ? <PassageEditor
+            {selected ? <><PassageEditor
               passage={selected} passages={passages} choices={choicesByPassage.get(selected.id) ?? []}
               sequences={structure.sequences} mechanics={props.mechanics} endings={props.endings}
               onChange={(passage) => setPassages(replace(passages, passage))}
@@ -393,7 +394,14 @@ export function PassagePlanWorkspace(props: {
                 await restorePassageEntity(props.projectId, "passage", selected.id, versionId);
                 await load();
               }}
-            /> : <p>Select a passage from the outline.</p>}
+            />
+            <PassageDraftPanel
+              projectId={props.projectId}
+              passageId={selected.id}
+              passagePlanVersionId={state.passages.find((item) => item.entityId === selected.id)?.id ?? ""}
+              passagePlanApproved={state.state.status === "approved"}
+              setMessage={props.setMessage}
+            /></> : <p>Select a passage from the outline.</p>}
           </main>
         </div>
         <ThreadEditor threads={threads} setThreads={setThreads} passages={passages} routes={props.routes}

@@ -691,3 +691,381 @@ BEFORE DELETE ON passage_proposal_applications
 WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
 BEGIN SELECT RAISE(ABORT, 'Passage proposal applications are immutable'); END;
 `;
+
+export const passageDraftArchitectureMigrationSql = `
+CREATE UNIQUE INDEX IF NOT EXISTS passage_entity_versions_draft_lineage
+  ON passage_entity_versions(project_id, id, entity_kind, entity_id);
+CREATE UNIQUE INDEX IF NOT EXISTS artifact_versions_draft_lineage
+  ON artifact_versions(project_id, id, artifact_id);
+
+CREATE TABLE IF NOT EXISTS passage_draft_versions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  passage_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK(version > 0),
+  based_on_passage_plan_version_id TEXT NOT NULL REFERENCES passage_entity_versions(id) ON DELETE RESTRICT,
+  prose_markdown TEXT NOT NULL,
+  word_count INTEGER NOT NULL CHECK(word_count >= 0),
+  lifecycle_status TEXT NOT NULL CHECK(lifecycle_status IN ('candidate', 'accepted', 'reviewed', 'locked')),
+  source_kind TEXT NOT NULL CHECK(source_kind IN ('manual', 'generated', 'restore', 'lifecycle')),
+  generation_plan_id TEXT,
+  generation_job_id TEXT,
+  generation_unit_id TEXT,
+  author_note TEXT NOT NULL DEFAULT '',
+  restored_from_version_id TEXT REFERENCES passage_draft_versions(id) ON DELETE RESTRICT,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, passage_id, version),
+  UNIQUE(project_id, id),
+  UNIQUE(project_id, id, passage_id),
+  CHECK((source_kind = 'generated' AND generation_plan_id IS NOT NULL
+      AND generation_job_id IS NOT NULL AND generation_unit_id IS NOT NULL)
+    OR (source_kind = 'lifecycle'
+      AND ((generation_plan_id IS NULL AND generation_job_id IS NULL AND generation_unit_id IS NULL)
+        OR (generation_plan_id IS NOT NULL AND generation_job_id IS NOT NULL AND generation_unit_id IS NOT NULL)))
+    OR (source_kind IN ('manual', 'restore') AND generation_plan_id IS NULL
+      AND generation_job_id IS NULL AND generation_unit_id IS NULL))
+);
+CREATE INDEX IF NOT EXISTS passage_draft_versions_history
+  ON passage_draft_versions(project_id, passage_id, version DESC);
+
+CREATE TABLE IF NOT EXISTS passage_draft_upstream_artifacts (
+  draft_version_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  artifact_id TEXT NOT NULL,
+  artifact_version_id TEXT NOT NULL,
+  PRIMARY KEY(draft_version_id, artifact_id),
+  FOREIGN KEY(project_id, draft_version_id)
+    REFERENCES passage_draft_versions(project_id, id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, artifact_version_id, artifact_id)
+    REFERENCES artifact_versions(project_id, id, artifact_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS passage_draft_neighbor_versions (
+  draft_version_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  neighbor_passage_id TEXT NOT NULL,
+  neighbor_draft_version_id TEXT NOT NULL,
+  PRIMARY KEY(draft_version_id, neighbor_passage_id),
+  FOREIGN KEY(project_id, draft_version_id)
+    REFERENCES passage_draft_versions(project_id, id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, neighbor_draft_version_id, neighbor_passage_id)
+    REFERENCES passage_draft_versions(project_id, id, passage_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS passage_draft_heads (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  passage_id TEXT NOT NULL,
+  current_version_id TEXT NOT NULL,
+  accepted_version_id TEXT,
+  accepted_locked INTEGER NOT NULL DEFAULT 0 CHECK(accepted_locked IN (0, 1)),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, passage_id),
+  FOREIGN KEY(project_id, current_version_id, passage_id)
+    REFERENCES passage_draft_versions(project_id, id, passage_id) ON DELETE RESTRICT,
+  FOREIGN KEY(project_id, accepted_version_id, passage_id)
+    REFERENCES passage_draft_versions(project_id, id, passage_id) ON DELETE RESTRICT,
+  CHECK(accepted_locked = 0 OR accepted_version_id IS NOT NULL)
+);
+
+CREATE TABLE IF NOT EXISTS passage_draft_staleness_events (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  passage_id TEXT NOT NULL,
+  draft_version_id TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  source_entity_kind TEXT NOT NULL,
+  source_entity_id TEXT NOT NULL,
+  from_version_id TEXT,
+  to_version_id TEXT,
+  changed_fields_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(draft_version_id, reason_code, source_entity_kind, source_entity_id, to_version_id),
+  FOREIGN KEY(project_id, draft_version_id, passage_id)
+    REFERENCES passage_draft_versions(project_id, id, passage_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS passage_draft_staleness_lookup
+  ON passage_draft_staleness_events(project_id, passage_id, draft_version_id, created_at);
+
+CREATE TABLE IF NOT EXISTS drafting_plans (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  fingerprint TEXT NOT NULL,
+  passage_snapshot_id TEXT NOT NULL,
+  structure_version_id TEXT NOT NULL,
+  upstream_versions_json TEXT NOT NULL,
+  scope_json TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  estimated_input_tokens INTEGER NOT NULL CHECK(estimated_input_tokens >= 0),
+  estimated_output_tokens INTEGER NOT NULL CHECK(estimated_output_tokens >= 0),
+  cost_estimate_json TEXT NOT NULL,
+  execution_policy_id TEXT NOT NULL,
+  execution_policy_json TEXT NOT NULL,
+  authorization_state TEXT NOT NULL CHECK(authorization_state IN ('planned', 'authorized')),
+  authorization_fingerprint TEXT,
+  authorized_at TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, id),
+  FOREIGN KEY(project_id, passage_snapshot_id)
+    REFERENCES passage_plan_snapshots(project_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS drafting_plans_project_created
+  ON drafting_plans(project_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS drafting_plan_units (
+  plan_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  unit_id TEXT NOT NULL,
+  position INTEGER NOT NULL CHECK(position >= 0),
+  input_fingerprint TEXT NOT NULL,
+  estimated_input_tokens INTEGER NOT NULL CHECK(estimated_input_tokens >= 0),
+  estimated_output_tokens INTEGER NOT NULL CHECK(estimated_output_tokens >= 0),
+  context_diagnostics_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(plan_id, unit_id),
+  UNIQUE(plan_id, position),
+  UNIQUE(project_id, plan_id, unit_id),
+  FOREIGN KEY(project_id, plan_id) REFERENCES drafting_plans(project_id, id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS drafting_plan_unit_passages (
+  plan_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  unit_id TEXT NOT NULL,
+  position INTEGER NOT NULL CHECK(position >= 0),
+  passage_id TEXT NOT NULL,
+  passage_plan_version_id TEXT NOT NULL,
+  PRIMARY KEY(plan_id, unit_id, passage_id),
+  UNIQUE(plan_id, unit_id, position),
+  FOREIGN KEY(project_id, plan_id, unit_id)
+    REFERENCES drafting_plan_units(project_id, plan_id, unit_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS drafting_jobs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  plan_id TEXT NOT NULL UNIQUE,
+  plan_fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('planned', 'authorized', 'running', 'completed', 'partially_failed', 'failed', 'cancelled')),
+  execution_policy_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  authorized_at TEXT,
+  started_at TEXT,
+  finished_at TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE(project_id, id),
+  FOREIGN KEY(project_id, plan_id) REFERENCES drafting_plans(project_id, id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS drafting_job_units (
+  job_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  unit_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  attempt_number INTEGER NOT NULL DEFAULT 0 CHECK(attempt_number >= 0),
+  retry_of_attempt_id TEXT,
+  normalized_error_json TEXT,
+  usage_json TEXT,
+  input_fingerprint TEXT NOT NULL,
+  execution_policy_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(job_id, unit_id),
+  UNIQUE(project_id, job_id, unit_id),
+  FOREIGN KEY(project_id, job_id) REFERENCES drafting_jobs(project_id, id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, plan_id, unit_id)
+    REFERENCES drafting_plan_units(project_id, plan_id, unit_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS drafting_unit_attempts (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  unit_id TEXT NOT NULL,
+  attempt_number INTEGER NOT NULL CHECK(attempt_number > 0),
+  retry_of_attempt_id TEXT REFERENCES drafting_unit_attempts(id) ON DELETE SET NULL,
+  status TEXT NOT NULL CHECK(status IN ('running', 'completed', 'failed', 'cancelled')),
+  normalized_error_json TEXT,
+  usage_json TEXT,
+  input_fingerprint TEXT NOT NULL,
+  execution_policy_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE(job_id, unit_id, attempt_number),
+  UNIQUE(project_id, id, job_id, unit_id),
+  FOREIGN KEY(project_id, job_id, unit_id)
+    REFERENCES drafting_job_units(project_id, job_id, unit_id) ON DELETE CASCADE
+);
+
+CREATE TRIGGER IF NOT EXISTS passage_draft_versions_base_lineage_insert
+BEFORE INSERT ON passage_draft_versions
+WHEN NOT EXISTS (
+  SELECT 1 FROM passage_entity_versions
+  WHERE project_id = NEW.project_id AND id = NEW.based_on_passage_plan_version_id
+    AND entity_kind = 'passage' AND entity_id = NEW.passage_id
+)
+BEGIN SELECT RAISE(ABORT, 'Passage draft base version lineage mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS passage_draft_versions_immutable_update
+BEFORE UPDATE ON passage_draft_versions
+BEGIN SELECT RAISE(ABORT, 'Passage draft versions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS passage_draft_versions_immutable_delete
+BEFORE DELETE ON passage_draft_versions
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Passage draft versions are immutable'); END;
+
+CREATE TRIGGER IF NOT EXISTS passage_draft_upstream_immutable_update
+BEFORE UPDATE ON passage_draft_upstream_artifacts
+BEGIN SELECT RAISE(ABORT, 'Passage draft upstream provenance is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS passage_draft_upstream_immutable_delete
+BEFORE DELETE ON passage_draft_upstream_artifacts
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Passage draft upstream provenance is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS passage_draft_neighbor_immutable_update
+BEFORE UPDATE ON passage_draft_neighbor_versions
+BEGIN SELECT RAISE(ABORT, 'Passage draft neighbor provenance is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS passage_draft_neighbor_immutable_delete
+BEFORE DELETE ON passage_draft_neighbor_versions
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Passage draft neighbor provenance is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS passage_draft_staleness_immutable_update
+BEFORE UPDATE ON passage_draft_staleness_events
+BEGIN SELECT RAISE(ABORT, 'Passage draft staleness provenance is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS passage_draft_staleness_immutable_delete
+BEFORE DELETE ON passage_draft_staleness_events
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Passage draft staleness provenance is append-only'); END;
+
+CREATE TRIGGER IF NOT EXISTS passage_draft_heads_current_lineage_insert
+BEFORE INSERT ON passage_draft_heads
+WHEN NOT EXISTS (
+  SELECT 1 FROM passage_draft_versions
+  WHERE project_id = NEW.project_id AND id = NEW.current_version_id AND passage_id = NEW.passage_id
+)
+BEGIN SELECT RAISE(ABORT, 'Passage draft current-head lineage mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS passage_draft_heads_lineage_update
+BEFORE UPDATE OF project_id, passage_id, current_version_id, accepted_version_id ON passage_draft_heads
+WHEN NOT EXISTS (
+  SELECT 1 FROM passage_draft_versions
+  WHERE project_id = NEW.project_id AND id = NEW.current_version_id AND passage_id = NEW.passage_id
+) OR (NEW.accepted_version_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM passage_draft_versions
+  WHERE project_id = NEW.project_id AND id = NEW.accepted_version_id AND passage_id = NEW.passage_id
+    AND lifecycle_status IN ('accepted', 'reviewed', 'locked')
+))
+BEGIN SELECT RAISE(ABORT, 'Passage draft head lineage mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS passage_draft_heads_accepted_lineage_insert
+BEFORE INSERT ON passage_draft_heads
+WHEN NEW.accepted_version_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM passage_draft_versions
+  WHERE project_id = NEW.project_id AND id = NEW.accepted_version_id AND passage_id = NEW.passage_id
+    AND lifecycle_status IN ('accepted', 'reviewed', 'locked')
+)
+BEGIN SELECT RAISE(ABORT, 'Passage draft accepted-head lineage mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS passage_draft_heads_locked_replace
+BEFORE UPDATE OF accepted_version_id ON passage_draft_heads
+WHEN OLD.accepted_locked = 1 AND NEW.accepted_version_id IS NOT OLD.accepted_version_id
+BEGIN SELECT RAISE(ABORT, 'Locked accepted prose must be explicitly unlocked before replacement'); END;
+
+CREATE TRIGGER IF NOT EXISTS drafting_unit_passage_snapshot_lineage_insert
+BEFORE INSERT ON drafting_plan_unit_passages
+WHEN NOT EXISTS (
+  SELECT 1 FROM drafting_plans plans
+  JOIN passage_plan_snapshot_items items
+    ON items.snapshot_id = plans.passage_snapshot_id
+    AND items.entity_kind = 'passage'
+  JOIN passage_entity_versions versions
+    ON versions.project_id = plans.project_id
+    AND versions.id = items.version_id
+    AND versions.entity_kind = 'passage'
+    AND versions.entity_id = items.entity_id
+  WHERE plans.project_id = NEW.project_id AND plans.id = NEW.plan_id
+    AND items.entity_id = NEW.passage_id AND items.version_id = NEW.passage_plan_version_id
+)
+BEGIN SELECT RAISE(ABORT, 'Drafting unit passage snapshot lineage mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS drafting_job_units_lineage_insert
+BEFORE INSERT ON drafting_job_units
+WHEN NOT EXISTS (
+  SELECT 1 FROM drafting_jobs
+  WHERE project_id = NEW.project_id AND id = NEW.job_id AND plan_id = NEW.plan_id
+)
+BEGIN SELECT RAISE(ABORT, 'Drafting job unit lineage mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_job_units_lineage_update
+BEFORE UPDATE OF project_id, job_id, plan_id ON drafting_job_units
+WHEN NOT EXISTS (
+  SELECT 1 FROM drafting_jobs
+  WHERE project_id = NEW.project_id AND id = NEW.job_id AND plan_id = NEW.plan_id
+)
+BEGIN SELECT RAISE(ABORT, 'Drafting job unit lineage mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_jobs_lineage_update
+BEFORE UPDATE OF project_id, id, plan_id ON drafting_jobs
+WHEN EXISTS (
+  SELECT 1 FROM drafting_job_units
+  WHERE project_id = OLD.project_id AND job_id = OLD.id
+    AND (project_id != NEW.project_id OR job_id != NEW.id OR plan_id != NEW.plan_id)
+)
+BEGIN SELECT RAISE(ABORT, 'Drafting job lineage update would orphan attached units'); END;
+
+CREATE TRIGGER IF NOT EXISTS passage_draft_generation_lineage_insert
+BEFORE INSERT ON passage_draft_versions
+WHEN NEW.generation_plan_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM drafting_job_units
+  WHERE project_id = NEW.project_id AND job_id = NEW.generation_job_id
+    AND plan_id = NEW.generation_plan_id AND unit_id = NEW.generation_unit_id
+)
+BEGIN SELECT RAISE(ABORT, 'Passage draft generation lineage mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_job_units_draft_provenance_delete
+BEFORE DELETE ON drafting_job_units
+WHEN EXISTS (
+  SELECT 1 FROM passage_draft_versions
+  WHERE project_id = OLD.project_id AND generation_job_id = OLD.job_id
+    AND generation_plan_id = OLD.plan_id AND generation_unit_id = OLD.unit_id
+) AND EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Drafting unit is retained by passage draft provenance'); END;
+
+CREATE TRIGGER IF NOT EXISTS drafting_plans_immutable_definition
+BEFORE UPDATE OF project_id, fingerprint, passage_snapshot_id, structure_version_id,
+  upstream_versions_json, scope_json, provider_id, model_id, estimated_input_tokens,
+  estimated_output_tokens, cost_estimate_json, execution_policy_id, execution_policy_json,
+  created_at ON drafting_plans
+BEGIN SELECT RAISE(ABORT, 'Drafting plan definitions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_plans_immutable_delete
+BEFORE DELETE ON drafting_plans
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Drafting plans are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_plan_units_immutable_update
+BEFORE UPDATE ON drafting_plan_units
+BEGIN SELECT RAISE(ABORT, 'Drafting plan units are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_plan_units_immutable_delete
+BEFORE DELETE ON drafting_plan_units
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Drafting plan units are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_plan_unit_passages_immutable_update
+BEFORE UPDATE ON drafting_plan_unit_passages
+BEGIN SELECT RAISE(ABORT, 'Drafting unit passage inputs are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_plan_unit_passages_immutable_delete
+BEFORE DELETE ON drafting_plan_unit_passages
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Drafting unit passage inputs are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_jobs_immutable_definition
+BEFORE UPDATE OF plan_fingerprint, execution_policy_id, created_at ON drafting_jobs
+BEGIN SELECT RAISE(ABORT, 'Drafting job definitions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_job_units_immutable_definition
+BEFORE UPDATE OF unit_id, input_fingerprint, execution_policy_id, created_at
+ON drafting_job_units
+BEGIN SELECT RAISE(ABORT, 'Drafting job unit definitions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_unit_attempts_lineage_update
+BEFORE UPDATE OF project_id, job_id, unit_id, attempt_number, retry_of_attempt_id,
+  input_fingerprint, execution_policy_id, created_at ON drafting_unit_attempts
+BEGIN SELECT RAISE(ABORT, 'Drafting attempt lineage is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS drafting_unit_attempts_immutable_delete
+BEFORE DELETE ON drafting_unit_attempts
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Drafting attempts are append-only'); END;
+`;

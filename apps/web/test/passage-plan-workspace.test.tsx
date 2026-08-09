@@ -164,7 +164,17 @@ describe("PassagePlanWorkspace coverage dashboard", () => {
   it("shows conservative coverage and links a finding to its exact choice editor", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const path = String(input);
-      return new Response(JSON.stringify(path.endsWith("/versions") ? [] : state), {
+      const body = path.includes("/drafts/passages/") ? {
+        passagePlanVersionId: "passage-start-v1",
+        passagePlan: passages[0],
+        head: null,
+        history: [],
+        summary: {
+          passageCount: 2, currentDraftCount: 0, acceptedDraftCount: 0,
+          currentCandidateWords: 0, acceptedWords: 0, plannedWords: 1_000, remainingWords: 1_000,
+        },
+      } : path.endsWith("/versions") ? [] : state;
+      return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "content-type": "application/json" },
       });

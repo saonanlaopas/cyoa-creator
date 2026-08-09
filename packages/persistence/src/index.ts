@@ -11,3 +11,6 @@ export * from "./change-set-repository.js";
 export * from "./passage-plan-repository.js";
 export * from "./generation-repository.js";
 export * from "./passage-proposal-repository.js";
+export * from "./draft-staleness.js";
+export * from "./passage-draft-repository.js";
+export * from "./drafting-repository.js";
