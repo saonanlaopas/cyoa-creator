@@ -415,6 +415,7 @@ export class DraftingRepository {
         || candidate.passages.some((item) => expected.get(item.passageId) !== item.passagePlanVersionId)) {
         throw new Error("Generated passage candidates do not exactly match the drafting unit inputs");
       }
+      this.assertCurrentApprovedSnapshot(projectId, plan.snapshotId);
       const outputId = randomUUID();
       const now = new Date().toISOString();
       const usageJson = candidate.usage === undefined ? null : JSON.stringify(candidate.usage);
@@ -669,6 +670,27 @@ export class DraftingRepository {
     if (!unit) throw new Error("Drafting unit not found");
     return unit;
   }
+
+  private assertCurrentApprovedSnapshot(projectId: string, snapshotId: string): void {
+    const row = this.database.prepare(`SELECT state.status, state.approved_snapshot_id,
+        snapshot.project_id AS snapshot_project_id, snapshot.status AS snapshot_status
+      FROM passage_plan_state state
+      LEFT JOIN passage_plan_snapshots snapshot
+        ON snapshot.project_id = state.project_id AND snapshot.id = ?
+      WHERE state.project_id = ?`)
+      .get(snapshotId, projectId) as {
+        status: string;
+        approved_snapshot_id: string | null;
+        snapshot_project_id: string | null;
+        snapshot_status: string | null;
+      } | undefined;
+    if (!row || row.status !== "approved" || row.approved_snapshot_id !== snapshotId
+      || row.snapshot_project_id !== projectId || row.snapshot_status !== "approved") {
+      throw staleDraftingPlanError(
+        "Current approved passage-plan snapshot no longer matches the authorized drafting plan",
+      );
+    }
+  }
 }
 
 function canonicalRecordJson(value: Record<string, string>): string {
@@ -697,4 +719,8 @@ function neighboringDraftVersionsFromContext(context: unknown): Record<string, s
     versions[passageId] = draftVersionId;
   }
   return versions;
+}
+
+function staleDraftingPlanError(message: string): Error {
+  return Object.assign(new Error(message), { code: "stale_drafting_plan", retryable: false });
 }

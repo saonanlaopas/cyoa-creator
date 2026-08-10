@@ -473,6 +473,70 @@ describe("drafting repository", () => {
     fixture.database.close();
   });
 
+  it("rejects candidate completion transactionally when the approved snapshot changed in flight", () => {
+    const fixture = setup();
+    const contextFingerprint = "r".repeat(64);
+    const input = {
+      ...fixture.input,
+      units: [{
+        ...fixture.input.units[0]!,
+        context: {
+          schemaId: "cyoa.passage-drafting-context",
+          schemaVersion: 1,
+          acceptedNeighborProse: [],
+        },
+        contextFingerprint,
+        contextDiagnostics: { status: "built", contextFingerprint },
+      }],
+    };
+    const plan = fixture.drafting.createPlan(input);
+    fixture.drafting.authorize(fixture.project.id, plan.id, plan.fingerprint);
+    fixture.drafting.startJob(fixture.project.id, plan.jobId);
+    const { attemptId } = fixture.drafting.startUnit(fixture.project.id, plan.jobId, "unit-1");
+    fixture.passagePlans.saveEntity(
+      fixture.project.id,
+      "passage",
+      "passage-1",
+      { ...fixture.passageVersions[0]!.content as Record<string, unknown>, purpose: "Changed in flight" },
+    );
+
+    expect(() => fixture.drafting.completeUnitWithCandidates(
+      fixture.project.id,
+      plan.jobId,
+      "unit-1",
+      attemptId,
+      new PassageDraftRepository(fixture.database),
+      {
+        contextFingerprint,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        outputSchemaId: "cyoa.passage-drafting-unit-output",
+        outputSchemaVersion: 1,
+        content: { passages: ["passage-1"] },
+        validation: { valid: true },
+        repair: { maximumRepairs: 1, repairsPerformed: 0 },
+        upstreamVersions: fixture.snapshot.upstreamVersions,
+        neighboringDraftVersions: {},
+        passages: [{
+          passageId: "passage-1",
+          passagePlanVersionId: fixture.passageVersions[0]!.id,
+          proseMarkdown: "This obsolete candidate must roll back.",
+        }],
+      },
+    )).toThrow("approved passage-plan snapshot no longer matches");
+
+    expect((fixture.database.prepare("SELECT COUNT(*) AS count FROM drafting_unit_outputs")
+      .get() as { count: number }).count).toBe(0);
+    expect((fixture.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_generation_provenance")
+      .get() as { count: number }).count).toBe(0);
+    expect((fixture.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_versions")
+      .get() as { count: number }).count).toBe(0);
+    expect(fixture.drafting.getJob(fixture.project.id, plan.jobId)?.units[0]?.status).toBe("running");
+    expect((fixture.database.prepare("SELECT status FROM drafting_unit_attempts WHERE id = ?")
+      .get(attemptId) as { status: string }).status).toBe("running");
+    fixture.database.close();
+  });
+
   it("rolls back every candidate, output, and completion marker when one passage persistence fails", () => {
     const fixture = setup(":memory:", 2);
     const contextFingerprint = "d".repeat(64);

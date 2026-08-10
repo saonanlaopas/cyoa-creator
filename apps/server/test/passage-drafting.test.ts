@@ -2,12 +2,46 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { openDatabase } from "@story-to-cyoa/persistence";
+import type { PassageDraftingProviderRequest } from "@story-to-cyoa/pipeline";
 import { buildApp } from "../src/app.js";
 import { DeterministicPassagePlanningProvider } from "../src/services/passage-planning-provider.js";
 import { DeterministicPassageDraftingProvider } from "../src/services/passage-drafting-provider.js";
 
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
+
+class BlockingPassageDraftingProvider {
+  public readonly id = "blocking-offline-drafting";
+  public readonly capabilities = { structuredOutput: true };
+  public readonly calls: PassageDraftingProviderRequest[] = [];
+  private readonly delegate: DeterministicPassageDraftingProvider;
+  private readonly releases = new Map<number, () => void>();
+  private readonly startedWaiters = new Map<number, () => void>();
+
+  public constructor(options: { malformedFirstSuccessfulRequest?: boolean } = {}) {
+    this.delegate = new DeterministicPassageDraftingProvider(options);
+  }
+
+  public async generate(request: PassageDraftingProviderRequest) {
+    const index = this.calls.push(request) - 1;
+    const gate = new Promise<void>((resolve) => this.releases.set(index, resolve));
+    this.startedWaiters.get(index)?.();
+    await gate;
+    return this.delegate.generate(request);
+  }
+
+  public waitForCall(index: number): Promise<void> {
+    if (this.calls.length > index) return Promise.resolve();
+    return new Promise((resolve) => this.startedWaiters.set(index, resolve));
+  }
+
+  public releaseCall(index: number): void {
+    const release = this.releases.get(index);
+    if (!release) throw new Error(`Blocking provider call ${index} has not started`);
+    release();
+  }
+}
 
 async function createApprovedFixture(app: ReturnType<typeof buildApp>) {
   const created = (await app.inject({
@@ -79,6 +113,41 @@ async function waitForDrafting(app: ReturnType<typeof buildApp>, projectId: stri
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("Offline drafting job did not finish");
+}
+
+async function lockAcceptedProse(
+  app: ReturnType<typeof buildApp>, projectId: string, passageId: string, proseMarkdown: string,
+) {
+  const manual = (await app.inject({
+    method: "PUT",
+    url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}`,
+    payload: { proseMarkdown, authorNote: "Race-regression lock" },
+  })).json().draft;
+  let versionId = manual.id as string;
+  for (const status of ["accepted", "reviewed", "locked"] as const) {
+    const transitioned = (await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}/transition`,
+      payload: { versionId, status },
+    })).json();
+    versionId = transitioned.draft.id;
+  }
+  return { versionId, proseMarkdown };
+}
+
+function expectNoCompletedRacePersistence(databasePath: string, jobId: string): void {
+  const database = openDatabase(databasePath);
+  expect((database.prepare("SELECT COUNT(*) AS count FROM drafting_unit_outputs WHERE job_id = ?")
+    .get(jobId) as { count: number }).count).toBe(0);
+  expect((database.prepare("SELECT COUNT(*) AS count FROM passage_draft_generation_provenance WHERE job_id = ?")
+    .get(jobId) as { count: number }).count).toBe(0);
+  expect((database.prepare("SELECT COUNT(*) AS count FROM passage_draft_versions WHERE source_kind = 'generated'")
+    .get() as { count: number }).count).toBe(0);
+  expect((database.prepare("SELECT status FROM drafting_job_units WHERE job_id = ?")
+    .all(jobId) as Array<{ status: string }>).every((item) => item.status !== "completed")).toBe(true);
+  expect((database.prepare("SELECT status FROM drafting_unit_attempts WHERE job_id = ?")
+    .all(jobId) as Array<{ status: string }>)).toEqual([expect.objectContaining({ status: "failed" })]);
+  database.close();
 }
 
 describe("Foundation 4B-1 draft architecture API", () => {
@@ -511,6 +580,145 @@ describe("Foundation 4B-1 draft architecture API", () => {
       await app.close();
     },
   );
+
+  it.each(["passage", "choice"] as const)(
+    "rejects an obsolete candidate when a %s changes during a blocked provider request",
+    async (mutation) => {
+      const directory = mkdtempSync(join(tmpdir(), `cyoa-drafting-${mutation}-race-`));
+      directories.push(directory);
+      const databasePath = join(directory, "story.sqlite");
+      const provider = new BlockingPassageDraftingProvider();
+      const app = buildApp({ databasePath, passageDraftingProvider: provider });
+      const { projectId, plan } = await createApprovedFixture(app);
+      const target = plan.passages[0];
+      const protectedPassage = plan.passages[1];
+      if (!target || !protectedPassage) throw new Error("Expected two passage fixtures");
+      const locked = await lockAcceptedProse(
+        app, projectId, protectedPassage.entityId, "Locked prose must survive the generation race.",
+      );
+      const created = (await app.inject({
+        method: "POST",
+        url: `/api/long-form/projects/${projectId}/drafting/plans`,
+        payload: {
+          scope: { kind: "passages", passageIds: [target.entityId] },
+          providerId: provider.id,
+          modelId: "blocking-race-v1",
+        },
+      })).json();
+      await app.inject({
+        method: "POST",
+        url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
+        payload: { fingerprint: created.fingerprint },
+      });
+      const started = await app.inject({
+        method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start`,
+      });
+      expect(started.statusCode).toBe(200);
+      await provider.waitForCall(0);
+
+      if (mutation === "passage") {
+        const changed = await app.inject({
+          method: "PUT",
+          url: `/api/long-form/projects/${projectId}/passage-plan/entities/passage/${target.entityId}`,
+          payload: { ...target.content, purpose: `${target.content.purpose} changed in flight` },
+        });
+        expect(changed.statusCode).toBe(201);
+      } else {
+        const choice = plan.choices[0];
+        if (!choice) throw new Error("Expected a choice fixture");
+        const changed = await app.inject({
+          method: "PUT",
+          url: `/api/long-form/projects/${projectId}/passage-plan/entities/choice/${choice.entityId}`,
+          payload: { ...choice.content, label: `${choice.content.label} changed in flight` },
+        });
+        expect(changed.statusCode).toBe(201);
+      }
+      provider.releaseCall(0);
+
+      const finished = await waitForDrafting(app, projectId, created.jobId);
+      expect(finished.status).toBe("failed");
+      expect(finished.units[0]).toMatchObject({
+        status: "failed",
+        normalizedError: { code: "stale_drafting_plan", retryable: false },
+        generatedCandidates: [],
+      });
+      expect(provider.calls.map((call) => call.mode)).toEqual(["generate"]);
+      const targetDraft = (await app.inject({
+        method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${target.entityId}`,
+      })).json();
+      expect(targetDraft.head).toBeNull();
+      const protectedState = (await app.inject({
+        method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${protectedPassage.entityId}`,
+      })).json();
+      expect(protectedState.head).toMatchObject({
+        acceptedLocked: true,
+        accepted: { id: locked.versionId, proseMarkdown: locked.proseMarkdown, lifecycleStatus: "locked" },
+      });
+      await app.close();
+      expectNoCompletedRacePersistence(databasePath, created.jobId);
+    },
+  );
+
+  it("rejects repaired output when passage-plan structure changes during the repair request", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-drafting-repair-race-"));
+    directories.push(directory);
+    const databasePath = join(directory, "story.sqlite");
+    const provider = new BlockingPassageDraftingProvider({ malformedFirstSuccessfulRequest: true });
+    const app = buildApp({ databasePath, passageDraftingProvider: provider });
+    const { projectId, plan } = await createApprovedFixture(app);
+    const target = plan.passages[0];
+    const protectedPassage = plan.passages[1];
+    if (!target || !protectedPassage) throw new Error("Expected two passage fixtures");
+    const locked = await lockAcceptedProse(
+      app, projectId, protectedPassage.entityId, "Locked prose must survive the repair race.",
+    );
+    const created = (await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/drafting/plans`,
+      payload: {
+        scope: { kind: "passages", passageIds: [target.entityId] },
+        providerId: provider.id,
+        modelId: "blocking-repair-race-v1",
+      },
+    })).json();
+    await app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
+      payload: { fingerprint: created.fingerprint },
+    });
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start`,
+    });
+    await provider.waitForCall(0);
+    provider.releaseCall(0);
+    await provider.waitForCall(1);
+    expect(provider.calls.map((call) => call.mode)).toEqual(["generate", "repair"]);
+
+    const changed = await app.inject({
+      method: "PUT",
+      url: `/api/long-form/projects/${projectId}/passage-plan/structure`,
+      payload: { ...plan.structure.content, title: `${plan.structure.content.title} changed during repair` },
+    });
+    expect(changed.statusCode).toBe(201);
+    provider.releaseCall(1);
+
+    const finished = await waitForDrafting(app, projectId, created.jobId);
+    expect(finished.status).toBe("failed");
+    expect(finished.units[0]).toMatchObject({
+      status: "failed",
+      normalizedError: { code: "stale_drafting_plan", retryable: false },
+      generatedCandidates: [],
+    });
+    const protectedState = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${protectedPassage.entityId}`,
+    })).json();
+    expect(protectedState.head).toMatchObject({
+      acceptedLocked: true,
+      accepted: { id: locked.versionId, proseMarkdown: locked.proseMarkdown, lifecycleStatus: "locked" },
+    });
+    await app.close();
+    expectNoCompletedRacePersistence(databasePath, created.jobId);
+  });
 
   it("keeps locked accepted prose fixed when generation creates a newer current candidate", async () => {
     const app = buildApp();

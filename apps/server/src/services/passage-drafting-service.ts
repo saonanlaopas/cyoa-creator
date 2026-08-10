@@ -287,6 +287,7 @@ export class PassageDraftingService {
         const neighboringDraftVersions = Object.fromEntries(
           context.acceptedNeighborProse.map((item) => [item.passageId, item.draftVersionId]),
         );
+        this.assertPlanFresh(plan, unit.id);
         const completed = this.drafting.completeUnitWithCandidates(
           projectId,
           jobId,
