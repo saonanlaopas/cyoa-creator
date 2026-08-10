@@ -19,9 +19,11 @@ Implementation checkpoints:
 - Foundation 2 is complete: the manual passage-plan workspace, entity history, immutable snapshots, stable-ID editing/reordering, budgets, search/filtering, exports, and a 300-passage offline acceptance test are implemented.
 - Foundation 3 is complete: structural, state, continuity, budget, and path analysis feed a linked coverage dashboard with persisted warning rationales and hard-error approval blocking.
 - The post-Foundation cleanup gate is complete: passage-plan validation now uses exact approved dependencies, unchanged saves preserve approval state, and a browser-level 300-passage fixture verifies rendering, filtering, and stable-ID jump behavior offline.
-- Foundation 4A is complete: approved snapshots can be planned in bounded units, executed into immutable validated candidates, consolidated into deterministic stable-ID proposal groups, previewed against current heads, selectively applied in one transaction, audited, reloaded, and restored without a provider call during proposal work.
+- Foundation 4A is complete and externally accepted: approved snapshots can be planned in bounded units, executed into immutable validated candidates, consolidated into deterministic stable-ID proposal groups, previewed against current heads, selectively applied in one transaction, audited, reloaded, and restored without a provider call during proposal work.
+- Foundation 4B is complete and externally accepted: durable versioned prose, bounded offline-testable drafting, exact provenance and staleness, explicit review and acceptance, locking, history, comparison, restore, and corpus reporting are implemented.
+- Foundation 4 is **CLOSED** at accepted head `1cf2b003375851a27999036e0935d54ff6a894a6`.
 
-The next objective is to turn that planning prototype into a safe production workspace for a configurable 150,000-200,000-word interactive novel with hundreds of passages.
+The next objective is Foundation 5's deterministic simulation, seeded playtesting, and bounded narrative review over the accepted authored project.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 
@@ -249,7 +251,7 @@ Demonstrate that routes, choices, mechanics, relationships, and endings material
 
 ### Foundation 4A: bounded AI passage planning (formerly Production 1)
 
-**Implementation status:** Complete, externally accepted, and acceptance-tested offline on 2026-08-10 at `9a3316a8efbbd758f6a9d46e1ce0d5fecbf82713`. Checkpoint 4A-1 added immutable generation plans, authorization, bounded jobs, retry, cancellation, and recovery. Checkpoint 4A-2 added exact persisted context packs, structured candidates, bounded repair, relational validation, and immutable provenance. Checkpoint 4A-3 added deterministic consolidation, exact-base stable-ID operations, dependency-safe proposal groups, local validation previews, explicit review, transactional selective application, ordinary passage-plan versions, and immutable audit history. No 4A-3 operation calls a provider, and Foundation 4B has not started.
+**Implementation status:** Complete, externally accepted, and acceptance-tested offline on 2026-08-10 at `9a3316a8efbbd758f6a9d46e1ce0d5fecbf82713`. Checkpoint 4A-1 added immutable generation plans, authorization, bounded jobs, retry, cancellation, and recovery. Checkpoint 4A-2 added exact persisted context packs, structured candidates, bounded repair, relational validation, and immutable provenance. Checkpoint 4A-3 added deterministic consolidation, exact-base stable-ID operations, dependency-safe proposal groups, local validation previews, explicit review, transactional selective application, ordinary passage-plan versions, and immutable audit history. No 4A-3 operation calls a provider.
 
 #### Goal
 
@@ -283,11 +285,15 @@ Use AI to propose passage-plan work in small, resumable, inspectable units.
 
 ### Foundation 4B: passage drafting (formerly Production 2)
 
+**Implementation status:** Complete, externally accepted, and acceptance-tested offline. Foundation 4 is closed at `1cf2b003375851a27999036e0935d54ff6a894a6`.
+
 #### Goal
 
 Draft prose in bounded batches while keeping passage specifications and accepted prose independently versioned.
 
 #### Checkpoint 4B-1: draft architecture and lifecycle
+
+**Implementation status:** Complete and externally accepted.
 
 This checkpoint establishes the durable corpus and job architecture only. It does not generate prose.
 
@@ -324,7 +330,7 @@ No live or paid provider calls are required for engineering or testing.
 
 #### Checkpoint 4B-3: draft review and acceptance
 
-**Implementation status:** Implemented and acceptance-tested offline on the dedicated 4B-3 checkpoint branch; external acceptance remains pending.
+**Implementation status:** Complete, externally accepted, and acceptance-tested offline at `1cf2b003375851a27999036e0935d54ff6a894a6`.
 
 1. Add a readable prose-review interface.
 2. Support individual passage acceptance and dependency-safe batch acceptance where appropriate.
@@ -355,31 +361,111 @@ Do not implement all of Foundation 4B in one commit.
 
 #### Goal
 
-Evaluate both the executable state model and the quality of the authored experience.
+Evaluate both the executable state model and the quality of the authored experience without mutating canonical authoring data.
 
-#### Work
+#### Shared principles
 
-1. Add deterministic test paths.
-2. Add seeded sampled playthroughs.
-3. Record state and relationship trajectories.
-4. Report ending eligibility and route coverage.
-5. Add continuity and knowledge-state checks.
-6. Add playtest findings linked to passages and snapshots.
-7. Add pacing, choice-density, and route-exclusive-content reports.
-8. Add AI narrative-review jobs that produce findings and proposals, never automatic rewrites.
+1. Every simulation run, playtest run, and narrative review is tied to an exact immutable project, passage-plan, and accepted-draft snapshot. Results never silently drift to newer canonical state.
+2. The same snapshot, seed or explicit path, and execution policy produce the same simulation result and reproducible path trace.
+3. Seeded sampled playthroughs are replayable, bounded, and do not require enumeration of every possible route.
+4. Findings retain exact evidence, snapshot provenance, and stable entity references.
+5. Foundation 5 reads, analyzes, and reviews. It never directly mutates canonical passages, prose, choices, mechanics, routes, endings, or other authoring data.
+6. Normal tests and CI remain completely offline. No live OpenRouter call is required for any Foundation 5 checkpoint acceptance gate.
+7. The representative 300-passage project remains a required scale fixture.
+8. Reuse the accepted stable-ID, immutable snapshot, version/provenance, job/unit/attempt lifecycle, provider-authorization, and bounded-context conventions.
+9. Deterministic execution semantics must be reusable by Foundation 7's native player wherever architecture permits. Do not create a second incompatible validator-only mechanics interpretation.
+
+#### Checkpoint 5A: deterministic simulation kernel
+
+Build the provider-free deterministic execution foundation that later playtesting, narrative review, and the native runtime can trust.
+
+1. Define an exact immutable simulation input snapshot over the approved project, passage plan, required upstream versions, and selected accepted draft versions.
+2. Add deterministic initialization, start-passage entry, choice traversal, and normalized runtime/simulation failures.
+3. Execute the canonical mechanics, stat, relationship, flag, resource, visit-count, choice-condition, and atomic choice-effect semantics.
+4. Respect `sourceDecisionIds` and applicable route and ending requirements without inventing prose-derived state.
+5. Resolve terminal passages, ending eligibility, and ending outcomes deterministically.
+6. Support explicit deterministic test paths and reproducible path traces.
+7. Record state, relationship, visit, and choice-history trajectories plus route and ending coverage.
+8. Persist simulation inputs, results, and findings where useful for exact reopen and inspection; every finding references its immutable snapshot and exact entity IDs.
+9. Add sufficient local inspection/debug UI to exercise a path, inspect transitions and trajectories, and navigate normalized failures.
+10. Prove the kernel against fixed path vectors and the 300-passage offline fixture.
+
+5A contains no AI narrative review, repair proposals, or Foundation 6 work.
+
+**Recommended engineering model:** Sol High, because deterministic execution semantics and future runtime compatibility are high-risk architectural work.
+
+#### Checkpoint 5B: seeded playtesting and experience analysis
+
+Use the accepted 5A kernel to exercise the game at scale and produce human-reviewable structural and playtest evidence.
+
+1. Add seeded sampled playthroughs with recorded seeds, policies, bounded path/sample counts, deterministic replay, and normalized hard-failure reporting.
+2. Accumulate route, ending, passage, and choice coverage plus visit frequencies without requiring exhaustive route enumeration.
+3. Summarize stat and relationship trajectories and whether important mechanic changes have visible downstream consequences.
+4. Run continuity and knowledge-state checks against the exact simulated path.
+5. Report pacing, choice density, route-exclusive content, and representative/minimum/maximum path behavior where useful.
+6. Link every playtest finding to the exact simulation snapshot, run, seed/path, evidence, and relevant passages, choices, mechanics, routes, and endings.
+7. Keep playtest run records durable or exactly reproducible, with review, filtering, replay, and stable-ID navigation UI.
+8. Define and enforce a bounded sampling policy, including the 300-passage representative fixture and fixed-seed regressions.
+
+5B findings are evidence only. They do not mutate passages, prose, choices, mechanics, routes, or endings, and they do not create Foundation 6 repair operations.
+
+**Recommended engineering model:** Sol High or Terra High.
+
+#### Checkpoint 5C: bounded AI narrative review
+
+Add optional AI-assisted qualitative review over exact, bounded evidence from the accepted project and deterministic simulation/playtest results.
+
+1. Add review-plan preview and authorization against an exact immutable review input snapshot.
+2. Divide review into bounded units with exact context packs for selected passages or route sections rather than sending the whole project by default.
+3. Include only relevant accepted prose, passage specifications, route/ending/mechanics obligations, simulation traces/findings, and continuity/state evidence.
+4. Persist provider/model identity, plans, jobs, units, attempts, authorization, cancellation, retry, and restart recovery using the accepted lifecycle conventions.
+5. Provide a deterministic offline review provider and a stubbed OpenRouter boundary; no live or paid request is needed for engineering or acceptance.
+6. Require strict structured findings, local validation, bounded structural repair of malformed provider output, and immutable review provenance.
+7. Link every finding to exact evidence and stable entity IDs, and expose readable review/filter/navigation UI.
+8. Support qualitative categories such as pacing, repetition, weak or unclear choices, abrupt transitions, character consistency, emotional continuity, route differentiation, setup/payoff quality, ending buildup, and prose continuity around branching or reconvergence.
+
+AI output in 5C is findings only. It cannot rewrite prose or project data, regenerate passages, or create generalized repair operations.
+
+**Recommended engineering model:** Sol High or Terra High.
+
+#### Foundation 5 / Foundation 6 boundary
+
+Foundation 5 answers: **“What is happening in the authored experience, and what appears wrong or worth reviewing?”** It may create simulation evidence, playtest runs, deterministic findings, and AI narrative-review findings.
+
+Foundation 6 answers: **“What exact changes should be proposed to repair an accepted finding?”** It consumes selected Foundation 5 findings and uses the existing versioning, proposal, review, and transactional application architecture to produce bounded repairs.
+
+Foundation 5 must not rewrite prose, regenerate passages, mutate choices or mechanics, change routes or endings, automatically apply fixes, or create generalized repair operations.
+
+#### Implementation sequence
+
+Implement the checkpoints sequentially:
+
+`5A -> commit/push/CI -> external review -> fixes if needed -> accepted SHA`
+
+then `5B -> commit/push/CI -> external review -> fixes if needed -> accepted SHA`
+
+then `5C -> commit/push/CI -> external review -> fixes if needed -> accepted SHA`.
+
+Do not begin a checkpoint until the previous checkpoint has an externally accepted SHA. Foundation 5 is closed only after 5C passes external review. Do not implement all of Foundation 5 in one checkpoint.
 
 #### Acceptance gate
 
-- Major intended routes have reproducible test paths.
-- Sampled paths do not expose hard runtime failures.
-- Important stats and relationships display observable consequences.
-- Findings are traceable to the snapshot and entities reviewed.
+- Major intended routes have reproducible deterministic test paths.
+- Seeded sampled playthroughs are replayable from their exact snapshot, seed/path, and policy.
+- Sampled paths do not expose unresolved hard runtime failures.
+- Important stats and relationships show observable consequences in recorded trajectories.
+- Route and ending coverage are reportable.
+- Pacing, choice-density, and route-exclusive-content analysis is inspectable.
+- Findings are linked to the exact snapshot, evidence, and entity IDs reviewed.
+- Optional AI narrative review produces bounded, locally validated findings only.
+- No Foundation 5 action silently rewrites canonical project content.
+- No live provider is required for acceptance.
 
 ### Foundation 6: revision workflow
 
 #### Goal
 
-Turn validation, simulation, playtest, and narrative-review findings into bounded repairs without regenerating unrelated work.
+Turn selected validation, simulation, playtest, and narrative-review findings into bounded reviewable repairs without regenerating unrelated work. Foundation 6, not Foundation 5, owns repair proposal creation and application.
 
 #### Work
 
