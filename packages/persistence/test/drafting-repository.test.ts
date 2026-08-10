@@ -384,6 +384,95 @@ describe("drafting repository", () => {
     fixture.database.close();
   });
 
+  it("binds neighboring draft provenance exactly to persisted accepted-neighbor context", () => {
+    const fixture = setup(":memory:", 2);
+    const drafts = new PassageDraftRepository(fixture.database);
+    const neighborCandidate = drafts.createVersion({
+      projectId: fixture.project.id,
+      passageId: "passage-2",
+      basedOnPassagePlanVersionId: fixture.passageVersions[1]!.id,
+      proseMarkdown: "Accepted neighboring prose.",
+      sourceKind: "manual",
+      upstreamVersions: fixture.snapshot.upstreamVersions,
+    });
+    const acceptedNeighbor = drafts.transition(
+      fixture.project.id, "passage-2", neighborCandidate.id, "accepted",
+    );
+    const contextFingerprint = "n".repeat(64);
+    const input = {
+      ...fixture.input,
+      scope: { kind: "passages", passageIds: ["passage-1"] },
+      units: [{
+        ...fixture.input.units[0]!,
+        context: {
+          schemaId: "cyoa.passage-drafting-context",
+          schemaVersion: 1,
+          acceptedNeighborProse: [{
+            passageId: "passage-2",
+            draftVersionId: acceptedNeighbor.id,
+            proseMarkdown: acceptedNeighbor.proseMarkdown,
+          }],
+        },
+        contextFingerprint,
+        contextDiagnostics: { status: "built", contextFingerprint },
+      }],
+    };
+    const plan = fixture.drafting.createPlan(input);
+    fixture.drafting.authorize(fixture.project.id, plan.id, plan.fingerprint);
+    fixture.drafting.startJob(fixture.project.id, plan.jobId);
+    const { attemptId } = fixture.drafting.startUnit(fixture.project.id, plan.jobId, "unit-1");
+    const completion = (neighboringDraftVersions: Record<string, string>) => ({
+      contextFingerprint,
+      providerId: input.providerId,
+      modelId: input.modelId,
+      outputSchemaId: "cyoa.passage-drafting-unit-output",
+      outputSchemaVersion: 1,
+      content: { passages: ["passage-1"] },
+      validation: { valid: true },
+      repair: { maximumRepairs: 1, repairsPerformed: 0 },
+      upstreamVersions: fixture.snapshot.upstreamVersions,
+      neighboringDraftVersions,
+      passages: [{
+        passageId: "passage-1",
+        passagePlanVersionId: fixture.passageVersions[0]!.id,
+        proseMarkdown: "Generated target prose.",
+      }],
+    });
+
+    for (const invalid of [
+      {},
+      { "passage-2": neighborCandidate.id },
+      { "passage-2": acceptedNeighbor.id, "passage-extra": acceptedNeighbor.id },
+    ]) {
+      expect(() => fixture.drafting.completeUnitWithCandidates(
+        fixture.project.id,
+        plan.jobId,
+        "unit-1",
+        attemptId,
+        drafts,
+        completion(invalid),
+      )).toThrow("neighboring draft versions do not exactly match");
+      expect((fixture.database.prepare("SELECT COUNT(*) AS count FROM drafting_unit_outputs")
+        .get() as { count: number }).count).toBe(0);
+      expect((fixture.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_generation_provenance")
+        .get() as { count: number }).count).toBe(0);
+      expect(drafts.getHead(fixture.project.id, "passage-1")).toBeUndefined();
+      expect(fixture.drafting.getJob(fixture.project.id, plan.jobId)?.units[0]?.status).toBe("running");
+    }
+
+    const completed = fixture.drafting.completeUnitWithCandidates(
+      fixture.project.id,
+      plan.jobId,
+      "unit-1",
+      attemptId,
+      drafts,
+      completion({ "passage-2": acceptedNeighbor.id }),
+    );
+    expect(completed.drafts[0]?.neighboringDraftVersions).toEqual({ "passage-2": acceptedNeighbor.id });
+    expect(completed.job.units[0]?.status).toBe("completed");
+    fixture.database.close();
+  });
+
   it("rolls back every candidate, output, and completion marker when one passage persistence fails", () => {
     const fixture = setup(":memory:", 2);
     const contextFingerprint = "d".repeat(64);

@@ -45,7 +45,15 @@ describe("OpenRouterPassageDraftingProvider", () => {
     expect(bodies[0]).toMatchObject({
       model: "fixture/model", max_tokens: 2_500, temperature: 0,
       provider: { require_parameters: true }, response_format: {
-        type: "json_schema", json_schema: { strict: true },
+        type: "json_schema", json_schema: {
+          strict: true,
+          schema: {
+            properties: {
+              schemaId: { type: "string", const: passageDraftingUnitOutputSchema.id },
+              schemaVersion: { type: "number", const: passageDraftingUnitOutputSchema.version },
+            },
+          },
+        },
       },
     });
     expect(JSON.stringify({ result, bodies })).not.toContain(secret);

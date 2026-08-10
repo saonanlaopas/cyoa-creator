@@ -407,10 +407,110 @@ describe("Foundation 4B-1 draft architecture API", () => {
     });
     expect(start.statusCode).toBe(409);
     expect(start.json()).toMatchObject({ code: "stale_drafting_plan", retryable: false });
-    expect(start.json().error).toContain("Target passage-plan head changed");
+    expect(start.json().error).toContain("approved passage-plan snapshot");
     expect(provider.calls).toHaveLength(0);
     await app.close();
   });
+
+  it.each(["choice", "thread", "structure", "snapshot"] as const)(
+    "blocks an authorized plan after %s state changes with zero provider calls",
+    async (mutation) => {
+      const provider = new DeterministicPassageDraftingProvider();
+      const app = buildApp({ passageDraftingProvider: provider });
+      const { projectId, plan } = await createApprovedFixture(app);
+      let approvedPlan = plan;
+      if (mutation === "thread" && approvedPlan.threads.length === 0) {
+        const passageId = approvedPlan.passages[0].entityId as string;
+        const saved = await app.inject({
+          method: "PUT",
+          url: `/api/long-form/projects/${projectId}/passage-plan/entities/thread/thread-review-fixture`,
+          payload: {
+            id: "thread-review-fixture",
+            label: "Review fixture",
+            description: "A thread captured by the approved graph.",
+            setupPassageIds: [passageId],
+            payoffPassageIds: [],
+            routeIds: [],
+            required: false,
+            status: "planned",
+            waiverRationale: "",
+          },
+        });
+        expect(saved.statusCode).toBe(201);
+        const snapshot = (await app.inject({
+          method: "POST", url: `/api/long-form/projects/${projectId}/passage-plan/snapshots`,
+        })).json();
+        const approved = await app.inject({
+          method: "POST", url: `/api/long-form/projects/${projectId}/passage-plan/approve`,
+          payload: { snapshotId: snapshot.id },
+        });
+        expect(approved.statusCode).toBe(201);
+        approvedPlan = (await app.inject({
+          method: "GET", url: `/api/long-form/projects/${projectId}/passage-plan`,
+        })).json();
+      }
+      const created = (await app.inject({
+        method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`,
+        payload: {
+          scope: { kind: "passages", passageIds: [approvedPlan.passages[0].entityId] },
+          providerId: provider.id,
+        },
+      })).json();
+      await app.inject({
+        method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
+        payload: { fingerprint: created.fingerprint },
+      });
+
+      if (mutation === "choice") {
+        const choice = plan.choices[0];
+        if (!choice) throw new Error("Expected a choice fixture");
+        const changed = await app.inject({
+          method: "PUT",
+          url: `/api/long-form/projects/${projectId}/passage-plan/entities/choice/${choice.entityId}`,
+          payload: { ...choice.content, label: `${choice.content.label} changed` },
+        });
+        expect(changed.statusCode).toBe(201);
+      } else if (mutation === "thread") {
+        const thread = approvedPlan.threads[0];
+        if (!thread) throw new Error("Expected a thread fixture");
+        const changed = await app.inject({
+          method: "PUT",
+          url: `/api/long-form/projects/${projectId}/passage-plan/entities/thread/${thread.entityId}`,
+          payload: { ...thread.content, description: `${thread.content.description} changed` },
+        });
+        expect(changed.statusCode).toBe(201);
+      } else if (mutation === "structure") {
+        const changed = await app.inject({
+          method: "PUT",
+          url: `/api/long-form/projects/${projectId}/passage-plan/structure`,
+          payload: { ...plan.structure.content, title: `${plan.structure.content.title} changed` },
+        });
+        expect(changed.statusCode).toBe(201);
+      } else {
+        const replacement = (await app.inject({
+          method: "POST", url: `/api/long-form/projects/${projectId}/passage-plan/snapshots`,
+        })).json();
+        const approved = await app.inject({
+          method: "POST", url: `/api/long-form/projects/${projectId}/passage-plan/approve`,
+          payload: { snapshotId: replacement.id },
+        });
+        expect(approved.statusCode).toBe(201);
+      }
+
+      const start = await app.inject({
+        method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start`,
+      });
+      expect(start.statusCode).toBe(409);
+      expect(start.json()).toMatchObject({ code: "stale_drafting_plan", retryable: false });
+      expect(provider.calls).toHaveLength(0);
+      const job = (await app.inject({
+        method: "GET", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}`,
+      })).json();
+      expect(job.status).toBe("authorized");
+      expect(job.units[0].status).toBe("pending");
+      await app.close();
+    },
+  );
 
   it("keeps locked accepted prose fixed when generation creates a newer current candidate", async () => {
     const app = buildApp();

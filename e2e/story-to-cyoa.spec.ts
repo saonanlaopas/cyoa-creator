@@ -431,7 +431,9 @@ test("bounded prose drafting previews context, repairs, retries, persists, and c
   );
   await expect(mutateTarget).toBeOK();
   await draftPanel.getByRole("button", { name: "Start generation" }).click();
-  await expect(page.getByText("Target passage-plan head changed for passage-000")).toBeVisible();
+  await expect(page.getByText(
+    "Current approved passage-plan snapshot no longer matches the authorized drafting plan",
+  )).toBeVisible();
   const staleJob = await (await request.get(
     `/api/long-form/projects/${projectId}/drafting/jobs/${stalePlan.jobId}`,
   )).json();

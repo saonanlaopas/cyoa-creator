@@ -227,6 +227,7 @@ export class PassageDraftingService {
           maximumOutputTokens,
           signal: controller.signal,
         } as const;
+        this.assertPlanFresh(plan, unit.id);
         const first = await provider.generate({ ...baseRequest, mode: "generate" });
         const usage: PassageDraftingProviderUsage[] = first.usage ? [first.usage] : [];
         const providerMetadata: Record<string, unknown>[] = first.providerMetadata ? [first.providerMetadata] : [];
@@ -259,6 +260,7 @@ export class PassageDraftingService {
             passageId: item.content.id,
             basedOnPassagePlanVersionId: item.versionId,
           }));
+          this.assertPlanFresh(plan, unit.id);
           const repaired = await provider.generate({
             ...baseRequest,
             mode: "repair",
@@ -343,6 +345,16 @@ export class PassageDraftingService {
   }
 
   private assertPlanFresh(plan: DraftingPlanRecord, unitId?: string): void {
+    const passagePlanState = this.passagePlans.state(plan.projectId);
+    if (passagePlanState.status !== "approved"
+      || passagePlanState.approvedSnapshotId !== plan.snapshotId) {
+      throw stalePlanError("Current approved passage-plan snapshot no longer matches the authorized drafting plan");
+    }
+    const approvedSnapshot = this.passagePlans.getSnapshot(plan.snapshotId);
+    if (!approvedSnapshot || approvedSnapshot.projectId !== plan.projectId
+      || approvedSnapshot.status !== "approved") {
+      throw stalePlanError("Authorized drafting-plan snapshot is no longer approved");
+    }
     const units = unitId ? plan.units.filter((unit) => unit.id === unitId) : plan.units;
     for (const unit of units) {
       const context = this.exactStoredContext(unit.context, unit.contextFingerprint);

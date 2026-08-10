@@ -385,11 +385,19 @@ function providerErrorCode(diagnostic: OpenRouterDiagnostic): OpenRouterError["c
 
 /** Zod v3 intentionally doesn't export JSON Schema; this covers its JSON-safe core. */
 function zodToJsonSchema(schema: ZodType<unknown>): Record<string, unknown> {
-  const def = (schema as unknown as { _def?: { typeName?: string; shape?: () => Record<string, ZodType<unknown>>; values?: string[]; innerType?: ZodType<unknown>; type?: ZodType<unknown> } })._def;
+  const def = (schema as unknown as { _def?: {
+    typeName?: string;
+    shape?: () => Record<string, ZodType<unknown>>;
+    values?: string[];
+    value?: unknown;
+    innerType?: ZodType<unknown>;
+    type?: ZodType<unknown>;
+  } })._def;
   switch (def?.typeName) {
     case "ZodString": return { type: "string" };
     case "ZodNumber": return { type: "number" };
     case "ZodBoolean": return { type: "boolean" };
+    case "ZodLiteral": return literalToJsonSchema(def.value);
     case "ZodArray": return { type: "array", items: zodToJsonSchema(def.type!) };
     case "ZodEnum": return { type: "string", enum: def.values };
     case "ZodOptional": return zodToJsonSchema(def.innerType!);
@@ -403,4 +411,15 @@ function zodToJsonSchema(schema: ZodType<unknown>): Record<string, unknown> {
     }
     default: return { type: "object" };
   }
+}
+
+function literalToJsonSchema(value: unknown): Record<string, unknown> {
+  if (value === null) return { type: "null", const: null };
+  if (typeof value === "string" || typeof value === "boolean") {
+    return { type: typeof value, const: value };
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return { type: "number", const: value };
+  }
+  throw new Error("Strict JSON Schema only supports JSON-safe ZodLiteral values");
 }

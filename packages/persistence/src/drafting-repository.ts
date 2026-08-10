@@ -405,6 +405,11 @@ export class DraftingRepository {
       if (canonicalRecordJson(plan.upstreamVersions) !== canonicalRecordJson(candidate.upstreamVersions)) {
         throw new Error("Candidate upstream versions do not match the authorized drafting plan");
       }
+      const expectedNeighboringDraftVersions = neighboringDraftVersionsFromContext(unit.context);
+      if (canonicalRecordJson(expectedNeighboringDraftVersions)
+        !== canonicalRecordJson(candidate.neighboringDraftVersions)) {
+        throw new Error("Candidate neighboring draft versions do not exactly match the persisted drafting context");
+      }
       const expected = new Map(unit.passageIds.map((passageId, index) => [passageId, unit.passageVersionIds[index]!]));
       if (candidate.passages.length !== expected.size
         || candidate.passages.some((item) => expected.get(item.passageId) !== item.passagePlanVersionId)) {
@@ -670,4 +675,26 @@ function canonicalRecordJson(value: Record<string, string>): string {
   return JSON.stringify(Object.fromEntries(
     Object.entries(value).sort(([left], [right]) => left.localeCompare(right)),
   ));
+}
+
+function neighboringDraftVersionsFromContext(context: unknown): Record<string, string> {
+  if (!context || typeof context !== "object") return {};
+  const acceptedNeighborProse = (context as { acceptedNeighborProse?: unknown }).acceptedNeighborProse;
+  if (acceptedNeighborProse === undefined) return {};
+  if (!Array.isArray(acceptedNeighborProse)) {
+    throw new Error("Persisted drafting context has invalid accepted neighboring prose provenance");
+  }
+  const versions: Record<string, string> = {};
+  for (const neighbor of acceptedNeighborProse) {
+    if (!neighbor || typeof neighbor !== "object") {
+      throw new Error("Persisted drafting context has invalid accepted neighboring prose provenance");
+    }
+    const { passageId, draftVersionId } = neighbor as { passageId?: unknown; draftVersionId?: unknown };
+    if (typeof passageId !== "string" || !passageId || typeof draftVersionId !== "string" || !draftVersionId
+      || passageId in versions) {
+      throw new Error("Persisted drafting context has invalid accepted neighboring prose provenance");
+    }
+    versions[passageId] = draftVersionId;
+  }
+  return versions;
 }

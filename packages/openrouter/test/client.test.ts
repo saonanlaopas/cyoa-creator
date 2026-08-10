@@ -47,6 +47,48 @@ describe("OpenRouterClient", () => {
     expect(bodies[0]).toMatchObject({ provider: { require_parameters: true }, response_format: { json_schema: { strict: true } } });
   });
 
+  it("transmits primitive Zod literals as strict JSON Schema type and const pairs", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const schema = z.object({
+      schemaId: z.literal("fixture.schema"),
+      schemaVersion: z.literal(2),
+      enabled: z.literal(true),
+      empty: z.literal(null),
+    });
+    const client = new OpenRouterClient({
+      credentialStore: credentials(),
+      fetch: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return jsonResponse({
+          choices: [{ message: { content: '{"schemaId":"fixture.schema","schemaVersion":2,"enabled":true,"empty":null}' } }],
+        });
+      },
+    });
+
+    await client.generateStructuredRaw(
+      { model: model.id, modelCapabilities: model, messages: [{ role: "user", content: "go" }] },
+      schema,
+    );
+
+    expect(bodies[0]).toMatchObject({
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              schemaId: { type: "string", const: "fixture.schema" },
+              schemaVersion: { type: "number", const: 2 },
+              enabled: { type: "boolean", const: true },
+              empty: { type: "null", const: null },
+            },
+          },
+        },
+      },
+    });
+  });
+
   it("streams structured JSON, enables requested reasoning, and repairs invalid JSON once", async () => {
     const bodies: unknown[] = [];
     let calls = 0;
