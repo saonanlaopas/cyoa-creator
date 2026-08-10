@@ -50,6 +50,9 @@ importers:
       '@story-to-cyoa/pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline
+      '@story-to-cyoa/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       fastify:
         specifier: ^5.5.0
         version: 5.10.0
@@ -133,9 +136,14 @@ importers:
       '@story-to-cyoa/persistence':
         specifier: workspace:*
         version: link:../persistence
+      '@story-to-cyoa/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       zod:
         specifier: ^3.25.76
         version: 3.25.76
+
+  packages/runtime: {}
 
 packages:
 

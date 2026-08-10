@@ -8,6 +8,16 @@ import {
   validatePassagePlan,
   type PassagePlanBundle,
 } from "../src/index.js";
+import {
+  RuntimeCompileError,
+  compileRuntime,
+  conditionStaticTruth,
+  createInitialRuntimeState,
+  createRuntimeMechanicRegistry,
+  effectCompatible,
+  evaluateRuntimeCondition,
+  type RuntimeCompileSource,
+} from "@story-to-cyoa/runtime";
 
 function fixture() {
   const brief = defaultProjectBrief("Validator");
@@ -211,6 +221,21 @@ function fixture() {
   return { bible, routes, endings, mechanics, bundle };
 }
 
+function runtimeSource(input: ReturnType<typeof fixture>): RuntimeCompileSource {
+  return {
+    snapshotId: "snapshot-contract",
+    structureVersionId: "structure-contract",
+    startPassageId: input.bundle.structure.startPassageId,
+    passageVersions: input.bundle.passages.map((passage) => ({ versionId: `pv-${passage.id}`, ...passage })),
+    choiceVersions: input.bundle.choices.map((choice) => ({ versionId: `cv-${choice.id}`, ...choice })),
+    threadVersionIds: input.bundle.threads.map((thread) => `tv-${thread.id}`),
+    routeIds: input.routes.routes.map((route) => route.id),
+    routeDecisionIds: input.routes.decisionPoints.map((decision) => decision.id),
+    endings: input.endings.endings.map((ending) => ({ id: ending.id, routeId: ending.routeId })),
+    mechanics: input.mechanics,
+  };
+}
+
 describe("passage-plan structural validator", () => {
   it("reports executable coverage and path budgets for a coherent plan", () => {
     const input = fixture();
@@ -342,5 +367,33 @@ describe("passage-plan structural validator", () => {
       finding.code === error.code && finding.entityId === error.entityId)).toMatchObject({
       acknowledged: false,
     });
+  });
+
+  it("shares condition/effect semantics and agrees on terminal failures with the runtime compiler", () => {
+    const input = fixture();
+    const registry = createRuntimeMechanicRegistry(input.mechanics);
+    const maximum = input.mechanics.visibleStats[0]!.maximum;
+    const impossible = { kind: "compare" as const, mechanicKey: "resolve", operator: "gte" as const, value: maximum + 1 };
+    input.bundle.choices[1] = { ...input.bundle.choices[1]!, condition: impossible };
+    expect(conditionStaticTruth(impossible, registry, new Set(["resolve"]))).toBe("always-false");
+    expect(evaluateRuntimeCondition(impossible, createInitialRuntimeState("passage-start", registry), registry)).toBe(false);
+    expect(validatePassagePlan(input).findings.map((finding) => finding.code)).toEqual(expect.arrayContaining([
+      "condition.threshold.unreachable", "choice.always-unavailable",
+    ]));
+
+    const invalidEffect = { ...input.bundle.choices[0]!.effects[0]!, value: "wrong type" };
+    input.bundle.choices[0] = { ...input.bundle.choices[0]!, effects: [invalidEffect] };
+    expect(effectCompatible(invalidEffect, registry.resolve)).toBe(false);
+    expect(validatePassagePlan(input).findings.map((finding) => finding.code)).toContain("effect.type.invalid");
+    expect(() => compileRuntime(runtimeSource(input))).toThrow(RuntimeCompileError);
+
+    const terminal = fixture();
+    terminal.bundle.passages[2] = { ...terminal.bundle.passages[2]!, endingId: null };
+    expect(validatePassagePlan(terminal).findings.map((finding) => finding.code)).toContain("graph.terminal.ending-missing");
+    try { compileRuntime(runtimeSource(terminal)); throw new Error("Expected runtime compile failure"); }
+    catch (error) {
+      expect(error).toBeInstanceOf(RuntimeCompileError);
+      expect((error as RuntimeCompileError).findings.map((finding) => finding.code)).toContain("runtime.terminal.ending-invalid");
+    }
   });
 });

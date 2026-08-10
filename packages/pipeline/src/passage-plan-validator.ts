@@ -3,8 +3,15 @@ import type { LongFormMechanicsPlan } from "./schemas/long-form-mechanics-plan.j
 import type { LongFormRoutePlan } from "./schemas/long-form-route-plan.js";
 import type { LongFormStoryBible } from "./schemas/long-form-story-bible.js";
 import type {
-  ChoicePlan, ConditionExpression, PassagePlan, PassagePlanBundle, StateEffect,
+  ChoicePlan, ConditionExpression, PassagePlan, PassagePlanBundle,
 } from "./schemas/passage-plan.js";
+import {
+  conditionCompatible,
+  conditionStaticTruth,
+  createRuntimeMechanicRegistry,
+  effectCompatible,
+  type RuntimeMechanicDefinition,
+} from "@story-to-cyoa/runtime";
 
 export type PassageFindingSeverity = "error" | "warning" | "info";
 export interface PassageFindingOverride {
@@ -43,14 +50,6 @@ export interface PassageValidationReport {
   coverage: PassageCoverageReport;
 }
 
-type MechanicKind = "number" | "boolean" | "string";
-type MechanicDefinition = {
-  kind: MechanicKind;
-  minimum?: number;
-  maximum?: number;
-  initial?: number | boolean | string;
-};
-
 const findingKey = (finding: Pick<PassagePlanFinding, "code" | "entityId">) =>
   `${finding.code}:${finding.entityId}`;
 
@@ -70,104 +69,16 @@ function conditionVisitReferences(condition: ConditionExpression | null, target:
   return target;
 }
 
-type StaticTruth = "always-true" | "always-false" | "unknown";
-
-function compareValue(
-  actual: number | boolean | string,
-  operator: "eq" | "neq" | "gt" | "gte" | "lt" | "lte",
-  expected: number | boolean | string,
-): boolean {
-  if (operator === "eq") return actual === expected;
-  if (operator === "neq") return actual !== expected;
-  if (typeof actual !== "number" || typeof expected !== "number") return false;
-  if (operator === "gt") return actual > expected;
-  if (operator === "gte") return actual >= expected;
-  if (operator === "lt") return actual < expected;
-  return actual <= expected;
-}
-
-function conditionTruth(
-  condition: ConditionExpression | null,
-  mechanics: Map<string, MechanicDefinition>,
-  writableMechanics: Set<string>,
-): StaticTruth {
-  if (!condition) return "always-true";
-  if (condition.kind === "all") {
-    const values = condition.items.map((item) => conditionTruth(item, mechanics, writableMechanics));
-    if (values.includes("always-false")) return "always-false";
-    return values.every((value) => value === "always-true") ? "always-true" : "unknown";
-  }
-  if (condition.kind === "any") {
-    const values = condition.items.map((item) => conditionTruth(item, mechanics, writableMechanics));
-    if (values.includes("always-true")) return "always-true";
-    return values.every((value) => value === "always-false") ? "always-false" : "unknown";
-  }
-  if (condition.kind === "not") {
-    const value = conditionTruth(condition.item, mechanics, writableMechanics);
-    return value === "always-true" ? "always-false" : value === "always-false" ? "always-true" : "unknown";
-  }
-  if (condition.kind === "visit-count") return "unknown";
-  const definition = mechanics.get(condition.mechanicKey);
-  if (!definition) return "unknown";
-  if (!writableMechanics.has(condition.mechanicKey) && definition.initial !== undefined) {
-    return compareValue(definition.initial, condition.operator, condition.value) ? "always-true" : "always-false";
-  }
-  if (definition.kind !== "number" || typeof condition.value !== "number") return "unknown";
-  if (condition.operator === "gt" && definition.maximum !== undefined && condition.value >= definition.maximum) return "always-false";
-  if (condition.operator === "gte" && definition.maximum !== undefined && condition.value > definition.maximum) return "always-false";
-  if (condition.operator === "lt" && definition.minimum !== undefined && condition.value <= definition.minimum) return "always-false";
-  if (condition.operator === "lte" && definition.minimum !== undefined && condition.value < definition.minimum) return "always-false";
-  if (condition.operator === "eq" && definition.minimum !== undefined && definition.maximum !== undefined) {
-    return condition.value < definition.minimum || condition.value > definition.maximum ? "always-false" : "unknown";
-  }
-  if (condition.operator === "neq" && definition.minimum !== undefined && definition.maximum !== undefined
-    && definition.minimum === definition.maximum && condition.value === definition.minimum) return "always-false";
-  return "unknown";
-}
-
 function conditionDefinitelyImpossible(
   condition: ConditionExpression | null,
-  mechanics: Map<string, MechanicDefinition>,
+  mechanics: Record<string, RuntimeMechanicDefinition>,
   writableMechanics: Set<string>,
 ): boolean {
-  return conditionTruth(condition, mechanics, writableMechanics) === "always-false";
+  return conditionStaticTruth(condition, mechanics, writableMechanics) === "always-false";
 }
 
-function mechanicRegistry(mechanics: LongFormMechanicsPlan | null): Map<string, MechanicDefinition> {
-  const registry = new Map<string, MechanicDefinition>();
-  mechanics?.visibleStats.forEach((item) => registry.set(item.key, {
-    kind: "number", minimum: item.minimum, maximum: item.maximum, initial: item.initial,
-  }));
-  mechanics?.relationships.forEach((item) => registry.set(item.key, {
-    kind: "number", minimum: item.minimum, maximum: item.maximum, initial: item.initial,
-  }));
-  mechanics?.flags.forEach((item) => registry.set(item.key, { kind: "boolean", initial: false }));
-  mechanics?.resources.forEach((item) => registry.set(item.key, {
-    kind: item.kind === "inventory" ? "string" : "number",
-    ...(item.kind === "inventory" ? { initial: "" } : { minimum: 0, initial: item.initial }),
-  }));
-  return registry;
-}
-
-function effectCompatible(effect: StateEffect, definition: MechanicDefinition | undefined): boolean {
-  if (!definition) return false;
-  if (definition.kind === "boolean") return (effect.operation === "set" && typeof effect.value === "boolean") || effect.operation === "clear";
-  if (definition.kind === "number") {
-    if (!["set", "add", "subtract"].includes(effect.operation) || typeof effect.value !== "number") return false;
-    return effect.operation !== "set" || definition.minimum === undefined || definition.maximum === undefined
-      || (effect.value >= definition.minimum && effect.value <= definition.maximum);
-  }
-  return effect.operation === "set" && typeof effect.value === "string";
-}
-
-function conditionCompatible(condition: ConditionExpression | null, registry: Map<string, MechanicDefinition>): boolean {
-  if (!condition) return true;
-  if (condition.kind === "all" || condition.kind === "any") return condition.items.every((item) => conditionCompatible(item, registry));
-  if (condition.kind === "not" || condition.kind === "visit-count") return condition.kind === "visit-count" || conditionCompatible(condition.item, registry);
-  const definition = registry.get(condition.mechanicKey);
-  if (!definition) return false;
-  if (["gt", "gte", "lt", "lte"].includes(condition.operator)) return definition.kind === "number" && typeof condition.value === "number";
-  return typeof condition.value === definition.kind;
+function mechanicRegistry(mechanics: LongFormMechanicsPlan | null): Record<string, RuntimeMechanicDefinition> {
+  return mechanics ? createRuntimeMechanicRegistry(mechanics) : {};
 }
 
 function reachable(startId: string | null, outgoing: Map<string, ChoicePlan[]>): Set<string> {
@@ -357,7 +268,7 @@ export function validatePassagePlan(input: {
   const factIds = new Set(bible?.canonFacts.map((item) => item.id) ?? []);
   const registry = mechanicRegistry(mechanics);
   const writableMechanics = new Set(bundle.choices.flatMap((choice) =>
-    choice.effects.filter((effect) => effectCompatible(effect, registry.get(effect.mechanicKey)))
+    choice.effects.filter((effect) => effectCompatible(effect, registry[effect.mechanicKey]))
       .map((effect) => effect.mechanicKey)));
   const allIds = [
     ...bundle.structure.acts.map((item) => item.id), ...bundle.structure.sequences.map((item) => item.id),
@@ -468,7 +379,7 @@ export function validatePassagePlan(input: {
       });
     }
     choice.effects.forEach((effect) => {
-      if (!effectCompatible(effect, registry.get(effect.mechanicKey))) add({
+      if (!effectCompatible(effect, registry[effect.mechanicKey])) add({
         code: "effect.type.invalid", severity: "error", entityType: "choice", entityId: choice.id,
         message: `Effect ${effect.id} is incompatible with mechanic ${effect.mechanicKey}.`, evidence: [effect.id, effect.mechanicKey],
         suggestion: "Use an operation and value compatible with the mechanic type.",
@@ -676,14 +587,14 @@ export function validatePassagePlan(input: {
       suggestion: "Carry it into a later passage, mechanic read, or ending contribution.",
     });
   });
-  const mechanicCoverage = [...registry.keys()].map((key) => ({
+  const mechanicCoverage = Object.keys(registry).map((key) => ({
     key,
     reads: bundle.choices.filter((choice) =>
       conditionCompatible(choice.condition, registry)
       && !conditionDefinitelyImpossible(choice.condition, registry, writableMechanics)
       && conditionReads(choice.condition).includes(key)).map((choice) => choice.id),
     writes: bundle.choices.filter((choice) =>
-      choice.effects.some((effect) => effect.mechanicKey === key && effectCompatible(effect, registry.get(key))))
+      choice.effects.some((effect) => effect.mechanicKey === key && effectCompatible(effect, registry[key])))
       .map((choice) => choice.id),
   }));
   mechanicCoverage.forEach((coverage) => {

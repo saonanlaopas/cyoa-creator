@@ -291,7 +291,7 @@ test("long-form workspace persists and approves a project brief", async ({ page 
   await page.getByRole("button", { name: "Approve brief" }).click();
 
   await page.getByRole("button", { name: "Story bible Not started" }).click();
-  await expect(page.getByRole("heading", { name: "Story bible" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Story bible", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Create story bible" }).click();
   await expect(page.locator(".artifact-header").getByText(/Version 1/)).toBeVisible();
 
@@ -309,7 +309,7 @@ test("long-form workspace persists and approves a project brief", async ({ page 
   await expect(page.getByText("Story bible approved. Routes are the next planning stage.")).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Story bible" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Story bible", exact: true })).toBeVisible();
   await expect(page.getByLabel("Name")).toHaveValue("Mara");
   await expect(page.getByText("I prepared a protagonist record for bible review.")).toBeVisible();
 });
@@ -401,6 +401,35 @@ test("manual passage drafts persist, stale selectively, and stay separate in a 3
   await page.getByRole("button", { name: "Jump" }).click();
   await expect(page.locator(".passage-editor input").first()).toHaveValue("Passage 299");
   expect(observedRequests.some((url) => /openrouter|passage-generation\/jobs\/.*\/start/i.test(url))).toBe(false);
+});
+
+test("deterministic simulation runs and reopens a 300-passage exact path without prose or provider requests", async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const projectId = await seedLargePassagePlan(request);
+  await approveCurrentPassagePlan(request, projectId);
+  const observedRequests: string[] = [];
+  page.on("request", (entry) => observedRequests.push(entry.url()));
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "simulation");
+  }, projectId);
+  await page.goto("/#long-form");
+
+  await expect(page.getByRole("heading", { name: "Deterministic simulation" })).toBeVisible();
+  await page.getByRole("button", { name: "Capture approved input" }).click();
+  await expect(page.getByText(/300 passages · 299 choices · 0 accepted draft refs/)).toBeVisible();
+  const path = Array.from({ length: 299 }, (_, index) => `choice-${String(index).padStart(3, "0")}`).join("\n");
+  await page.getByLabel("Stable choice IDs").fill(path);
+  await page.getByRole("button", { name: "Run deterministic path" }).click();
+
+  await expect(page.getByRole("heading", { name: "Trace evidence" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/completed-ending/).last()).toBeVisible();
+  await expect(page.locator(".simulation-steps > details")).toHaveCount(299);
+  await page.reload();
+  await expect(page.getByRole("button", { name: /v1 · completed-ending/ })).toBeVisible();
+  await page.getByRole("button", { name: /v1 · completed-ending/ }).click();
+  await expect(page.getByText("choice-298", { exact: false }).last()).toBeVisible();
+  expect(observedRequests.some((url) => /\/drafts|\/drafting|openrouter|provider/i.test(url))).toBe(false);
 });
 
 test("bounded prose drafting previews context, repairs, retries, persists, and cancels offline", async ({ page, request }) => {

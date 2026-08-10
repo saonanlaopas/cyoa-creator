@@ -40,6 +40,8 @@ import { DeterministicPassageDraftingProvider } from "./services/passage-draftin
 import { OpenRouterPassageDraftingProvider } from "./services/openrouter-passage-drafting-provider.js";
 import { registerPassageDraftRoutes } from "./routes/passage-drafts.js";
 import { registerPassageDraftingRoutes } from "./routes/passage-drafting.js";
+import { SimulationService } from "./services/simulation-service.js";
+import { registerSimulationRoutes } from "./routes/simulation.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -79,6 +81,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const passagePlanService = new PassagePlanService(projects, artifacts, workflow, passagePlans);
   const passageDraftService = new PassageDraftService(
     database, projects, workflow, passagePlans, passageDrafts, passageDraftAcceptance,
+  );
+  const simulationService = new SimulationService(
+    projects, artifacts, workflow, passagePlans, passageDrafts,
   );
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
     && process.env.E2E_FAKE_MODEL_PROVIDER === "1";
@@ -142,6 +147,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerPassageProposalRoutes(app, passageProposalService);
   registerPassageDraftRoutes(app, passageDraftService);
   registerPassageDraftingRoutes(app, passageDraftingService);
+  registerSimulationRoutes(app, simulationService);
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024, workflow);
