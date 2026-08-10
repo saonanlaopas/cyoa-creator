@@ -317,18 +317,50 @@ export class PassagePlanRepository {
       const structureRow = this.database.prepare("SELECT * FROM passage_structure_versions WHERE id = ?")
         .get(snapshot.structureVersionId) as StructureRow | undefined;
       if (!structureRow) throw new Error("Passage-plan snapshot structure is missing");
+      const kinds: PassageEntityKind[] = ["passage", "choice", "thread"];
+      const beforeByKind = new Map(kinds.map((kind) => [
+        kind,
+        new Map(this.currentEntities(projectId, kind).map((entity) => [entity.entityId, entity])),
+      ]));
+      const targetByKind = new Map(kinds.map((kind) => [
+        kind,
+        new Map(this.snapshotEntities(snapshotId, kind).map((entity) => [entity.entityId, entity])),
+      ]));
       this.insertStructure(projectId, JSON.parse(structureRow.content_json), snapshot.structureVersionId);
       this.database.prepare(`
         UPDATE passage_entity_heads SET tombstoned = 1 WHERE project_id = ?
       `).run(projectId);
-      for (const source of this.snapshotEntities(snapshotId, "passage")) {
-        this.insertEntity(projectId, "passage", source.entityId, source.content, source.id);
+      const restoredByKind = new Map<PassageEntityKind, Map<string, PassageVersion>>();
+      for (const kind of kinds) {
+        const restored = new Map<string, PassageVersion>();
+        for (const source of targetByKind.get(kind)!.values()) {
+          restored.set(source.entityId, this.insertEntity(
+            projectId, kind, source.entityId, source.content, source.id, false,
+          ));
+        }
+        restoredByKind.set(kind, restored);
       }
-      for (const source of this.snapshotEntities(snapshotId, "choice")) {
-        this.insertEntity(projectId, "choice", source.entityId, source.content, source.id);
-      }
-      for (const source of this.snapshotEntities(snapshotId, "thread")) {
-        this.insertEntity(projectId, "thread", source.entityId, source.content, source.id);
+      for (const kind of kinds) {
+        const before = beforeByKind.get(kind)!;
+        const target = targetByKind.get(kind)!;
+        const restored = restoredByKind.get(kind)!;
+        const entityIds = [...new Set([...before.keys(), ...target.keys()])].sort();
+        for (const entityId of entityIds) {
+          const oldEntity = before.get(entityId);
+          const targetEntity = target.get(entityId);
+          if (oldEntity && targetEntity
+            && canonical(oldEntity.content) === canonical(targetEntity.content)) continue;
+          const newEntity = restored.get(entityId);
+          this.mutationObserver?.({
+            projectId,
+            kind,
+            entityId,
+            beforeVersionId: oldEntity?.id ?? null,
+            afterVersionId: newEntity?.id ?? null,
+            before: oldEntity?.content ?? null,
+            after: newEntity?.content ?? null,
+          });
+        }
       }
       return this.setState(projectId, "draft");
     });
@@ -404,7 +436,12 @@ export class PassagePlanRepository {
   }
 
   private insertEntity<T>(
-    projectId: string, kind: PassageEntityKind, entityId: string, content: T, restoredFromVersionId?: string,
+    projectId: string,
+    kind: PassageEntityKind,
+    entityId: string,
+    content: T,
+    restoredFromVersionId?: string,
+    observe = true,
   ): PassageVersion<T> {
     const before = this.currentEntity<T>(projectId, kind, entityId);
     const latest = this.database.prepare(`
@@ -423,11 +460,13 @@ export class PassagePlanRepository {
       ON CONFLICT(project_id, entity_kind, entity_id) DO UPDATE SET version_id = excluded.version_id, tombstoned = 0
     `).run(projectId, kind, entityId, id);
     const result = this.getEntityVersion<T>(id)!;
-    this.mutationObserver?.({
-      projectId, kind, entityId,
-      beforeVersionId: before?.id ?? null, afterVersionId: result.id,
-      before: before?.content ?? null, after: result.content,
-    });
+    if (observe) {
+      this.mutationObserver?.({
+        projectId, kind, entityId,
+        beforeVersionId: before?.id ?? null, afterVersionId: result.id,
+        before: before?.content ?? null, after: result.content,
+      });
+    }
     return result;
   }
 
@@ -445,4 +484,14 @@ export class PassagePlanRepository {
     `).run(projectId, status, approvedSnapshotId ?? null, now);
     return this.state(projectId);
   }
+}
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }

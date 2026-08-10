@@ -6,6 +6,7 @@ import {
   generationLineageMigrationSql,
   passagePlanningCandidatesMigrationSql,
   passageDraftArchitectureMigrationSql,
+  passageDraftProvenanceMigrationSql,
   passageProposalMigrationSql,
   schemaSql,
 } from "./schema.js";
@@ -139,6 +140,24 @@ export function migrate(database: StoryDatabase): void {
       assertValidPassageDraftLineage(database);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (10, ?)",
+      ).run(new Date().toISOString());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const passageDraftProvenanceApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 11",
+  ).get();
+  if (!passageDraftProvenanceApplied) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      assertValidGeneratedDraftProvenance(database);
+      database.exec(passageDraftProvenanceMigrationSql);
+      assertValidGeneratedDraftProvenance(database);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (11, ?)",
       ).run(new Date().toISOString());
       database.exec("COMMIT");
     } catch (error) {
@@ -290,6 +309,53 @@ function assertValidPassageDraftLineage(database: StoryDatabase): void {
     LIMIT 1
   `).get();
   if (invalidAttempt) throw new Error("Cannot migrate drafting jobs with invalid attempt lineage");
+}
+
+function assertValidGeneratedDraftProvenance(database: StoryDatabase): void {
+  const invalidInput = database.prepare(`
+    SELECT drafts.id
+    FROM passage_draft_versions drafts
+    LEFT JOIN drafting_job_units job_units
+      ON job_units.project_id = drafts.project_id
+      AND job_units.job_id = drafts.generation_job_id
+      AND job_units.plan_id = drafts.generation_plan_id
+      AND job_units.unit_id = drafts.generation_unit_id
+    LEFT JOIN drafting_plan_unit_passages passage_inputs
+      ON passage_inputs.project_id = drafts.project_id
+      AND passage_inputs.plan_id = drafts.generation_plan_id
+      AND passage_inputs.unit_id = drafts.generation_unit_id
+      AND passage_inputs.passage_id = drafts.passage_id
+      AND passage_inputs.passage_plan_version_id = drafts.based_on_passage_plan_version_id
+    WHERE drafts.generation_plan_id IS NOT NULL
+      AND (job_units.job_id IS NULL OR passage_inputs.passage_id IS NULL)
+    LIMIT 1
+  `).get();
+  if (invalidInput) throw new Error("Cannot migrate passage drafts with invalid generation input provenance");
+
+  const generated = database.prepare(`
+    SELECT drafts.id, plans.upstream_versions_json
+    FROM passage_draft_versions drafts
+    JOIN drafting_plans plans
+      ON plans.project_id = drafts.project_id AND plans.id = drafts.generation_plan_id
+    WHERE drafts.generation_plan_id IS NOT NULL
+    ORDER BY drafts.id
+  `).all() as Array<{ id: string; upstream_versions_json: string }>;
+  const dependencies = database.prepare(`
+    SELECT artifact_id, artifact_version_id
+    FROM passage_draft_upstream_artifacts
+    WHERE draft_version_id = ? ORDER BY artifact_id
+  `);
+  for (const draft of generated) {
+    const rows = dependencies.all(draft.id) as Array<{ artifact_id: string; artifact_version_id: string }>;
+    const actual = Object.fromEntries(rows.map((row) => [row.artifact_id, row.artifact_version_id]));
+    if (canonicalRecordJson(JSON.parse(draft.upstream_versions_json)) !== canonicalRecordJson(actual)) {
+      throw new Error("Cannot migrate passage drafts with invalid generation upstream provenance");
+    }
+  }
+}
+
+function canonicalRecordJson(value: Record<string, unknown>): string {
+  return JSON.stringify(Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))));
 }
 
 function addColumn(database: StoryDatabase, table: string, column: string, definition: string): void {

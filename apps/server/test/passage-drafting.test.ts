@@ -169,8 +169,32 @@ describe("Foundation 4B-1 draft architecture API", () => {
     state = (await app.inject({
       method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${selected.entityId}`,
     })).json();
+    expect(state.head.current.stale).toBe(false);
+
+    const globalBible = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/bible`,
+      payload: {
+        ...bible.bible.content,
+        proseGuidance: {
+          ...bible.bible.content.proseGuidance,
+          style: [...bible.bible.content.proseGuidance.style, "Use clipped scene endings."],
+        },
+      },
+    })).json();
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/bible/approve`,
+      payload: { versionId: globalBible.bible.id },
+    });
+    state = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${selected.entityId}`,
+    })).json();
     expect(state.head.current.staleReasons).toEqual(expect.arrayContaining([
-      expect.objectContaining({ reasonCode: "approved-upstream-version-change", sourceEntityId: "bible" }),
+      expect.objectContaining({
+        reasonCode: "approved-upstream-version-change",
+        sourceEntityId: "bible",
+        fromVersionId: approvedBible.id,
+        toVersionId: globalBible.bible.id,
+      }),
     ]));
     await app.close();
   });

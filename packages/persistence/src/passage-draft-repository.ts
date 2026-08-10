@@ -120,6 +120,9 @@ export class PassageDraftRepository {
         .filter((value) => Boolean(value)).length;
       if (supplied !== 0 && supplied !== 3) throw new Error("Lifecycle draft generation provenance must be complete");
     }
+    if (input.generationPlanId && input.generationJobId && input.generationUnitId) {
+      this.assertGenerationProvenance(input);
+    }
     const latest = this.database.prepare(`SELECT COALESCE(MAX(version), 0) AS version
       FROM passage_draft_versions WHERE project_id = ? AND passage_id = ?`)
       .get(input.projectId, input.passageId) as { version: number };
@@ -264,7 +267,12 @@ export class PassageDraftRepository {
 
   markStaleForUpstreamVersion(projectId: string, artifactId: string, approvedVersionId: string): number {
     return transaction(this.database, () => {
-      const rows = this.database.prepare(`SELECT drafts.id, drafts.passage_id
+      const approved = this.database.prepare(`SELECT content_json FROM artifact_versions
+        WHERE project_id = ? AND artifact_id = ? AND id = ?`)
+        .get(projectId, artifactId, approvedVersionId) as { content_json: string } | undefined;
+      if (!approved) throw new Error("Approved artifact version not found");
+      const rows = this.database.prepare(`SELECT drafts.id, drafts.passage_id,
+          dependencies.artifact_version_id
         FROM passage_draft_versions drafts
         LEFT JOIN passage_draft_upstream_artifacts dependencies
           ON dependencies.project_id = drafts.project_id
@@ -272,19 +280,35 @@ export class PassageDraftRepository {
           AND dependencies.artifact_id = ?
         WHERE drafts.project_id = ?
           AND (dependencies.artifact_version_id IS NULL OR dependencies.artifact_version_id != ?)`)
-        .all(artifactId, projectId, approvedVersionId) as Array<{ id: string; passage_id: string }>;
-      rows.forEach((row) => this.insertStaleness({
-        projectId,
-        passageId: row.passage_id,
-        draftVersionId: row.id,
-        reasonCode: "approved-upstream-version-change",
-        sourceEntityKind: "artifact",
-        sourceEntityId: artifactId,
-        fromVersionId: null,
-        toVersionId: approvedVersionId,
-        changedFields: [artifactId],
-      }));
-      return rows.length;
+        .all(artifactId, projectId, approvedVersionId) as Array<{
+          id: string; passage_id: string; artifact_version_id: string | null;
+        }>;
+      const approvedContent = JSON.parse(approved.content_json) as unknown;
+      let affected = 0;
+      for (const row of rows) {
+        const previous = row.artifact_version_id
+          ? this.database.prepare(`SELECT content_json FROM artifact_versions
+              WHERE project_id = ? AND artifact_id = ? AND id = ?`)
+            .get(projectId, artifactId, row.artifact_version_id) as { content_json: string } | undefined
+          : undefined;
+        const previousContent = previous ? JSON.parse(previous.content_json) as unknown : null;
+        if (!this.isUpstreamChangeRelevant(
+          projectId, row.passage_id, artifactId, previousContent, approvedContent,
+        )) continue;
+        this.insertStaleness({
+          projectId,
+          passageId: row.passage_id,
+          draftVersionId: row.id,
+          reasonCode: "approved-upstream-version-change",
+          sourceEntityKind: "artifact",
+          sourceEntityId: artifactId,
+          fromVersionId: row.artifact_version_id,
+          toVersionId: approvedVersionId,
+          changedFields: [artifactId],
+        });
+        affected += 1;
+      }
+      return affected;
     });
   }
 
@@ -312,6 +336,23 @@ export class PassageDraftRepository {
       });
       for (const [artifactId, approvedVersionId] of Object.entries(approvedUpstreamVersions)) {
         if (draft.upstreamVersions[artifactId] === approvedVersionId) continue;
+        const fromVersionId = draft.upstreamVersions[artifactId] ?? null;
+        const previous = fromVersionId
+          ? this.database.prepare(`SELECT content_json FROM artifact_versions
+              WHERE project_id = ? AND artifact_id = ? AND id = ?`)
+            .get(projectId, artifactId, fromVersionId) as { content_json: string } | undefined
+          : undefined;
+        const approved = this.database.prepare(`SELECT content_json FROM artifact_versions
+          WHERE project_id = ? AND artifact_id = ? AND id = ?`)
+          .get(projectId, artifactId, approvedVersionId) as { content_json: string } | undefined;
+        if (!approved) throw new Error("Approved artifact version not found");
+        if (!this.isUpstreamChangeRelevant(
+          projectId,
+          draft.passageId,
+          artifactId,
+          previous ? JSON.parse(previous.content_json) : null,
+          JSON.parse(approved.content_json),
+        )) continue;
         this.insertStaleness({
           projectId,
           passageId: draft.passageId,
@@ -319,7 +360,7 @@ export class PassageDraftRepository {
           reasonCode: "approved-upstream-version-change",
           sourceEntityKind: "artifact",
           sourceEntityId: artifactId,
-          fromVersionId: draft.upstreamVersions[artifactId] ?? null,
+          fromVersionId,
           toVersionId: approvedVersionId,
           changedFields: [artifactId],
         });
@@ -379,6 +420,117 @@ export class PassageDraftRepository {
       );
   }
 
+  private assertGenerationProvenance(input: CreatePassageDraftInput): void {
+    const lineage = this.database.prepare(`
+      SELECT plans.upstream_versions_json
+      FROM drafting_job_units job_units
+      JOIN drafting_plan_unit_passages passage_inputs
+        ON passage_inputs.project_id = job_units.project_id
+        AND passage_inputs.plan_id = job_units.plan_id
+        AND passage_inputs.unit_id = job_units.unit_id
+      JOIN drafting_plans plans
+        ON plans.project_id = job_units.project_id AND plans.id = job_units.plan_id
+      WHERE job_units.project_id = ? AND job_units.job_id = ? AND job_units.plan_id = ?
+        AND job_units.unit_id = ? AND passage_inputs.passage_id = ?
+        AND passage_inputs.passage_plan_version_id = ?
+    `).get(
+      input.projectId,
+      input.generationJobId!,
+      input.generationPlanId!,
+      input.generationUnitId!,
+      input.passageId,
+      input.basedOnPassagePlanVersionId,
+    ) as { upstream_versions_json: string } | undefined;
+    if (!lineage) throw new Error("Passage draft generation input provenance mismatch");
+    if (canonical(JSON.parse(lineage.upstream_versions_json)) !== canonical(input.upstreamVersions)) {
+      throw new Error("Passage draft generation upstream provenance mismatch");
+    }
+  }
+
+  /**
+   * Relevance policy: project-brief prose/style constraints and Bible prose guidance
+   * are project-wide and invalidate every draft when changed. Other upstream changes
+   * are matched to stable IDs and mechanic keys referenced by the current passage
+   * and its choices.
+   */
+  private isUpstreamChangeRelevant(
+    projectId: string,
+    passageId: string,
+    artifactId: string,
+    before: unknown,
+    after: unknown,
+  ): boolean {
+    if (canonical(before) === canonical(after)) return false;
+    const beforeRecord = record(before);
+    const afterRecord = record(after);
+    if (artifactId === "brief") {
+      return changedAny(beforeRecord, afterRecord, [
+        "premise", "protagonist", "pointOfView", "adaptationFidelity", "tone",
+        "contentBoundaries", "priorityCharacters", "priorityRelationships", "projectConstraints",
+      ]);
+    }
+    const context = this.passageContext(projectId, passageId);
+    if (!context) return true;
+    if (artifactId === "bible") {
+      if (canonical(beforeRecord.proseGuidance) !== canonical(afterRecord.proseGuidance)) return true;
+      return changedReferencedRecords(beforeRecord.characters, afterRecord.characters, context.characterIds)
+        || changedReferencedRecords(beforeRecord.relationships, afterRecord.relationships, context.relationshipIds)
+        || changedReferencedRecords(beforeRecord.settings, afterRecord.settings, context.locationIds)
+        || changedReferencedRecords(beforeRecord.canonFacts, afterRecord.canonFacts, context.factIds);
+    }
+    if (artifactId === "routes") {
+      return changedReferencedRecords(beforeRecord.routes, afterRecord.routes, context.routeIds)
+        || changedReferencedRecords(beforeRecord.decisionPoints, afterRecord.decisionPoints, context.decisionIds);
+    }
+    if (artifactId === "endings") {
+      return changedReferencedRecords(beforeRecord.endings, afterRecord.endings, context.endingIds);
+    }
+    if (artifactId === "mechanics") {
+      const mechanicDefinitions = ["visibleStats", "relationships", "flags", "resources"];
+      if (mechanicDefinitions.some((field) => changedReferencedKeys(
+        beforeRecord[field], afterRecord[field], context.mechanicKeys,
+      ))) return true;
+      if (changedMechanicRules(beforeRecord.gates, afterRecord.gates, context)) return true;
+      return changedMechanicRules(beforeRecord.choiceEffectPlans, afterRecord.choiceEffectPlans, context);
+    }
+    return true;
+  }
+
+  private passageContext(projectId: string, passageId: string): UpstreamPassageContext | undefined {
+    const passage = this.database.prepare(`SELECT versions.content_json
+      FROM passage_entity_heads heads
+      JOIN passage_entity_versions versions ON versions.id = heads.version_id
+      WHERE heads.project_id = ? AND heads.entity_kind = 'passage'
+        AND heads.entity_id = ? AND heads.tombstoned = 0`)
+      .get(projectId, passageId) as { content_json: string } | undefined;
+    if (!passage) return undefined;
+    const content = record(JSON.parse(passage.content_json));
+    const choices = (this.database.prepare(`SELECT versions.content_json
+      FROM passage_entity_heads heads
+      JOIN passage_entity_versions versions ON versions.id = heads.version_id
+      WHERE heads.project_id = ? AND heads.entity_kind = 'choice' AND heads.tombstoned = 0`)
+      .all(projectId) as Array<{ content_json: string }>)
+      .map((row) => record(JSON.parse(row.content_json)))
+      .filter((choice) => choice.sourcePassageId === passageId || choice.destinationPassageId === passageId);
+    const mechanicKeys = new Set<string>();
+    const decisionIds = new Set<string>();
+    for (const choice of choices) {
+      collectNamedStrings(choice.condition, "mechanicKey", mechanicKeys);
+      collectNamedStrings(choice.effects, "mechanicKey", mechanicKeys);
+      stringArray(choice.sourceDecisionIds).forEach((id) => decisionIds.add(id));
+    }
+    return {
+      characterIds: new Set(stringArray(content.characterIds)),
+      relationshipIds: new Set(stringArray(content.relationshipIds)),
+      locationIds: new Set(stringArray(content.locationIds)),
+      factIds: new Set([...stringArray(content.requiredFactIds), ...stringArray(content.revealedFactIds)]),
+      routeIds: new Set(stringArray(content.routeIds)),
+      endingIds: new Set(typeof content.endingId === "string" ? [content.endingId] : []),
+      mechanicKeys,
+      decisionIds,
+    };
+  }
+
   private mapDraft(row: DraftRow): PassageDraftVersionRecord {
     const upstreamRows = this.database.prepare(`SELECT artifact_id, artifact_version_id
       FROM passage_draft_upstream_artifacts WHERE draft_version_id = ? ORDER BY artifact_id`)
@@ -421,5 +573,106 @@ export class PassageDraftRepository {
       staleReasons,
       createdAt: row.created_at,
     };
+  }
+}
+
+interface UpstreamPassageContext {
+  characterIds: Set<string>;
+  relationshipIds: Set<string>;
+  locationIds: Set<string>;
+  factIds: Set<string>;
+  routeIds: Set<string>;
+  endingIds: Set<string>;
+  mechanicKeys: Set<string>;
+  decisionIds: Set<string>;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function changedAny(before: Record<string, unknown>, after: Record<string, unknown>, fields: string[]): boolean {
+  return fields.some((field) => canonical(before[field]) !== canonical(after[field]));
+}
+
+function identifiedRecords(value: unknown): Map<string, unknown> {
+  return new Map((Array.isArray(value) ? value : []).flatMap((item) => {
+    const id = record(item).id;
+    return typeof id === "string" ? [[id, item] as const] : [];
+  }));
+}
+
+function changedReferencedRecords(before: unknown, after: unknown, references: Set<string>): boolean {
+  if (!references.size) return false;
+  const beforeItems = identifiedRecords(before);
+  const afterItems = identifiedRecords(after);
+  const ids = new Set([...beforeItems.keys(), ...afterItems.keys()]);
+  for (const id of ids) {
+    const beforeItem = beforeItems.get(id);
+    const afterItem = afterItems.get(id);
+    const nestedIds = new Set<string>();
+    collectNamedStrings(beforeItem, "id", nestedIds);
+    collectNamedStrings(afterItem, "id", nestedIds);
+    if ([...nestedIds].some((nestedId) => references.has(nestedId))
+      && canonical(beforeItem) !== canonical(afterItem)) return true;
+  }
+  return false;
+}
+
+function changedReferencedKeys(before: unknown, after: unknown, references: Set<string>): boolean {
+  if (!references.size) return false;
+  const byKey = (value: unknown) => new Map((Array.isArray(value) ? value : []).flatMap((item) => {
+    const key = record(item).key;
+    return typeof key === "string" ? [[key, item] as const] : [];
+  }));
+  const beforeItems = byKey(before);
+  const afterItems = byKey(after);
+  return [...references].some((key) => canonical(beforeItems.get(key)) !== canonical(afterItems.get(key)));
+}
+
+function changedMechanicRules(before: unknown, after: unknown, context: UpstreamPassageContext): boolean {
+  const relevant = (item: unknown) => {
+    const value = record(item);
+    const keys = new Set<string>();
+    const decisionIds = new Set<string>();
+    collectNamedStrings(value, "mechanicKey", keys);
+    stringArray(value.mechanicKeys).forEach((key) => keys.add(key));
+    stringArray(value.sourceDecisionIds).forEach((id) => decisionIds.add(id));
+    const targetId = typeof value.targetId === "string" ? value.targetId : null;
+    return [...keys].some((key) => context.mechanicKeys.has(key))
+      || [...decisionIds].some((id) => context.decisionIds.has(id))
+      || Boolean(targetId && (context.routeIds.has(targetId) || context.endingIds.has(targetId)));
+  };
+  const beforeItems = identifiedRecords(before);
+  const afterItems = identifiedRecords(after);
+  for (const id of new Set([...beforeItems.keys(), ...afterItems.keys()])) {
+    const beforeItem = beforeItems.get(id);
+    const afterItem = afterItems.get(id);
+    if ((relevant(beforeItem) || relevant(afterItem)) && canonical(beforeItem) !== canonical(afterItem)) return true;
+  }
+  return false;
+}
+
+function collectNamedStrings(value: unknown, name: string, target: Set<string>): void {
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectNamedStrings(item, name, target));
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (key === name && typeof item === "string") target.add(item);
+    collectNamedStrings(item, name, target);
   }
 }

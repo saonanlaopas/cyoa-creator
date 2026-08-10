@@ -1069,3 +1069,39 @@ BEFORE DELETE ON drafting_unit_attempts
 WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
 BEGIN SELECT RAISE(ABORT, 'Drafting attempts are append-only'); END;
 `;
+
+export const passageDraftProvenanceMigrationSql = `
+CREATE TRIGGER passage_draft_generation_input_insert
+BEFORE INSERT ON passage_draft_versions
+WHEN NEW.generation_plan_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+  FROM drafting_job_units job_units
+  JOIN drafting_plan_unit_passages passage_inputs
+    ON passage_inputs.project_id = job_units.project_id
+    AND passage_inputs.plan_id = job_units.plan_id
+    AND passage_inputs.unit_id = job_units.unit_id
+  WHERE job_units.project_id = NEW.project_id
+    AND job_units.job_id = NEW.generation_job_id
+    AND job_units.plan_id = NEW.generation_plan_id
+    AND job_units.unit_id = NEW.generation_unit_id
+    AND passage_inputs.passage_id = NEW.passage_id
+    AND passage_inputs.passage_plan_version_id = NEW.based_on_passage_plan_version_id
+)
+BEGIN SELECT RAISE(ABORT, 'Passage draft generation input provenance mismatch'); END;
+
+CREATE TRIGGER passage_draft_generation_upstream_insert
+BEFORE INSERT ON passage_draft_upstream_artifacts
+WHEN EXISTS (
+  SELECT 1 FROM passage_draft_versions drafts
+  WHERE drafts.project_id = NEW.project_id AND drafts.id = NEW.draft_version_id
+    AND drafts.generation_plan_id IS NOT NULL
+) AND NOT EXISTS (
+  SELECT 1
+  FROM passage_draft_versions drafts
+  JOIN drafting_plans plans
+    ON plans.project_id = drafts.project_id AND plans.id = drafts.generation_plan_id
+  WHERE drafts.project_id = NEW.project_id AND drafts.id = NEW.draft_version_id
+    AND json_extract(plans.upstream_versions_json, '$.' || NEW.artifact_id) = NEW.artifact_version_id
+)
+BEGIN SELECT RAISE(ABORT, 'Passage draft generation upstream provenance mismatch'); END;
+`;

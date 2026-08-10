@@ -213,7 +213,7 @@ describe("drafting repository", () => {
       generationJobId: plan.jobId,
       generationUnitId: "unit-1",
       upstreamVersions: fixture.snapshot.upstreamVersions,
-    })).toThrow("generation lineage mismatch");
+    })).toThrow("generation input provenance mismatch");
     const generated = drafts.createVersion({
       projectId: fixture.project.id,
       passageId: "passage-1",
@@ -233,6 +233,80 @@ describe("drafting repository", () => {
       .run(generated.id)).toThrow("immutable");
     expect(() => fixture.database.prepare("DELETE FROM drafting_job_units WHERE job_id = ? AND unit_id = 'unit-1'")
       .run(plan.jobId)).toThrow("retained by passage draft provenance");
+    fixture.database.close();
+  });
+
+  it("binds generated drafts to the exact unit passage, passage version, project, and upstream map", () => {
+    const fixture = setup(":memory:", 2);
+    const plan = fixture.drafting.createPlan(fixture.input);
+    const drafts = new PassageDraftRepository(fixture.database);
+    const create = (overrides: Record<string, unknown> = {}) => drafts.createVersion({
+      projectId: fixture.project.id,
+      passageId: "passage-1",
+      basedOnPassagePlanVersionId: fixture.passageVersions[0]!.id,
+      proseMarkdown: "Exact generated provenance.",
+      sourceKind: "generated",
+      generationPlanId: plan.id,
+      generationJobId: plan.jobId,
+      generationUnitId: "unit-1",
+      upstreamVersions: fixture.snapshot.upstreamVersions,
+      ...overrides,
+    });
+
+    expect(() => create({
+      passageId: "passage-2",
+      basedOnPassagePlanVersionId: fixture.passageVersions[1]!.id,
+    })).toThrow("generation input provenance mismatch");
+    expect(() => fixture.database.prepare(`INSERT INTO passage_draft_versions (
+      id, project_id, passage_id, version, based_on_passage_plan_version_id,
+      prose_markdown, word_count, lifecycle_status, source_kind,
+      generation_plan_id, generation_job_id, generation_unit_id, author_note, created_at
+    ) VALUES (?, ?, ?, 1, ?, '', 0, 'candidate', 'generated', ?, ?, ?, '', ?)`)
+      .run(
+        "raw-wrong-unit-draft",
+        fixture.project.id,
+        "passage-2",
+        fixture.passageVersions[1]!.id,
+        plan.id,
+        plan.jobId,
+        "unit-1",
+        "2026-08-10T00:00:00.000Z",
+      )).toThrow("generation input provenance mismatch");
+
+    const laterPassage = fixture.passagePlans.saveEntity(
+      fixture.project.id,
+      "passage",
+      "passage-1",
+      { ...(fixture.passageVersions[0]!.content as Record<string, unknown>), purpose: "Later purpose" },
+    );
+    expect(() => create({ basedOnPassagePlanVersionId: laterPassage.id }))
+      .toThrow("generation input provenance mismatch");
+
+    const wrongBrief = new ArtifactRepository(fixture.database).saveArtifact({
+      projectId: fixture.project.id,
+      artifactId: "brief",
+      content: { title: "Wrong immutable upstream" },
+    });
+    expect(() => create({ upstreamVersions: { brief: wrongBrief.id } }))
+      .toThrow("generation upstream provenance mismatch");
+
+    const other = fixture.projects.create("Other provenance project", undefined, "long-form");
+    expect(() => create({ projectId: other.id })).toThrow();
+
+    const generated = create();
+    const accepted = drafts.transition(fixture.project.id, "passage-1", generated.id, "accepted");
+    expect(generated).toMatchObject({
+      passageId: "passage-1",
+      basedOnPassagePlanVersionId: fixture.passageVersions[0]!.id,
+      upstreamVersions: fixture.snapshot.upstreamVersions,
+    });
+    expect(accepted).toMatchObject({
+      basedOnPassagePlanVersionId: generated.basedOnPassagePlanVersionId,
+      generationPlanId: generated.generationPlanId,
+      generationJobId: generated.generationJobId,
+      generationUnitId: generated.generationUnitId,
+      upstreamVersions: generated.upstreamVersions,
+    });
     fixture.database.close();
   });
 

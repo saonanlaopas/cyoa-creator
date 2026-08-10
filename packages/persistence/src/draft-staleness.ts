@@ -62,7 +62,12 @@ export function classifyPassageDraftStaleness(mutation: PassagePlanEntityMutatio
     if (canonical(mutation.before) === canonical(mutation.after)) return [];
     const before = record(mutation.before);
     const after = record(mutation.after);
-    const passageIds = new Set([before.sourcePassageId, after.sourcePassageId]
+    const passageIds = new Set([
+      before.sourcePassageId,
+      after.sourcePassageId,
+      before.destinationPassageId,
+      after.destinationPassageId,
+    ]
       .filter((value): value is string => typeof value === "string" && value.length > 0));
     const changedFields = changedKeys(before, after);
     return [...passageIds].sort().map((passageId) => ({
