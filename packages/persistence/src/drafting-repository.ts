@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
+import type { PassageDraftRepository, PassageDraftVersionRecord } from "./passage-draft-repository.js";
 
 export type DraftingJobStatus = "planned" | "authorized" | "running" | "completed"
   | "partially_failed" | "failed" | "cancelled";
@@ -14,6 +15,8 @@ export interface DraftingPlanUnitInput {
   inputFingerprint: string;
   estimatedInputTokens: number;
   estimatedOutputTokens: number;
+  contextFingerprint?: string;
+  context?: unknown;
   contextDiagnostics: unknown;
 }
 
@@ -53,6 +56,7 @@ export interface DraftingJobUnitRecord extends DraftingPlanUnitInput {
   retryOfAttemptId: string | null;
   normalizedError: unknown | null;
   usage: unknown | null;
+  generatedCandidates: Array<{ draftVersionId: string; passageId: string; wordCount: number }>;
   executionPolicyId: string;
   createdAt: string;
   startedAt: string | null;
@@ -90,12 +94,49 @@ type JobRow = {
 };
 type UnitRow = {
   unit_id: string; position: number; input_fingerprint: string; estimated_input_tokens: number;
-  estimated_output_tokens: number; context_diagnostics_json: string; project_id: string;
+  estimated_output_tokens: number; context_json: string; context_fingerprint: string;
+  context_diagnostics_json: string; project_id: string;
   plan_id: string; job_id: string; status: DraftingUnitStatus; attempt_number: number;
   retry_of_attempt_id: string | null; normalized_error_json: string | null; usage_json: string | null;
   execution_policy_id: string; created_at: string; started_at: string | null;
   finished_at: string | null; updated_at: string;
 };
+
+export interface CompleteDraftingUnitCandidatesInput {
+  contextFingerprint: string;
+  providerId: string;
+  modelId: string;
+  outputSchemaId: string;
+  outputSchemaVersion: number;
+  content: unknown;
+  validation: unknown;
+  usage?: unknown;
+  repair: unknown;
+  upstreamVersions: Record<string, string>;
+  neighboringDraftVersions: Record<string, string>;
+  passages: Array<{ passageId: string; passagePlanVersionId: string; proseMarkdown: string }>;
+}
+
+export interface DraftingUnitOutputRecord {
+  id: string;
+  projectId: string;
+  planId: string;
+  jobId: string;
+  unitId: string;
+  attemptId: string;
+  inputFingerprint: string;
+  contextFingerprint: string;
+  providerId: string;
+  modelId: string;
+  executionPolicyId: string;
+  outputSchemaId: string;
+  outputSchemaVersion: number;
+  content: unknown;
+  validation: unknown;
+  usage: unknown | null;
+  repair: unknown;
+  createdAt: string;
+}
 
 const jobTransitions: Record<DraftingJobStatus, DraftingJobStatus[]> = {
   planned: ["authorized", "cancelled"],
@@ -162,8 +203,8 @@ export class DraftingRepository {
         .run(jobId, input.projectId, id, input.fingerprint, input.executionPolicyId, now, now);
       const insertUnit = this.database.prepare(`INSERT INTO drafting_plan_units (
         plan_id, project_id, unit_id, position, input_fingerprint, estimated_input_tokens,
-        estimated_output_tokens, context_diagnostics_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        estimated_output_tokens, context_json, context_fingerprint, context_diagnostics_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
       const insertPassage = this.database.prepare(`INSERT INTO drafting_plan_unit_passages (
         plan_id, project_id, unit_id, position, passage_id, passage_plan_version_id
       ) VALUES (?, ?, ?, ?, ?, ?)`);
@@ -178,6 +219,7 @@ export class DraftingRepository {
         insertUnit.run(
           id, input.projectId, unit.id, unit.position, unit.inputFingerprint,
           unit.estimatedInputTokens, unit.estimatedOutputTokens,
+          JSON.stringify(unit.context ?? {}), unit.contextFingerprint ?? "",
           JSON.stringify(unit.contextDiagnostics), now,
         );
         unit.passageIds.forEach((passageId, position) => insertPassage.run(
@@ -220,6 +262,8 @@ export class DraftingRepository {
         inputFingerprint: unit.inputFingerprint,
         estimatedInputTokens: unit.estimatedInputTokens,
         estimatedOutputTokens: unit.estimatedOutputTokens,
+        contextFingerprint: unit.contextFingerprint,
+        context: unit.context,
         contextDiagnostics: unit.contextDiagnostics,
       })),
       authorizationState: row.authorization_state,
@@ -262,7 +306,8 @@ export class DraftingRepository {
       .get(projectId, jobId) as JobRow | undefined;
     if (!row) return undefined;
     const unitRows = this.database.prepare(`SELECT current.*, planned.position, planned.input_fingerprint,
-      planned.estimated_input_tokens, planned.estimated_output_tokens, planned.context_diagnostics_json
+      planned.estimated_input_tokens, planned.estimated_output_tokens, planned.context_json,
+      planned.context_fingerprint, planned.context_diagnostics_json
       FROM drafting_job_units current JOIN drafting_plan_units planned
         ON planned.project_id = current.project_id AND planned.plan_id = current.plan_id
         AND planned.unit_id = current.unit_id
@@ -331,6 +376,109 @@ export class DraftingRepository {
     projectId: string, jobId: string, unitId: string, attemptId: string, usage?: unknown,
   ): DraftingJobRecord {
     return this.finishUnit(projectId, jobId, unitId, attemptId, "completed", { usage });
+  }
+
+  completeUnitWithCandidates(
+    projectId: string,
+    jobId: string,
+    unitId: string,
+    attemptId: string,
+    drafts: PassageDraftRepository,
+    candidate: CompleteDraftingUnitCandidatesInput,
+  ): { job: DraftingJobRecord; drafts: PassageDraftVersionRecord[]; output: DraftingUnitOutputRecord } {
+    return transaction(this.database, () => {
+      const job = this.requireJob(projectId, jobId);
+      if (job.status !== "running") throw new Error("Drafting job is not running");
+      const unit = this.requireUnit(job, unitId);
+      assertDraftingUnitTransition(unit.status, "completed");
+      const attempt = this.database.prepare(`SELECT id FROM drafting_unit_attempts
+        WHERE id = ? AND project_id = ? AND job_id = ? AND unit_id = ? AND status = 'running'`)
+        .get(attemptId, projectId, jobId, unitId);
+      if (!attempt) throw new Error("Running drafting attempt not found");
+      if (!unit.contextFingerprint || unit.contextFingerprint !== candidate.contextFingerprint) {
+        throw new Error("Candidate context fingerprint does not match the authorized drafting unit");
+      }
+      const plan = this.getPlan(projectId, job.planId)!;
+      if (plan.providerId !== candidate.providerId || plan.modelId !== candidate.modelId) {
+        throw new Error("Candidate provider or model does not match the authorized drafting plan");
+      }
+      if (canonicalRecordJson(plan.upstreamVersions) !== canonicalRecordJson(candidate.upstreamVersions)) {
+        throw new Error("Candidate upstream versions do not match the authorized drafting plan");
+      }
+      const expected = new Map(unit.passageIds.map((passageId, index) => [passageId, unit.passageVersionIds[index]!]));
+      if (candidate.passages.length !== expected.size
+        || candidate.passages.some((item) => expected.get(item.passageId) !== item.passagePlanVersionId)) {
+        throw new Error("Generated passage candidates do not exactly match the drafting unit inputs");
+      }
+      const outputId = randomUUID();
+      const now = new Date().toISOString();
+      const usageJson = candidate.usage === undefined ? null : JSON.stringify(candidate.usage);
+      this.database.prepare(`INSERT INTO drafting_unit_outputs (
+        id, project_id, plan_id, job_id, unit_id, attempt_id, input_fingerprint,
+        context_fingerprint, provider_id, model_id, execution_policy_id,
+        output_schema_id, output_schema_version, content_json, validation_json,
+        usage_json, repair_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(
+          outputId, projectId, job.planId, jobId, unitId, attemptId, unit.inputFingerprint,
+          candidate.contextFingerprint, candidate.providerId, candidate.modelId,
+          unit.executionPolicyId, candidate.outputSchemaId, candidate.outputSchemaVersion,
+          JSON.stringify(candidate.content), JSON.stringify(candidate.validation), usageJson,
+          JSON.stringify(candidate.repair), now,
+        );
+      const created = candidate.passages.map((item) => {
+        const draft = drafts.createVersionInTransaction({
+          projectId,
+          passageId: item.passageId,
+          basedOnPassagePlanVersionId: item.passagePlanVersionId,
+          proseMarkdown: item.proseMarkdown,
+          sourceKind: "generated",
+          generationPlanId: job.planId,
+          generationJobId: jobId,
+          generationUnitId: unitId,
+          upstreamVersions: candidate.upstreamVersions,
+          neighboringDraftVersions: candidate.neighboringDraftVersions,
+        });
+        this.database.prepare(`INSERT INTO passage_draft_generation_provenance (
+          draft_version_id, project_id, output_id, plan_id, job_id, unit_id, attempt_id,
+          passage_id, passage_plan_version_id, context_fingerprint, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(
+            draft.id, projectId, outputId, job.planId, jobId, unitId, attemptId,
+            item.passageId, item.passagePlanVersionId, candidate.contextFingerprint, now,
+          );
+        return drafts.getVersion(projectId, draft.id)!;
+      });
+      this.database.prepare(`UPDATE drafting_job_units SET status = 'completed', normalized_error_json = NULL,
+        usage_json = ?, finished_at = ?, updated_at = ?
+        WHERE project_id = ? AND job_id = ? AND unit_id = ?`)
+        .run(usageJson, now, now, projectId, jobId, unitId);
+      this.database.prepare(`UPDATE drafting_unit_attempts SET status = 'completed', normalized_error_json = NULL,
+        usage_json = ?, finished_at = ?, updated_at = ? WHERE id = ?`)
+        .run(usageJson, now, now, attemptId);
+      return {
+        job: this.requireJob(projectId, jobId),
+        drafts: created,
+        output: this.getOutput(projectId, outputId)!,
+      };
+    });
+  }
+
+  getOutput(projectId: string, outputId: string): DraftingUnitOutputRecord | undefined {
+    const row = this.database.prepare(`SELECT * FROM drafting_unit_outputs WHERE project_id = ? AND id = ?`)
+      .get(projectId, outputId) as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return {
+      id: String(row.id), projectId: String(row.project_id), planId: String(row.plan_id),
+      jobId: String(row.job_id), unitId: String(row.unit_id), attemptId: String(row.attempt_id),
+      inputFingerprint: String(row.input_fingerprint), contextFingerprint: String(row.context_fingerprint),
+      providerId: String(row.provider_id), modelId: String(row.model_id),
+      executionPolicyId: String(row.execution_policy_id), outputSchemaId: String(row.output_schema_id),
+      outputSchemaVersion: Number(row.output_schema_version), content: JSON.parse(String(row.content_json)),
+      validation: JSON.parse(String(row.validation_json)),
+      usage: row.usage_json === null ? null : JSON.parse(String(row.usage_json)),
+      repair: JSON.parse(String(row.repair_json)), createdAt: String(row.created_at),
+    };
   }
 
   failUnit(
@@ -476,6 +624,8 @@ export class DraftingRepository {
       inputFingerprint: row.input_fingerprint,
       estimatedInputTokens: row.estimated_input_tokens,
       estimatedOutputTokens: row.estimated_output_tokens,
+      contextFingerprint: row.context_fingerprint || undefined,
+      context: row.context_json && row.context_json !== "{}" ? JSON.parse(row.context_json) : undefined,
       contextDiagnostics: JSON.parse(row.context_diagnostics_json),
       projectId: row.project_id,
       planId: row.plan_id,
@@ -485,6 +635,16 @@ export class DraftingRepository {
       retryOfAttemptId: row.retry_of_attempt_id,
       normalizedError: row.normalized_error_json ? JSON.parse(row.normalized_error_json) : null,
       usage: row.usage_json ? JSON.parse(row.usage_json) : null,
+      generatedCandidates: (this.database.prepare(`SELECT provenance.draft_version_id, provenance.passage_id,
+          drafts.word_count FROM passage_draft_generation_provenance provenance
+        JOIN passage_draft_versions drafts ON drafts.id = provenance.draft_version_id
+        WHERE provenance.project_id = ? AND provenance.job_id = ? AND provenance.unit_id = ?
+        ORDER BY provenance.passage_id`)
+        .all(row.project_id, row.job_id, row.unit_id) as Array<{
+          draft_version_id: string; passage_id: string; word_count: number;
+        }>).map((item) => ({
+          draftVersionId: item.draft_version_id, passageId: item.passage_id, wordCount: item.word_count,
+        })),
       executionPolicyId: row.execution_policy_id,
       createdAt: row.created_at,
       startedAt: row.started_at,

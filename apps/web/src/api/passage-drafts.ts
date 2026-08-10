@@ -12,6 +12,14 @@ export interface PassageDraftVersion {
   lifecycleStatus: PassageDraftLifecycle;
   status: PassageDraftStatus;
   sourceKind: "manual" | "generated" | "restore" | "lifecycle";
+  generationPlanId: string | null;
+  generationJobId: string | null;
+  generationUnitId: string | null;
+  generationProvenance: {
+    outputId: string; attemptId: string; inputFingerprint: string; contextFingerprint: string;
+    providerId: string; modelId: string; executionPolicyId: string;
+    outputSchemaId: string; outputSchemaVersion: number; usage: unknown | null; repair: unknown;
+  } | null;
   authorNote: string;
   upstreamVersions: Record<string, string>;
   neighboringDraftVersions: Record<string, string>;
@@ -56,11 +64,15 @@ export interface DraftingUnit {
   estimatedInputTokens: number;
   estimatedOutputTokens: number;
   contextDiagnostics: {
-    status: "not-built";
-    directNeighborPassageIds: string[];
-    maximumEstimatedInputTokens: number;
-    maximumOutputTokens: number;
-    note: string;
+    status: "built" | "not-built";
+    contextSchema?: { id: string; version: number };
+    includedRecords?: Record<string, { ids: string[]; versionIds?: string[] }>;
+    omittedOptionalContext?: Record<string, string[]>;
+    staleNeighborDraftsExcluded?: Array<{ passageId: string; draftVersionId: string }>;
+    requestedMaximumOutputTokens?: number;
+    serializedBytes?: number;
+    contextFingerprint?: string;
+    note?: string;
   };
 }
 
@@ -81,7 +93,7 @@ export interface DraftingPlanPreview {
   };
 }
 
-export interface DraftingPlan extends DraftingPlanPreview {
+export interface DraftingPlan extends Omit<DraftingPlanPreview, "policy"> {
   id: string;
   executionPolicyId: string;
   executionPolicy: DraftingPlanPreview["policy"];
@@ -90,6 +102,28 @@ export interface DraftingPlan extends DraftingPlanPreview {
   createdAt: string;
   jobId: string;
   jobStatus: "planned" | "authorized" | "running" | "completed" | "partially_failed" | "failed" | "cancelled";
+}
+
+export interface DraftingJobUnit extends DraftingUnit {
+  projectId: string;
+  planId: string;
+  jobId: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  attemptNumber: number;
+  normalizedError: { code?: string; message?: string; validationIssues?: string[] } | null;
+  usage: { inputTokens?: number; outputTokens?: number; cost?: number | null } | null;
+  generatedCandidates: Array<{ draftVersionId: string; passageId: string; wordCount: number }>;
+}
+
+export interface DraftingJob {
+  id: string;
+  projectId: string;
+  planId: string;
+  status: DraftingPlan["jobStatus"];
+  units: DraftingJobUnit[];
+  startedAt: string | null;
+  finishedAt: string | null;
+  updatedAt: string;
 }
 
 async function json<T>(response: Response): Promise<T> {
@@ -121,8 +155,8 @@ export const restorePassageDraft = async (projectId: string, passageId: string, 
 
 const draftingRequest = (passageIds: string[]) => ({
   scope: { kind: "passages" as const, passageIds },
-  providerId: "offline-drafting-lifecycle",
-  modelId: "no-prose-v1",
+  providerId: "offline-drafting",
+  modelId: "deterministic-prose-v1",
 });
 export const previewDraftingPlan = async (projectId: string, passageIds: string[]) =>
   json<DraftingPlanPreview>(await fetch(`${draftingRoot(projectId)}/plans/preview`, {
@@ -132,7 +166,17 @@ export const createDraftingPlan = async (projectId: string, passageIds: string[]
   json<DraftingPlan>(await fetch(`${draftingRoot(projectId)}/plans`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draftingRequest(passageIds)),
   }));
+export const listDraftingPlans = async (projectId: string) =>
+  json<DraftingPlan[]>(await fetch(`${draftingRoot(projectId)}/plans`));
 export const authorizeDraftingPlan = async (projectId: string, planId: string, fingerprint: string) =>
   json<DraftingPlan>(await fetch(`${draftingRoot(projectId)}/plans/${encodeURIComponent(planId)}/authorize`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fingerprint }),
   }));
+export const loadDraftingJob = async (projectId: string, jobId: string) =>
+  json<DraftingJob>(await fetch(`${draftingRoot(projectId)}/jobs/${encodeURIComponent(jobId)}`));
+export const startDraftingJob = async (projectId: string, jobId: string) =>
+  json<DraftingJob>(await fetch(`${draftingRoot(projectId)}/jobs/${encodeURIComponent(jobId)}/start`, { method: "POST" }));
+export const cancelDraftingJob = async (projectId: string, jobId: string) =>
+  json<DraftingJob>(await fetch(`${draftingRoot(projectId)}/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }));
+export const retryDraftingUnit = async (projectId: string, jobId: string, unitId: string) =>
+  json<DraftingJob>(await fetch(`${draftingRoot(projectId)}/jobs/${encodeURIComponent(jobId)}/units/${encodeURIComponent(unitId)}/retry`, { method: "POST" }));

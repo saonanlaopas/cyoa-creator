@@ -6,6 +6,7 @@ import {
   generationLineageMigrationSql,
   passagePlanningCandidatesMigrationSql,
   passageDraftArchitectureMigrationSql,
+  passageDraftGenerationMigrationSql,
   passageDraftProvenanceMigrationSql,
   passageProposalMigrationSql,
   schemaSql,
@@ -158,6 +159,25 @@ export function migrate(database: StoryDatabase): void {
       assertValidGeneratedDraftProvenance(database);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (11, ?)",
+      ).run(new Date().toISOString());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const passageDraftGenerationApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 12",
+  ).get();
+  if (!passageDraftGenerationApplied) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      assertValidPassageDraftLineage(database);
+      assertValidGeneratedDraftProvenance(database);
+      database.exec(passageDraftGenerationMigrationSql);
+      assertValidDraftingGenerationLineage(database);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (12, ?)",
       ).run(new Date().toISOString());
       database.exec("COMMIT");
     } catch (error) {
@@ -352,6 +372,54 @@ function assertValidGeneratedDraftProvenance(database: StoryDatabase): void {
       throw new Error("Cannot migrate passage drafts with invalid generation upstream provenance");
     }
   }
+}
+
+function assertValidDraftingGenerationLineage(database: StoryDatabase): void {
+  const invalidOutput = database.prepare(`
+    SELECT outputs.id
+    FROM drafting_unit_outputs outputs
+    LEFT JOIN drafting_job_units job_units
+      ON job_units.project_id = outputs.project_id AND job_units.job_id = outputs.job_id
+        AND job_units.plan_id = outputs.plan_id AND job_units.unit_id = outputs.unit_id
+    LEFT JOIN drafting_plan_units plan_units
+      ON plan_units.project_id = outputs.project_id AND plan_units.plan_id = outputs.plan_id
+        AND plan_units.unit_id = outputs.unit_id
+    LEFT JOIN drafting_unit_attempts attempts
+      ON attempts.project_id = outputs.project_id AND attempts.id = outputs.attempt_id
+        AND attempts.job_id = outputs.job_id AND attempts.unit_id = outputs.unit_id
+    LEFT JOIN drafting_plans plans
+      ON plans.project_id = outputs.project_id AND plans.id = outputs.plan_id
+    WHERE job_units.job_id IS NULL OR plan_units.unit_id IS NULL OR attempts.id IS NULL OR plans.id IS NULL
+      OR outputs.input_fingerprint != plan_units.input_fingerprint
+      OR outputs.input_fingerprint != attempts.input_fingerprint
+      OR outputs.context_fingerprint != plan_units.context_fingerprint
+      OR outputs.provider_id != plans.provider_id OR outputs.model_id != plans.model_id
+      OR outputs.execution_policy_id != plans.execution_policy_id
+    LIMIT 1
+  `).get();
+  if (invalidOutput) throw new Error("Cannot migrate drafting outputs with invalid execution lineage");
+  const invalidCandidate = database.prepare(`
+    SELECT provenance.draft_version_id
+    FROM passage_draft_generation_provenance provenance
+    LEFT JOIN passage_draft_versions drafts
+      ON drafts.project_id = provenance.project_id AND drafts.id = provenance.draft_version_id
+        AND drafts.passage_id = provenance.passage_id
+    LEFT JOIN drafting_unit_outputs outputs
+      ON outputs.project_id = provenance.project_id AND outputs.id = provenance.output_id
+    LEFT JOIN drafting_plan_unit_passages inputs
+      ON inputs.project_id = provenance.project_id AND inputs.plan_id = provenance.plan_id
+        AND inputs.unit_id = provenance.unit_id AND inputs.passage_id = provenance.passage_id
+        AND inputs.passage_plan_version_id = provenance.passage_plan_version_id
+    WHERE drafts.id IS NULL OR outputs.id IS NULL OR inputs.passage_id IS NULL
+      OR drafts.source_kind != 'generated'
+      OR drafts.generation_plan_id != provenance.plan_id
+      OR drafts.generation_job_id != provenance.job_id
+      OR drafts.generation_unit_id != provenance.unit_id
+      OR outputs.attempt_id != provenance.attempt_id
+      OR outputs.context_fingerprint != provenance.context_fingerprint
+    LIMIT 1
+  `).get();
+  if (invalidCandidate) throw new Error("Cannot migrate generated passage candidates with invalid provenance");
 }
 
 function canonicalRecordJson(value: Record<string, unknown>): string {

@@ -3,7 +3,7 @@ import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, openDatabase, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
-import { JobRunner, type PassagePlanningProvider } from "@story-to-cyoa/pipeline";
+import { JobRunner, type PassageDraftingProvider, type PassagePlanningProvider } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,8 @@ import { PassageProposalService } from "./services/passage-proposal-service.js";
 import { registerPassageProposalRoutes } from "./routes/passage-proposals.js";
 import { PassageDraftService } from "./services/passage-draft-service.js";
 import { PassageDraftingService } from "./services/passage-drafting-service.js";
+import { DeterministicPassageDraftingProvider } from "./services/passage-drafting-provider.js";
+import { OpenRouterPassageDraftingProvider } from "./services/openrouter-passage-drafting-provider.js";
 import { registerPassageDraftRoutes } from "./routes/passage-drafts.js";
 import { registerPassageDraftingRoutes } from "./routes/passage-drafting.js";
 
@@ -45,6 +47,7 @@ export interface BuildAppOptions {
   credentials?: CredentialStore;
   openRouterClient?: OpenRouterClient;
   passagePlanningProvider?: PassagePlanningProvider;
+  passageDraftingProvider?: PassageDraftingProvider;
 }
 
 const webDistPath = resolve(
@@ -74,7 +77,6 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   );
   const passagePlanService = new PassagePlanService(projects, artifacts, workflow, passagePlans);
   const passageDraftService = new PassageDraftService(projects, workflow, passagePlans, passageDrafts);
-  const passageDraftingService = new PassageDraftingService(projects, passagePlans, drafting);
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
     && process.env.E2E_FAKE_MODEL_PROVIDER === "1";
   const credentials = options.credentials
@@ -95,6 +97,21 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     projects, artifacts, passagePlans, generations,
     [offlinePassageProvider, new OpenRouterPassagePlanningProvider(openRouter)],
   );
+  const offlineDraftingProvider = options.passageDraftingProvider ?? new DeterministicPassageDraftingProvider({
+    delayMs: process.env.E2E_PASSAGE_DRAFTING_DELAY_MS
+      ? Number(process.env.E2E_PASSAGE_DRAFTING_DELAY_MS) : undefined,
+    failFirstRequest: process.env.E2E_PASSAGE_DRAFTING_FAIL_FIRST === "1",
+    malformedFirstSuccessfulRequest: process.env.E2E_PASSAGE_DRAFTING_MALFORMED === "1",
+  });
+  const passageDraftingService = new PassageDraftingService(
+    projects,
+    artifacts,
+    workflow,
+    passagePlans,
+    passageDrafts,
+    drafting,
+    [offlineDraftingProvider, new OpenRouterPassageDraftingProvider(openRouter)],
+  );
   const passageProposalService = new PassageProposalService(
     database, projects, passagePlans, generations, passageProposals, passagePlanService,
   );
@@ -104,6 +121,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     limits: { files: 1, fileSize: options.maxImportBytes ?? 25 * 1024 * 1024 },
   });
   app.addHook("onClose", async () => {
+    await passageDraftingService.shutdown();
     await passageGenerationService.shutdown();
     database.close();
   });

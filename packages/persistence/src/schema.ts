@@ -1105,3 +1105,141 @@ WHEN EXISTS (
 )
 BEGIN SELECT RAISE(ABORT, 'Passage draft generation upstream provenance mismatch'); END;
 `;
+
+export const passageDraftGenerationMigrationSql = `
+ALTER TABLE drafting_plan_units ADD COLUMN context_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE drafting_plan_units ADD COLUMN context_fingerprint TEXT NOT NULL DEFAULT '';
+
+CREATE UNIQUE INDEX drafting_plan_unit_passage_generation_identity
+  ON drafting_plan_unit_passages(project_id, plan_id, unit_id, passage_id, passage_plan_version_id);
+
+CREATE TABLE drafting_unit_outputs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  unit_id TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  input_fingerprint TEXT NOT NULL,
+  context_fingerprint TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  execution_policy_id TEXT NOT NULL,
+  output_schema_id TEXT NOT NULL,
+  output_schema_version INTEGER NOT NULL CHECK(output_schema_version > 0),
+  content_json TEXT NOT NULL,
+  validation_json TEXT NOT NULL,
+  usage_json TEXT,
+  repair_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, id),
+  UNIQUE(attempt_id),
+  FOREIGN KEY(project_id, plan_id, unit_id)
+    REFERENCES drafting_plan_units(project_id, plan_id, unit_id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, job_id, unit_id)
+    REFERENCES drafting_job_units(project_id, job_id, unit_id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, attempt_id, job_id, unit_id)
+    REFERENCES drafting_unit_attempts(project_id, id, job_id, unit_id) ON DELETE CASCADE
+);
+CREATE INDEX drafting_unit_outputs_job_order
+  ON drafting_unit_outputs(project_id, job_id, unit_id, created_at);
+
+CREATE TABLE passage_draft_generation_provenance (
+  draft_version_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  output_id TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  unit_id TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  passage_id TEXT NOT NULL,
+  passage_plan_version_id TEXT NOT NULL,
+  context_fingerprint TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(output_id, passage_id),
+  FOREIGN KEY(project_id, draft_version_id, passage_id)
+    REFERENCES passage_draft_versions(project_id, id, passage_id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, output_id)
+    REFERENCES drafting_unit_outputs(project_id, id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, plan_id, unit_id, passage_id, passage_plan_version_id)
+    REFERENCES drafting_plan_unit_passages(project_id, plan_id, unit_id, passage_id, passage_plan_version_id)
+      ON DELETE CASCADE
+);
+
+CREATE TRIGGER drafting_unit_outputs_lineage_insert
+BEFORE INSERT ON drafting_unit_outputs
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM drafting_job_units job_units
+  JOIN drafting_jobs jobs
+    ON jobs.project_id = job_units.project_id AND jobs.id = job_units.job_id
+      AND jobs.plan_id = job_units.plan_id
+  JOIN drafting_plan_units plan_units
+    ON plan_units.project_id = job_units.project_id AND plan_units.plan_id = job_units.plan_id
+      AND plan_units.unit_id = job_units.unit_id
+  JOIN drafting_plans plans
+    ON plans.project_id = jobs.project_id AND plans.id = jobs.plan_id
+  JOIN drafting_unit_attempts attempts
+    ON attempts.project_id = job_units.project_id AND attempts.job_id = job_units.job_id
+      AND attempts.unit_id = job_units.unit_id
+  WHERE job_units.project_id = NEW.project_id
+    AND job_units.job_id = NEW.job_id
+    AND job_units.plan_id = NEW.plan_id
+    AND job_units.unit_id = NEW.unit_id
+    AND job_units.status = 'running'
+    AND attempts.id = NEW.attempt_id
+    AND attempts.status = 'running'
+    AND attempts.input_fingerprint = NEW.input_fingerprint
+    AND plan_units.input_fingerprint = NEW.input_fingerprint
+    AND plan_units.context_fingerprint = NEW.context_fingerprint
+    AND plan_units.context_fingerprint != ''
+    AND plan_units.context_json != '{}'
+    AND plans.provider_id = NEW.provider_id
+    AND plans.model_id = NEW.model_id
+    AND plans.execution_policy_id = NEW.execution_policy_id
+)
+BEGIN SELECT RAISE(ABORT, 'Drafting unit output lineage mismatch'); END;
+
+CREATE TRIGGER passage_draft_generation_provenance_insert
+BEFORE INSERT ON passage_draft_generation_provenance
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM passage_draft_versions drafts
+  JOIN drafting_unit_outputs outputs
+    ON outputs.project_id = drafts.project_id AND outputs.id = NEW.output_id
+  JOIN drafting_plan_unit_passages inputs
+    ON inputs.project_id = outputs.project_id AND inputs.plan_id = outputs.plan_id
+      AND inputs.unit_id = outputs.unit_id
+  WHERE drafts.project_id = NEW.project_id
+    AND drafts.id = NEW.draft_version_id
+    AND drafts.passage_id = NEW.passage_id
+    AND drafts.source_kind = 'generated'
+    AND drafts.generation_plan_id = NEW.plan_id
+    AND drafts.generation_job_id = NEW.job_id
+    AND drafts.generation_unit_id = NEW.unit_id
+    AND drafts.based_on_passage_plan_version_id = NEW.passage_plan_version_id
+    AND outputs.plan_id = NEW.plan_id
+    AND outputs.job_id = NEW.job_id
+    AND outputs.unit_id = NEW.unit_id
+    AND outputs.attempt_id = NEW.attempt_id
+    AND outputs.context_fingerprint = NEW.context_fingerprint
+    AND inputs.passage_id = NEW.passage_id
+    AND inputs.passage_plan_version_id = NEW.passage_plan_version_id
+)
+BEGIN SELECT RAISE(ABORT, 'Generated passage candidate provenance mismatch'); END;
+
+CREATE TRIGGER drafting_unit_outputs_immutable_update
+BEFORE UPDATE ON drafting_unit_outputs
+BEGIN SELECT RAISE(ABORT, 'Drafting unit outputs are immutable'); END;
+CREATE TRIGGER drafting_unit_outputs_immutable_delete
+BEFORE DELETE ON drafting_unit_outputs
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Drafting unit outputs are append-only'); END;
+CREATE TRIGGER passage_draft_generation_provenance_immutable_update
+BEFORE UPDATE ON passage_draft_generation_provenance
+BEGIN SELECT RAISE(ABORT, 'Generated passage candidate provenance is immutable'); END;
+CREATE TRIGGER passage_draft_generation_provenance_immutable_delete
+BEFORE DELETE ON passage_draft_generation_provenance
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Generated passage candidate provenance is append-only'); END;
+`;

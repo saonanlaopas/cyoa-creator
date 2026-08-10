@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { DeterministicPassagePlanningProvider } from "../src/services/passage-planning-provider.js";
+import { DeterministicPassageDraftingProvider } from "../src/services/passage-drafting-provider.js";
 
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
@@ -67,6 +68,17 @@ async function waitForGeneration(app: ReturnType<typeof buildApp>, projectId: st
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("Offline planning job did not finish");
+}
+
+async function waitForDrafting(app: ReturnType<typeof buildApp>, projectId: string, jobId: string) {
+  for (let index = 0; index < 100; index++) {
+    const job = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/drafting/jobs/${jobId}`,
+    })).json();
+    if (["completed", "partially_failed", "failed", "cancelled"].includes(job.status)) return job;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Offline drafting job did not finish");
 }
 
 describe("Foundation 4B-1 draft architecture API", () => {
@@ -253,12 +265,13 @@ describe("Foundation 4B-1 draft architecture API", () => {
     await app.close();
   }, 20_000);
 
-  it("previews and runs only bounded lifecycle jobs while ignoring browser attempts to raise limits", async () => {
-    const app = buildApp();
+  it("previews real immutable contexts and persists bounded generated candidates only after authorized start", async () => {
+    const provider = new DeterministicPassageDraftingProvider();
+    const app = buildApp({ passageDraftingProvider: provider });
     const { projectId, plan, snapshot } = await createApprovedFixture(app);
     const passageIds = plan.passages.map((item: { entityId: string }) => item.entityId);
     const request = {
-      scope: { kind: "passages", passageIds }, providerId: "offline-only", modelId: "no-prose-v1",
+      scope: { kind: "passages", passageIds }, providerId: provider.id, modelId: "deterministic-prose-v1",
       policy: { maxPassagesPerUnit: 1000, maxAttemptsPerUnit: 1000, maxOutputTokensPerUnit: 999_999 },
     };
     const preview = await app.inject({
@@ -270,8 +283,9 @@ describe("Foundation 4B-1 draft architecture API", () => {
       policy: { maxPassagesPerUnit: 8, maxAttemptsPerUnit: 3, maxOutputTokensPerUnit: 12_000 },
     });
     expect(preview.json().units.length).toBeGreaterThan(0);
-    expect(preview.json().units.every((unit: { contextDiagnostics: { status: string } }) =>
-      unit.contextDiagnostics.status === "not-built")).toBe(true);
+    expect(preview.json().units.every((unit: { contextDiagnostics: { status: string }; context: unknown; contextFingerprint: string }) =>
+      unit.contextDiagnostics.status === "built" && Boolean(unit.context) && unit.contextFingerprint.length === 64)).toBe(true);
+    expect(provider.calls).toHaveLength(0);
     const created = (await app.inject({
       method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`, payload: request,
     })).json();
@@ -279,32 +293,48 @@ describe("Foundation 4B-1 draft architecture API", () => {
       method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
       payload: { fingerprint: created.fingerprint },
     })).statusCode).toBe(200);
-    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
-    for (const unit of created.units as Array<{ id: string }>) {
-      const attempt = (await app.inject({
-        method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/units/${unit.id}/start`,
-      })).json();
-      await app.inject({
-        method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/units/${unit.id}/complete`,
-        payload: { attemptId: attempt.attemptId },
-      });
-    }
-    const finished = (await app.inject({
-      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/finalize`,
-    })).json();
+    expect(provider.calls).toHaveLength(0);
+    const started = await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
+    expect(started.statusCode).toBe(200);
+    const finished = await waitForDrafting(app, projectId, created.jobId);
     expect(finished.status).toBe("completed");
-    expect(finished.units[0].usage).toMatchObject({ syntheticLifecycleOnly: true, outputTokens: 0 });
-    expect((await app.inject({
+    expect(provider.calls.filter((call) => call.mode === "generate")).toHaveLength(created.units.length);
+    expect(provider.calls[0]).toMatchObject({
+      boundedContext: created.units[0].context,
+      maximumOutputTokens: created.units[0].estimatedOutputTokens,
+      contextFingerprint: created.units[0].contextFingerprint,
+    });
+    expect(provider.calls[0].signal).toBeInstanceOf(AbortSignal);
+    expect(finished.units.every((unit: { generatedCandidates: unknown[] }) => unit.generatedCandidates.length > 0)).toBe(true);
+    expect(finished.units[0].usage).toMatchObject({ inputTokens: expect.any(Number), outputTokens: expect.any(Number), cost: 0 });
+    const summary = (await app.inject({
       method: "GET", url: `/api/long-form/projects/${projectId}/drafts/summary`,
-    })).json().currentDraftCount).toBe(0);
+    })).json();
+    expect(summary.currentDraftCount).toBe(passageIds.length);
+    expect(summary.acceptedDraftCount).toBe(0);
+    const generated = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageIds[0]}`,
+    })).json().head.current;
+    expect(generated).toMatchObject({
+      sourceKind: "generated",
+      lifecycleStatus: "candidate",
+      generationPlanId: created.id,
+      generationJobId: created.jobId,
+    });
+    expect(generated.generationProvenance).toMatchObject({
+      providerId: provider.id,
+      contextFingerprint: created.units[0].contextFingerprint,
+      outputSchemaId: "cyoa.passage-drafting-unit-output",
+      outputSchemaVersion: 1,
+    });
     await app.close();
   });
 
-  it("recovers an interrupted lifecycle job after reopening without creating prose", async () => {
+  it("recovers an interrupted generation job after reopening without inferring candidate success", async () => {
     const directory = mkdtempSync(join(tmpdir(), "cyoa-drafting-api-recovery-"));
     directories.push(directory);
     const databasePath = join(directory, "story.sqlite");
-    const app = buildApp({ databasePath });
+    const app = buildApp({ databasePath, passageDraftingProvider: new DeterministicPassageDraftingProvider({ delayMs: 500 }) });
     const { projectId, plan } = await createApprovedFixture(app);
     const created = (await app.inject({
       method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`,
@@ -315,9 +345,7 @@ describe("Foundation 4B-1 draft architecture API", () => {
       payload: { fingerprint: created.fingerprint },
     });
     await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
-    await app.inject({
-      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/units/${created.units[0].id}/start`,
-    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
     await app.close();
 
     const reopened = buildApp({ databasePath });
@@ -330,5 +358,217 @@ describe("Foundation 4B-1 draft architecture API", () => {
       method: "GET", url: `/api/long-form/projects/${projectId}/drafts/summary`,
     })).json().currentDraftCount).toBe(0);
     await reopened.close();
+  });
+
+  it("performs at most one structural repair and records the exact successful attempt provenance", async () => {
+    const provider = new DeterministicPassageDraftingProvider({ malformedFirstSuccessfulRequest: true });
+    const app = buildApp({ passageDraftingProvider: provider });
+    const { projectId, plan } = await createApprovedFixture(app);
+    const passageId = plan.passages[0].entityId as string;
+    const created = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`,
+      payload: { scope: { kind: "passages", passageIds: [passageId] }, providerId: provider.id, modelId: "deterministic-prose-v1" },
+    })).json();
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
+      payload: { fingerprint: created.fingerprint },
+    });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
+    const finished = await waitForDrafting(app, projectId, created.jobId);
+    expect(finished.status).toBe("completed");
+    expect(provider.calls.map((call) => call.mode)).toEqual(["generate", "repair"]);
+    const draft = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}`,
+    })).json().head.current;
+    expect(draft.generationProvenance.repair).toMatchObject({ maximumRepairs: 1, repairsPerformed: 1 });
+    expect(draft.generationProvenance.attemptId).toBeTruthy();
+    await app.close();
+  });
+
+  it("blocks a stale authorized plan before provider activity", async () => {
+    const provider = new DeterministicPassageDraftingProvider();
+    const app = buildApp({ passageDraftingProvider: provider });
+    const { projectId, plan } = await createApprovedFixture(app);
+    const passage = plan.passages[0];
+    const created = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`,
+      payload: { scope: { kind: "passages", passageIds: [passage.entityId] }, providerId: provider.id },
+    })).json();
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
+      payload: { fingerprint: created.fingerprint },
+    });
+    await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/passage-plan/entities/passage/${passage.entityId}`,
+      payload: { ...passage.content, purpose: `${passage.content.purpose} materially changed` },
+    });
+    const start = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start`,
+    });
+    expect(start.statusCode).toBe(409);
+    expect(start.json()).toMatchObject({ code: "stale_drafting_plan", retryable: false });
+    expect(start.json().error).toContain("Target passage-plan head changed");
+    expect(provider.calls).toHaveLength(0);
+    await app.close();
+  });
+
+  it("keeps locked accepted prose fixed when generation creates a newer current candidate", async () => {
+    const app = buildApp();
+    const { projectId, plan } = await createApprovedFixture(app);
+    const passageId = plan.passages[0].entityId as string;
+    const manual = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}`,
+      payload: { proseMarkdown: "This accepted text must remain fixed.", authorNote: "" },
+    })).json().draft;
+    let versionId = manual.id as string;
+    for (const status of ["accepted", "reviewed", "locked"] as const) {
+      const transitioned = (await app.inject({
+        method: "POST", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}/transition`,
+        payload: { versionId, status },
+      })).json();
+      versionId = transitioned.draft.id;
+    }
+    const created = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`,
+      payload: { scope: { kind: "passages", passageIds: [passageId] } },
+    })).json();
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
+      payload: { fingerprint: created.fingerprint },
+    });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
+    expect((await waitForDrafting(app, projectId, created.jobId)).status).toBe("completed");
+    const state = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}`,
+    })).json();
+    expect(state.head.current).toMatchObject({ sourceKind: "generated", lifecycleStatus: "candidate" });
+    expect(state.head.accepted).toMatchObject({ id: versionId, proseMarkdown: "This accepted text must remain fixed.", lifecycleStatus: "locked" });
+    expect(state.head.acceptedLocked).toBe(true);
+    await app.close();
+  });
+
+  it("aborts in-flight generation on cancellation and prevents a late candidate commit", async () => {
+    const provider = new DeterministicPassageDraftingProvider({ delayMs: 500 });
+    const app = buildApp({ passageDraftingProvider: provider });
+    const { projectId, plan } = await createApprovedFixture(app);
+    const passageId = plan.passages[0].entityId as string;
+    const created = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`,
+      payload: { scope: { kind: "passages", passageIds: [passageId] }, providerId: provider.id },
+    })).json();
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
+      payload: { fingerprint: created.fingerprint },
+    });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const cancelled = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/cancel`,
+    })).json();
+    expect(cancelled.status).toBe("cancelled");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const state = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}`,
+    })).json();
+    expect(state.head).toBeNull();
+    expect(provider.calls[0]?.signal.aborted).toBe(true);
+    await app.close();
+  });
+
+  it("retries only a failed unit and links its candidate to the retry attempt without repeating completed siblings", async () => {
+    const failUnits: string[] = [];
+    const provider = new DeterministicPassageDraftingProvider({ failFirstAttemptForUnitIds: failUnits });
+    const app = buildApp({ passageDraftingProvider: provider });
+    const { projectId, plan } = await createApprovedFixture(app);
+    const passageIds = plan.passages.slice(0, 9).map((item: { entityId: string }) => item.entityId);
+    const created = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`,
+      payload: { scope: { kind: "passages", passageIds }, providerId: provider.id },
+    })).json();
+    expect(created.units.length).toBeGreaterThan(1);
+    failUnits.push(created.units[0].id);
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
+      payload: { fingerprint: created.fingerprint },
+    });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
+    const first = await waitForDrafting(app, projectId, created.jobId);
+    expect(first.status).toBe("partially_failed");
+    const failed = first.units[0];
+    const completedSibling = first.units[1];
+    expect(failed.status).toBe("failed");
+    expect(completedSibling.status).toBe("completed");
+    const siblingCalls = provider.calls.filter((call) => call.mode === "generate" && call.unitId === completedSibling.id).length;
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/units/${failed.id}/retry`,
+    });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
+    const retried = await waitForDrafting(app, projectId, created.jobId);
+    expect(retried.status).toBe("completed");
+    expect(retried.units[0].attemptNumber).toBe(2);
+    expect(provider.calls.filter((call) => call.mode === "generate" && call.unitId === completedSibling.id)).toHaveLength(siblingCalls);
+    const retriedPassage = retried.units[0].generatedCandidates[0].passageId;
+    const draft = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${retriedPassage}`,
+    })).json().head.current;
+    expect(draft.generationProvenance.attemptId).not.toBe(retried.units[0].retryOfAttemptId);
+    expect(draft.generationProvenance.attemptId).toBeTruthy();
+    await app.close();
+  });
+
+  it.each([
+    ["deterministic-prose-invalid-v1", 2, "drafting_output_validation_failed"],
+    ["deterministic-prose-oversized-v1", 1, "drafting_output_validation_failed"],
+  ])("fails bounded model fixture %s without unbounded or quality repair", async (modelId, expectedCalls, code) => {
+    const provider = new DeterministicPassageDraftingProvider();
+    const app = buildApp({ passageDraftingProvider: provider });
+    const { projectId, plan } = await createApprovedFixture(app);
+    const passageId = plan.passages[0].entityId as string;
+    const created = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`,
+      payload: { scope: { kind: "passages", passageIds: [passageId] }, providerId: provider.id, modelId },
+    })).json();
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
+      payload: { fingerprint: created.fingerprint },
+    });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
+    const failed = await waitForDrafting(app, projectId, created.jobId);
+    expect(failed.status).toBe("failed");
+    expect(provider.calls).toHaveLength(expectedCalls);
+    expect(failed.units[0].normalizedError).toMatchObject({ code });
+    expect((await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}`,
+    })).json().head).toBeNull();
+    await app.close();
+  });
+
+  it("redacts provider secrets from persisted drafting errors and API responses", async () => {
+    const secret = "sk-or-v1-never-persist-this";
+    const provider = {
+      id: "secret-failure-drafting",
+      capabilities: { structuredOutput: true },
+      calls: 0,
+      async generate() {
+        this.calls += 1;
+        throw Object.assign(new Error(`Provider rejected ${secret}`), { code: "provider_rejected", retryable: false });
+      },
+    };
+    const app = buildApp({ passageDraftingProvider: provider });
+    const { projectId, plan } = await createApprovedFixture(app);
+    const created = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`,
+      payload: { scope: { kind: "passages", passageIds: [plan.passages[0].entityId] }, providerId: provider.id },
+    })).json();
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
+      payload: { fingerprint: created.fingerprint },
+    });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
+    const failed = await waitForDrafting(app, projectId, created.jobId);
+    expect(failed.status).toBe("failed");
+    expect(JSON.stringify(failed)).not.toContain(secret);
+    expect(JSON.stringify(failed)).toContain("[REDACTED]");
+    await app.close();
   });
 });

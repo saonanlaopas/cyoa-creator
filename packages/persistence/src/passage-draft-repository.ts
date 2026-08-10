@@ -32,6 +32,19 @@ export interface PassageDraftVersionRecord {
   generationPlanId: string | null;
   generationJobId: string | null;
   generationUnitId: string | null;
+  generationProvenance: {
+    outputId: string;
+    attemptId: string;
+    inputFingerprint: string;
+    contextFingerprint: string;
+    providerId: string;
+    modelId: string;
+    executionPolicyId: string;
+    outputSchemaId: string;
+    outputSchemaVersion: number;
+    usage: unknown | null;
+    repair: unknown;
+  } | null;
   authorNote: string;
   upstreamVersions: Record<string, string>;
   neighboringDraftVersions: Record<string, string>;
@@ -551,6 +564,19 @@ export class PassageDraftRepository {
         changedFields: JSON.parse(item.changed_fields_json) as string[],
         createdAt: item.created_at,
       }));
+    const generation = this.database.prepare(`SELECT provenance.output_id, provenance.attempt_id,
+        outputs.input_fingerprint, outputs.context_fingerprint, outputs.provider_id, outputs.model_id,
+        outputs.execution_policy_id, outputs.output_schema_id, outputs.output_schema_version,
+        outputs.usage_json, outputs.repair_json
+      FROM passage_draft_generation_provenance provenance
+      JOIN drafting_unit_outputs outputs
+        ON outputs.project_id = provenance.project_id AND outputs.id = provenance.output_id
+      WHERE provenance.project_id = ? AND provenance.draft_version_id = ?`)
+      .get(row.project_id, row.id) as {
+        output_id: string; attempt_id: string; input_fingerprint: string; context_fingerprint: string;
+        provider_id: string; model_id: string; execution_policy_id: string;
+        output_schema_id: string; output_schema_version: number; usage_json: string | null; repair_json: string;
+      } | undefined;
     return {
       id: row.id,
       projectId: row.project_id,
@@ -565,6 +591,19 @@ export class PassageDraftRepository {
       generationPlanId: row.generation_plan_id,
       generationJobId: row.generation_job_id,
       generationUnitId: row.generation_unit_id,
+      generationProvenance: generation ? {
+        outputId: generation.output_id,
+        attemptId: generation.attempt_id,
+        inputFingerprint: generation.input_fingerprint,
+        contextFingerprint: generation.context_fingerprint,
+        providerId: generation.provider_id,
+        modelId: generation.model_id,
+        executionPolicyId: generation.execution_policy_id,
+        outputSchemaId: generation.output_schema_id,
+        outputSchemaVersion: generation.output_schema_version,
+        usage: generation.usage_json ? JSON.parse(generation.usage_json) : null,
+        repair: JSON.parse(generation.repair_json),
+      } : null,
       authorNote: row.author_note,
       upstreamVersions: Object.fromEntries(upstreamRows.map((item) => [item.artifact_id, item.artifact_version_id])),
       neighboringDraftVersions: Object.fromEntries(neighborRows.map((item) => [item.neighbor_passage_id, item.neighbor_draft_version_id])),

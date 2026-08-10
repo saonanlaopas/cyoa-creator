@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ChoicePlan, PassagePlan, PassageStructure } from "./schemas/passage-plan.js";
+import type {
+  PassageDraftingContextDiagnostics,
+  PassageDraftingContextPack,
+} from "./passage-drafting-context.js";
 import { stableJson } from "./passage-generation-plan.js";
 
 export const PassageDraftingScopeSchema = z.object({
@@ -44,6 +48,12 @@ export interface PassageDraftingPlanInput {
   providerId: string;
   modelId: string;
   policy?: PassageDraftingPolicy;
+  buildUnitContext?: (input: {
+    unitId: string;
+    passageIds: string[];
+    requestedMaximumOutputTokens: number;
+    maximumEstimatedInputTokens: number;
+  }) => { context: PassageDraftingContextPack; diagnostics: PassageDraftingContextDiagnostics };
 }
 
 export interface PassageDraftingContextDiagnosticsContract {
@@ -66,7 +76,9 @@ export interface PlannedPassageDraftingUnit {
   inputFingerprint: string;
   estimatedInputTokens: number;
   estimatedOutputTokens: number;
-  contextDiagnostics: PassageDraftingContextDiagnosticsContract;
+  contextFingerprint?: string;
+  context?: PassageDraftingContextPack;
+  contextDiagnostics: PassageDraftingContextDiagnosticsContract | PassageDraftingContextDiagnostics;
 }
 
 export interface PlannedPassageDrafting {
@@ -125,12 +137,12 @@ export function buildPassageDraftingPlan(input: PassageDraftingPlanInput): Plann
       .filter((id) => !passageIds.includes(id))
       .sort((left, right) => (order.get(left) ?? Number.MAX_SAFE_INTEGER)
         - (order.get(right) ?? Number.MAX_SAFE_INTEGER) || left.localeCompare(right));
-    const estimatedInputTokens = estimateTokens({
+    const preliminaryEstimatedInputTokens = estimateTokens({
       passages: items.map((item) => item.content),
       directNeighborPassageIds,
       upstreamVersions: immutableBase.upstreamVersions,
     });
-    if (estimatedInputTokens > policy.maxEstimatedInputTokensPerUnit) {
+    if (preliminaryEstimatedInputTokens > policy.maxEstimatedInputTokensPerUnit) {
       throw new Error(`Drafting unit beginning at ${passageIds[0]} exceeds the execution-policy input limit`);
     }
     const estimatedOutputTokens = Math.min(
@@ -144,19 +156,29 @@ export function buildPassageDraftingPlan(input: PassageDraftingPlanInput): Plann
       ...immutableBase,
       passages: items.map((item) => ({ id: item.content.id, versionId: item.versionId })),
       directNeighborPassageIds,
-      estimatedInputTokens,
+      estimatedInputTokens: preliminaryEstimatedInputTokens,
       estimatedOutputTokens,
     };
-    const inputFingerprint = hash(unitBase);
+    const unitId = `dru_${hash(unitBase).slice(0, 24)}`;
+    const built = input.buildUnitContext?.({
+      unitId,
+      passageIds: items.map((item) => item.content.id),
+      requestedMaximumOutputTokens: estimatedOutputTokens,
+      maximumEstimatedInputTokens: policy.maxEstimatedInputTokensPerUnit,
+    });
+    const estimatedInputTokens = built?.diagnostics.estimatedInputTokens ?? preliminaryEstimatedInputTokens;
+    const inputFingerprint = hash({ ...unitBase, estimatedInputTokens, contextFingerprint: built?.diagnostics.contextFingerprint });
     return {
-      id: `dru_${inputFingerprint.slice(0, 24)}`,
+      id: unitId,
       position,
       passageIds: items.map((item) => item.content.id),
       passageVersionIds: items.map((item) => item.versionId),
       inputFingerprint,
       estimatedInputTokens,
       estimatedOutputTokens,
-      contextDiagnostics: {
+      contextFingerprint: built?.diagnostics.contextFingerprint,
+      context: built?.context,
+      contextDiagnostics: built?.diagnostics ?? {
         status: "not-built" as const,
         passageIds: items.map((item) => item.content.id),
         passageVersionIds: items.map((item) => item.versionId),
@@ -185,6 +207,7 @@ export function buildPassageDraftingPlan(input: PassageDraftingPlanInput): Plann
       estimatedInputTokens: unit.estimatedInputTokens,
       estimatedOutputTokens: unit.estimatedOutputTokens,
       contextDiagnostics: unit.contextDiagnostics,
+      contextFingerprint: unit.contextFingerprint,
     })),
     estimatedInputTokens,
     estimatedOutputTokens,

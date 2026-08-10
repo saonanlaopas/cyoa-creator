@@ -260,6 +260,8 @@ textarea.source { min-height: 20rem; }
 .draft-metadata dd { margin: .2rem 0 0; overflow-wrap: anywhere; }
 .draft-prose { min-height: 18rem; }
 .drafting-plan-preview { padding: .65rem; border: 1px solid #354055; border-radius: .5rem; }
+.drafting-plan-preview .generation-plan-inspection { display: grid; gap: .4rem; margin-top: .65rem; }
+.drafting-unit-status { display: grid; gap: .25rem; padding: .45rem 0; border-top: 1px solid #354055; }
 
 @media (max-width: 1050px) {
   .long-form-workspace { grid-template-columns: 14rem minmax(0, 1fr); }

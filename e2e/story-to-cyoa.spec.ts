@@ -352,6 +352,92 @@ test("manual passage drafts persist, stale selectively, and stay separate in a 3
   expect(observedRequests.some((url) => /openrouter|passage-generation\/jobs\/.*\/start/i.test(url))).toBe(false);
 });
 
+test("bounded prose drafting previews context, repairs, retries, persists, and cancels offline", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  const projectId = await seedLargePassagePlan(request);
+  await approveCurrentPassagePlan(request, projectId);
+  const acceptedSave = await request.put(`/api/long-form/projects/${projectId}/drafts/passages/passage-000`, {
+    data: { proseMarkdown: "Accepted browser prose remains authoritative.", authorNote: "4B-2 preservation fixture" },
+  });
+  await expect(acceptedSave).toBeOK();
+  const candidateVersionId = (await acceptedSave.json()).draft.id as string;
+  const acceptedTransition = await request.post(`/api/long-form/projects/${projectId}/drafts/passages/passage-000/transition`, {
+    data: { versionId: candidateVersionId, status: "accepted" },
+  });
+  await expect(acceptedTransition).toBeOK();
+  const acceptedVersionId = (await acceptedTransition.json()).draft.id as string;
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "passage-plan");
+  }, projectId);
+  await page.goto("/#long-form");
+
+  let draftPanel = page.getByLabel("Passage draft architecture");
+  await draftPanel.getByText("Bounded prose generation").click();
+  await draftPanel.getByRole("button", { name: "Preview one-passage plan" }).click();
+  await draftPanel.getByText("Unit 1: built context").click();
+  await expect(draftPanel.getByText(/Context [a-f0-9]{64}/)).toBeVisible();
+  const createResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === "POST" && response.url().endsWith(`/projects/${projectId}/drafting/plans`));
+  await draftPanel.getByRole("button", { name: "Save plan" }).click();
+  const createResponse = await createResponsePromise;
+  expect(createResponse.status(), await createResponse.text()).toBe(201);
+  expect(pageErrors).toEqual([]);
+  await expect(page.getByText("Drafting plan saved locally without generating prose.")).toBeVisible();
+  await draftPanel.getByRole("button", { name: "Authorize exact plan" }).click();
+  await draftPanel.getByRole("button", { name: "Start generation" }).click();
+  await expect(draftPanel.getByText("Job failed", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(draftPanel.getByText(/offline_drafting_fixture_failure/)).toBeVisible();
+  await draftPanel.getByRole("button", { name: "Retry unit" }).click();
+  await expect(draftPanel.getByText("Job completed", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(draftPanel.getByText(/passage-000: \d+ words generated/)).toBeVisible();
+  await expect(draftPanel.getByLabel("Prose Markdown")).toHaveValue(/deterministic offline candidate/);
+  await expect(draftPanel.getByText(/generated · offline-drafting\/deterministic-prose-v1/)).toBeVisible();
+  const generatedState = await (await request.get(
+    `/api/long-form/projects/${projectId}/drafts/passages/passage-000`,
+  )).json();
+  expect(generatedState.head.accepted.id).toBe(acceptedVersionId);
+  expect(generatedState.head.accepted.proseMarkdown).toBe("Accepted browser prose remains authoritative.");
+  expect(generatedState.head.current.id).not.toBe(acceptedVersionId);
+  await expect(draftPanel.getByRole("button", { name: /accept/i })).toHaveCount(0);
+
+  await page.reload();
+  draftPanel = page.getByLabel("Passage draft architecture");
+  await draftPanel.getByText("Bounded prose generation").click();
+  await expect(draftPanel.getByText("Job completed", { exact: true })).toBeVisible();
+  await expect(draftPanel.getByLabel("Prose Markdown")).toHaveValue(/deterministic offline candidate/);
+
+  await draftPanel.getByRole("button", { name: "Save plan" }).click();
+  await expect(page.getByText("Drafting plan saved locally without generating prose.")).toBeVisible();
+  await draftPanel.getByRole("button", { name: "Authorize exact plan" }).click();
+  await draftPanel.getByRole("button", { name: "Start generation" }).click();
+  await draftPanel.getByRole("button", { name: "Cancel" }).click();
+  await expect(draftPanel.getByText("Job cancelled", { exact: true })).toBeVisible({ timeout: 15_000 });
+
+  const stalePlanResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === "POST" && response.url().endsWith(`/projects/${projectId}/drafting/plans`));
+  await draftPanel.getByRole("button", { name: "Save plan" }).click();
+  const stalePlanResponse = await stalePlanResponsePromise;
+  expect(stalePlanResponse.status(), await stalePlanResponse.text()).toBe(201);
+  const stalePlan = await stalePlanResponse.json();
+  await draftPanel.getByRole("button", { name: "Authorize exact plan" }).click();
+  const passagePlan = await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).json();
+  const target = passagePlan.passages.find((item: { entityId: string }) => item.entityId === "passage-000");
+  const mutateTarget = await request.put(
+    `/api/long-form/projects/${projectId}/passage-plan/entities/passage/passage-000`,
+    { data: { ...target.content, purpose: "Changed after exact drafting authorization" } },
+  );
+  await expect(mutateTarget).toBeOK();
+  await draftPanel.getByRole("button", { name: "Start generation" }).click();
+  await expect(page.getByText("Target passage-plan head changed for passage-000")).toBeVisible();
+  const staleJob = await (await request.get(
+    `/api/long-form/projects/${projectId}/drafting/jobs/${stalePlan.jobId}`,
+  )).json();
+  expect(staleJob).toMatchObject({ status: "authorized", units: [{ status: "pending", attemptNumber: 0 }] });
+});
+
 test("bounded passage generation previews, authorizes, retries, cancels, and reopens offline", async ({ page, request }) => {
   test.setTimeout(180_000);
   const projectId = await seedLargePassagePlan(request);

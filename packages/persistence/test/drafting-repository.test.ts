@@ -330,4 +330,107 @@ describe("drafting repository", () => {
     expect((fixture.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_versions").get() as { count: number }).count).toBe(0);
     fixture.database.close();
   });
+
+  it("persists a multi-passage generated output and exact attempt provenance atomically", () => {
+    const fixture = setup(":memory:", 2);
+    const contextFingerprint = "c".repeat(64);
+    const input = {
+      ...fixture.input,
+      units: [{
+        ...fixture.input.units[0]!,
+        passageIds: fixture.passageVersions.map((item) => item.entityId),
+        passageVersionIds: fixture.passageVersions.map((item) => item.id),
+        context: { schemaId: "cyoa.passage-drafting-context", schemaVersion: 1 },
+        contextFingerprint,
+        contextDiagnostics: { status: "built", contextFingerprint },
+      }],
+    };
+    const plan = fixture.drafting.createPlan(input);
+    fixture.drafting.authorize(fixture.project.id, plan.id, plan.fingerprint);
+    fixture.drafting.startJob(fixture.project.id, plan.jobId);
+    const { attemptId } = fixture.drafting.startUnit(fixture.project.id, plan.jobId, "unit-1");
+    const drafts = new PassageDraftRepository(fixture.database);
+    const completed = fixture.drafting.completeUnitWithCandidates(
+      fixture.project.id,
+      plan.jobId,
+      "unit-1",
+      attemptId,
+      drafts,
+      {
+        contextFingerprint,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        outputSchemaId: "cyoa.passage-drafting-unit-output",
+        outputSchemaVersion: 1,
+        content: { passages: ["passage-1", "passage-2"] },
+        validation: { valid: true },
+        usage: { inputTokens: 10, outputTokens: 20, cost: 0 },
+        repair: { maximumRepairs: 1, repairsPerformed: 0 },
+        upstreamVersions: fixture.snapshot.upstreamVersions,
+        neighboringDraftVersions: {},
+        passages: fixture.passageVersions.map((item) => ({
+          passageId: item.entityId,
+          passagePlanVersionId: item.id,
+          proseMarkdown: `Generated ${item.entityId}.`,
+        })),
+      },
+    );
+    expect(completed.job.units[0]).toMatchObject({ status: "completed", generatedCandidates: [
+      { passageId: "passage-1", wordCount: 2 }, { passageId: "passage-2", wordCount: 2 },
+    ] });
+    expect(completed.drafts).toHaveLength(2);
+    expect(completed.drafts.every((draft) => draft.generationProvenance?.attemptId === attemptId)).toBe(true);
+    expect(completed.output).toMatchObject({ attemptId, contextFingerprint, providerId: input.providerId });
+    fixture.database.close();
+  });
+
+  it("rolls back every candidate, output, and completion marker when one passage persistence fails", () => {
+    const fixture = setup(":memory:", 2);
+    const contextFingerprint = "d".repeat(64);
+    const input = {
+      ...fixture.input,
+      units: [{
+        ...fixture.input.units[0]!,
+        passageIds: fixture.passageVersions.map((item) => item.entityId),
+        passageVersionIds: fixture.passageVersions.map((item) => item.id),
+        context: { schemaId: "cyoa.passage-drafting-context", schemaVersion: 1 },
+        contextFingerprint,
+        contextDiagnostics: { status: "built", contextFingerprint },
+      }],
+    };
+    const plan = fixture.drafting.createPlan(input);
+    fixture.drafting.authorize(fixture.project.id, plan.id, plan.fingerprint);
+    fixture.drafting.startJob(fixture.project.id, plan.jobId);
+    const { attemptId } = fixture.drafting.startUnit(fixture.project.id, plan.jobId, "unit-1");
+    fixture.database.exec(`CREATE TRIGGER fail_second_generated_draft
+      BEFORE INSERT ON passage_draft_versions WHEN NEW.passage_id = 'passage-2'
+      BEGIN SELECT RAISE(ABORT, 'simulated second candidate failure'); END;`);
+    expect(() => fixture.drafting.completeUnitWithCandidates(
+      fixture.project.id,
+      plan.jobId,
+      "unit-1",
+      attemptId,
+      new PassageDraftRepository(fixture.database),
+      {
+        contextFingerprint,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        outputSchemaId: "cyoa.passage-drafting-unit-output",
+        outputSchemaVersion: 1,
+        content: { passages: ["passage-1", "passage-2"] },
+        validation: { valid: true },
+        repair: { maximumRepairs: 1, repairsPerformed: 0 },
+        upstreamVersions: fixture.snapshot.upstreamVersions,
+        neighboringDraftVersions: {},
+        passages: fixture.passageVersions.map((item) => ({
+          passageId: item.entityId, passagePlanVersionId: item.id, proseMarkdown: `Generated ${item.entityId}.`,
+        })),
+      },
+    )).toThrow("simulated second candidate failure");
+    expect((fixture.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_versions").get() as { count: number }).count).toBe(0);
+    expect((fixture.database.prepare("SELECT COUNT(*) AS count FROM drafting_unit_outputs").get() as { count: number }).count).toBe(0);
+    expect((fixture.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_generation_provenance").get() as { count: number }).count).toBe(0);
+    expect(fixture.drafting.getJob(fixture.project.id, plan.jobId)?.units[0]?.status).toBe("running");
+    fixture.database.close();
+  });
 });
