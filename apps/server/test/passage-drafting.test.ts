@@ -123,8 +123,16 @@ async function lockAcceptedProse(
     url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}`,
     payload: { proseMarkdown, authorNote: "Race-regression lock" },
   })).json().draft;
-  let versionId = manual.id as string;
-  for (const status of ["accepted", "reviewed", "locked"] as const) {
+  const selections = [{ passageId, candidateDraftVersionId: manual.id as string }];
+  const preview = (await app.inject({
+    method: "POST", url: `/api/long-form/projects/${projectId}/drafts/acceptance/preview`, payload: { selections },
+  })).json();
+  const applied = (await app.inject({
+    method: "POST", url: `/api/long-form/projects/${projectId}/drafts/acceptance/apply`,
+    payload: { selections, previewFingerprint: preview.fingerprint },
+  })).json();
+  let versionId = applied.application.resultingAcceptedVersions[passageId] as string;
+  for (const status of ["reviewed", "locked"] as const) {
     const transitioned = (await app.inject({
       method: "POST",
       url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}/transition`,
@@ -724,18 +732,8 @@ describe("Foundation 4B-1 draft architecture API", () => {
     const app = buildApp();
     const { projectId, plan } = await createApprovedFixture(app);
     const passageId = plan.passages[0].entityId as string;
-    const manual = (await app.inject({
-      method: "PUT", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}`,
-      payload: { proseMarkdown: "This accepted text must remain fixed.", authorNote: "" },
-    })).json().draft;
-    let versionId = manual.id as string;
-    for (const status of ["accepted", "reviewed", "locked"] as const) {
-      const transitioned = (await app.inject({
-        method: "POST", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}/transition`,
-        payload: { versionId, status },
-      })).json();
-      versionId = transitioned.draft.id;
-    }
+    const locked = await lockAcceptedProse(app, projectId, passageId, "This accepted text must remain fixed.");
+    const versionId = locked.versionId;
     const created = (await app.inject({
       method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`,
       payload: { scope: { kind: "passages", passageIds: [passageId] } },

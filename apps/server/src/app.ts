@@ -1,7 +1,7 @@
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, openDatabase, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, openDatabase, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { JobRunner, type PassageDraftingProvider, type PassagePlanningProvider } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
@@ -65,6 +65,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const conversations = new ConversationRepository(database);
   const changeSets = new ChangeSetRepository(database);
   const passageDrafts = new PassageDraftRepository(database);
+  const passageDraftAcceptance = new PassageDraftAcceptanceRepository(database, passageDrafts);
   const passagePlans = new PassagePlanRepository(
     database,
     (mutation) => passageDrafts.handlePassagePlanMutationInTransaction(mutation),
@@ -76,7 +77,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     projects, artifacts, workflow, changeSets, passagePlans, passageDrafts,
   );
   const passagePlanService = new PassagePlanService(projects, artifacts, workflow, passagePlans);
-  const passageDraftService = new PassageDraftService(projects, workflow, passagePlans, passageDrafts);
+  const passageDraftService = new PassageDraftService(
+    database, projects, workflow, passagePlans, passageDrafts, passageDraftAcceptance,
+  );
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
     && process.env.E2E_FAKE_MODEL_PROVIDER === "1";
   const credentials = options.credentials

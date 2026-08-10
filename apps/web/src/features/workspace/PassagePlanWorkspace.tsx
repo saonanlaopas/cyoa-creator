@@ -24,6 +24,7 @@ import {
 } from "../../api/passage-plan.js";
 import { PassageGenerationPanel } from "./PassageGenerationPanel.js";
 import { PassageDraftPanel } from "./PassageDraftPanel.js";
+import { DraftReviewQueue } from "./DraftReviewQueue.js";
 
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const lines = (value: string) => value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
@@ -101,6 +102,7 @@ export function PassagePlanWorkspace(props: {
   const [overrideRationale, setOverrideRationale] = useState<Record<string, string>>({});
   const [history, setHistory] = useState<Array<{ id: string; version: number; createdAt: string }>>([]);
   const [focusEntity, setFocusEntity] = useState<{ type: string; id: string } | null>(null);
+  const [draftQueueRevision, setDraftQueueRevision] = useState(0);
 
   const load = async () => {
     const next = await loadPassagePlan(props.projectId);
@@ -289,6 +291,14 @@ export function PassagePlanWorkspace(props: {
             if (passage) setSelectedId(passage.id); else props.setMessage(`No passage or choice found for ${jumpId}.`);
           }}
         />
+        <DraftReviewQueue
+          projectId={props.projectId}
+          selectedPassageId={selectedId}
+          refreshKey={draftQueueRevision}
+          onSelectPassage={setSelectedId}
+          onChanged={() => setDraftQueueRevision((value) => value + 1)}
+          setMessage={props.setMessage}
+        />
         <div className="passage-authoring-grid">
           <aside className="passage-outline">
             <StructureActions structure={structure} setStructure={setStructure} passages={passages} setPassages={setPassages}
@@ -401,6 +411,7 @@ export function PassagePlanWorkspace(props: {
               passagePlanVersionId={state.passages.find((item) => item.entityId === selected.id)?.id ?? ""}
               passagePlanApproved={state.state.status === "approved"}
               setMessage={props.setMessage}
+              onCorpusChange={() => setDraftQueueRevision((value) => value + 1)}
             /></> : <p>Select a passage from the outline.</p>}
           </main>
         </div>

@@ -13,4 +13,5 @@ export * from "./generation-repository.js";
 export * from "./passage-proposal-repository.js";
 export * from "./draft-staleness.js";
 export * from "./passage-draft-repository.js";
+export * from "./passage-draft-acceptance-repository.js";
 export * from "./drafting-repository.js";

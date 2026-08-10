@@ -133,6 +133,51 @@ async function approveCurrentPassagePlan(request: APIRequestContext, projectId: 
   return snapshot;
 }
 
+async function acceptExactCandidate(
+  request: APIRequestContext, projectId: string, passageId: string, candidateDraftVersionId: string,
+) {
+  const selections = [{ passageId, candidateDraftVersionId }];
+  const previewResponse = await request.post(`/api/long-form/projects/${projectId}/drafts/acceptance/preview`, {
+    data: { selections },
+  });
+  await expect(previewResponse).toBeOK();
+  const preview = await previewResponse.json();
+  expect(preview.valid).toBe(true);
+  const applyResponse = await request.post(`/api/long-form/projects/${projectId}/drafts/acceptance/apply`, {
+    data: { selections, previewFingerprint: preview.fingerprint },
+  });
+  await expect(applyResponse).toBeOK();
+  return applyResponse.json();
+}
+
+async function generateExactDraftCandidate(request: APIRequestContext, projectId: string, passageId: string) {
+  const createdResponse = await request.post(`/api/long-form/projects/${projectId}/drafting/plans`, { data: {
+    scope: { kind: "passages", passageIds: [passageId] },
+    providerId: "offline-drafting", modelId: "deterministic-prose-v1",
+  } });
+  await expect(createdResponse).toBeOK();
+  const plan = await createdResponse.json();
+  await expect(await request.post(`/api/long-form/projects/${projectId}/drafting/plans/${plan.id}/authorize`, {
+    data: { fingerprint: plan.fingerprint },
+  })).toBeOK();
+  await expect(await request.post(`/api/long-form/projects/${projectId}/drafting/jobs/${plan.jobId}/start`)).toBeOK();
+  let job: { status: string; units: Array<{ id: string; status: string }> } | undefined;
+  await expect.poll(async () => {
+    job = await (await request.get(`/api/long-form/projects/${projectId}/drafting/jobs/${plan.jobId}`)).json();
+    return job.status;
+  }).toMatch(/completed|partially_failed|failed/);
+  if (job!.status !== "completed") {
+    const failed = job!.units.find((unit) => unit.status === "failed")!;
+    await expect(await request.post(`/api/long-form/projects/${projectId}/drafting/jobs/${plan.jobId}/units/${failed.id}/retry`)).toBeOK();
+    await expect(await request.post(`/api/long-form/projects/${projectId}/drafting/jobs/${plan.jobId}/start`)).toBeOK();
+    await expect.poll(async () => (await (await request.get(
+      `/api/long-form/projects/${projectId}/drafting/jobs/${plan.jobId}`,
+    )).json()).status).toBe("completed");
+  }
+  const state = await (await request.get(`/api/long-form/projects/${projectId}/drafts/passages/${passageId}`)).json();
+  return state.head.current;
+}
+
 async function completePassageGeneration(request: APIRequestContext, projectId: string, modelId: string) {
   const createdResponse = await request.post(`/api/long-form/projects/${projectId}/passage-generation/plans`, { data: {
     scope: { kind: "sequence", sequenceId: "sequence-main" }, providerId: "offline-kernel", modelId,
@@ -280,6 +325,11 @@ test("long-form passage workspace renders, filters, and jumps within a 300-passa
 
   await expect(page.getByRole("heading", { name: "Passage plan" })).toBeVisible();
   await expect(page.getByText("300 of 300 passages shown", { exact: true })).toBeVisible();
+  await expect(page.getByText("Draft review queue")).toBeVisible();
+  await expect(page.locator(".draft-queue-list > div")).toHaveCount(300);
+  await page.getByLabel("Find passage").fill("passage-299");
+  await expect(page.locator(".draft-queue-list > div")).toHaveCount(1);
+  await page.getByLabel("Find passage").fill("");
   await page.getByPlaceholder("Search titles, IDs, summaries, and tags").fill("passage-299");
   await expect(page.getByText("1 of 300 passages shown", { exact: true })).toBeVisible({ timeout: 5_000 });
   await page.getByPlaceholder("Jump to stable ID").fill("passage-299");
@@ -299,17 +349,18 @@ test("manual passage drafts persist, stale selectively, and stay separate in a 3
   }, projectId);
   await page.goto("/#long-form");
 
-  await expect(page.getByRole("heading", { name: "Passage draft" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review prose" })).toBeVisible();
+  await page.getByText("Manual candidate editor").click();
   await page.getByLabel("Prose Markdown").fill("Fanawë enters 東京. This private marker stays in draft storage only.");
   await page.getByLabel("Author note").fill("Manual browser fixture");
   await page.getByRole("button", { name: "Save new candidate version" }).click();
   await expect(page.getByText(/Manual draft saved as a new immutable candidate version/)).toBeVisible();
-  await expect(page.getByText(/11 \/ 500/)).toBeVisible();
-  await expect(page.getByText("Draft history (1)")).toBeVisible();
+  await expect(page.getByLabel("Passage prose review").getByText(/v1 · 11 words · manual/)).toBeVisible();
+  await expect(page.getByText("Immutable draft history (1)")).toBeVisible();
 
   await page.reload();
   await expect(page.getByLabel("Prose Markdown")).toHaveValue("Fanawë enters 東京. This private marker stays in draft storage only.");
-  await expect(page.getByText("Draft history (1)")).toBeVisible();
+  await expect(page.getByText("Immutable draft history (1)")).toBeVisible();
   await expect(page.locator(".draft-status-badges").getByText("candidate", { exact: true })).toBeVisible();
 
   let passagePlanResponse = await request.get(`/api/long-form/projects/${projectId}/passage-plan`);
@@ -328,7 +379,7 @@ test("manual passage drafts persist, stale selectively, and stay separate in a 3
   );
   await expect(unrelatedSave).toBeOK();
   await page.reload();
-  await expect(page.getByText("This draft is stale.")).toHaveCount(0);
+  await expect(page.getByText("This draft is stale and cannot be accepted.")).toHaveCount(0);
   await expect(page.getByLabel("Prose Markdown")).toHaveValue("Fanawë enters 東京. This private marker stays in draft storage only.");
 
   passagePlanResponse = await request.get(`/api/long-form/projects/${projectId}/passage-plan`);
@@ -340,7 +391,7 @@ test("manual passage drafts persist, stale selectively, and stay separate in a 3
   );
   await expect(selectedSave).toBeOK();
   await page.reload();
-  await expect(page.getByText("This draft is stale.")).toBeVisible();
+  await expect(page.getByText("This draft is stale and cannot be accepted.")).toBeVisible();
   await expect(page.getByText(/passage-plan-material-change: passage passage-000 \(wordTarget\)/)).toBeVisible();
   await expect(page.getByLabel("Prose Markdown")).toHaveValue("Fanawë enters 東京. This private marker stays in draft storage only.");
 
@@ -363,29 +414,24 @@ test("bounded prose drafting previews context, repairs, retries, persists, and c
   });
   await expect(acceptedSave).toBeOK();
   const candidateVersionId = (await acceptedSave.json()).draft.id as string;
-  const acceptedTransition = await request.post(`/api/long-form/projects/${projectId}/drafts/passages/passage-000/transition`, {
-    data: { versionId: candidateVersionId, status: "accepted" },
-  });
-  await expect(acceptedTransition).toBeOK();
-  const acceptedVersionId = (await acceptedTransition.json()).draft.id as string;
+  const acceptedApplication = await acceptExactCandidate(request, projectId, "passage-000", candidateVersionId);
+  const acceptedVersionId = acceptedApplication.application.resultingAcceptedVersions["passage-000"] as string;
   await page.addInitScript((id) => {
     localStorage.setItem("story-to-cyoa.long-form-project-id", id);
     localStorage.setItem("story-to-cyoa.long-form-stage", "passage-plan");
   }, projectId);
   await page.goto("/#long-form");
 
-  let draftPanel = page.getByLabel("Passage draft architecture");
-  await draftPanel.getByText("Bounded prose generation").click();
-  await draftPanel.getByRole("button", { name: "Preview one-passage plan" }).click();
-  await draftPanel.getByText("Unit 1: built context").click();
-  await expect(draftPanel.getByText(/Context [a-f0-9]{64}/)).toBeVisible();
+  let draftPanel = page.getByLabel("Passage prose review");
+  await draftPanel.getByText("Regenerate through bounded drafting").click();
+  await draftPanel.getByRole("button", { name: "Preview regeneration plan" }).click();
   const createResponsePromise = page.waitForResponse((response) =>
     response.request().method() === "POST" && response.url().endsWith(`/projects/${projectId}/drafting/plans`));
-  await draftPanel.getByRole("button", { name: "Save plan" }).click();
+  await draftPanel.getByRole("button", { name: "Prepare regeneration plan" }).click();
   const createResponse = await createResponsePromise;
   expect(createResponse.status(), await createResponse.text()).toBe(201);
   expect(pageErrors).toEqual([]);
-  await expect(page.getByText("Drafting plan saved locally without generating prose.")).toBeVisible();
+  await expect(page.getByText("New bounded drafting plan saved. No provider was called.")).toBeVisible();
   await draftPanel.getByRole("button", { name: "Authorize exact plan" }).click();
   await draftPanel.getByRole("button", { name: "Start generation" }).click();
   await expect(draftPanel.getByText("Job failed", { exact: true })).toBeVisible({ timeout: 15_000 });
@@ -394,23 +440,56 @@ test("bounded prose drafting previews context, repairs, retries, persists, and c
   await expect(draftPanel.getByText("Job completed", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(draftPanel.getByText(/passage-000: \d+ words generated/)).toBeVisible();
   await expect(draftPanel.getByLabel("Prose Markdown")).toHaveValue(/deterministic offline candidate/);
-  await expect(draftPanel.getByText(/generated · offline-drafting\/deterministic-prose-v1/)).toBeVisible();
+  await expect(draftPanel.getByText(/offline-drafting\/deterministic-prose-v1/)).toBeVisible();
   const generatedState = await (await request.get(
     `/api/long-form/projects/${projectId}/drafts/passages/passage-000`,
   )).json();
   expect(generatedState.head.accepted.id).toBe(acceptedVersionId);
   expect(generatedState.head.accepted.proseMarkdown).toBe("Accepted browser prose remains authoritative.");
   expect(generatedState.head.current.id).not.toBe(acceptedVersionId);
-  await expect(draftPanel.getByRole("button", { name: /accept/i })).toHaveCount(0);
+  await expect(draftPanel.getByRole("button", { name: "Preview exact acceptance" })).toBeVisible();
+
+  await draftPanel.getByRole("button", { name: "Preview exact acceptance" }).click();
+  await expect(draftPanel.getByText("Ready for explicit acceptance")).toBeVisible();
+  await draftPanel.getByRole("button", { name: "Accept exact candidate" }).click();
+  await expect(draftPanel.getByRole("button", { name: "Mark reviewed" })).toBeVisible();
+  await page.reload();
+  draftPanel = page.getByLabel("Passage prose review");
+  await expect(draftPanel.getByText(/deterministic offline candidate/).first()).toBeVisible();
+  await draftPanel.getByRole("button", { name: "Mark reviewed" }).click();
+  await draftPanel.getByRole("button", { name: "Lock accepted text" }).click();
+  await expect(draftPanel.getByText("accepted locked")).toBeVisible();
+  await draftPanel.getByText("Manual candidate editor").click();
+  await draftPanel.getByLabel("Prose Markdown").fill("Manual replacement remains a separate candidate until accepted.");
+  await draftPanel.getByRole("button", { name: "Save new candidate version" }).click();
+  await expect(draftPanel.getByText("Manual replacement remains a separate candidate until accepted.").first()).toBeVisible();
+  await expect(draftPanel.getByText(/deterministic offline candidate/).first()).toBeVisible();
+  await draftPanel.getByRole("button", { name: "Preview exact acceptance" }).click();
+  await expect(draftPanel.getByText("Acceptance blocked")).toBeVisible();
+  await draftPanel.getByRole("button", { name: "Unlock accepted text" }).click();
+  await expect(draftPanel.getByText("accepted locked")).toHaveCount(0);
+  await draftPanel.getByRole("button", { name: "Preview exact acceptance" }).click();
+  await draftPanel.getByRole("button", { name: "Accept exact candidate" }).click();
+  await expect(draftPanel.getByText("Immutable draft history (8)")).toBeVisible();
+  await draftPanel.getByText("Immutable draft history (8)").click();
+  await expect(draftPanel.getByRole("button", { name: "Inspect v1" })).toBeVisible();
+  const firstHistoryRow = draftPanel.getByRole("button", { name: "Inspect v1" }).locator("..");
+  await firstHistoryRow.getByRole("button", { name: "Restore as candidate" }).click();
+  await expect(page.getByText("Draft restored as a new immutable candidate version. It was not accepted or unlocked.")).toBeVisible();
+  const restoredState = await (await request.get(
+    `/api/long-form/projects/${projectId}/drafts/passages/passage-000`,
+  )).json();
+  expect(restoredState.head.current).toMatchObject({ lifecycleStatus: "candidate", restoredFromVersionId: candidateVersionId });
+  expect(restoredState.head.accepted.proseMarkdown).toBe("Manual replacement remains a separate candidate until accepted.");
 
   await page.reload();
-  draftPanel = page.getByLabel("Passage draft architecture");
-  await draftPanel.getByText("Bounded prose generation").click();
+  draftPanel = page.getByLabel("Passage prose review");
+  await draftPanel.getByText("Regenerate through bounded drafting").click();
   await expect(draftPanel.getByText("Job completed", { exact: true })).toBeVisible();
-  await expect(draftPanel.getByLabel("Prose Markdown")).toHaveValue(/deterministic offline candidate/);
+  await expect(draftPanel.getByLabel("Prose Markdown")).toHaveValue("Accepted browser prose remains authoritative.");
 
-  await draftPanel.getByRole("button", { name: "Save plan" }).click();
-  await expect(page.getByText("Drafting plan saved locally without generating prose.")).toBeVisible();
+  await draftPanel.getByRole("button", { name: "Prepare regeneration plan" }).click();
+  await expect(page.getByText("New bounded drafting plan saved. No provider was called.")).toBeVisible();
   await draftPanel.getByRole("button", { name: "Authorize exact plan" }).click();
   await draftPanel.getByRole("button", { name: "Start generation" }).click();
   await draftPanel.getByRole("button", { name: "Cancel" }).click();
@@ -418,7 +497,7 @@ test("bounded prose drafting previews context, repairs, retries, persists, and c
 
   const stalePlanResponsePromise = page.waitForResponse((response) =>
     response.request().method() === "POST" && response.url().endsWith(`/projects/${projectId}/drafting/plans`));
-  await draftPanel.getByRole("button", { name: "Save plan" }).click();
+  await draftPanel.getByRole("button", { name: "Prepare regeneration plan" }).click();
   const stalePlanResponse = await stalePlanResponsePromise;
   expect(stalePlanResponse.status(), await stalePlanResponse.text()).toBe(201);
   const stalePlan = await stalePlanResponse.json();
@@ -438,6 +517,46 @@ test("bounded prose drafting previews context, repairs, retries, persists, and c
     `/api/long-form/projects/${projectId}/drafting/jobs/${stalePlan.jobId}`,
   )).json();
   expect(staleJob).toMatchObject({ status: "authorized", units: [{ status: "pending", attemptNumber: 0 }] });
+});
+
+test("draft review queue previews dependency-safe batches and blocks a neighbor-invalidating batch", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const projectId = await seedLargePassagePlan(request);
+  await approveCurrentPassagePlan(request, projectId);
+  const neighborSave = await request.put(`/api/long-form/projects/${projectId}/drafts/passages/passage-001`, {
+    data: { proseMarkdown: "Accepted neighbor version one.", authorNote: "Neighbor context" },
+  });
+  await expect(neighborSave).toBeOK();
+  const neighborCandidate = (await neighborSave.json()).draft;
+  await acceptExactCandidate(request, projectId, "passage-001", neighborCandidate.id);
+  const dependentCandidate = await generateExactDraftCandidate(request, projectId, "passage-000");
+  expect(dependentCandidate.neighboringDraftVersions["passage-001"]).toBeTruthy();
+  const replacementSave = await request.put(`/api/long-form/projects/${projectId}/drafts/passages/passage-001`, {
+    data: { proseMarkdown: "Neighbor replacement candidate.", authorNote: "Must invalidate dependent context" },
+  });
+  await expect(replacementSave).toBeOK();
+
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "passage-plan");
+  }, projectId);
+  await page.goto("/#long-form");
+  const queue = page.getByRole("list", { name: "Passage draft review queue" });
+  await expect(queue).toBeVisible();
+  await page.getByLabel("Select Passage 0 candidate").check();
+  await page.getByLabel("Select Passage 1 candidate").check();
+  await page.getByRole("button", { name: "Preview batch acceptance" }).click();
+  await expect(page.getByText(/Accepted neighbor passage-001 will not match the candidate context/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Accept exact batch" })).toBeDisabled();
+  await page.getByLabel("Select Passage 1 candidate").uncheck();
+  await page.getByRole("button", { name: "Preview batch acceptance" }).click();
+  await expect(page.getByText(/Ready · \+\d+ accepted words/)).toBeVisible();
+  await page.getByRole("button", { name: "Accept exact batch" }).click();
+  await expect(page.getByText("Batch accepted atomically as immutable lifecycle versions.")).toBeVisible();
+  const dependentState = await (await request.get(
+    `/api/long-form/projects/${projectId}/drafts/passages/passage-000`,
+  )).json();
+  expect(dependentState.head.accepted.proseMarkdown).toContain("deterministic offline candidate");
 });
 
 test("bounded passage generation previews, authorizes, retries, cancels, and reopens offline", async ({ page, request }) => {

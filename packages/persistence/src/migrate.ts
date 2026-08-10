@@ -6,6 +6,7 @@ import {
   generationLineageMigrationSql,
   passagePlanningCandidatesMigrationSql,
   passageDraftArchitectureMigrationSql,
+  passageDraftAcceptanceMigrationSql,
   passageDraftGenerationMigrationSql,
   passageDraftProvenanceMigrationSql,
   passageProposalMigrationSql,
@@ -178,6 +179,25 @@ export function migrate(database: StoryDatabase): void {
       assertValidDraftingGenerationLineage(database);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (12, ?)",
+      ).run(new Date().toISOString());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const passageDraftAcceptanceApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 13",
+  ).get();
+  if (!passageDraftAcceptanceApplied) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      assertValidPassageDraftLineage(database);
+      assertValidDraftingGenerationLineage(database);
+      database.exec(passageDraftAcceptanceMigrationSql);
+      assertValidPassageDraftAcceptanceLineage(database);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (13, ?)",
       ).run(new Date().toISOString());
       database.exec("COMMIT");
     } catch (error) {
@@ -420,6 +440,29 @@ function assertValidDraftingGenerationLineage(database: StoryDatabase): void {
     LIMIT 1
   `).get();
   if (invalidCandidate) throw new Error("Cannot migrate generated passage candidates with invalid provenance");
+}
+
+function assertValidPassageDraftAcceptanceLineage(database: StoryDatabase): void {
+  const invalid = database.prepare(`
+    SELECT items.application_id
+    FROM passage_draft_acceptance_items items
+    LEFT JOIN passage_draft_acceptance_applications applications
+      ON applications.project_id = items.project_id AND applications.id = items.application_id
+    LEFT JOIN passage_draft_versions candidates
+      ON candidates.project_id = items.project_id AND candidates.id = items.candidate_version_id
+        AND candidates.passage_id = items.passage_id AND candidates.lifecycle_status = 'candidate'
+    LEFT JOIN passage_draft_versions previous
+      ON previous.project_id = items.project_id AND previous.id = items.previous_accepted_version_id
+        AND previous.passage_id = items.passage_id
+        AND previous.lifecycle_status IN ('accepted', 'reviewed', 'locked')
+    LEFT JOIN passage_draft_versions results
+      ON results.project_id = items.project_id AND results.id = items.resulting_accepted_version_id
+        AND results.passage_id = items.passage_id AND results.lifecycle_status = 'accepted'
+    WHERE applications.id IS NULL OR candidates.id IS NULL OR results.id IS NULL
+      OR (items.previous_accepted_version_id IS NOT NULL AND previous.id IS NULL)
+    LIMIT 1
+  `).get();
+  if (invalid) throw new Error("Cannot migrate passage drafts with invalid acceptance audit lineage");
 }
 
 function canonicalRecordJson(value: Record<string, unknown>): string {

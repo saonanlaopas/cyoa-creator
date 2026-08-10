@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { PassageDraftLifecycle } from "@story-to-cyoa/persistence";
+import { StaleDraftAcceptancePreviewError } from "@story-to-cyoa/persistence";
 import type { PassageDraftService } from "../services/passage-draft-service.js";
 
 interface ProjectParams { projectId: string }
@@ -8,7 +9,8 @@ interface PassageParams extends ProjectParams { passageId: string }
 const status = (error: unknown): 400 | 404 | 409 => {
   const message = (error as Error).message;
   if (message.includes("not found")) return 404;
-  if (message.includes("locked") || message.includes("transition") || message.includes("stale") || message.includes("Approve")) return 409;
+  if (message.includes("locked") || message.includes("transition") || message.includes("stale")
+    || message.includes("Approve") || message.includes("acceptance") || message.includes("current accepted")) return 409;
   return 400;
 };
 const lifecycleStatuses = new Set<PassageDraftLifecycle>(["candidate", "accepted", "reviewed", "locked"]);
@@ -19,6 +21,27 @@ export function registerPassageDraftRoutes(app: FastifyInstance, service: Passag
     try { return service.summary(request.params.projectId); }
     catch (error) { return reply.code(status(error)).send({ error: (error as Error).message }); }
   });
+  app.get<{ Params: ProjectParams }>(`${root}/review-queue`, async (request, reply) => {
+    try { return service.queue(request.params.projectId); }
+    catch (error) { return reply.code(status(error)).send({ error: (error as Error).message }); }
+  });
+  app.post<{ Params: ProjectParams; Body: { selections?: unknown } }>(
+    `${root}/acceptance/preview`, async (request, reply) => {
+      try { return service.previewAcceptance(request.params.projectId, request.body ?? {}); }
+      catch (error) { return reply.code(status(error)).send({ error: (error as Error).message }); }
+    },
+  );
+  app.post<{ Params: ProjectParams; Body: { selections?: unknown; previewFingerprint?: unknown } }>(
+    `${root}/acceptance/apply`, async (request, reply) => {
+      try { return reply.code(201).send(service.accept(request.params.projectId, request.body ?? {})); }
+      catch (error) {
+        if (error instanceof StaleDraftAcceptancePreviewError) return reply.code(409).send({
+          error: error.message, code: error.code, currentPreview: error.currentPreview,
+        });
+        return reply.code(status(error)).send({ error: (error as Error).message });
+      }
+    },
+  );
   app.get<{ Params: PassageParams }>(`${root}/passages/:passageId`, async (request, reply) => {
     try { return service.get(request.params.projectId, request.params.passageId); }
     catch (error) { return reply.code(status(error)).send({ error: (error as Error).message }); }
@@ -34,6 +57,19 @@ export function registerPassageDraftRoutes(app: FastifyInstance, service: Passag
       if (!request.body?.versionId) return reply.code(400).send({ error: "versionId is required" });
       try { return reply.code(201).send(service.restore(request.params.projectId, request.params.passageId, request.body.versionId)); }
       catch (error) { return reply.code(status(error)).send({ error: (error as Error).message }); }
+    },
+  );
+  app.get<{ Params: PassageParams; Querystring: { beforeVersionId?: string; afterVersionId?: string } }>(
+    `${root}/passages/:passageId/compare`, async (request, reply) => {
+      if (!request.query.afterVersionId) return reply.code(400).send({ error: "afterVersionId is required" });
+      try {
+        return service.compare(
+          request.params.projectId,
+          request.params.passageId,
+          request.query.beforeVersionId ?? null,
+          request.query.afterVersionId,
+        );
+      } catch (error) { return reply.code(status(error)).send({ error: (error as Error).message }); }
     },
   );
   app.post<{ Params: PassageParams; Body: { versionId?: string; status?: PassageDraftLifecycle } }>(

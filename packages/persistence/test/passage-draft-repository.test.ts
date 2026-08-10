@@ -481,7 +481,7 @@ describe("passage draft repository", () => {
     const fixture = setup();
     const candidate = createDraft(fixture, "one two three four");
     fixture.drafts.transition(fixture.project.id, "passage-1", candidate.id, "accepted");
-    expect(fixture.drafts.projectSummary(fixture.project.id)).toEqual({
+    expect(fixture.drafts.projectSummary(fixture.project.id)).toMatchObject({
       passageCount: 2,
       currentDraftCount: 1,
       acceptedDraftCount: 1,

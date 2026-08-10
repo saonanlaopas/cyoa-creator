@@ -1243,3 +1243,84 @@ BEFORE DELETE ON passage_draft_generation_provenance
 WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
 BEGIN SELECT RAISE(ABORT, 'Generated passage candidate provenance is append-only'); END;
 `;
+
+export const passageDraftAcceptanceMigrationSql = `
+CREATE TABLE passage_draft_acceptance_applications (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  preview_fingerprint TEXT NOT NULL,
+  selected_candidates_json TEXT NOT NULL,
+  previous_accepted_versions_json TEXT NOT NULL,
+  resulting_accepted_versions_json TEXT NOT NULL,
+  downstream_staleness_json TEXT NOT NULL,
+  accepted_word_delta INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, id),
+  UNIQUE(project_id, preview_fingerprint)
+);
+
+CREATE TABLE passage_draft_acceptance_items (
+  application_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  passage_id TEXT NOT NULL,
+  candidate_version_id TEXT NOT NULL,
+  previous_accepted_version_id TEXT,
+  resulting_accepted_version_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(application_id, passage_id),
+  FOREIGN KEY(project_id, application_id)
+    REFERENCES passage_draft_acceptance_applications(project_id, id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, candidate_version_id, passage_id)
+    REFERENCES passage_draft_versions(project_id, id, passage_id) ON DELETE RESTRICT,
+  FOREIGN KEY(project_id, previous_accepted_version_id, passage_id)
+    REFERENCES passage_draft_versions(project_id, id, passage_id) ON DELETE RESTRICT,
+  FOREIGN KEY(project_id, resulting_accepted_version_id, passage_id)
+    REFERENCES passage_draft_versions(project_id, id, passage_id) ON DELETE RESTRICT
+);
+CREATE UNIQUE INDEX passage_draft_acceptance_result
+  ON passage_draft_acceptance_items(project_id, resulting_accepted_version_id);
+CREATE INDEX passage_draft_acceptance_history
+  ON passage_draft_acceptance_items(project_id, passage_id, created_at);
+
+CREATE TRIGGER passage_draft_acceptance_items_lineage_insert
+BEFORE INSERT ON passage_draft_acceptance_items
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM passage_draft_acceptance_applications applications
+  JOIN passage_draft_versions candidates
+    ON candidates.project_id = applications.project_id
+    AND candidates.id = NEW.candidate_version_id
+    AND candidates.passage_id = NEW.passage_id
+    AND candidates.lifecycle_status = 'candidate'
+  JOIN passage_draft_versions results
+    ON results.project_id = applications.project_id
+    AND results.id = NEW.resulting_accepted_version_id
+    AND results.passage_id = NEW.passage_id
+    AND results.lifecycle_status = 'accepted'
+  WHERE applications.project_id = NEW.project_id
+    AND applications.id = NEW.application_id
+    AND (NEW.previous_accepted_version_id IS NULL OR EXISTS (
+      SELECT 1 FROM passage_draft_versions previous
+      WHERE previous.project_id = NEW.project_id
+        AND previous.id = NEW.previous_accepted_version_id
+        AND previous.passage_id = NEW.passage_id
+        AND previous.lifecycle_status IN ('accepted', 'reviewed', 'locked')
+    ))
+)
+BEGIN SELECT RAISE(ABORT, 'Passage draft acceptance audit lineage mismatch'); END;
+
+CREATE TRIGGER passage_draft_acceptance_applications_immutable_update
+BEFORE UPDATE ON passage_draft_acceptance_applications
+BEGIN SELECT RAISE(ABORT, 'Passage draft acceptance applications are immutable'); END;
+CREATE TRIGGER passage_draft_acceptance_applications_immutable_delete
+BEFORE DELETE ON passage_draft_acceptance_applications
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Passage draft acceptance applications are append-only'); END;
+CREATE TRIGGER passage_draft_acceptance_items_immutable_update
+BEFORE UPDATE ON passage_draft_acceptance_items
+BEGIN SELECT RAISE(ABORT, 'Passage draft acceptance items are immutable'); END;
+CREATE TRIGGER passage_draft_acceptance_items_immutable_delete
+BEFORE DELETE ON passage_draft_acceptance_items
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Passage draft acceptance items are append-only'); END;
+`;

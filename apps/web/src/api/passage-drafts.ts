@@ -42,17 +42,71 @@ export interface PassageDraftState {
     updatedAt: string;
   } | null;
   history: PassageDraftVersion[];
+  acceptanceHistory: DraftAcceptanceApplication[];
   summary: DraftCorpusSummary;
 }
 
 export interface DraftCorpusSummary {
   passageCount: number;
+  plannedPassageCount: number;
   currentDraftCount: number;
+  currentCandidateCount: number;
   acceptedDraftCount: number;
+  reviewedDraftCount: number;
+  lockedDraftCount: number;
+  staleCurrentCandidateCount: number;
+  staleAcceptedDraftCount: number;
   currentCandidateWords: number;
+  candidateWords: number;
   acceptedWords: number;
+  reviewedWords: number;
+  lockedWords: number;
+  staleAcceptedWords: number;
   plannedWords: number;
   remainingWords: number;
+  acceptanceCompletionPercentage: number;
+}
+
+export interface DraftReviewQueueItem {
+  passageId: string; stableId: string; title: string; sequenceId: string; actId: string | null;
+  routeIds: string[]; wordTarget: number; currentVersionId: string | null;
+  currentLifecycleStatus: PassageDraftLifecycle | null; currentStatus: PassageDraftStatus | "no-draft";
+  currentSourceKind: PassageDraftVersion["sourceKind"] | null; currentWordCount: number;
+  acceptedVersionId: string | null; acceptedLifecycleStatus: PassageDraftLifecycle | null;
+  acceptedWordCount: number; acceptedStale: boolean; acceptedLocked: boolean; needsReview: boolean;
+}
+
+export interface DraftAcceptanceSelection { passageId: string; candidateDraftVersionId: string }
+export interface DraftAcceptanceIssue {
+  code: string; severity: "error" | "warning"; passageId: string; candidateDraftVersionId: string;
+  message: string; dependencyId?: string; expectedVersionId?: string | null; actualVersionId?: string | null;
+}
+export interface DraftAcceptanceImpact {
+  draftVersionId: string; passageId: string; neighborPassageId: string;
+  previousAcceptedVersionId: string; resultingAcceptedVersionId: string;
+}
+export interface DraftAcceptancePreview {
+  projectId: string; selections: DraftAcceptanceSelection[];
+  items: Array<{ passageId: string; candidateDraftVersionId: string; previousAcceptedVersionId: string | null;
+    resultingAcceptedVersionId: string | null; resultingLifecycle: "accepted"; acceptedLocked: boolean;
+    candidateWordCount: number | null; previousAcceptedWordCount: number; acceptedWordDelta: number; noOp: boolean }>;
+  issues: DraftAcceptanceIssue[]; downstreamStaleness: DraftAcceptanceImpact[];
+  acceptedWordDelta: number; acceptedPassageDelta: number; valid: boolean; fingerprint: string;
+}
+export interface DraftAcceptanceApplication {
+  id: string | null; projectId: string; previewFingerprint: string;
+  selectedCandidates: DraftAcceptanceSelection[]; previousAcceptedVersions: Record<string, string | null>;
+  resultingAcceptedVersions: Record<string, string>; downstreamStaleness: DraftAcceptanceImpact[];
+  acceptedWordDelta: number; createdAt: string;
+}
+
+export interface PassageDraftComparison {
+  before: PassageDraftVersion | null;
+  after: PassageDraftVersion;
+  wordCountDelta: number;
+  baseVersionChanged: boolean;
+  provenanceChanged: boolean;
+  paragraphs: Array<{ kind: "unchanged" | "removed" | "added"; text: string }>;
 }
 
 export interface DraftingUnit {
@@ -152,6 +206,34 @@ export const restorePassageDraft = async (projectId: string, passageId: string, 
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ versionId }),
   }));
+export const loadDraftReviewQueue = async (projectId: string) =>
+  json<{ items: DraftReviewQueueItem[]; summary: DraftCorpusSummary }>(await fetch(`${draftRoot(projectId)}/review-queue`));
+export const previewDraftAcceptance = async (projectId: string, selections: DraftAcceptanceSelection[]) =>
+  json<DraftAcceptancePreview>(await fetch(`${draftRoot(projectId)}/acceptance/preview`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ selections }),
+  }));
+export const applyDraftAcceptance = async (
+  projectId: string, selections: DraftAcceptanceSelection[], previewFingerprint: string,
+) => json<{ application: DraftAcceptanceApplication; preview: DraftAcceptancePreview; summary: DraftCorpusSummary }>(
+  await fetch(`${draftRoot(projectId)}/acceptance/apply`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ selections, previewFingerprint }),
+  }),
+);
+export const transitionPassageDraft = async (
+  projectId: string, passageId: string, versionId: string, status: "reviewed" | "locked",
+) => json<{ draft: PassageDraftVersion; state: PassageDraftState }>(await fetch(`${passageUrl(projectId, passageId)}/transition`, {
+  method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ versionId, status }),
+}));
+export const unlockAcceptedPassageDraft = async (projectId: string, passageId: string) =>
+  json<{ state: PassageDraftState }>(await fetch(`${passageUrl(projectId, passageId)}/unlock`, { method: "POST" }));
+export const comparePassageDrafts = async (
+  projectId: string, passageId: string, beforeVersionId: string | null, afterVersionId: string,
+) => {
+  const query = new URLSearchParams({ afterVersionId });
+  if (beforeVersionId) query.set("beforeVersionId", beforeVersionId);
+  return json<PassageDraftComparison>(await fetch(`${passageUrl(projectId, passageId)}/compare?${query}`));
+};
 
 const draftingRequest = (passageIds: string[]) => ({
   scope: { kind: "passages" as const, passageIds },

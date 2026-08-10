@@ -63,7 +63,50 @@ export interface PassageDraftHeadRecord {
   updatedAt: string;
 }
 
+export interface DraftReviewQueueItem {
+  passageId: string;
+  title: string;
+  stableId: string;
+  sequenceId: string;
+  actId: string | null;
+  routeIds: string[];
+  wordTarget: number;
+  currentVersionId: string | null;
+  currentLifecycleStatus: PassageDraftLifecycle | null;
+  currentStatus: PassageDraftStatus | "no-draft";
+  currentSourceKind: PassageDraftSource | null;
+  currentWordCount: number;
+  acceptedVersionId: string | null;
+  acceptedLifecycleStatus: PassageDraftLifecycle | null;
+  acceptedWordCount: number;
+  acceptedStale: boolean;
+  acceptedLocked: boolean;
+  needsReview: boolean;
+}
+
+export interface DraftCorpusSummary {
+  passageCount: number;
+  plannedPassageCount: number;
+  currentDraftCount: number;
+  currentCandidateCount: number;
+  acceptedDraftCount: number;
+  reviewedDraftCount: number;
+  lockedDraftCount: number;
+  staleCurrentCandidateCount: number;
+  staleAcceptedDraftCount: number;
+  currentCandidateWords: number;
+  candidateWords: number;
+  acceptedWords: number;
+  reviewedWords: number;
+  lockedWords: number;
+  staleAcceptedWords: number;
+  plannedWords: number;
+  remainingWords: number;
+  acceptanceCompletionPercentage: number;
+}
+
 export interface CreatePassageDraftInput {
+  id?: string;
   projectId: string;
   passageId: string;
   basedOnPassagePlanVersionId: string;
@@ -139,7 +182,7 @@ export class PassageDraftRepository {
     const latest = this.database.prepare(`SELECT COALESCE(MAX(version), 0) AS version
       FROM passage_draft_versions WHERE project_id = ? AND passage_id = ?`)
       .get(input.projectId, input.passageId) as { version: number };
-    const id = randomUUID();
+    const id = input.id ?? randomUUID();
     const now = new Date().toISOString();
     this.database.prepare(`INSERT INTO passage_draft_versions (
       id, project_id, passage_id, version, based_on_passage_plan_version_id,
@@ -244,6 +287,9 @@ export class PassageDraftRepository {
       this.database.prepare(`UPDATE passage_draft_heads SET accepted_version_id = ?, accepted_locked = ?, updated_at = ?
         WHERE project_id = ? AND passage_id = ?`)
         .run(next.id, to === "locked" ? 1 : 0, now, projectId, passageId);
+      if (head.accepted?.id && !this.acceptedVersionsAreEquivalent(projectId, head.accepted.id, next.id)) {
+        this.propagateAcceptedNeighborChangeInTransaction(projectId, passageId, head.accepted.id, next.id);
+      }
       return this.getVersion(projectId, next.id)!;
     });
   }
@@ -264,7 +310,7 @@ export class PassageDraftRepository {
         WHERE project_id = ? AND passage_id = ?
           AND (? IS NULL OR based_on_passage_plan_version_id != ?)`)
         .all(mutation.projectId, impact.passageId, mutation.afterVersionId, mutation.afterVersionId) as Array<{ id: string }>;
-      for (const row of rows) this.insertStaleness({
+      for (const row of rows) this.insertStalenessInTransaction({
         projectId: mutation.projectId,
         passageId: impact.passageId,
         draftVersionId: row.id,
@@ -308,7 +354,7 @@ export class PassageDraftRepository {
         if (!this.isUpstreamChangeRelevant(
           projectId, row.passage_id, artifactId, previousContent, approvedContent,
         )) continue;
-        this.insertStaleness({
+        this.insertStalenessInTransaction({
           projectId,
           passageId: row.passage_id,
           draftVersionId: row.id,
@@ -366,7 +412,7 @@ export class PassageDraftRepository {
           previous ? JSON.parse(previous.content_json) : null,
           JSON.parse(approved.content_json),
         )) continue;
-        this.insertStaleness({
+        this.insertStalenessInTransaction({
           projectId,
           passageId: draft.passageId,
           draftVersionId: draft.id,
@@ -378,20 +424,51 @@ export class PassageDraftRepository {
           changedFields: [artifactId],
         });
       }
+      for (const [neighborPassageId, neighborVersionId] of Object.entries(draft.neighboringDraftVersions)) {
+        const currentAcceptedVersionId = this.getHead(projectId, neighborPassageId)?.accepted?.id ?? null;
+        if (currentAcceptedVersionId
+          && this.acceptedVersionsAreEquivalent(projectId, neighborVersionId, currentAcceptedVersionId)) continue;
+        this.insertStalenessInTransaction({
+          projectId,
+          passageId: draft.passageId,
+          draftVersionId: draft.id,
+          reasonCode: "accepted-neighbor-draft-change",
+          sourceEntityKind: "accepted-passage-draft",
+          sourceEntityId: neighborPassageId,
+          fromVersionId: neighborVersionId,
+          toVersionId: currentAcceptedVersionId,
+          changedFields: ["acceptedVersionId"],
+        });
+      }
       return this.getVersion(projectId, versionId)!;
     });
   }
 
-  projectSummary(projectId: string): {
-    passageCount: number; currentDraftCount: number; acceptedDraftCount: number;
-    currentCandidateWords: number; acceptedWords: number; plannedWords: number; remainingWords: number;
-  } {
+  projectSummary(projectId: string): DraftCorpusSummary {
     const counts = this.database.prepare(`SELECT
       COUNT(*) AS passage_count,
       SUM(CASE WHEN heads.current_version_id IS NOT NULL THEN 1 ELSE 0 END) AS current_draft_count,
+      SUM(CASE WHEN current_versions.lifecycle_status = 'candidate' THEN 1 ELSE 0 END) AS current_candidate_count,
       SUM(CASE WHEN heads.accepted_version_id IS NOT NULL THEN 1 ELSE 0 END) AS accepted_draft_count,
+      SUM(CASE WHEN accepted_versions.lifecycle_status IN ('reviewed', 'locked') THEN 1 ELSE 0 END) AS reviewed_draft_count,
+      SUM(CASE WHEN accepted_versions.lifecycle_status = 'locked' THEN 1 ELSE 0 END) AS locked_draft_count,
+      SUM(CASE WHEN current_versions.lifecycle_status = 'candidate' AND EXISTS (
+        SELECT 1 FROM passage_draft_staleness_events stale
+        WHERE stale.project_id = passages.project_id AND stale.draft_version_id = current_versions.id
+      ) THEN 1 ELSE 0 END) AS stale_current_candidate_count,
+      SUM(CASE WHEN accepted_versions.id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM passage_draft_staleness_events stale
+        WHERE stale.project_id = passages.project_id AND stale.draft_version_id = accepted_versions.id
+      ) THEN 1 ELSE 0 END) AS stale_accepted_draft_count,
       COALESCE(SUM(current_versions.word_count), 0) AS current_candidate_words,
-      COALESCE(SUM(accepted_versions.word_count), 0) AS accepted_words
+      COALESCE(SUM(CASE WHEN current_versions.lifecycle_status = 'candidate' THEN current_versions.word_count ELSE 0 END), 0) AS candidate_words,
+      COALESCE(SUM(accepted_versions.word_count), 0) AS accepted_words,
+      COALESCE(SUM(CASE WHEN accepted_versions.lifecycle_status IN ('reviewed', 'locked') THEN accepted_versions.word_count ELSE 0 END), 0) AS reviewed_words,
+      COALESCE(SUM(CASE WHEN accepted_versions.lifecycle_status = 'locked' THEN accepted_versions.word_count ELSE 0 END), 0) AS locked_words,
+      COALESCE(SUM(CASE WHEN accepted_versions.id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM passage_draft_staleness_events stale
+        WHERE stale.project_id = passages.project_id AND stale.draft_version_id = accepted_versions.id
+      ) THEN accepted_versions.word_count ELSE 0 END), 0) AS stale_accepted_words
       FROM passage_entity_heads passages
       LEFT JOIN passage_draft_heads heads
         ON heads.project_id = passages.project_id AND heads.passage_id = passages.entity_id
@@ -399,8 +476,11 @@ export class PassageDraftRepository {
       LEFT JOIN passage_draft_versions accepted_versions ON accepted_versions.id = heads.accepted_version_id
       WHERE passages.project_id = ? AND passages.entity_kind = 'passage' AND passages.tombstoned = 0`)
       .get(projectId) as {
-        passage_count: number; current_draft_count: number; accepted_draft_count: number;
-        current_candidate_words: number; accepted_words: number;
+        passage_count: number; current_draft_count: number; current_candidate_count: number;
+        accepted_draft_count: number; reviewed_draft_count: number; locked_draft_count: number;
+        stale_current_candidate_count: number; stale_accepted_draft_count: number;
+        current_candidate_words: number; candidate_words: number; accepted_words: number;
+        reviewed_words: number; locked_words: number; stale_accepted_words: number;
       };
     const planned = this.database.prepare(`SELECT COALESCE(SUM(CAST(json_extract(versions.content_json, '$.wordTarget') AS INTEGER)), 0) AS words
       FROM passage_entity_heads heads JOIN passage_entity_versions versions ON versions.id = heads.version_id
@@ -408,16 +488,149 @@ export class PassageDraftRepository {
       .get(projectId) as { words: number };
     return {
       passageCount: counts.passage_count,
+      plannedPassageCount: counts.passage_count,
       currentDraftCount: counts.current_draft_count,
+      currentCandidateCount: counts.current_candidate_count,
       acceptedDraftCount: counts.accepted_draft_count,
+      reviewedDraftCount: counts.reviewed_draft_count,
+      lockedDraftCount: counts.locked_draft_count,
+      staleCurrentCandidateCount: counts.stale_current_candidate_count,
+      staleAcceptedDraftCount: counts.stale_accepted_draft_count,
       currentCandidateWords: counts.current_candidate_words,
+      candidateWords: counts.candidate_words,
       acceptedWords: counts.accepted_words,
+      reviewedWords: counts.reviewed_words,
+      lockedWords: counts.locked_words,
+      staleAcceptedWords: counts.stale_accepted_words,
       plannedWords: planned.words,
       remainingWords: Math.max(0, planned.words - counts.accepted_words),
+      acceptanceCompletionPercentage: planned.words > 0
+        ? Math.min(100, Math.round((counts.accepted_words / planned.words) * 10_000) / 100)
+        : 0,
     };
   }
 
-  private insertStaleness(input: {
+  listReviewQueue(projectId: string): DraftReviewQueueItem[] {
+    const structure = this.database.prepare(`SELECT versions.content_json
+      FROM passage_entity_heads heads
+      JOIN passage_entity_versions versions ON versions.id = heads.version_id
+      WHERE heads.project_id = ? AND heads.entity_kind = 'structure'
+        AND heads.tombstoned = 0 LIMIT 1`).get(projectId) as { content_json: string } | undefined;
+    const structureContent = structure ? record(JSON.parse(structure.content_json)) : {};
+    const sequenceToAct = new Map((Array.isArray(structureContent.sequences) ? structureContent.sequences : [])
+      .flatMap((item) => {
+        const value = record(item);
+        return typeof value.id === "string" && typeof value.actId === "string"
+          ? [[value.id, value.actId] as const] : [];
+      }));
+    const rows = this.database.prepare(`SELECT passages.entity_id, versions.content_json,
+        heads.accepted_locked, current_versions.id AS current_version_id,
+        current_versions.lifecycle_status AS current_lifecycle_status,
+        current_versions.source_kind AS current_source_kind,
+        current_versions.word_count AS current_word_count,
+        accepted_versions.id AS accepted_version_id,
+        accepted_versions.lifecycle_status AS accepted_lifecycle_status,
+        accepted_versions.word_count AS accepted_word_count,
+        EXISTS(SELECT 1 FROM passage_draft_staleness_events stale
+          WHERE stale.project_id = passages.project_id AND stale.draft_version_id = current_versions.id) AS current_stale,
+        EXISTS(SELECT 1 FROM passage_draft_staleness_events stale
+          WHERE stale.project_id = passages.project_id AND stale.draft_version_id = accepted_versions.id) AS accepted_stale
+      FROM passage_entity_heads passages
+      JOIN passage_entity_versions versions ON versions.id = passages.version_id
+      LEFT JOIN passage_draft_heads heads
+        ON heads.project_id = passages.project_id AND heads.passage_id = passages.entity_id
+      LEFT JOIN passage_draft_versions current_versions ON current_versions.id = heads.current_version_id
+      LEFT JOIN passage_draft_versions accepted_versions ON accepted_versions.id = heads.accepted_version_id
+      WHERE passages.project_id = ? AND passages.entity_kind = 'passage' AND passages.tombstoned = 0
+      ORDER BY json_extract(versions.content_json, '$.position'), passages.entity_id`).all(projectId) as Array<{
+        entity_id: string; content_json: string; accepted_locked: number | null;
+        current_version_id: string | null; current_lifecycle_status: PassageDraftLifecycle | null;
+        current_source_kind: PassageDraftSource | null; current_word_count: number | null;
+        accepted_version_id: string | null; accepted_lifecycle_status: PassageDraftLifecycle | null;
+        accepted_word_count: number | null; current_stale: number; accepted_stale: number;
+      }>;
+    return rows.map((row) => {
+      const content = record(JSON.parse(row.content_json));
+      const sequenceId = typeof content.sequenceId === "string" ? content.sequenceId : "";
+      const currentStatus = row.current_version_id
+        ? row.current_stale ? "stale" : row.current_lifecycle_status!
+        : "no-draft";
+      return {
+        passageId: row.entity_id,
+        stableId: row.entity_id,
+        title: typeof content.title === "string" ? content.title : row.entity_id,
+        sequenceId,
+        actId: sequenceToAct.get(sequenceId) ?? null,
+        routeIds: stringArray(content.routeIds),
+        wordTarget: typeof content.wordTarget === "number" ? content.wordTarget : 0,
+        currentVersionId: row.current_version_id,
+        currentLifecycleStatus: row.current_lifecycle_status,
+        currentStatus,
+        currentSourceKind: row.current_source_kind,
+        currentWordCount: row.current_word_count ?? 0,
+        acceptedVersionId: row.accepted_version_id,
+        acceptedLifecycleStatus: row.accepted_lifecycle_status,
+        acceptedWordCount: row.accepted_word_count ?? 0,
+        acceptedStale: Boolean(row.accepted_stale),
+        acceptedLocked: Boolean(row.accepted_locked),
+        needsReview: row.current_lifecycle_status === "candidate" && !row.current_stale,
+      };
+    });
+  }
+
+  isPassagePlanVersionChangeRelevant(
+    projectId: string,
+    passageId: string,
+    fromVersionId: string,
+    toVersionId: string,
+  ): boolean {
+    if (fromVersionId === toVersionId) return false;
+    const rows = this.database.prepare(`SELECT id, content_json FROM passage_entity_versions
+      WHERE project_id = ? AND entity_kind = 'passage' AND entity_id = ? AND id IN (?, ?)`)
+      .all(projectId, passageId, fromVersionId, toVersionId) as Array<{ id: string; content_json: string }>;
+    const byId = new Map(rows.map((row) => [row.id, JSON.parse(row.content_json)]));
+    if (!byId.has(fromVersionId) || !byId.has(toVersionId)) return true;
+    return classifyPassageDraftStaleness({
+      projectId,
+      kind: "passage",
+      entityId: passageId,
+      beforeVersionId: fromVersionId,
+      afterVersionId: toVersionId,
+      before: byId.get(fromVersionId),
+      after: byId.get(toVersionId),
+    }).length > 0;
+  }
+
+  isUpstreamVersionChangeRelevant(
+    projectId: string,
+    passageId: string,
+    artifactId: string,
+    fromVersionId: string,
+    toVersionId: string,
+  ): boolean {
+    if (fromVersionId === toVersionId) return false;
+    const rows = this.database.prepare(`SELECT id, content_json FROM artifact_versions
+      WHERE project_id = ? AND artifact_id = ? AND id IN (?, ?)`)
+      .all(projectId, artifactId, fromVersionId, toVersionId) as Array<{ id: string; content_json: string }>;
+    const byId = new Map(rows.map((row) => [row.id, JSON.parse(row.content_json)]));
+    if (!byId.has(fromVersionId) || !byId.has(toVersionId)) return true;
+    return this.isUpstreamChangeRelevant(
+      projectId, passageId, artifactId, byId.get(fromVersionId), byId.get(toVersionId),
+    );
+  }
+
+  acceptedVersionsAreEquivalent(projectId: string, leftVersionId: string, rightVersionId: string): boolean {
+    if (leftVersionId === rightVersionId) return true;
+    const left = this.getVersion(projectId, leftVersionId);
+    const right = this.getVersion(projectId, rightVersionId);
+    if (!left || !right || left.passageId !== right.passageId
+      || !acceptedLifecycle(left.lifecycleStatus) || !acceptedLifecycle(right.lifecycleStatus)) return false;
+    const leftRoot = this.acceptanceRoot(projectId, left);
+    const rightRoot = this.acceptanceRoot(projectId, right);
+    return leftRoot !== null && leftRoot === rightRoot;
+  }
+
+  insertStalenessInTransaction(input: {
     projectId: string; passageId: string; draftVersionId: string; reasonCode: string;
     sourceEntityKind: string; sourceEntityId: string; fromVersionId: string | null;
     toVersionId: string | null; changedFields: string[];
@@ -431,6 +644,61 @@ export class PassageDraftRepository {
         input.sourceEntityKind, input.sourceEntityId, input.fromVersionId, input.toVersionId,
         JSON.stringify(input.changedFields), new Date().toISOString(),
       );
+  }
+
+  propagateAcceptedNeighborChangeInTransaction(
+    projectId: string,
+    neighborPassageId: string,
+    fromVersionId: string,
+    toVersionId: string,
+  ): number {
+    if (fromVersionId === toVersionId) return 0;
+    const rows = this.database.prepare(`SELECT dependencies.draft_version_id, drafts.passage_id
+      FROM passage_draft_neighbor_versions dependencies
+      JOIN passage_draft_versions drafts
+        ON drafts.project_id = dependencies.project_id AND drafts.id = dependencies.draft_version_id
+      WHERE dependencies.project_id = ? AND dependencies.neighbor_passage_id = ?
+        AND dependencies.neighbor_draft_version_id = ?
+      ORDER BY drafts.passage_id, dependencies.draft_version_id`)
+      .all(projectId, neighborPassageId, fromVersionId) as Array<{
+        draft_version_id: string; passage_id: string;
+      }>;
+    for (const row of rows) this.insertStalenessInTransaction({
+      projectId,
+      passageId: row.passage_id,
+      draftVersionId: row.draft_version_id,
+      reasonCode: "accepted-neighbor-draft-change",
+      sourceEntityKind: "accepted-passage-draft",
+      sourceEntityId: neighborPassageId,
+      fromVersionId,
+      toVersionId,
+      changedFields: ["acceptedVersionId"],
+    });
+    return rows.length;
+  }
+
+  private acceptanceRoot(projectId: string, version: PassageDraftVersionRecord): string | null {
+    const direct = this.database.prepare(`SELECT resulting_accepted_version_id
+      FROM passage_draft_acceptance_items
+      WHERE project_id = ? AND resulting_accepted_version_id = ?`)
+      .get(projectId, version.id) as { resulting_accepted_version_id: string } | undefined;
+    if (direct) return `application:${direct.resulting_accepted_version_id}`;
+
+    const acceptedRoots = this.database.prepare(`SELECT results.*
+      FROM passage_draft_acceptance_items items
+      JOIN passage_draft_versions results
+        ON results.project_id = items.project_id AND results.id = items.resulting_accepted_version_id
+      WHERE items.project_id = ? AND items.passage_id = ? AND results.version < ?
+      ORDER BY results.version DESC`)
+      .all(projectId, version.passageId, version.version) as DraftRow[];
+    for (const row of acceptedRoots) {
+      const root = this.mapDraft(row);
+      if (sameAcceptedCorpus(root, version)) return `application:${root.id}`;
+    }
+
+    // Schema-v12 lifecycle copies predate acceptance audits. Exact immutable corpus
+    // equality is the only recoverable proof that those legacy heads are equivalent.
+    return `legacy:${acceptedCorpusSignature(version)}`;
   }
 
   private assertGenerationProvenance(input: CreatePassageDraftInput): void {
@@ -571,8 +839,19 @@ export class PassageDraftRepository {
       FROM passage_draft_generation_provenance provenance
       JOIN drafting_unit_outputs outputs
         ON outputs.project_id = provenance.project_id AND outputs.id = provenance.output_id
-      WHERE provenance.project_id = ? AND provenance.draft_version_id = ?`)
-      .get(row.project_id, row.id) as {
+      WHERE provenance.project_id = ? AND (
+        provenance.draft_version_id = ? OR (
+          ? = 'lifecycle'
+          AND provenance.plan_id = ? AND provenance.job_id = ? AND provenance.unit_id = ?
+          AND provenance.passage_id = ? AND provenance.passage_plan_version_id = ?
+        )
+      )
+      ORDER BY CASE WHEN provenance.draft_version_id = ? THEN 0 ELSE 1 END
+      LIMIT 1`)
+      .get(
+        row.project_id, row.id, row.source_kind, row.generation_plan_id, row.generation_job_id,
+        row.generation_unit_id, row.passage_id, row.based_on_passage_plan_version_id, row.id,
+      ) as {
         output_id: string; attempt_id: string; input_fingerprint: string; context_fingerprint: string;
         provider_id: string; model_id: string; execution_policy_id: string;
         output_schema_id: string; output_schema_version: number; usage_json: string | null; repair_json: string;
@@ -632,6 +911,30 @@ function record(value: unknown): Record<string, unknown> {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function acceptedLifecycle(status: PassageDraftLifecycle): boolean {
+  return status === "accepted" || status === "reviewed" || status === "locked";
+}
+
+function sameAcceptedCorpus(left: PassageDraftVersionRecord, right: PassageDraftVersionRecord): boolean {
+  return acceptedCorpusSignature(left) === acceptedCorpusSignature(right);
+}
+
+function acceptedCorpusSignature(draft: PassageDraftVersionRecord): string {
+  return JSON.stringify({
+    passageId: draft.passageId,
+    basedOnPassagePlanVersionId: draft.basedOnPassagePlanVersionId,
+    proseMarkdown: draft.proseMarkdown,
+    authorNote: draft.authorNote,
+    generationPlanId: draft.generationPlanId,
+    generationJobId: draft.generationJobId,
+    generationUnitId: draft.generationUnitId,
+    upstreamVersions: Object.fromEntries(Object.entries(draft.upstreamVersions).sort(([a], [b]) => a.localeCompare(b))),
+    neighboringDraftVersions: Object.fromEntries(
+      Object.entries(draft.neighboringDraftVersions).sort(([a], [b]) => a.localeCompare(b)),
+    ),
+  });
 }
 
 function canonical(value: unknown): string {

@@ -303,6 +303,8 @@ This checkpoint establishes the durable corpus and job architecture only. It doe
 
 #### Checkpoint 4B-2: bounded prose generation
 
+**Implementation status:** Complete, externally accepted, and acceptance-tested offline at `825d039f7b035d4c2e4f01c1cb591821d6abf0a6`.
+
 1. Generate one passage or approximately 3-8 connected passages per unit.
 2. Build bounded drafting context from:
    - exact passage specifications;
@@ -321,6 +323,8 @@ No live or paid provider calls are required for engineering or testing.
 **Recommended engineering model:** Sol High or Terra High.
 
 #### Checkpoint 4B-3: draft review and acceptance
+
+**Implementation status:** Implemented and acceptance-tested offline on the dedicated 4B-3 checkpoint branch; external acceptance remains pending.
 
 1. Add a readable prose-review interface.
 2. Support individual passage acceptance and dependency-safe batch acceptance where appropriate.

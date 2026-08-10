@@ -262,6 +262,28 @@ textarea.source { min-height: 20rem; }
 .drafting-plan-preview { padding: .65rem; border: 1px solid #354055; border-radius: .5rem; }
 .drafting-plan-preview .generation-plan-inspection { display: grid; gap: .4rem; margin-top: .65rem; }
 .drafting-unit-status { display: grid; gap: .25rem; padding: .45rem 0; border-top: 1px solid #354055; }
+.prose-review-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.prose-review-grid > section, .draft-comparison, .acceptance-review { padding: .75rem; border: 1px solid #354055; border-radius: .55rem; background: #0e141e; }
+.prose-reader { max-height: 30rem; overflow: auto; padding: .7rem; border-radius: .4rem; background: #f4efe7; color: #20242c; font-family: Georgia, serif; font-size: 1.02rem; line-height: 1.65; white-space: pre-wrap; }
+.prose-reader p { margin: 0 0 1em; }
+.draft-comparison > header { display: flex; justify-content: space-between; gap: .7rem; align-items: start; }
+.prose-diff { display: grid; gap: .5rem; max-height: 25rem; overflow: auto; }
+.prose-diff del, .prose-diff ins, .prose-diff p { display: block; margin: 0; padding: .55rem; border-radius: .35rem; text-decoration: none; white-space: pre-wrap; }
+.prose-diff del { background: #44252b; color: #ffd9df; }
+.prose-diff ins { background: #1f4939; color: #d8ffed; }
+.prose-diff p { background: #171f2c; }
+.acceptance-preview { display: grid; gap: .25rem; margin-top: .55rem; padding: .6rem; border: 1px solid #4a765f; border-radius: .45rem; }
+.draft-diagnostics dd { overflow-wrap: anywhere; }
+.draft-review-queue { padding: .75rem; border: 1px solid #4c5d78; border-radius: .7rem; background: #151c28; }
+.draft-corpus-strip { display: flex; flex-wrap: wrap; gap: .4rem; margin: .6rem 0; }
+.draft-corpus-strip span { padding: .3rem .5rem; border-radius: 999px; background: #26334a; font-size: .8rem; }
+.draft-queue-filters { display: grid; grid-template-columns: minmax(12rem, 2fr) repeat(2, minmax(8rem, 1fr)); gap: .5rem; }
+.draft-queue-list { max-height: 24rem; overflow: auto; scrollbar-gutter: stable; border: 1px solid #354055; border-radius: .45rem; }
+.draft-queue-list > div { display: grid; grid-template-columns: auto minmax(10rem, 1.5fr) minmax(9rem, 1fr) repeat(2, minmax(8rem, 1fr)); gap: .45rem; align-items: center; padding: .45rem; border-bottom: 1px solid #303a4d; }
+.draft-queue-list > div.selected { background: #28364d; }
+.draft-queue-list button { text-align: left; }
+.draft-queue-list code, .draft-queue-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-batch-review { position: sticky; bottom: 0; display: grid; gap: .4rem; margin-top: .5rem; padding: .65rem; border: 1px solid #60708a; border-radius: .5rem; background: #202838; }
 
 @media (max-width: 1050px) {
   .long-form-workspace { grid-template-columns: 14rem minmax(0, 1fr); }
@@ -282,6 +304,7 @@ textarea.source { min-height: 20rem; }
   .mechanic-condition { grid-template-columns: 1fr; }
   .mechanic-effect, .coverage-table > div { grid-template-columns: 1fr; }
   .passage-authoring-grid { grid-template-columns: 1fr; }
+  .prose-review-grid, .draft-queue-filters, .draft-queue-list > div { grid-template-columns: 1fr; }
   .passage-outline { max-height: 35rem; }
   .structure-sequence-record { grid-template-columns: 1fr 7rem; }
 }
