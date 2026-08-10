@@ -35,7 +35,8 @@ export function DraftReviewQueue(props: {
     const haystack = `${item.title} ${item.stableId} ${item.sequenceId} ${item.actId ?? ""} ${item.routeIds.join(" ")}`.toLowerCase();
     return (!search || haystack.includes(search.toLowerCase()))
       && (!status || (status === "needs-review" ? item.needsReview : status === "stale"
-        ? item.currentStatus === "stale" || item.acceptedStale : item.acceptedLifecycleStatus === status || item.currentStatus === status))
+        ? item.currentStatus === "stale" || item.acceptedStale : status === "locked"
+          ? item.acceptedLocked : item.acceptedLifecycleStatus === status || item.currentStatus === status))
       && (!source || item.currentSourceKind === source);
   }), [items, search, status, source]);
   const selections = [...selected].flatMap((passageId) => {
@@ -74,7 +75,9 @@ export function DraftReviewQueue(props: {
         <button type="button" onClick={() => props.onSelectPassage(item.passageId)}>{item.title}</button>
         <code>{item.stableId}</code>
         <span>{item.currentStatus} · {item.currentWordCount}/{item.wordTarget}w · {item.currentSourceKind ?? "none"}</span>
-        <span>{item.acceptedLifecycleStatus ?? "not accepted"}{item.acceptedLocked ? " · locked" : ""}{item.acceptedStale ? " · stale" : ""}</span>
+        <span>{item.acceptedLifecycleStatus ?? "not accepted"}
+          {item.acceptedLocked ? " · active lock" : item.acceptedLifecycleStatus === "locked" ? " · unlocked" : ""}
+          {item.acceptedStale ? " · stale" : ""}</span>
       </div>)}
     </div>
     {selected.size > 0 && <div className="draft-batch-review">

@@ -84,4 +84,23 @@ describe("DraftReviewQueue", () => {
     expect(JSON.parse(String(apply?.init?.body))).toEqual({ selections: preview.selections, previewFingerprint: preview.fingerprint });
     expect(requests.some((item) => item.url.includes("/drafting/jobs") || item.url.endsWith("/start"))).toBe(false);
   }, 10_000);
+
+  it("filters currently locked heads by the active lock flag rather than historical lifecycle", async () => {
+    const queueItems = items.slice(0, 4).map((item, index) => index === 2 ? {
+      ...item, acceptedLifecycleStatus: "locked", acceptedLocked: false,
+    } : index === 3 ? {
+      ...item, acceptedVersionId: "accepted-4", acceptedLifecycleStatus: "locked",
+      acceptedWordCount: 500, acceptedLocked: true,
+    } : item);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(response({ items: queueItems, summary }));
+    const user = userEvent.setup();
+    render(<DraftReviewQueue projectId="project-1" selectedPassageId="passage-001" refreshKey={0}
+      onSelectPassage={vi.fn()} onChanged={vi.fn()} setMessage={vi.fn()} />);
+    const list = await screen.findByRole("list", { name: "Passage draft review queue" });
+    expect(within(list).getByText(/locked · unlocked/)).toBeTruthy();
+    await user.selectOptions(screen.getByLabelText("Status"), "locked");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(list).getByText(/locked · active lock/)).toBeTruthy();
+    expect(within(list).queryByText(/locked · unlocked/)).toBeNull();
+  });
 });

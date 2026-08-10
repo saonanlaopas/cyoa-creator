@@ -120,6 +120,7 @@ export interface CreatePassageDraftInput {
   upstreamVersions: Record<string, string>;
   neighboringDraftVersions?: Record<string, string>;
   restoredFromVersionId?: string | null;
+  promoteCurrent?: boolean;
 }
 
 type DraftRow = {
@@ -207,13 +208,19 @@ export class PassageDraftRepository {
     for (const [passageId, versionId] of Object.entries(input.neighboringDraftVersions ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
       insertNeighbor.run(id, input.projectId, passageId, versionId);
     }
-    this.database.prepare(`INSERT INTO passage_draft_heads
-      (project_id, passage_id, current_version_id, accepted_version_id, accepted_locked, updated_at)
-      VALUES (?, ?, ?, NULL, 0, ?)
-      ON CONFLICT(project_id, passage_id) DO UPDATE SET
-        current_version_id = excluded.current_version_id,
-        updated_at = excluded.updated_at`)
-      .run(input.projectId, input.passageId, id, now);
+    if (input.promoteCurrent !== false) {
+      this.database.prepare(`INSERT INTO passage_draft_heads
+        (project_id, passage_id, current_version_id, accepted_version_id, accepted_locked, updated_at)
+        VALUES (?, ?, ?, NULL, 0, ?)
+        ON CONFLICT(project_id, passage_id) DO UPDATE SET
+          current_version_id = excluded.current_version_id,
+          updated_at = excluded.updated_at`)
+        .run(input.projectId, input.passageId, id, now);
+    } else {
+      const result = this.database.prepare(`UPDATE passage_draft_heads SET updated_at = ?
+        WHERE project_id = ? AND passage_id = ?`).run(now, input.projectId, input.passageId);
+      if (result.changes !== 1) throw new Error("Cannot preserve a missing current passage draft head");
+    }
     return this.getVersion(input.projectId, id)!;
   }
 
@@ -282,6 +289,7 @@ export class PassageDraftRepository {
         authorNote: source.authorNote,
         upstreamVersions: source.upstreamVersions,
         neighboringDraftVersions: source.neighboringDraftVersions,
+        promoteCurrent: head.current.id === source.id,
       });
       const now = new Date().toISOString();
       this.database.prepare(`UPDATE passage_draft_heads SET accepted_version_id = ?, accepted_locked = ?, updated_at = ?
@@ -305,6 +313,7 @@ export class PassageDraftRepository {
   }
 
   handlePassagePlanMutationInTransaction(mutation: PassagePlanEntityMutation): void {
+    const affectedPassages = new Set<string>();
     for (const impact of classifyPassageDraftStaleness(mutation)) {
       const rows = this.database.prepare(`SELECT id FROM passage_draft_versions
         WHERE project_id = ? AND passage_id = ?
@@ -321,7 +330,11 @@ export class PassageDraftRepository {
         toVersionId: mutation.afterVersionId,
         changedFields: impact.changedFields,
       });
+      affectedPassages.add(impact.passageId);
     }
+    for (const passageId of [...affectedPassages].sort()) this.propagateIfAcceptedHeadStale(
+      mutation.projectId, passageId,
+    );
   }
 
   markStaleForUpstreamVersion(projectId: string, artifactId: string, approvedVersionId: string): number {
@@ -344,6 +357,7 @@ export class PassageDraftRepository {
         }>;
       const approvedContent = JSON.parse(approved.content_json) as unknown;
       let affected = 0;
+      const affectedPassages = new Set<string>();
       for (const row of rows) {
         const previous = row.artifact_version_id
           ? this.database.prepare(`SELECT content_json FROM artifact_versions
@@ -366,7 +380,9 @@ export class PassageDraftRepository {
           changedFields: [artifactId],
         });
         affected += 1;
+        affectedPassages.add(row.passage_id);
       }
+      for (const passageId of [...affectedPassages].sort()) this.propagateIfAcceptedHeadStale(projectId, passageId);
       return affected;
     });
   }
@@ -425,21 +441,23 @@ export class PassageDraftRepository {
         });
       }
       for (const [neighborPassageId, neighborVersionId] of Object.entries(draft.neighboringDraftVersions)) {
-        const currentAcceptedVersionId = this.getHead(projectId, neighborPassageId)?.accepted?.id ?? null;
-        if (currentAcceptedVersionId
-          && this.acceptedVersionsAreEquivalent(projectId, neighborVersionId, currentAcceptedVersionId)) continue;
+        const currentAccepted = this.getHead(projectId, neighborPassageId)?.accepted ?? null;
+        const equivalent = Boolean(currentAccepted
+          && this.acceptedVersionsAreEquivalent(projectId, neighborVersionId, currentAccepted.id));
+        if (equivalent && !currentAccepted!.stale) continue;
         this.insertStalenessInTransaction({
           projectId,
           passageId: draft.passageId,
           draftVersionId: draft.id,
-          reasonCode: "accepted-neighbor-draft-change",
+          reasonCode: equivalent ? "accepted-neighbor-draft-stale" : "accepted-neighbor-draft-change",
           sourceEntityKind: "accepted-passage-draft",
           sourceEntityId: neighborPassageId,
           fromVersionId: neighborVersionId,
-          toVersionId: currentAcceptedVersionId,
-          changedFields: ["acceptedVersionId"],
+          toVersionId: currentAccepted?.id ?? null,
+          changedFields: [equivalent ? "stale" : "acceptedVersionId"],
         });
       }
+      this.propagateIfAcceptedHeadStale(projectId, draft.passageId);
       return this.getVersion(projectId, versionId)!;
     });
   }
@@ -451,7 +469,7 @@ export class PassageDraftRepository {
       SUM(CASE WHEN current_versions.lifecycle_status = 'candidate' THEN 1 ELSE 0 END) AS current_candidate_count,
       SUM(CASE WHEN heads.accepted_version_id IS NOT NULL THEN 1 ELSE 0 END) AS accepted_draft_count,
       SUM(CASE WHEN accepted_versions.lifecycle_status IN ('reviewed', 'locked') THEN 1 ELSE 0 END) AS reviewed_draft_count,
-      SUM(CASE WHEN accepted_versions.lifecycle_status = 'locked' THEN 1 ELSE 0 END) AS locked_draft_count,
+      SUM(CASE WHEN heads.accepted_locked = 1 THEN 1 ELSE 0 END) AS locked_draft_count,
       SUM(CASE WHEN current_versions.lifecycle_status = 'candidate' AND EXISTS (
         SELECT 1 FROM passage_draft_staleness_events stale
         WHERE stale.project_id = passages.project_id AND stale.draft_version_id = current_versions.id
@@ -464,7 +482,7 @@ export class PassageDraftRepository {
       COALESCE(SUM(CASE WHEN current_versions.lifecycle_status = 'candidate' THEN current_versions.word_count ELSE 0 END), 0) AS candidate_words,
       COALESCE(SUM(accepted_versions.word_count), 0) AS accepted_words,
       COALESCE(SUM(CASE WHEN accepted_versions.lifecycle_status IN ('reviewed', 'locked') THEN accepted_versions.word_count ELSE 0 END), 0) AS reviewed_words,
-      COALESCE(SUM(CASE WHEN accepted_versions.lifecycle_status = 'locked' THEN accepted_versions.word_count ELSE 0 END), 0) AS locked_words,
+      COALESCE(SUM(CASE WHEN heads.accepted_locked = 1 THEN accepted_versions.word_count ELSE 0 END), 0) AS locked_words,
       COALESCE(SUM(CASE WHEN accepted_versions.id IS NOT NULL AND EXISTS (
         SELECT 1 FROM passage_draft_staleness_events stale
         WHERE stale.project_id = passages.project_id AND stale.draft_version_id = accepted_versions.id
@@ -675,6 +693,62 @@ export class PassageDraftRepository {
       changedFields: ["acceptedVersionId"],
     });
     return rows.length;
+  }
+
+  propagateAcceptedNeighborStaleInTransaction(
+    projectId: string,
+    neighborPassageId: string,
+    acceptedVersionId: string,
+  ): number {
+    const queue: Array<{ passageId: string; acceptedVersionId: string }> = [
+      { passageId: neighborPassageId, acceptedVersionId },
+    ];
+    const visited = new Set<string>();
+    let affected = 0;
+    while (queue.length) {
+      const source = queue.shift()!;
+      const key = `${source.passageId}:${source.acceptedVersionId}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const rows = this.database.prepare(`SELECT dependencies.draft_version_id, drafts.passage_id,
+          dependencies.neighbor_draft_version_id
+        FROM passage_draft_neighbor_versions dependencies
+        JOIN passage_draft_versions drafts
+          ON drafts.project_id = dependencies.project_id AND drafts.id = dependencies.draft_version_id
+        WHERE dependencies.project_id = ? AND dependencies.neighbor_passage_id = ?
+        ORDER BY drafts.passage_id, dependencies.draft_version_id`)
+        .all(projectId, source.passageId) as Array<{
+          draft_version_id: string; passage_id: string; neighbor_draft_version_id: string;
+        }>;
+      for (const row of rows) {
+        if (!this.acceptedVersionsAreEquivalent(
+          projectId, row.neighbor_draft_version_id, source.acceptedVersionId,
+        )) continue;
+        this.insertStalenessInTransaction({
+          projectId,
+          passageId: row.passage_id,
+          draftVersionId: row.draft_version_id,
+          reasonCode: "accepted-neighbor-draft-stale",
+          sourceEntityKind: "accepted-passage-draft",
+          sourceEntityId: source.passageId,
+          fromVersionId: row.neighbor_draft_version_id,
+          toVersionId: source.acceptedVersionId,
+          changedFields: ["stale"],
+        });
+        affected += 1;
+        const dependentHead = this.getHead(projectId, row.passage_id);
+        if (dependentHead?.accepted?.id === row.draft_version_id) queue.push({
+          passageId: row.passage_id,
+          acceptedVersionId: row.draft_version_id,
+        });
+      }
+    }
+    return affected;
+  }
+
+  private propagateIfAcceptedHeadStale(projectId: string, passageId: string): void {
+    const accepted = this.getHead(projectId, passageId)?.accepted;
+    if (accepted?.stale) this.propagateAcceptedNeighborStaleInTransaction(projectId, passageId, accepted.id);
   }
 
   private acceptanceRoot(projectId: string, version: PassageDraftVersionRecord): string | null {

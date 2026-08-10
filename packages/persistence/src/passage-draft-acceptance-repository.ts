@@ -20,6 +20,7 @@ export type DraftAcceptanceIssueCode =
   | "outdated_passage_plan_base"
   | "outdated_upstream_dependency"
   | "outdated_neighbor_dependency"
+  | "stale_neighbor_dependency"
   | "locked_accepted_replacement"
   | "already_accepted";
 
@@ -113,6 +114,7 @@ export class PassageDraftAcceptanceRepository {
       passageId: state.selection.passageId,
       candidateDraftVersionId: state.selection.candidateDraftVersionId,
       previousAcceptedVersionId: state.head?.accepted?.id ?? null,
+      currentVersionId: state.head?.current.id ?? null,
       acceptedLocked: state.head?.acceptedLocked ?? false,
       currentPassagePlanVersionId: state.currentPassagePlanVersionId,
       candidateBaseVersionId: state.candidate?.basedOnPassagePlanVersionId ?? null,
@@ -179,15 +181,24 @@ export class PassageDraftAcceptanceRepository {
         });
       }
       for (const [neighborPassageId, candidateNeighborVersionId] of Object.entries(candidate.neighboringDraftVersions)) {
+        const neighborHead = this.drafts.getHead(projectId, neighborPassageId);
+        const selectedNeighborChanges = resultingByPassage.has(neighborPassageId)
+          && !noOpByPassage.get(neighborPassageId);
         const resultingNeighborVersionId = resultingByPassage.has(neighborPassageId)
           ? resultingByPassage.get(neighborPassageId) ?? null
-          : this.drafts.getHead(projectId, neighborPassageId)?.accepted?.id ?? null;
+          : neighborHead?.accepted?.id ?? null;
         if (!resultingNeighborVersionId || !this.drafts.acceptedVersionsAreEquivalent(
           projectId, candidateNeighborVersionId, resultingNeighborVersionId,
         )) issues.push({
           ...issue("outdated_neighbor_dependency", selection, `Accepted neighbor ${neighborPassageId} will not match the candidate context`),
           dependencyId: neighborPassageId,
           expectedVersionId: resultingNeighborVersionId,
+          actualVersionId: candidateNeighborVersionId,
+        });
+        else if (!selectedNeighborChanges && neighborHead?.accepted?.stale) issues.push({
+          ...issue("stale_neighbor_dependency", selection, `Accepted neighbor ${neighborPassageId} is stale`),
+          dependencyId: neighborPassageId,
+          expectedVersionId: neighborHead.accepted.id,
           actualVersionId: candidateNeighborVersionId,
         });
       }
@@ -284,6 +295,7 @@ export class PassageDraftAcceptanceRepository {
         authorNote: candidate.authorNote,
         upstreamVersions: candidate.upstreamVersions,
         neighboringDraftVersions: candidate.neighboringDraftVersions,
+        promoteCurrent: this.drafts.getHead(preview.projectId, item.passageId)?.current.id === candidate.id,
       });
       this.database.prepare(`UPDATE passage_draft_heads
         SET accepted_version_id = ?, accepted_locked = 0, updated_at = ?

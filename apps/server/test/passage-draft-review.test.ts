@@ -100,6 +100,7 @@ describe("passage draft review API", () => {
     ]) });
     expect(provider.calls).toHaveLength(0);
 
+    const replacement = await saveCandidate(app, projectId, passageId, "Separate replacement candidate.");
     let acceptedId = state.head.accepted.id as string;
     const reviewed = await app.inject({
       method: "POST", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}/transition`,
@@ -113,7 +114,12 @@ describe("passage draft review API", () => {
     });
     expect(locked.statusCode).toBe(201);
     const lockedId = locked.json().draft.id as string;
-    const replacement = await saveCandidate(app, projectId, passageId, "Separate replacement candidate.");
+    state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}` })).json();
+    expect(state.head).toMatchObject({
+      current: { id: replacement.id, lifecycleStatus: "candidate" },
+      accepted: { id: lockedId, lifecycleStatus: "locked" },
+      acceptedLocked: true,
+    });
     const blocked = await preview(app, projectId, passageId, replacement.id);
     expect(blocked).toMatchObject({ valid: false, issues: expect.arrayContaining([expect.objectContaining({ code: "locked_accepted_replacement" })]) });
     state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}` })).json();
@@ -134,18 +140,16 @@ describe("passage draft review API", () => {
     const { app, projectId, passageId } = await setup();
     const first = await saveCandidate(app, projectId, passageId, "Previewed candidate.");
     const stalePreview = await preview(app, projectId, passageId, first.id);
-    const competing = await saveCandidate(app, projectId, passageId, "Competing candidate.");
-    const competingPreview = await preview(app, projectId, passageId, competing.id);
-    await app.inject({
-      method: "POST", url: `/api/long-form/projects/${projectId}/drafts/acceptance/apply`,
-      payload: { selections: competingPreview.selections, previewFingerprint: competingPreview.fingerprint },
-    });
+    await saveCandidate(app, projectId, passageId, "Competing current candidate.");
     const response = await app.inject({
       method: "POST", url: `/api/long-form/projects/${projectId}/drafts/acceptance/apply`,
       payload: { selections: stalePreview.selections, previewFingerprint: stalePreview.fingerprint },
     });
     expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({ code: "stale_acceptance_preview", currentPreview: { valid: true } });
+    expect(response.json()).toMatchObject({
+      code: "stale_acceptance_preview",
+      currentPreview: { valid: true, selections: [{ candidateDraftVersionId: first.id }] },
+    });
   });
 
   it("accepts a generated candidate only after explicit generation and explicit human acceptance", async () => {

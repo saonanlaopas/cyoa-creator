@@ -77,8 +77,11 @@ describe("passage draft acceptance repository", () => {
     expect((f.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_acceptance_applications").get() as { count: number }).count).toBe(0);
 
     const application = apply(f, selection);
-    const accepted = f.drafts.getHead(f.project.id, "passage-1")!.accepted!;
+    const acceptedHead = f.drafts.getHead(f.project.id, "passage-1")!;
+    const accepted = acceptedHead.accepted!;
     expect(accepted).toMatchObject({ id: application.resultingAcceptedVersions["passage-1"], lifecycleStatus: "accepted", proseMarkdown: first.proseMarkdown });
+    expect(acceptedHead.current.id).toBe(second.id);
+    expect(f.drafts.projectSummary(f.project.id).currentCandidateCount).toBe(1);
     expect(f.drafts.getVersion(f.project.id, first.id)).toMatchObject({ lifecycleStatus: "candidate", proseMarkdown: first.proseMarkdown });
     expect(f.drafts.getVersion(f.project.id, second.id)).toMatchObject({ lifecycleStatus: "candidate", proseMarkdown: second.proseMarkdown });
     expect(f.acceptance.listApplications(f.project.id, "passage-1")[0]).toMatchObject({
@@ -86,6 +89,11 @@ describe("passage draft acceptance repository", () => {
       previousAcceptedVersions: { "passage-1": null },
     });
     expect(() => f.database.prepare("UPDATE passage_draft_acceptance_items SET passage_id = 'passage-2'").run()).toThrow("immutable");
+
+    const previewWithSecondCurrent = f.acceptance.preview(f.project.id, selection);
+    const third = candidate(f, "passage-1", "A newer current candidate");
+    expect(f.acceptance.preview(f.project.id, selection).fingerprint).not.toBe(previewWithSecondCurrent.fingerprint);
+    expect(f.drafts.getHead(f.project.id, "passage-1")?.current.id).toBe(third.id);
     const otherCandidate = candidate(f, "passage-2", "Other passage candidate");
     const otherAccepted = f.drafts.transition(f.project.id, "passage-2", otherCandidate.id, "accepted");
     expect(() => f.database.prepare(`INSERT INTO passage_draft_acceptance_items (
@@ -165,6 +173,72 @@ describe("passage draft acceptance repository", () => {
     expect(noOpPreview.valid).toBe(true);
     transaction(f.database, () => f.acceptance.applyInTransaction(noOpPreview));
     expect((f.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_staleness_events").get() as { count: number }).count).toBe(count);
+  });
+
+  it("blocks and propagates stale accepted-neighbor dependencies from passage and upstream changes", () => {
+    const f = fixture();
+    const b1 = candidate(f, "passage-2", "Accepted neighbor remains immutable");
+    const acceptedB1 = apply(f, [{ passageId: "passage-2", candidateDraftVersionId: b1.id }])
+      .resultingAcceptedVersions["passage-2"]!;
+    const dependentA = candidate(f, "passage-1", "Dependent prose remains byte-identical", { "passage-2": acceptedB1 });
+    const unrelatedC = candidate(f, "passage-3", "Unrelated prose");
+    const beforeProse = dependentA.proseMarkdown;
+    const passageTwo = f.passages.currentEntity<Record<string, unknown>>(f.project.id, "passage", "passage-2")!;
+    f.passages.saveEntity(f.project.id, "passage", "passage-2", { ...passageTwo.content, purpose: "Materially changed neighbor" });
+
+    expect(f.drafts.getHead(f.project.id, "passage-2")?.accepted).toMatchObject({ id: acceptedB1, stale: true });
+    expect(f.drafts.getVersion(f.project.id, dependentA.id)).toMatchObject({ proseMarkdown: beforeProse, stale: true });
+    expect(f.drafts.getVersion(f.project.id, dependentA.id)?.staleReasons).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reasonCode: "accepted-neighbor-draft-stale", sourceEntityId: "passage-2" }),
+    ]));
+    expect(f.drafts.getVersion(f.project.id, unrelatedC.id)?.stale).toBe(false);
+    expect(f.acceptance.preview(f.project.id, [{ passageId: "passage-1", candidateDraftVersionId: dependentA.id }])).toMatchObject({
+      valid: false,
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: "stale_candidate" }),
+        expect.objectContaining({ code: "stale_neighbor_dependency", dependencyId: "passage-2" }),
+      ]),
+    });
+    expect(f.acceptance.preview(f.project.id, [
+      { passageId: "passage-1", candidateDraftVersionId: dependentA.id },
+      { passageId: "passage-3", candidateDraftVersionId: unrelatedC.id },
+    ]).valid).toBe(false);
+
+    const restored = f.drafts.restore(f.project.id, "passage-1", dependentA.id);
+    const currentA = f.passages.currentEntity<Record<string, unknown>>(f.project.id, "passage", "passage-1")!;
+    const refreshed = f.drafts.refreshStaleness(
+      f.project.id, restored.id, currentA.id, currentA.content, f.upstreamVersions,
+    );
+    expect(refreshed).toMatchObject({ proseMarkdown: beforeProse, stale: true });
+    expect(f.acceptance.preview(f.project.id, [{ passageId: "passage-1", candidateDraftVersionId: restored.id }]).valid).toBe(false);
+
+    const f2 = fixture();
+    const originalPassageTwo = f2.passages.currentEntity<Record<string, unknown>>(f2.project.id, "passage", "passage-2")!;
+    f2.passages.saveEntity(f2.project.id, "passage", "passage-2", {
+      ...originalPassageTwo.content, characterIds: ["character-b"],
+    });
+    const upstreamB = candidate(f2, "passage-2", "Upstream-sensitive accepted neighbor");
+    const acceptedUpstreamB = apply(f2, [{ passageId: "passage-2", candidateDraftVersionId: upstreamB.id }])
+      .resultingAcceptedVersions["passage-2"]!;
+    const upstreamDependent = candidate(f2, "passage-1", "Depends on upstream-sensitive B", {
+      "passage-2": acceptedUpstreamB,
+    });
+    const nextBible = f2.artifacts.saveArtifact({
+      projectId: f2.project.id,
+      artifactId: "bible",
+      content: { characters: [{ id: "character-b", name: "Changed B" }] },
+    });
+    f2.workflow.approve(f2.project.id, "bible", nextBible.id);
+    f2.drafts.markStaleForUpstreamVersion(f2.project.id, "bible", nextBible.id);
+    expect(f2.drafts.getHead(f2.project.id, "passage-2")?.accepted?.stale).toBe(true);
+    expect(f2.drafts.getVersion(f2.project.id, upstreamDependent.id)).toMatchObject({
+      proseMarkdown: "Depends on upstream-sensitive B", stale: true,
+    });
+    expect(f2.acceptance.preview(f2.project.id, [{
+      passageId: "passage-1", candidateDraftVersionId: upstreamDependent.id,
+    }]).issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "stale_neighbor_dependency", dependencyId: "passage-2" }),
+    ]));
   });
 
   it("accepts independent batches atomically and rejects duplicates and post-batch neighbor incompatibility", () => {

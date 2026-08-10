@@ -187,6 +187,45 @@ describe("passage draft repository", () => {
     fixture.database.close();
   });
 
+  it("keeps a distinct current candidate while accepted prose advances and reports only the active lock", () => {
+    const fixture = setup();
+    const candidateA = createDraft(fixture, "Accepted A words");
+    const acceptedA = fixture.drafts.transition(fixture.project.id, "passage-1", candidateA.id, "accepted");
+    const candidateB = createDraft(fixture, "Separate candidate B remains reviewable");
+    const reviewedA = fixture.drafts.transition(fixture.project.id, "passage-1", acceptedA.id, "reviewed");
+    expect(fixture.drafts.getHead(fixture.project.id, "passage-1")).toMatchObject({
+      current: { id: candidateB.id, lifecycleStatus: "candidate" },
+      accepted: { id: reviewedA.id, lifecycleStatus: "reviewed" },
+      acceptedLocked: false,
+    });
+    const lockedA = fixture.drafts.transition(fixture.project.id, "passage-1", reviewedA.id, "locked");
+    expect(fixture.drafts.getHead(fixture.project.id, "passage-1")).toMatchObject({
+      current: { id: candidateB.id }, accepted: { id: lockedA.id }, acceptedLocked: true,
+    });
+    expect(fixture.drafts.projectSummary(fixture.project.id)).toMatchObject({
+      currentCandidateCount: 1, reviewedDraftCount: 1, lockedDraftCount: 1,
+      reviewedWords: 3, lockedWords: 3,
+    });
+    expect(fixture.drafts.listReviewQueue(fixture.project.id).find((item) => item.passageId === "passage-1"))
+      .toMatchObject({ currentVersionId: candidateB.id, needsReview: true, acceptedLocked: true });
+
+    fixture.drafts.unlockAccepted(fixture.project.id, "passage-1");
+    const unlocked = fixture.drafts.getHead(fixture.project.id, "passage-1")!;
+    expect(unlocked).toMatchObject({
+      current: { id: candidateB.id }, accepted: { id: lockedA.id, lifecycleStatus: "locked" }, acceptedLocked: false,
+    });
+    expect(fixture.drafts.getVersion(fixture.project.id, lockedA.id)).toMatchObject({
+      lifecycleStatus: "locked", proseMarkdown: "Accepted A words",
+    });
+    expect(fixture.drafts.projectSummary(fixture.project.id)).toMatchObject({
+      currentCandidateCount: 1, acceptedDraftCount: 1, reviewedDraftCount: 1,
+      lockedDraftCount: 0, acceptedWords: 3, reviewedWords: 3, lockedWords: 0,
+    });
+    expect(fixture.drafts.listReviewQueue(fixture.project.id).find((item) => item.passageId === "passage-1"))
+      .toMatchObject({ acceptedLifecycleStatus: "locked", acceptedLocked: false, needsReview: true });
+    fixture.database.close();
+  });
+
   const materialChanges: Array<[string, Record<string, unknown>]> = [
     ["purpose", { purpose: "A materially different purpose" }],
     ["requiredFactIds", { requiredFactIds: ["fact-2"] }],
