@@ -302,6 +302,7 @@ export class PassageDraftAcceptanceRepository {
         WHERE project_id = ? AND passage_id = ?`)
         .run(result.id, now, preview.projectId, item.passageId);
     }
+    const directlyStaleAcceptedHeads = new Map<string, string>();
     for (const impact of preview.downstreamStaleness) {
       this.drafts.insertStalenessInTransaction({
         projectId: preview.projectId,
@@ -314,6 +315,17 @@ export class PassageDraftAcceptanceRepository {
         toVersionId: impact.resultingAcceptedVersionId,
         changedFields: ["acceptedVersionId"],
       });
+      const accepted = this.drafts.getHead(preview.projectId, impact.passageId)?.accepted;
+      if (accepted?.id === impact.draftVersionId && accepted.stale) {
+        directlyStaleAcceptedHeads.set(impact.passageId, accepted.id);
+      }
+    }
+    for (const [passageId, acceptedVersionId] of [...directlyStaleAcceptedHeads].sort(([left], [right]) => (
+      left.localeCompare(right)
+    ))) {
+      this.drafts.propagateAcceptedNeighborStaleInTransaction(
+        preview.projectId, passageId, acceptedVersionId,
+      );
     }
     const applicationId = `daa_${preview.fingerprint.slice(0, 32)}`;
     this.database.prepare(`INSERT INTO passage_draft_acceptance_applications (

@@ -175,6 +175,98 @@ describe("passage draft acceptance repository", () => {
     expect((f.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_staleness_events").get() as { count: number }).count).toBe(count);
   });
 
+  it("propagates accepted replacement staleness through current accepted heads", () => {
+    const f = fixture();
+    const b1 = candidate(f, "passage-2", "Accepted B one");
+    const acceptedB1 = apply(f, [{ passageId: "passage-2", candidateDraftVersionId: b1.id }])
+      .resultingAcceptedVersions["passage-2"]!;
+    const a = candidate(f, "passage-1", "Accepted A remains byte-identical", { "passage-2": acceptedB1 });
+    const acceptedA = apply(f, [{ passageId: "passage-1", candidateDraftVersionId: a.id }])
+      .resultingAcceptedVersions["passage-1"]!;
+    const c = candidate(f, "passage-3", "Dependent C remains byte-identical", { "passage-1": acceptedA });
+    const unrelatedD = candidate(f, "passage-4", "Unrelated D remains current");
+
+    const b2 = candidate(f, "passage-2", "Accepted B replacement");
+    apply(f, [{ passageId: "passage-2", candidateDraftVersionId: b2.id }]);
+
+    expect(f.drafts.getHead(f.project.id, "passage-1")?.accepted).toMatchObject({
+      id: acceptedA, proseMarkdown: "Accepted A remains byte-identical", stale: true,
+    });
+    expect(f.drafts.getHead(f.project.id, "passage-1")?.accepted?.staleReasons).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reasonCode: "accepted-neighbor-draft-change", sourceEntityId: "passage-2" }),
+    ]));
+    expect(f.drafts.getVersion(f.project.id, c.id)).toMatchObject({
+      proseMarkdown: "Dependent C remains byte-identical", stale: true,
+    });
+    expect(f.drafts.getVersion(f.project.id, c.id)?.staleReasons).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reasonCode: "accepted-neighbor-draft-stale", sourceEntityId: "passage-1" }),
+    ]));
+    expect(f.drafts.getVersion(f.project.id, unrelatedD.id)).toMatchObject({
+      proseMarkdown: "Unrelated D remains current", stale: false,
+    });
+  });
+
+  it("propagates an accepted replacement deterministically through a three-hop chain", () => {
+    const f = fixture();
+    const b1 = candidate(f, "passage-1", "Chain B one");
+    const acceptedB1 = apply(f, [{ passageId: "passage-1", candidateDraftVersionId: b1.id }])
+      .resultingAcceptedVersions["passage-1"]!;
+    const a = candidate(f, "passage-2", "Chain A prose", { "passage-1": acceptedB1 });
+    const acceptedA = apply(f, [{ passageId: "passage-2", candidateDraftVersionId: a.id }])
+      .resultingAcceptedVersions["passage-2"]!;
+    const c = candidate(f, "passage-3", "Chain C prose", { "passage-2": acceptedA });
+    const acceptedC = apply(f, [{ passageId: "passage-3", candidateDraftVersionId: c.id }])
+      .resultingAcceptedVersions["passage-3"]!;
+    const d = candidate(f, "passage-4", "Chain D prose", { "passage-3": acceptedC });
+
+    const b2 = candidate(f, "passage-1", "Chain B replacement");
+    apply(f, [{ passageId: "passage-1", candidateDraftVersionId: b2.id }]);
+
+    expect(f.drafts.getHead(f.project.id, "passage-2")?.accepted).toMatchObject({
+      proseMarkdown: "Chain A prose", stale: true,
+    });
+    expect(f.drafts.getHead(f.project.id, "passage-3")?.accepted).toMatchObject({
+      proseMarkdown: "Chain C prose", stale: true,
+    });
+    expect(f.drafts.getVersion(f.project.id, d.id)).toMatchObject({ proseMarkdown: "Chain D prose", stale: true });
+    expect(f.drafts.getVersion(f.project.id, d.id)?.staleReasons).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reasonCode: "accepted-neighbor-draft-stale", sourceEntityId: "passage-3" }),
+    ]));
+  });
+
+  it("rolls back direct and transitive replacement staleness when acceptance fails afterward", () => {
+    const f = fixture();
+    const b1 = candidate(f, "passage-1", "Rollback B one");
+    const acceptedB1 = apply(f, [{ passageId: "passage-1", candidateDraftVersionId: b1.id }])
+      .resultingAcceptedVersions["passage-1"]!;
+    const a = candidate(f, "passage-2", "Rollback A prose", { "passage-1": acceptedB1 });
+    const acceptedA = apply(f, [{ passageId: "passage-2", candidateDraftVersionId: a.id }])
+      .resultingAcceptedVersions["passage-2"]!;
+    const c = candidate(f, "passage-3", "Rollback C prose", { "passage-2": acceptedA });
+    const b2 = candidate(f, "passage-1", "Rollback B replacement");
+    const batchCompanion = candidate(f, "passage-4", "Rollback batch companion");
+    const preview = f.acceptance.preview(f.project.id, [
+      { passageId: "passage-1", candidateDraftVersionId: b2.id },
+      { passageId: "passage-4", candidateDraftVersionId: batchCompanion.id },
+    ]);
+    const staleCount = (f.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_staleness_events").get() as { count: number }).count;
+    const applicationCount = (f.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_acceptance_applications").get() as { count: number }).count;
+    f.database.exec(`CREATE TRIGGER fail_acceptance_audit BEFORE INSERT ON passage_draft_acceptance_applications
+      BEGIN SELECT RAISE(ABORT, 'simulated acceptance audit failure'); END`);
+
+    expect(() => transaction(f.database, () => f.acceptance.applyInTransaction(preview)))
+      .toThrow("simulated acceptance audit failure");
+
+    expect((f.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_staleness_events").get() as { count: number }).count)
+      .toBe(staleCount);
+    expect((f.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_acceptance_applications").get() as { count: number }).count)
+      .toBe(applicationCount);
+    expect(f.drafts.getHead(f.project.id, "passage-1")?.accepted).toMatchObject({ id: acceptedB1, stale: false });
+    expect(f.drafts.getHead(f.project.id, "passage-2")?.accepted).toMatchObject({ id: acceptedA, stale: false });
+    expect(f.drafts.getVersion(f.project.id, c.id)).toMatchObject({ proseMarkdown: "Rollback C prose", stale: false });
+    expect(f.drafts.getHead(f.project.id, "passage-4")?.accepted).toBeNull();
+  });
+
   it("blocks and propagates stale accepted-neighbor dependencies from passage and upstream changes", () => {
     const f = fixture();
     const b1 = candidate(f, "passage-2", "Accepted neighbor remains immutable");
