@@ -22,8 +22,10 @@ Implementation checkpoints:
 - Foundation 4A is complete and externally accepted: approved snapshots can be planned in bounded units, executed into immutable validated candidates, consolidated into deterministic stable-ID proposal groups, previewed against current heads, selectively applied in one transaction, audited, reloaded, and restored without a provider call during proposal work.
 - Foundation 4B is complete and externally accepted: durable versioned prose, bounded offline-testable drafting, exact provenance and staleness, explicit review and acceptance, locking, history, comparison, restore, and corpus reporting are implemented.
 - Foundation 4 is **CLOSED** at accepted head `1cf2b003375851a27999036e0935d54ff6a894a6`.
+- Foundation 5A is complete and externally accepted at `218166b32990cf70d858d2c876ce3be542f7768a`: immutable simulation inputs, deterministic runtime execution, exact replay, bounded traces, and offline inspection are implemented.
+- Foundation 5B is implementation-complete on its checkpoint branch: deterministic seeded campaigns, compact durable evidence, exact sample replay, structural and experience analysis, and metadata-first review UI are implemented. External acceptance remains required before Foundation 5C begins.
 
-The next objective is Foundation 5's deterministic simulation, seeded playtesting, and bounded narrative review over the accepted authored project.
+The next objective after Foundation 5B external acceptance is Foundation 5C's bounded AI narrative review over exact authored and deterministic playtest evidence.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 

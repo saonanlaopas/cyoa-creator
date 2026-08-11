@@ -3,3 +3,6 @@ export * from "./types.js";
 export * from "./semantics.js";
 export * from "./compile.js";
 export * from "./engine.js";
+export * from "./prng.js";
+export * from "./playtest-types.js";
+export * from "./playtest.js";

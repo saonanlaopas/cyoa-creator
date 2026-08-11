@@ -66,6 +66,9 @@ importers:
       '@story-to-cyoa/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@story-to-cyoa/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       react:
         specifier: ^19.1.1
         version: 19.2.8

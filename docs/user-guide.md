@@ -78,6 +78,16 @@ Hard errors cannot be waived and block snapshot approval. A conservative warning
 
 Use **Export Markdown** for a readable outline, **Export JSON** for the canonical current passage-plan data, and **Project bundle** for a recovery/interchange package containing project metadata, current and approved planning artifacts, passage-plan snapshots, entity versions, validation, and readable Markdown. Imported source bodies and conversations are excluded from this bundle by default for privacy.
 
+## Run deterministic playtests
+
+Open **Playtest & analysis** after the passage plan has an approved snapshot. Select **Capture approved input** to preserve the exact passage-plan, upstream, accepted-prose, and compiled-runtime versions used for simulation. Historical inputs and results remain tied to those immutable versions even after later authoring edits.
+
+For a known path, enter stable choice IDs and select **Run deterministic path**. For broader evidence, choose an exact simulation input, set a campaign seed and bounded sample count, select **Preview bounded policy**, then **Run seeded campaign**. Preview and execution are local, deterministic, provider-free, and cannot change passages, choices, mechanics, routes, endings, or accepted prose.
+
+The campaign report separates hard runtime failures from bounded observations. It includes passage and choice frequencies, route and ending coverage, mechanic and relationship trajectories, structured continuity and thread evidence, path-word and choice-density measures, route-exclusive content, and stable-ID finding links. A sampled absence is reported as an observation or coverage gap, not proof that content is unreachable.
+
+Every sample retains its seed, index, exact stable-ID choice path, result, and trace fingerprint. Select a representative or filtered sample and use **Replay exact sample** to execute that path again through the same historical runtime and verify its fingerprint. Campaign lists load compact metadata; full trace detail is generated for one selected replay at a time. Reloading or restarting the app preserves immutable campaigns and reports.
+
 ## Planned long-form runtime and exports
 
 Long-form projects will use the application's structured project model and native browser player as their canonical runtime. Twee 3 targeting SugarCube will be an interoperability export rather than the source of truth. Ink may be added later when a concrete integration requires it. Hosted Games is not a target under its current policy excluding AI-generated work.

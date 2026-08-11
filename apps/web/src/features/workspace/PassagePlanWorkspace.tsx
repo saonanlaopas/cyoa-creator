@@ -82,6 +82,8 @@ export function PassagePlanWorkspace(props: {
   mechanics: LongFormMechanicsPlan | null;
   message: string | null;
   setMessage(value: string | null): void;
+  requestedJumpId?: string;
+  onRequestedJumpHandled?(): void;
 }) {
   const [state, setState] = useState<PassagePlanState | null>(null);
   const [structure, setStructure] = useState<PassageStructure | null>(null);
@@ -115,6 +117,34 @@ export function PassagePlanWorkspace(props: {
     setSelectedId((current) => available.has(current) ? current : next.structure?.content.startPassageId ?? next.passages[0]?.entityId ?? "");
   };
   useEffect(() => { void load().catch((reason: Error) => props.setMessage(reason.message)); }, [props.projectId]);
+
+  useEffect(() => {
+    const stableId = props.requestedJumpId;
+    if (!stableId || passages.length === 0) return;
+    const direct = passages.find((passage) => passage.id === stableId);
+    const choice = choices.find((item) => item.id === stableId);
+    const thread = threads.find((item) => item.id === stableId);
+    const related = direct
+      ?? passages.find((passage) => passage.choiceIds.includes(stableId)
+        || passage.routeIds.includes(stableId)
+        || passage.endingId === stableId
+        || passage.relationshipIds.includes(stableId)
+        || passage.setupThreadIds.includes(stableId)
+        || passage.payoffThreadIds.includes(stableId))
+      ?? (choice ? passages.find((passage) => passage.id === choice.sourcePassageId) : undefined)
+      ?? (thread ? passages.find((passage) => thread.setupPassageIds.includes(passage.id)
+        || thread.payoffPassageIds.includes(passage.id)) : undefined)
+      ?? passages.find((passage) => passage.choiceIds.some((choiceId) => {
+        const candidate = choices.find((item) => item.id === choiceId);
+        return candidate?.effects.some((effect) => effect.mechanicKey === stableId)
+          || JSON.stringify(candidate?.condition ?? null).includes(`\"mechanicKey\":\"${stableId}\"`);
+      }));
+    setJumpId(stableId);
+    setView("outline");
+    if (related) setSelectedId(related.id);
+    else props.setMessage(`No passage-plan entity references ${stableId}.`);
+    props.onRequestedJumpHandled?.();
+  }, [props.requestedJumpId, passages, choices, threads]);
 
   const selected = passages.find((passage) => passage.id === selectedId) ?? null;
   useEffect(() => {

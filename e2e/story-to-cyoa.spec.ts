@@ -432,6 +432,53 @@ test("deterministic simulation runs and reopens a 300-passage exact path without
   expect(observedRequests.some((url) => /\/drafts|\/drafting|openrouter|provider/i.test(url))).toBe(false);
 });
 
+test("seeded playtesting analyzes and replays a durable 300-passage campaign without providers", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const projectId = await seedLargePassagePlan(request);
+  await approveCurrentPassagePlan(request, projectId);
+  const observedRequests: string[] = [];
+  page.on("request", (entry) => observedRequests.push(entry.url()));
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "simulation");
+  }, projectId);
+  await page.goto("/#long-form");
+
+  await page.getByRole("button", { name: "Capture approved input" }).click();
+  await expect(page.getByText(/300 passages · 299 choices · 0 accepted draft refs/)).toBeVisible();
+  await page.getByLabel("Campaign seed").fill("browser-300-fixed-seed");
+  await page.getByLabel("Campaign sample count").fill("8");
+  await page.getByRole("button", { name: "Preview bounded policy" }).click();
+  await expect(page.getByLabel("Backend playtest policy")).toContainText("xorshift32-fnv1a-v1");
+  await expect(page.getByLabel("Backend playtest policy")).toContainText("coverage-aware-v1");
+  await page.getByRole("button", { name: "Run seeded campaign" }).click();
+
+  await expect(page.getByRole("heading", { name: "Aggregate report" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("300/300 · 100.0%")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Route coverage" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ending coverage" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Mechanic and relationship trajectories" })).toBeVisible();
+  await expect(page.locator(".mechanic-trajectory-list details").first()).toBeVisible();
+  await expect(page.getByText(/long linear stretches observed/)).toBeVisible();
+  await expect(page.getByRole("list", { name: "Compact playtest sample summaries" }).getByRole("listitem")).toHaveCount(8);
+
+  await page.getByRole("button", { name: "Replay exact sample" }).click();
+  const replay = page.getByLabel("Verified playtest replay");
+  await expect(replay).toBeVisible({ timeout: 20_000 });
+  await expect(replay).toContainText("299 choices");
+  await expect(replay.locator(".simulation-steps > details")).toHaveCount(299);
+  const reportFingerprint = await page.locator(".playtest-kpis > div")
+    .filter({ hasText: "Report fingerprint" }).locator("dd").textContent();
+
+  await page.reload();
+  const history = page.getByRole("button", { name: /v1 · seed browser-300-fixed-seed · 8 samples/ });
+  await expect(history).toBeVisible();
+  await history.click();
+  await expect(page.getByRole("heading", { name: "Aggregate report" })).toBeVisible();
+  if (reportFingerprint) await expect(page.getByText(reportFingerprint, { exact: true })).toBeVisible();
+  expect(observedRequests.some((url) => /\/drafts|\/drafting|openrouter|provider|prose/i.test(url))).toBe(false);
+});
+
 test("bounded prose drafting previews context, repairs, retries, persists, and cancels offline", async ({ page, request }) => {
   test.setTimeout(120_000);
   const pageErrors: string[] = [];

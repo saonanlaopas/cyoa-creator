@@ -28,7 +28,7 @@ import { SimulationWorkspace } from "./SimulationWorkspace.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
-const stages = ["Project brief", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Simulation", "Play & export"];
+const stages = ["Project brief", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Play & export"];
 
 export function LongFormWorkspace() {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
@@ -51,6 +51,7 @@ export function LongFormWorkspace() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [validation, setValidation] = useState<PlanningFinding[]>([]);
+  const [passagePlanJump, setPassagePlanJump] = useState("");
 
   const openProject = async (projectId: string) => {
     const state = await loadLongFormProject(projectId);
@@ -324,7 +325,14 @@ export function LongFormWorkspace() {
       mechanics={mechanics?.content ?? null}
       message={message}
       setMessage={setMessage}
-    /> : <SimulationWorkspace projectId={project.id} />}
+      requestedJumpId={passagePlanJump}
+      onRequestedJumpHandled={() => setPassagePlanJump("")}
+    /> : <SimulationWorkspace projectId={project.id} onNavigateStableId={(stableId) => {
+      setPassagePlanJump(stableId);
+      setActiveStage("passage-plan");
+      localStorage.setItem(activeStageKey, "passage-plan");
+      setMessage(`Navigated from playtest evidence to ${stableId}.`);
+    }} />}
 
     {activeStage !== "passage-plan" && activeStage !== "simulation" && <AssistantPanel
       key={project.id}

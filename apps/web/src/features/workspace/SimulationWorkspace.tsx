@@ -9,10 +9,11 @@ import {
   type SimulationRunSummary,
   type SimulationRunVersion,
 } from "../../api/simulation.js";
+import { PlaytestWorkspace } from "./PlaytestWorkspace.js";
 
-interface Props { projectId: string }
+interface Props { projectId: string; onNavigateStableId?(stableId: string): void }
 
-export function SimulationWorkspace({ projectId }: Props) {
+export function SimulationWorkspace({ projectId, onNavigateStableId }: Props) {
   const [inputs, setInputs] = useState<SimulationInputSummary[]>([]);
   const [runs, setRuns] = useState<SimulationRunSummary[]>([]);
   const [selectedInputId, setSelectedInputId] = useState("");
@@ -114,6 +115,12 @@ export function SimulationWorkspace({ projectId }: Props) {
     </section>
 
     {run && <SimulationEvidence run={run} />}
+    <PlaytestWorkspace
+      projectId={projectId}
+      inputs={inputs}
+      defaultInputId={selectedInputId}
+      onNavigateStableId={onNavigateStableId}
+    />
   </section>;
 }
 

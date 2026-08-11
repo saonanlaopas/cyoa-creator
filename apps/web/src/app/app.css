@@ -292,6 +292,42 @@ textarea.source { min-height: 20rem; }
 .simulation-steps > details { padding: .65rem; border: 1px solid #354055; border-radius: .5rem; background: #11151e; }
 .simulation-steps summary { cursor: pointer; overflow-wrap: anywhere; }
 .simulation-findings { padding: .65rem; border: 1px solid #9a743e; border-radius: .5rem; background: #322919; }
+.playtest-workspace { display: grid; gap: 1rem; margin-top: 1rem; border-top: 1px solid #3b4659; padding-top: 1rem; }
+.playtest-header h2, .playtest-header p { margin-top: 0; }
+.playtest-control-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.playtest-control-grid label, .playtest-findings label, .playtest-samples label { display: grid; gap: .35rem; color: #c3cad6; }
+.playtest-control-grid select, .playtest-control-grid input, .playtest-findings select, .playtest-samples input { border: 1px solid #48536a; border-radius: .55rem; padding: .7rem; background: #11151e; color: #f4efe7; }
+.playtest-policy { margin-top: .8rem; }
+.playtest-history-list, .sample-metadata-list { display: grid; gap: .45rem; }
+.playtest-history-list button, .sample-metadata-list button { display: grid; gap: .25rem; text-align: left; }
+.playtest-history-list small, .sample-metadata-list small { color: #aeb7c6; }
+.sample-metadata-list { max-height: 28rem; overflow: auto; }
+.sample-metadata-list button.selected { border-color: #d5a84b; background: #2d281e; }
+.playtest-overview > header, .playtest-findings > header, .playtest-samples > header, .replay-evidence > header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
+.playtest-overview h3, .playtest-findings h3, .playtest-samples h3, .replay-evidence h4 { margin-top: 0; }
+.playtest-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; }
+.playtest-kpis > div { border: 1px solid #354055; border-radius: .5rem; padding: .65rem; background: #11151e; min-width: 0; }
+.playtest-kpis dt { color: #9ea9ba; font-size: .78rem; }
+.playtest-kpis dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
+.playtest-report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.compact-table { display: grid; gap: .35rem; max-height: 24rem; overflow: auto; }
+.compact-table > div { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px solid #303a4c; padding: .35rem 0; }
+.compact-table > div.coverage-gap { color: #e4bb75; }
+.stable-id-link { border: 0; background: transparent; color: #8ec5ff; padding: 0; text-align: left; text-decoration: underline; overflow-wrap: anywhere; }
+.mechanic-trajectory-list { display: grid; gap: .45rem; }
+.mechanic-trajectory-list > details { border: 1px solid #354055; border-radius: .5rem; padding: .65rem; background: #11151e; }
+.finding-list { display: grid; gap: .5rem; max-height: 36rem; overflow: auto; }
+.playtest-finding { border: 1px solid #465268; border-radius: .5rem; padding: .65rem; background: #11151e; }
+.playtest-finding.hard-error { border-color: #b85e5e; background: #321d21; }
+.playtest-finding.warning { border-color: #a47d43; }
+.playtest-finding.coverage-gap { border-color: #6e75a6; }
+.playtest-finding > header { display: flex; justify-content: space-between; gap: 1rem; }
+.finding-links, .representative-actions { display: flex; flex-wrap: wrap; gap: .55rem; }
+.selected-sample, .replay-evidence { margin-top: .75rem; padding: .75rem; border: 1px solid #4a5870; border-radius: .55rem; background: #11151e; }
+@media (max-width: 900px) {
+  .playtest-control-grid, .playtest-report-grid, .playtest-kpis { grid-template-columns: 1fr; }
+  .playtest-overview > header, .playtest-findings > header, .playtest-samples > header { display: grid; }
+}
 .draft-corpus-strip { display: flex; flex-wrap: wrap; gap: .4rem; margin: .6rem 0; }
 .draft-corpus-strip span { padding: .3rem .5rem; border-radius: 999px; background: #26334a; font-size: .8rem; }
 .draft-queue-filters { display: grid; grid-template-columns: minmax(12rem, 2fr) repeat(2, minmax(8rem, 1fr)); gap: .5rem; }

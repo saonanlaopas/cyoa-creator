@@ -42,6 +42,8 @@ import { registerPassageDraftRoutes } from "./routes/passage-drafts.js";
 import { registerPassageDraftingRoutes } from "./routes/passage-drafting.js";
 import { SimulationService } from "./services/simulation-service.js";
 import { registerSimulationRoutes } from "./routes/simulation.js";
+import { PlaytestService } from "./services/playtest-service.js";
+import { registerPlaytestingRoutes } from "./routes/playtesting.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -85,6 +87,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const simulationService = new SimulationService(
     projects, artifacts, workflow, passagePlans, passageDrafts,
   );
+  const playtestService = new PlaytestService(projects, artifacts, simulationService);
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
     && process.env.E2E_FAKE_MODEL_PROVIDER === "1";
   const credentials = options.credentials
@@ -148,6 +151,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerPassageDraftRoutes(app, passageDraftService);
   registerPassageDraftingRoutes(app, passageDraftingService);
   registerSimulationRoutes(app, simulationService);
+  registerPlaytestingRoutes(app, playtestService);
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024, workflow);

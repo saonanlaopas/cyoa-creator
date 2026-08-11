@@ -8,12 +8,18 @@ import {
   ProjectBriefSchema,
   validatePassagePlan,
   type ChoicePlan,
+  type LongFormEndingPlan,
+  type LongFormMechanicsPlan,
+  type LongFormRoutePlan,
+  type LongFormStoryBible,
   type NarrativeThread,
   type PassagePlan,
+  type PassageStructure,
 } from "@story-to-cyoa/pipeline";
 import type {
   ArtifactRepository,
   ArtifactVersion,
+  PassageDraftVersionRecord,
   PassageDraftRepository,
   PassagePlanRepository,
   ProjectRepository,
@@ -64,6 +70,21 @@ export interface SimulationRunRecord {
   runtimeFingerprint: string;
   path: DeterministicPathDefinition;
   trace: RuntimeTrace;
+}
+
+export interface ResolvedSimulationInput {
+  inputVersion: ArtifactVersion<SimulationInputRecord>;
+  input: SimulationInputRecord;
+  runtime: CompiledRuntime;
+  structure: PassageStructure;
+  passages: PassagePlan[];
+  choices: ChoicePlan[];
+  threads: NarrativeThread[];
+  bible: LongFormStoryBible;
+  routes: LongFormRoutePlan;
+  endings: LongFormEndingPlan;
+  mechanics: LongFormMechanicsPlan;
+  acceptedDrafts: PassageDraftVersionRecord[];
 }
 
 export class SimulationServiceError extends Error {
@@ -125,7 +146,7 @@ export class SimulationService {
       runtimeFingerprint: "",
       fingerprint: stableFingerprint(identity),
     };
-    const runtime = this.compileExactInput(provisional);
+    const runtime = this.resolveExactRecord(provisional).runtime;
     const content: SimulationInputRecord = {
       ...provisional,
       id: `simin_${provisional.fingerprint}`,
@@ -145,6 +166,20 @@ export class SimulationService {
     return this.artifacts.listVersions<SimulationInputRecord>(projectId, SIMULATION_INPUT_ARTIFACT_ID);
   }
 
+  resolveInput(projectId: string, versionId: string): ResolvedSimulationInput {
+    this.requireProject(projectId);
+    const inputVersion = this.artifacts.getVersion<SimulationInputRecord>(versionId);
+    if (!inputVersion || inputVersion.projectId !== projectId || inputVersion.artifactId !== SIMULATION_INPUT_ARTIFACT_ID) {
+      throw new SimulationServiceError("simulation_input_not_found", "Simulation input version not found");
+    }
+    this.assertInputIdentity(inputVersion.content, projectId);
+    const resolved = this.resolveExactRecord(inputVersion.content);
+    if (resolved.runtime.fingerprint !== inputVersion.content.runtimeFingerprint) {
+      throw new SimulationServiceError("simulation_runtime_fingerprint_mismatch", "Historical runtime input no longer compiles identically");
+    }
+    return { inputVersion, input: inputVersion.content, ...resolved };
+  }
+
   run(projectId: string, input: {
     inputArtifactVersionId: string;
     choiceIds: string[];
@@ -155,12 +190,9 @@ export class SimulationService {
     if (!Array.isArray(input.choiceIds) || input.choiceIds.some((id) => typeof id !== "string" || !id.trim())) {
       throw new SimulationServiceError("simulation_path_invalid", "Deterministic paths require stable choice IDs");
     }
-    const inputVersion = this.artifacts.getVersion<SimulationInputRecord>(input.inputArtifactVersionId);
-    if (!inputVersion || inputVersion.projectId !== projectId || inputVersion.artifactId !== SIMULATION_INPUT_ARTIFACT_ID) {
-      throw new SimulationServiceError("simulation_input_not_found", "Simulation input version not found");
-    }
-    const evidence = inputVersion.content;
-    this.assertInputIdentity(evidence, projectId);
+    const resolved = this.resolveInput(projectId, input.inputArtifactVersionId);
+    const inputVersion = resolved.inputVersion;
+    const evidence = resolved.input;
     if (input.choiceIds.length > evidence.policy.maxSteps) {
       throw new SimulationServiceError("simulation_path_too_large", "Deterministic path exceeds the input step policy");
     }
@@ -177,10 +209,7 @@ export class SimulationService {
         `Deterministic path request requires ${requestBytes} bytes; maximum is ${evidence.policy.maxTraceBytes}`,
       );
     }
-    const runtime = this.compileExactInput(evidence);
-    if (runtime.fingerprint !== evidence.runtimeFingerprint) {
-      throw new SimulationServiceError("simulation_runtime_fingerprint_mismatch", "Historical runtime input no longer compiles identically");
-    }
+    const runtime = resolved.runtime;
     let trace: RuntimeTrace;
     try {
       trace = runDeterministicPath(runtime, evidence.fingerprint, path);
@@ -230,7 +259,7 @@ export class SimulationService {
     return version;
   }
 
-  private compileExactInput(input: SimulationInputRecord): CompiledRuntime {
+  private resolveExactRecord(input: SimulationInputRecord): Omit<ResolvedSimulationInput, "inputVersion" | "input"> {
     const snapshot = this.passagePlans.getSnapshot(input.snapshotId);
     if (!snapshot || snapshot.projectId !== input.projectId || snapshot.status !== "approved") {
       throw new SimulationServiceError("simulation_snapshot_lineage_invalid", "Simulation input snapshot lineage is invalid");
@@ -252,12 +281,13 @@ export class SimulationService {
     const endings = LongFormEndingPlanSchema.parse(this.loadUpstream(input, "endings").content);
     const mechanics = LongFormMechanicsPlanSchema.parse(this.loadUpstream(input, "mechanics").content);
     ProjectBriefSchema.parse(this.loadUpstream(input, "brief").content);
-    for (const reference of input.acceptedDraftVersions) {
+    const acceptedDrafts = input.acceptedDraftVersions.map((reference) => {
       const draft = this.passageDrafts.getVersion(input.projectId, reference.versionId);
       if (!draft || draft.passageId !== reference.entityId) {
         throw new SimulationServiceError("simulation_draft_lineage_invalid", "Accepted-draft simulation lineage is invalid");
       }
-    }
+      return draft;
+    });
     const bundle = PassagePlanBundleSchema.parse({ structure, passages, choices, threads });
     const staticReport = validatePassagePlan({ bundle, bible, routes, endings, mechanics });
     const hardErrors = staticReport.findings.filter((finding) => finding.severity === "error");
@@ -282,7 +312,10 @@ export class SimulationService {
       endings: endings.endings.map((ending) => ({ id: ending.id, routeId: ending.routeId })),
       mechanics,
     };
-    return compileRuntime(source);
+    return {
+      runtime: compileRuntime(source), structure, passages, choices, threads,
+      bible, routes, endings, mechanics, acceptedDrafts,
+    };
   }
 
   private loadExactEntities<T extends { id: string }>(
