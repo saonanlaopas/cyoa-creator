@@ -30,6 +30,7 @@ export * from "./passage-drafting-plan.js";
 export * from "./passage-drafting-context.js";
 export * from "./passage-drafting-output.js";
 export * from "./passage-drafting-provider.js";
+export * from "./narrative-review.js";
 export * from "./stages/analyze-source.js";
 export * from "./stages/propose-adaptation.js";
 export * from "./stages/generate-routes.js";

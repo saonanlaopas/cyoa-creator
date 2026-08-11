@@ -479,6 +479,54 @@ test("seeded playtesting analyzes and replays a durable 300-passage campaign wit
   expect(observedRequests.some((url) => /\/drafts|\/drafting|openrouter|provider|prose/i.test(url))).toBe(false);
 });
 
+test("bounded narrative review authorizes exact 300-passage evidence and reopens findings without mutation", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const projectId = await seedLargePassagePlan(request);
+  await approveCurrentPassagePlan(request, projectId);
+  const before = await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).text();
+  const observedRequests: string[] = [];
+  page.on("request", (entry) => observedRequests.push(entry.url()));
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "simulation");
+  }, projectId);
+  await page.goto("/#long-form");
+  await page.getByRole("button", { name: "Capture approved input" }).click();
+  await page.getByLabel("Campaign seed").fill("review-browser-seed");
+  await page.getByLabel("Campaign sample count").fill("4");
+  await page.getByRole("button", { name: "Run seeded campaign" }).click();
+  await expect(page.getByRole("heading", { name: "Aggregate report" })).toBeVisible({ timeout: 30_000 });
+  await page.reload();
+
+  const review = page.getByLabel("Narrative Review workspace");
+  await expect(review.getByRole("heading", { name: "Narrative Review" })).toBeVisible();
+  await review.getByLabel("Narrative review campaign").selectOption({ index: 1 });
+  await review.getByLabel("Narrative review passage scope").fill(
+    Array.from({ length: 16 }, (_, index) => `passage-${String(index).padStart(3, "0")}`).join(" "),
+  );
+  const callsBeforePreview = observedRequests.filter((url) => /narrative-review.*\/start|openrouter/i.test(url)).length;
+  await review.getByRole("button", { name: "Preview bounded plan" }).click();
+  await expect(review.getByText(/No provider was called/)).toBeVisible();
+  await expect(review.getByLabel("Narrative review unit diagnostics").locator("details")).toHaveCount(2);
+  expect(observedRequests.filter((url) => /narrative-review.*\/start|openrouter/i.test(url))).toHaveLength(callsBeforePreview);
+
+  await review.getByRole("button", { name: "Save exact plan" }).click();
+  await review.getByRole("button", { name: "Authorize exact fingerprint" }).click();
+  await review.getByRole("button", { name: "Start review" }).click();
+  await expect(review.getByText(/bounded passage may move through its planned turn/i).first()).toBeVisible({ timeout: 30_000 });
+  await review.getByLabel("Filter narrative review category").selectOption("pacing");
+  await review.getByLabel("Filter narrative review severity").selectOption("warning");
+  await expect(review.locator(".playtest-finding")).toHaveCount(2);
+  const fingerprint = await review.locator(".playtest-finding").first().locator("details p").first().textContent();
+  await page.reload();
+  const history = page.getByLabel("Narrative Review workspace").getByRole("button", { name: /completed · 16 passages/ });
+  await expect(history).toBeVisible(); await history.click();
+  await page.getByLabel("Narrative Review workspace").getByText("Exact evidence and provenance").first().click();
+  if (fingerprint) await expect(page.getByLabel("Narrative Review workspace").getByText(fingerprint, { exact: true })).toBeVisible();
+  expect(await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).text()).toBe(before);
+  expect(observedRequests.some((url) => /openrouter/i.test(url))).toBe(false);
+});
+
 test("bounded prose drafting previews context, repairs, retries, persists, and cancels offline", async ({ page, request }) => {
   test.setTimeout(120_000);
   const pageErrors: string[] = [];

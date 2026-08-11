@@ -15,3 +15,4 @@ export * from "./draft-staleness.js";
 export * from "./passage-draft-repository.js";
 export * from "./passage-draft-acceptance-repository.js";
 export * from "./drafting-repository.js";
+export * from "./narrative-review-repository.js";

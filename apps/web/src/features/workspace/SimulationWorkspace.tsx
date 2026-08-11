@@ -10,6 +10,7 @@ import {
   type SimulationRunVersion,
 } from "../../api/simulation.js";
 import { PlaytestWorkspace } from "./PlaytestWorkspace.js";
+import { NarrativeReviewWorkspace } from "./NarrativeReviewWorkspace.js";
 
 interface Props { projectId: string; onNavigateStableId?(stableId: string): void }
 
@@ -116,6 +117,12 @@ export function SimulationWorkspace({ projectId, onNavigateStableId }: Props) {
 
     {run && <SimulationEvidence run={run} />}
     <PlaytestWorkspace
+      projectId={projectId}
+      inputs={inputs}
+      defaultInputId={selectedInputId}
+      onNavigateStableId={onNavigateStableId}
+    />
+    <NarrativeReviewWorkspace
       projectId={projectId}
       inputs={inputs}
       defaultInputId={selectedInputId}

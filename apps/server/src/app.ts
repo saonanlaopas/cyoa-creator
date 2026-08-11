@@ -1,9 +1,9 @@
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, openDatabase, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, NarrativeReviewRepository, openDatabase, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
-import { JobRunner, type PassageDraftingProvider, type PassagePlanningProvider } from "@story-to-cyoa/pipeline";
+import { JobRunner, type NarrativeReviewProvider, type PassageDraftingProvider, type PassagePlanningProvider } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,6 +44,10 @@ import { SimulationService } from "./services/simulation-service.js";
 import { registerSimulationRoutes } from "./routes/simulation.js";
 import { PlaytestService } from "./services/playtest-service.js";
 import { registerPlaytestingRoutes } from "./routes/playtesting.js";
+import { NarrativeReviewService } from "./services/narrative-review-service.js";
+import { DeterministicNarrativeReviewProvider } from "./services/narrative-review-provider.js";
+import { OpenRouterNarrativeReviewProvider } from "./services/openrouter-narrative-review-provider.js";
+import { registerNarrativeReviewRoutes } from "./routes/narrative-review.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -52,6 +56,7 @@ export interface BuildAppOptions {
   openRouterClient?: OpenRouterClient;
   passagePlanningProvider?: PassagePlanningProvider;
   passageDraftingProvider?: PassageDraftingProvider;
+  narrativeReviewProvider?: NarrativeReviewProvider;
 }
 
 const webDistPath = resolve(
@@ -76,6 +81,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   );
   const generations = new GenerationRepository(database);
   const drafting = new DraftingRepository(database);
+  const narrativeReviews = new NarrativeReviewRepository(database);
   const passageProposals = new PassageProposalRepository(database);
   const longFormProjects = new LongFormProjectService(
     projects, artifacts, workflow, changeSets, passagePlans, passageDrafts,
@@ -123,6 +129,15 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     drafting,
     [offlineDraftingProvider, new OpenRouterPassageDraftingProvider(openRouter)],
   );
+  const offlineNarrativeReviewProvider = options.narrativeReviewProvider ?? new DeterministicNarrativeReviewProvider({
+    delayMs: process.env.E2E_NARRATIVE_REVIEW_DELAY_MS ? Number(process.env.E2E_NARRATIVE_REVIEW_DELAY_MS) : undefined,
+    malformedFirst: process.env.E2E_NARRATIVE_REVIEW_MALFORMED === "1",
+  });
+  const narrativeReviewService = new NarrativeReviewService(
+    projects, artifacts, workflow, passagePlans, passageDrafts, narrativeReviews,
+    simulationService, playtestService,
+    [offlineNarrativeReviewProvider, new OpenRouterNarrativeReviewProvider(openRouter)],
+  );
   const passageProposalService = new PassageProposalService(
     database, projects, passagePlans, generations, passageProposals, passagePlanService,
   );
@@ -133,6 +148,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
   app.addHook("onClose", async () => {
     await passageDraftingService.shutdown();
+    await narrativeReviewService.shutdown();
     await passageGenerationService.shutdown();
     database.close();
   });
@@ -152,6 +168,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerPassageDraftingRoutes(app, passageDraftingService);
   registerSimulationRoutes(app, simulationService);
   registerPlaytestingRoutes(app, playtestService);
+  registerNarrativeReviewRoutes(app, narrativeReviewService);
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024, workflow);
