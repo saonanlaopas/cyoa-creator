@@ -26,6 +26,14 @@ export const DEFAULT_DETERMINISTIC_PATH_POLICY = Object.freeze({
   maxTraceBytes: 5_000_000,
 });
 
+export class RuntimeTraceLimitError extends Error {
+  public readonly code = "runtime_trace_request_too_large";
+
+  public constructor(public readonly serializedBytes: number, public readonly maximumBytes: number) {
+    super(`Deterministic path and initial trace require ${serializedBytes} bytes; maximum is ${maximumBytes}`);
+  }
+}
+
 function sortedUnion(values: string[], additions: string[]): string[] {
   return [...new Set([...values, ...additions])].sort();
 }
@@ -36,7 +44,9 @@ function enterPassage(runtime: CompiledRuntime, state: RuntimeState, passageId: 
   const next = cloneRuntimeState(state);
   next.currentPassageId = passageId;
   next.visitCounts[passageId] = (next.visitCounts[passageId] ?? 0) + 1;
-  next.routes = sortedUnion(next.routes, passage.routeIds);
+  // A terminal passage's route IDs classify its ending; they cannot establish
+  // route eligibility immediately before that ending is resolved.
+  if (!passage.terminal) next.routes = sortedUnion(next.routes, passage.routeIds);
   next.knownFacts = sortedUnion(next.knownFacts, passage.revealedFactIds);
   return next;
 }
@@ -143,6 +153,87 @@ function normalizedFailure(
   });
 }
 
+function outcomeFindings(
+  runtime: CompiledRuntime,
+  simulationInputFingerprint: string,
+  path: DeterministicPathDefinition,
+  state: RuntimeState,
+  finalResult: RuntimeResult,
+  stepIndex: number,
+  existing: RuntimeFinding[],
+): RuntimeFinding[] {
+  const findings = [...existing];
+  if (finalResult.kind === "ending-ineligible" && !findings.some((item) => item.code === "runtime.ending-ineligible")) {
+    findings.push(normalizedFailure(
+      runtime, simulationInputFingerprint, "runtime.ending-ineligible", `Ending ${finalResult.endingId} requirements are not satisfied`,
+      stepIndex, state, { endingId: finalResult.endingId ?? undefined },
+    ));
+  }
+  if (path.expectedEndingId !== undefined && path.expectedEndingId !== finalResult.endingId) findings.push(normalizedFailure(
+    runtime, simulationInputFingerprint, "runtime.expected-ending-mismatch",
+    `Expected ending ${path.expectedEndingId ?? "none"} but reached ${finalResult.endingId ?? "none"}`,
+    stepIndex, state, { endingId: finalResult.endingId ?? undefined },
+  ));
+  if (path.expectedState) {
+    const mismatched = Object.entries(path.expectedState).some(([key, expected]) => (
+      !matchesExpected(state[key as keyof RuntimeState], expected)
+    ));
+    if (mismatched) findings.push(normalizedFailure(
+      runtime, simulationInputFingerprint, "runtime.expected-state-mismatch",
+      "Final runtime state does not match the deterministic path assertions", stepIndex, state,
+    ));
+  }
+  return findings;
+}
+
+function createTrace(
+  runtime: CompiledRuntime,
+  simulationInputFingerprint: string,
+  path: DeterministicPathDefinition,
+  visitedPassageIds: string[],
+  selectedChoiceIds: string[],
+  steps: RuntimeTraceStep[],
+  state: RuntimeState,
+  finalResult: RuntimeResult,
+  findings: RuntimeFinding[],
+): RuntimeTrace {
+  const traceWithoutFingerprint = {
+    schemaVersion: 1 as const,
+    simulationInputFingerprint,
+    compiledRuntimeFingerprint: runtime.fingerprint,
+    path,
+    visitedPassageIds: [...visitedPassageIds],
+    selectedChoiceIds: [...selectedChoiceIds],
+    steps: [...steps],
+    finalState: cloneRuntimeState(state),
+    result: finalResult,
+    findings: [...findings],
+  };
+  return { ...traceWithoutFingerprint, fingerprint: stableFingerprint(traceWithoutFingerprint) };
+}
+
+function traceLimitFailure(
+  runtime: CompiledRuntime,
+  simulationInputFingerprint: string,
+  path: DeterministicPathDefinition,
+  visitedPassageIds: string[],
+  selectedChoiceIds: string[],
+  steps: RuntimeTraceStep[],
+  state: RuntimeState,
+  stepIndex: number,
+  choiceId?: string,
+): RuntimeTrace {
+  const limitFinding = normalizedFailure(
+    runtime, simulationInputFingerprint, "runtime.trace-limit-reached",
+    "Deterministic trace would exceed its serialized byte limit", stepIndex, state,
+    choiceId ? { choiceId } : {},
+  );
+  return createTrace(
+    runtime, simulationInputFingerprint, path, visitedPassageIds, selectedChoiceIds, steps, state,
+    result("trace-limit-reached", state.currentPassageId), [limitFinding],
+  );
+}
+
 export type RuntimeChoiceTransition =
   | { ok: true; state: RuntimeState; step: RuntimeTraceStep }
   | { ok: false; state: RuntimeState; finding: RuntimeFinding; result: RuntimeResult };
@@ -237,12 +328,14 @@ export function runDeterministicPath(
   const findings: RuntimeFinding[] = [];
   const visitedPassageIds = [state.currentPassageId];
   const selectedChoiceIds: string[] = [];
-  let accountedTraceBytes = serializedBytes({
-    simulationInputFingerprint,
-    compiledRuntimeFingerprint: runtime.fingerprint,
-    path,
-    initialState: state,
-  });
+  const initialBoundedFailure = traceLimitFailure(
+    runtime, simulationInputFingerprint, path, [state.currentPassageId], [], [], state, 0, path.choiceIds[0],
+  );
+  const initialFailureBytes = serializedBytes(initialBoundedFailure);
+  if (initialFailureBytes > policy.maxTraceBytes) {
+    throw new RuntimeTraceLimitError(initialFailureBytes, policy.maxTraceBytes);
+  }
+  let conservativeTraceBytes = initialFailureBytes;
   let finalResult: RuntimeResult | null = null;
   const terminalAtStart = resolveRuntimeTerminal(runtime, state).result;
   if (terminalAtStart && path.choiceIds.length === 0) finalResult = terminalAtStart;
@@ -259,58 +352,56 @@ export function runDeterministicPath(
       finalResult = transition.result;
       break;
     }
-    state = transition.state;
     const step = transition.step;
+    const nextState = transition.state;
+    const nextSteps = [...steps, step];
+    const nextVisitedPassageIds = [...visitedPassageIds, nextState.currentPassageId];
+    const nextSelectedChoiceIds = [...selectedChoiceIds, choiceId];
+    const nextTerminal = resolveRuntimeTerminal(runtime, nextState).result;
+    const provisionalResult = nextTerminal ?? result("path-exhausted", nextState.currentPassageId);
+    const finalStateGrowth = Math.max(0, serializedBytes(nextState) - serializedBytes(state));
+    const projectedTraceBytes = conservativeTraceBytes + serializedBytes(step)
+      + serializedBytes(choiceId) + serializedBytes(nextState.currentPassageId) + finalStateGrowth + 512;
+    if (projectedTraceBytes > policy.maxTraceBytes) {
+      const provisionalTrace = createTrace(
+        runtime, simulationInputFingerprint, path, nextVisitedPassageIds, nextSelectedChoiceIds, nextSteps, nextState,
+        provisionalResult,
+        outcomeFindings(runtime, simulationInputFingerprint, path, nextState, provisionalResult, nextSteps.length, findings),
+      );
+      const exactProvisionalBytes = serializedBytes(provisionalTrace);
+      if (exactProvisionalBytes > policy.maxTraceBytes) {
+        const bounded = traceLimitFailure(
+          runtime, simulationInputFingerprint, path, visitedPassageIds, selectedChoiceIds, steps, state, stepIndex, choiceId,
+        );
+        return serializedBytes(bounded) <= policy.maxTraceBytes ? bounded : initialBoundedFailure;
+      }
+      conservativeTraceBytes = exactProvisionalBytes;
+    } else {
+      conservativeTraceBytes = projectedTraceBytes;
+    }
+    state = nextState;
     steps.push(step);
     visitedPassageIds.push(state.currentPassageId);
     selectedChoiceIds.push(choiceId);
-    accountedTraceBytes += serializedBytes(step);
     if ((state.visitCounts[state.currentPassageId] ?? 0) > policy.maxVisitsPerPassage) {
       findings.push(normalizedFailure(runtime, simulationInputFingerprint, "runtime.cycle-guard-reached", "Deterministic path exceeded the passage visit limit", stepIndex, state, { choiceId }));
       finalResult = result("cycle-guard-reached", state.currentPassageId);
       break;
     }
-    const terminal = resolveRuntimeTerminal(runtime, state).result;
-    if (terminal) finalResult = terminal;
-    if (accountedTraceBytes > policy.maxTraceBytes) {
-      findings.push(normalizedFailure(runtime, simulationInputFingerprint, "runtime.trace-limit-reached", "Deterministic trace exceeded its serialized byte limit", stepIndex, state, { choiceId }));
-      finalResult = result("trace-limit-reached", state.currentPassageId, finalResult?.endingId ?? null);
-      break;
-    }
+    if (nextTerminal) finalResult = nextTerminal;
   }
   if (!finalResult) {
     const terminal = resolveRuntimeTerminal(runtime, state).result;
     finalResult = terminal ?? result("path-exhausted", state.currentPassageId);
   }
-  if (finalResult.kind === "ending-ineligible") findings.push(normalizedFailure(
-    runtime, simulationInputFingerprint, "runtime.ending-ineligible", `Ending ${finalResult.endingId} requirements are not satisfied`,
-    steps.length, state, { endingId: finalResult.endingId ?? undefined },
-  ));
-  if (path.expectedEndingId !== undefined && path.expectedEndingId !== finalResult.endingId) findings.push(normalizedFailure(
-    runtime, simulationInputFingerprint, "runtime.expected-ending-mismatch",
-    `Expected ending ${path.expectedEndingId ?? "none"} but reached ${finalResult.endingId ?? "none"}`,
-    steps.length, state, { endingId: finalResult.endingId ?? undefined },
-  ));
-  if (path.expectedState) {
-    const mismatched = Object.entries(path.expectedState).some(([key, expected]) => (
-      !matchesExpected(state[key as keyof RuntimeState], expected)
-    ));
-    if (mismatched) findings.push(normalizedFailure(
-      runtime, simulationInputFingerprint, "runtime.expected-state-mismatch",
-      "Final runtime state does not match the deterministic path assertions", steps.length, state,
-    ));
-  }
-  const traceWithoutFingerprint = {
-    schemaVersion: 1 as const,
-    simulationInputFingerprint,
-    compiledRuntimeFingerprint: runtime.fingerprint,
-    path,
-    visitedPassageIds,
-    selectedChoiceIds,
-    steps,
-    finalState: cloneRuntimeState(state),
-    result: finalResult,
-    findings,
-  };
-  return { ...traceWithoutFingerprint, fingerprint: stableFingerprint(traceWithoutFingerprint) };
+  const completed = createTrace(
+    runtime, simulationInputFingerprint, path, visitedPassageIds, selectedChoiceIds, steps, state, finalResult,
+    outcomeFindings(runtime, simulationInputFingerprint, path, state, finalResult, steps.length, findings),
+  );
+  if (serializedBytes(completed) <= policy.maxTraceBytes) return completed;
+  const bounded = traceLimitFailure(
+    runtime, simulationInputFingerprint, path, visitedPassageIds, selectedChoiceIds, steps, state, steps.length,
+  );
+  if (serializedBytes(bounded) <= policy.maxTraceBytes) return bounded;
+  return initialBoundedFailure;
 }

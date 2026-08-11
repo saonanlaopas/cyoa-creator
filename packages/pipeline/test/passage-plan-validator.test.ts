@@ -371,7 +371,22 @@ describe("passage-plan structural validator", () => {
 
   it("shares condition/effect semantics and agrees on terminal failures with the runtime compiler", () => {
     const input = fixture();
+    input.mechanics.resources = [{
+      id: "resource-clues", key: "clues", label: "Clues", kind: "inventory", initial: 4, meaning: "Collected evidence",
+    }];
     const registry = createRuntimeMechanicRegistry(input.mechanics);
+    expect(registry.clues).toMatchObject({ valueType: "number", initial: 4, minimum: 0 });
+    const numericInventoryEffect = {
+      id: "effect-clues", mechanicKey: "clues", operation: "add" as const, value: 1, feedback: "", visibility: "visible" as const,
+    };
+    const stringInventoryEffect = { ...numericInventoryEffect, operation: "set" as const, value: "clue-1" };
+    expect(effectCompatible(numericInventoryEffect, registry.clues)).toBe(true);
+    expect(effectCompatible(stringInventoryEffect, registry.clues)).toBe(false);
+    input.bundle.choices[0] = { ...input.bundle.choices[0]!, effects: [numericInventoryEffect] };
+    expect(validatePassagePlan(input).findings.map((finding) => finding.code)).not.toContain("effect.type.invalid");
+    input.bundle.choices[0] = { ...input.bundle.choices[0]!, effects: [stringInventoryEffect] };
+    expect(validatePassagePlan(input).findings.map((finding) => finding.code)).toContain("effect.type.invalid");
+
     const maximum = input.mechanics.visibleStats[0]!.maximum;
     const impossible = { kind: "compare" as const, mechanicKey: "resolve", operator: "gte" as const, value: maximum + 1 };
     input.bundle.choices[1] = { ...input.bundle.choices[1]!, condition: impossible };
@@ -381,7 +396,8 @@ describe("passage-plan structural validator", () => {
       "condition.threshold.unreachable", "choice.always-unavailable",
     ]));
 
-    const invalidEffect = { ...input.bundle.choices[0]!.effects[0]!, value: "wrong type" };
+    const invalidEffect = { id: "effect-resolve", mechanicKey: "resolve", operation: "add" as const,
+      value: "wrong type", feedback: "", visibility: "visible" as const };
     input.bundle.choices[0] = { ...input.bundle.choices[0]!, effects: [invalidEffect] };
     expect(effectCompatible(invalidEffect, registry.resolve)).toBe(false);
     expect(validatePassagePlan(input).findings.map((finding) => finding.code)).toContain("effect.type.invalid");

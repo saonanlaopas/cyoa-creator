@@ -3,6 +3,7 @@ import {
   DEFAULT_DETERMINISTIC_PATH_POLICY,
   RuntimeCompileError,
   RuntimeSemanticError,
+  RuntimeTraceLimitError,
   applyRuntimeChoice,
   applyRuntimeEffects,
   compileRuntime,
@@ -12,6 +13,7 @@ import {
   initializeRuntimeState,
   listRuntimeChoices,
   runDeterministicPath,
+  serializedBytes,
   type RuntimeCompileSource,
   type RuntimeEffect,
 } from "../src/index.js";
@@ -23,7 +25,7 @@ function source(): RuntimeCompileSource {
     startPassageId: "passage-start",
     passageVersions: [
       {
-        versionId: "pv-start", id: "passage-start", choiceIds: ["choice-trust", "choice-skip", "choice-hidden"],
+        versionId: "pv-start", id: "passage-start", choiceIds: ["choice-trust", "choice-skip", "choice-hidden", "choice-direct-ending"],
         terminal: false, endingId: null, routeIds: [], requiredFactIds: [], revealedFactIds: ["fact-opening"],
       },
       {
@@ -61,6 +63,12 @@ function source(): RuntimeCompileSource {
         unavailableBehavior: "hidden", unavailableExplanation: "Secret", effects: [], sourceDecisionIds: [], position: 2,
       },
       {
+        versionId: "cv-direct-ending", id: "choice-direct-ending", sourcePassageId: "passage-start", destinationPassageId: "passage-ending",
+        condition: null, unavailableBehavior: "disabled", unavailableExplanation: "",
+        effects: [{ id: "effect-direct-trust", mechanicKey: "relationship_1", operation: "add", value: 3, feedback: "", visibility: "visible" }],
+        sourceDecisionIds: [], position: 3,
+      },
+      {
         versionId: "cv-end", id: "choice-end", sourcePassageId: "passage-route", destinationPassageId: "passage-ending",
         condition: {
           kind: "all", items: [
@@ -90,7 +98,8 @@ function source(): RuntimeCompileSource {
       flags: [{ key: "committed" }],
       resources: [
         { key: "coins", kind: "currency", initial: 0 },
-        { key: "clue", kind: "inventory", initial: 0 },
+        { key: "clue", kind: "inventory", initial: 2 },
+        { key: "turns", kind: "counter", initial: 1 },
       ],
       gates: [{
         id: "gate-ending", targetType: "ending", targetId: "ending-1", logic: "all",
@@ -113,7 +122,7 @@ describe("Foundation 5A pure runtime", () => {
       stats: { resolve: 0 },
       relationships: { relationship_1: 0 },
       flags: { committed: false },
-      resources: { clue: "", coins: 0 },
+      resources: { clue: 2, coins: 0, turns: 1 },
       decisions: [], routes: [], knownFacts: ["fact-opening"], visitCounts: { "passage-start": 1 }, turn: 0,
     });
 
@@ -161,20 +170,26 @@ describe("Foundation 5A pure runtime", () => {
       { id: "relationship", mechanicKey: "relationship_1", operation: "set", value: 4, feedback: "", visibility: "visible" },
       { id: "flag", mechanicKey: "committed", operation: "set", value: true, feedback: "", visibility: "hidden" },
       { id: "resource", mechanicKey: "coins", operation: "add", value: 5, feedback: "", visibility: "visible" },
-      { id: "inventory", mechanicKey: "clue", operation: "set", value: "clue-1", feedback: "", visibility: "visible" },
+      { id: "inventory-add", mechanicKey: "clue", operation: "add", value: 3, feedback: "", visibility: "visible" },
+      { id: "inventory-subtract", mechanicKey: "clue", operation: "subtract", value: 1, feedback: "", visibility: "visible" },
+      { id: "inventory-set", mechanicKey: "clue", operation: "set", value: 6, feedback: "", visibility: "visible" },
+      { id: "counter", mechanicKey: "turns", operation: "add", value: 2, feedback: "", visibility: "visible" },
       { id: "clear", mechanicKey: "committed", operation: "clear", value: null, feedback: "", visibility: "hidden" },
     ];
     const applied = applyRuntimeEffects(state, effects, registry);
     expect(applied.state).toMatchObject({
       stats: { resolve: 1 }, relationships: { relationship_1: 4 }, flags: { committed: false },
-      resources: { coins: 5, clue: "clue-1" },
+      resources: { coins: 5, clue: 6, turns: 3 },
     });
     expect(applied.deltas.map((item) => item.path)).toEqual([
       "stat.resolve", "stat.resolve", "relationship.relationship_1", "flag.committed",
-      "resource.coins", "resource.clue", "flag.committed",
+      "resource.coins", "resource.clue", "resource.clue", "resource.clue", "resource.turns", "flag.committed",
     ]);
     expect(() => applyRuntimeEffects(state, [{
       id: "wrong", mechanicKey: "committed", operation: "add", value: 1, feedback: "", visibility: "visible",
+    }], registry)).toThrow("Invalid effect");
+    expect(() => applyRuntimeEffects(state, [{
+      id: "string-inventory", mechanicKey: "clue", operation: "set", value: "clue-1", feedback: "", visibility: "visible",
     }], registry)).toThrow("Invalid effect");
     expect(() => applyRuntimeEffects(state, [{
       id: "overflow", mechanicKey: "resolve", operation: "add", value: 11, feedback: "", visibility: "visible",
@@ -264,6 +279,15 @@ describe("Foundation 5A pure runtime", () => {
     expect(ineligible.result).toMatchObject({ kind: "ending-ineligible", endingId: "ending-1", eligible: false });
     expect(ineligible.findings[0]).toMatchObject({ code: "runtime.ending-ineligible", endingId: "ending-1" });
 
+    const direct = runDeterministicPath(runtime, "input", path(["choice-direct-ending"]));
+    expect(direct.finalState).toMatchObject({ relationships: { relationship_1: 3 }, routes: [] });
+    expect(direct.result).toMatchObject({ kind: "ending-ineligible", endingId: "ending-1", eligible: false });
+    expect(runDeterministicPath(runtime, "input", path(["choice-direct-ending"]))).toEqual(direct);
+
+    const legitimateRouteWithoutGate = runDeterministicPath(compileRuntime(noTrust), "input", path(["choice-skip", "choice-end"]));
+    expect(legitimateRouteWithoutGate.finalState.routes).toEqual(["route-1"]);
+    expect(legitimateRouteWithoutGate.result.kind).toBe("ending-ineligible");
+
     const invalid = source();
     invalid.passageVersions.find((item) => item.id === "passage-ending")!.endingId = null;
     expect(() => compileRuntime(invalid)).toThrow(RuntimeCompileError);
@@ -310,13 +334,28 @@ describe("Foundation 5A pure runtime", () => {
 
   it("enforces trace bytes and records deterministic expectation findings at exact steps", () => {
     const runtime = compileRuntime(source());
-    const traceLimited = runDeterministicPath(runtime, "bounded-input", {
+    expect(() => runDeterministicPath(runtime, "oversized-header", {
       choiceIds: ["choice-trust", "choice-end"],
       policy: { ...DEFAULT_DETERMINISTIC_PATH_POLICY, maxTraceBytes: 1_000 },
+    })).toThrow(RuntimeTraceLimitError);
+    expect(() => runDeterministicPath(runtime, "oversized-zero-step", {
+      choiceIds: [], expectedState: { resources: { ["x".repeat(2_000)]: 1 } },
+      policy: { ...DEFAULT_DETERMINISTIC_PATH_POLICY, maxTraceBytes: 1_500 },
+    })).toThrow(RuntimeTraceLimitError);
+    expect(() => runDeterministicPath(runtime, "oversized-choice-id", {
+      choiceIds: ["choice-" + "x".repeat(4_000)],
+      policy: { ...DEFAULT_DETERMINISTIC_PATH_POLICY, maxTraceBytes: 2_000 },
+    })).toThrow(RuntimeTraceLimitError);
+
+    const traceLimited = runDeterministicPath(runtime, "bounded-input", {
+      choiceIds: ["choice-trust", "choice-end"],
+      policy: { ...DEFAULT_DETERMINISTIC_PATH_POLICY, maxTraceBytes: 2_000 },
     });
     expect(traceLimited.result.kind).toBe("trace-limit-reached");
+    expect(traceLimited.steps).toHaveLength(0);
+    expect(serializedBytes(traceLimited)).toBeLessThanOrEqual(2_000);
     expect(traceLimited.findings[0]).toMatchObject({
-      code: "runtime.trace-limit-reached", stepIndex: 0, passageId: "passage-route", choiceId: "choice-trust",
+      code: "runtime.trace-limit-reached", stepIndex: 0, passageId: "passage-start", choiceId: "choice-trust",
       simulationInputFingerprint: "bounded-input", compiledRuntimeFingerprint: runtime.fingerprint,
     });
 
@@ -359,5 +398,6 @@ describe("Foundation 5A pure runtime", () => {
     expect(trace.visitedPassageIds).toHaveLength(300);
     expect(trace.steps).toHaveLength(299);
     expect(trace.selectedChoiceIds).toHaveLength(299);
+    expect(serializedBytes(trace)).toBeLessThanOrEqual(DEFAULT_DETERMINISTIC_PATH_POLICY.maxTraceBytes);
   });
 });

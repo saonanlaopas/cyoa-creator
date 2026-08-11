@@ -91,7 +91,8 @@ function respond<T>(reply: { code(status: number): { send(value: unknown): unkno
   } catch (error) {
     if (!(error instanceof SimulationServiceError)) throw error;
     const status = error.code === "project_not_found" || error.code.endsWith("_not_found") ? 404
-      : error.code === "simulation_path_invalid" || error.code === "simulation_path_too_large" ? 400 : 409;
+      : error.code === "simulation_path_invalid" || error.code === "simulation_path_too_large"
+        || error.code === "simulation_trace_too_large" ? 400 : 409;
     return reply.code(status).send({ code: error.code, error: error.message, details: error.details });
   }
 }

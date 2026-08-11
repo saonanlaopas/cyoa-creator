@@ -313,4 +313,42 @@ describe("Foundation 5A simulation API", () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  it("rejects an oversized simulation request at the service boundary without persisting evidence", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-simulation-request-bound-"));
+    const databasePath = join(directory, "story.sqlite");
+    try {
+      const fixture = await approvedProject(databasePath);
+      const inputVersion = (await fixture.app.inject({
+        method: "POST", url: `/api/long-form/projects/${fixture.projectId}/simulation/inputs`,
+      })).json();
+      const database = openDatabase(databasePath);
+      const row = database.prepare("SELECT content_json FROM artifact_versions WHERE id = ?").get(inputVersion.id) as { content_json: string };
+      const bounded = JSON.parse(row.content_json) as Record<string, unknown> & { policy: { maxTraceBytes: number } };
+      bounded.policy = { ...(bounded.policy as object), maxTraceBytes: 2_000 } as typeof bounded.policy;
+      const { id: _id, runtimeFingerprint: _runtime, fingerprint: _fingerprint, ...identity } = bounded;
+      bounded.fingerprint = stableFingerprint(identity);
+      bounded.id = `simin_${String(bounded.fingerprint)}`;
+      database.prepare("UPDATE artifact_versions SET content_json = ? WHERE id = ?")
+        .run(JSON.stringify(bounded), inputVersion.id);
+      database.close();
+
+      const rejected = await fixture.app.inject({
+        method: "POST", url: `/api/long-form/projects/${fixture.projectId}/simulation/runs`, payload: {
+          inputArtifactVersionId: inputVersion.id,
+          choiceIds: [],
+          expectedState: { resources: { ["oversized-" + "x".repeat(4_000)]: 1 } },
+        },
+      });
+      expect(rejected.statusCode).toBe(400);
+      expect(rejected.json().code).toBe("simulation_trace_too_large");
+      expect((await fixture.app.inject({
+        method: "GET", url: `/api/long-form/projects/${fixture.projectId}/simulation/runs`,
+      })).json().items).toEqual([]);
+      apps.splice(apps.indexOf(fixture.app), 1);
+      await fixture.app.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

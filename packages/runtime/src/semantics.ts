@@ -32,9 +32,7 @@ export function createRuntimeMechanicRegistry(source: RuntimeMechanicsSource): R
   for (const item of source.flags) entries.push([item.key, {
     key: item.key, category: "flag", valueType: "boolean", initial: false,
   }]);
-  for (const item of source.resources) entries.push([item.key, item.kind === "inventory" ? {
-    key: item.key, category: "resource", valueType: "string", initial: "",
-  } : {
+  for (const item of source.resources) entries.push([item.key, {
     key: item.key, category: "resource", valueType: "number", initial: item.initial, minimum: 0,
   }]);
   const result: Record<string, RuntimeMechanicDefinition> = {};

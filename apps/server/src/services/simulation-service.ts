@@ -21,8 +21,10 @@ import type {
 } from "@story-to-cyoa/persistence";
 import {
   DEFAULT_DETERMINISTIC_PATH_POLICY,
+  RuntimeTraceLimitError,
   compileRuntime,
   runDeterministicPath,
+  serializedBytes,
   stableFingerprint,
   type CompiledRuntime,
   type DeterministicPathDefinition,
@@ -159,10 +161,6 @@ export class SimulationService {
     }
     const evidence = inputVersion.content;
     this.assertInputIdentity(evidence, projectId);
-    const runtime = this.compileExactInput(evidence);
-    if (runtime.fingerprint !== evidence.runtimeFingerprint) {
-      throw new SimulationServiceError("simulation_runtime_fingerprint_mismatch", "Historical runtime input no longer compiles identically");
-    }
     if (input.choiceIds.length > evidence.policy.maxSteps) {
       throw new SimulationServiceError("simulation_path_too_large", "Deterministic path exceeds the input step policy");
     }
@@ -172,7 +170,33 @@ export class SimulationService {
       ...(input.expectedEndingId !== undefined ? { expectedEndingId: input.expectedEndingId } : {}),
       ...(input.expectedState ? { expectedState: input.expectedState } : {}),
     };
-    const trace = runDeterministicPath(runtime, evidence.fingerprint, path);
+    const requestBytes = serializedBytes(path);
+    if (requestBytes > evidence.policy.maxTraceBytes) {
+      throw new SimulationServiceError(
+        "simulation_trace_too_large",
+        `Deterministic path request requires ${requestBytes} bytes; maximum is ${evidence.policy.maxTraceBytes}`,
+      );
+    }
+    const runtime = this.compileExactInput(evidence);
+    if (runtime.fingerprint !== evidence.runtimeFingerprint) {
+      throw new SimulationServiceError("simulation_runtime_fingerprint_mismatch", "Historical runtime input no longer compiles identically");
+    }
+    let trace: RuntimeTrace;
+    try {
+      trace = runDeterministicPath(runtime, evidence.fingerprint, path);
+    } catch (error) {
+      if (!(error instanceof RuntimeTraceLimitError)) throw error;
+      throw new SimulationServiceError("simulation_trace_too_large", error.message, {
+        serializedBytes: error.serializedBytes, maximumBytes: error.maximumBytes,
+      });
+    }
+    const traceBytes = serializedBytes(trace);
+    if (traceBytes > evidence.policy.maxTraceBytes) {
+      throw new SimulationServiceError(
+        "simulation_trace_too_large",
+        `Deterministic trace requires ${traceBytes} bytes; maximum is ${evidence.policy.maxTraceBytes}`,
+      );
+    }
     const content: SimulationRunRecord = {
       schemaVersion: 1,
       id: `simrun_${stableFingerprint({ inputVersionId: inputVersion.id, traceFingerprint: trace.fingerprint })}`,
