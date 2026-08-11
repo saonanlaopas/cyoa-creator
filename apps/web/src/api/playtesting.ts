@@ -22,10 +22,11 @@ export interface PlaytestCampaignSummary {
   passageCoveragePercentage: number;
   routeCoverageCount: number;
   endingCoverageCount: number;
-  findingCount: number;
-  totalFindingCount: number;
-  omittedFindingCount: number;
-  findingsTruncated: boolean;
+  findingRetentionStatus: "known" | "legacy-unknown";
+  retainedFindingCount: number;
+  totalFindingCount: number | null;
+  omittedFindingCount: number | null;
+  findingsTruncated: boolean | null;
   reportFingerprint: string;
 }
 

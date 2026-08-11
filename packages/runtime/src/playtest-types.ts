@@ -335,8 +335,7 @@ export interface PlaytestFindingRetentionDiagnostics {
   aggregateReportFindingBasis: "all-generated-findings";
 }
 
-export interface PlaytestCampaignRecord extends PlaytestCampaignIdentity {
-  schemaVersion: 1 | 2;
+interface PlaytestCampaignRecordBase extends PlaytestCampaignIdentity {
   id: string;
   status: "completed";
   requestedSampleCount: number;
@@ -345,10 +344,20 @@ export interface PlaytestCampaignRecord extends PlaytestCampaignIdentity {
   retainedTraces: CompactPlaytestTrace[];
   report: PlaytestAggregateReport;
   findings: PlaytestFinding[];
-  /** Present on schema v2. Omitted only on historical schema-v1 campaigns. */
-  findingRetention?: PlaytestFindingRetentionDiagnostics;
   fingerprint: string;
 }
+
+export interface LegacyPlaytestCampaignRecord extends PlaytestCampaignRecordBase {
+  schemaVersion: 1;
+  findingRetention?: never;
+}
+
+export interface CurrentPlaytestCampaignRecord extends PlaytestCampaignRecordBase {
+  schemaVersion: 2;
+  findingRetention: PlaytestFindingRetentionDiagnostics;
+}
+
+export type PlaytestCampaignRecord = LegacyPlaytestCampaignRecord | CurrentPlaytestCampaignRecord;
 
 export interface RunPlaytestCampaignInput {
   identity: Omit<PlaytestCampaignIdentity, "policy">;

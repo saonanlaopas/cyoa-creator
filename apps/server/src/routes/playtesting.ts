@@ -33,12 +33,7 @@ export function registerPlaytestingRoutes(app: FastifyInstance, service: Playtes
     "/api/long-form/projects/:projectId/simulation/playtests/campaigns",
     async (request, reply) => respond(reply, () => ({
       items: service.listCampaigns(request.params.projectId).map((version) => {
-        const retention = version.content.findingRetention ?? {
-          totalFindingCount: version.content.findings.length,
-          retainedFindingCount: version.content.findings.length,
-          omittedFindingCount: 0,
-          truncated: false,
-        };
+        const retention = version.content.schemaVersion === 2 ? version.content.findingRetention : null;
         return {
           versionId: version.id,
           version: version.version,
@@ -54,10 +49,11 @@ export function registerPlaytestingRoutes(app: FastifyInstance, service: Playtes
           passageCoveragePercentage: version.content.report.passageCoverage.percentage,
           routeCoverageCount: version.content.report.routeCoverage.filter((item) => item.sampleCount > 0).length,
           endingCoverageCount: version.content.report.endingCoverage.filter((item) => item.observedCount > 0).length,
-          findingCount: retention.retainedFindingCount,
-          totalFindingCount: retention.totalFindingCount,
-          omittedFindingCount: retention.omittedFindingCount,
-          findingsTruncated: retention.truncated,
+          findingRetentionStatus: retention ? "known" : "legacy-unknown",
+          retainedFindingCount: retention?.retainedFindingCount ?? version.content.findings.length,
+          totalFindingCount: retention?.totalFindingCount ?? null,
+          omittedFindingCount: retention?.omittedFindingCount ?? null,
+          findingsTruncated: retention?.truncated ?? null,
           reportFingerprint: version.content.report.fingerprint,
         };
       }),

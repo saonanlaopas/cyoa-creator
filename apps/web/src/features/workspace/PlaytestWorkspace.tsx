@@ -152,7 +152,9 @@ export function PlaytestWorkspace({ projectId, inputs, defaultInputId, onNavigat
         <button key={item.versionId} onClick={() => void reopen(item.versionId)}>
           <span>v{item.version} · seed {item.seed} · {item.sampleCount} samples</span>
           <small>{item.passageCoveragePercentage.toFixed(1)}% passages · {item.routeCoverageCount} routes · {item.endingCoverageCount} endings · {item.hardFailureSampleCount} hard failures</small>
-          <small>{item.findingCount}/{item.totalFindingCount} findings retained{item.findingsTruncated ? ` · ${item.omittedFindingCount} omitted by bounds` : ""}</small>
+          <small>{item.findingRetentionStatus === "known"
+            ? `${item.retainedFindingCount}/${item.totalFindingCount} findings retained${item.findingsTruncated ? ` · ${item.omittedFindingCount} omitted by bounds` : ""}`
+            : `Legacy schema-v1 campaign · ${item.retainedFindingCount.toLocaleString()} retained finding${item.retainedFindingCount === 1 ? "" : "s"} · original finding completeness unknown`}</small>
           <small>{item.simulationInputFingerprint.slice(0, 12)} / {item.reportFingerprint.slice(0, 12)}</small>
         </button>)}</div>}
     </section>
@@ -207,14 +209,7 @@ function CampaignEvidence(props: {
   const content = props.campaign.content;
   const report = content.report;
   const sharedDecisionIds = report.sharedDecisionIds ?? [];
-  const findingRetention = content.findingRetention ?? {
-    totalFindingCount: content.findings.length,
-    retainedFindingCount: content.findings.length,
-    omittedFindingCount: 0,
-    retainedFindingBytes: 0,
-    truncated: false,
-    aggregateReportFindingBasis: "all-generated-findings" as const,
-  };
+  const findingRetention = content.schemaVersion === 2 ? content.findingRetention : null;
   return <section className="playtest-results" aria-label="Playtest campaign evidence">
     <section className="brief-section playtest-overview">
       <header><div><p className="eyebrow">Immutable campaign v{props.campaign.version}</p><h3>Aggregate report</h3></div>
@@ -290,7 +285,9 @@ function CampaignEvidence(props: {
         <span>{item.observedPassageIds.length}/{item.authoredPassageIds.length} exclusive passages · {item.observedWords.toLocaleString()}/{item.authoredWords.toLocaleString()} words observed · {item.acceptedWordVolume.toLocaleString()} accepted-word volume</span></div>)}</div></section>
 
     <section className="brief-section playtest-findings"><header><div><h3>Deterministic findings</h3><p>Sample absence is labeled as bounded evidence, never proof of impossibility.</p>
-      <p>{findingRetention.retainedFindingCount}/{findingRetention.totalFindingCount} retained from all generated evidence{findingRetention.truncated ? `; ${findingRetention.omittedFindingCount} omitted by deterministic bounds` : ""}.</p></div>
+      {findingRetention
+        ? <p>{findingRetention.retainedFindingCount}/{findingRetention.totalFindingCount} retained from all generated evidence{findingRetention.truncated ? `; ${findingRetention.omittedFindingCount} omitted by deterministic bounds` : ""}.</p>
+        : <p>Legacy schema-v1 campaign · {content.findings.length.toLocaleString()} retained finding{content.findings.length === 1 ? "" : "s"} · original finding completeness unknown.</p>}</div>
       <label>Filter findings<select aria-label="Filter playtest findings" value={props.findingFilter} onChange={(event) => props.setFindingFilter(event.target.value)}>
         <option value="all">All</option><option value="hard-error">Hard errors</option><option value="warning">Warnings</option>
         <option value="coverage-gap">Coverage gaps</option><option value="observation">Observations</option>

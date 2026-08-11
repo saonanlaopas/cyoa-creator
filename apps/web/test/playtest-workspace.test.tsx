@@ -116,8 +116,33 @@ const summary = {
   simulationInputArtifactVersionId: input.versionId, simulationInputFingerprint: input.fingerprint,
   runtimeFingerprint: input.runtimeFingerprint, seed: campaign.seed, sampleCount: 50, hardFailureSampleCount: 1,
   passageCoveragePercentage: campaign.report.passageCoverage.percentage, routeCoverageCount: 1, endingCoverageCount: 1,
-  findingCount: 1, totalFindingCount: 3, omittedFindingCount: 2, findingsTruncated: true,
+  findingRetentionStatus: "known", retainedFindingCount: 1,
+  totalFindingCount: 3, omittedFindingCount: 2, findingsTruncated: true,
   reportFingerprint: campaign.report.fingerprint,
+};
+const legacyCampaign = {
+  ...campaign,
+  schemaVersion: 1,
+  seed: "legacy-bounded-v1",
+  findingRetention: undefined,
+} as unknown as PlaytestCampaignRecord;
+const legacyVersion = {
+  id: "campaign-version-legacy-v1",
+  version: 2,
+  createdAt: "2026-08-12T00:02:00.000Z",
+  content: legacyCampaign,
+};
+const legacySummary = {
+  ...summary,
+  versionId: legacyVersion.id,
+  version: legacyVersion.version,
+  campaignId: legacyCampaign.id,
+  seed: legacyCampaign.seed,
+  findingRetentionStatus: "legacy-unknown" as const,
+  retainedFindingCount: legacyCampaign.findings.length,
+  totalFindingCount: null,
+  omittedFindingCount: null,
+  findingsTruncated: null,
 };
 const replay = {
   verified: true,
@@ -199,5 +224,23 @@ describe("PlaytestWorkspace", () => {
   it("uses the same golden PRNG algorithm in the browser-targeted workspace", () => {
     const prng = new DeterministicPlaytestPrng("golden-seed");
     expect(Array.from({ length: 3 }, () => prng.nextUint32())).toEqual([3273237567, 72991216, 2963023779]);
+  });
+
+  it("labels legacy schema-v1 retained findings without inventing completeness", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      const url = String(request);
+      if (url.endsWith(`/playtests/campaigns/${legacyVersion.id}`)) return response(legacyVersion);
+      if (url.endsWith("/playtests/campaigns")) return response({ items: [legacySummary] });
+      return response({ error: "Unexpected request" }, 404);
+    });
+    const user = userEvent.setup();
+    render(<PlaytestWorkspace projectId="project-1" inputs={[input]} defaultInputId={input.versionId} />);
+    const legacyMessage = /Legacy schema-v1 campaign · 1 retained finding · original finding completeness unknown/;
+    await waitFor(() => expect(screen.getByText(legacyMessage)).toBeTruthy());
+    expect(screen.queryByText(/1\/1 findings retained/)).toBeNull();
+    expect(screen.queryByText(/0 omitted/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: /v2 · seed legacy-bounded-v1/ }));
+    await waitFor(() => expect(screen.getAllByText(legacyMessage)).toHaveLength(2));
+    expect(screen.queryByText(/1\/1 retained from all generated evidence/)).toBeNull();
   });
 });

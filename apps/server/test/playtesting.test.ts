@@ -250,11 +250,15 @@ describe("Foundation 5B playtest API", () => {
       fingerprint: campaignVersion.content.fingerprint,
       seed: "server-fixed-seed",
       sampleCount: 12,
+      findingRetentionStatus: "known",
+      retainedFindingCount: campaignVersion.content.findingRetention.retainedFindingCount,
       totalFindingCount: campaignVersion.content.findingRetention.totalFindingCount,
       omittedFindingCount: 0,
       findingsTruncated: false,
       reportFingerprint: campaignVersion.content.report.fingerprint,
     })]);
+    expect(campaignVersion.content.findingRetention.totalFindingCount)
+      .toBe(campaignVersion.content.findingRetention.retainedFindingCount);
     expect(JSON.stringify(list)).not.toContain("selectedChoiceIds");
     expect(JSON.stringify(list)).not.toContain("proseMarkdown");
 
@@ -325,9 +329,20 @@ describe("Foundation 5B playtest API", () => {
       };
       legacyContent.schemaVersion = 1;
       delete legacyContent.findingRetention;
+      (legacyContent.policy as Record<string, unknown>).maxFindings = 1;
+      legacyContent.findings = (legacyContent.findings as unknown[]).slice(0, 1);
       delete legacyContent.report.sharedDecisionIds;
       const { fingerprint: _reportFingerprint, ...legacyReportIdentity } = legacyContent.report;
       legacyContent.report.fingerprint = stableFingerprint(legacyReportIdentity);
+      legacyContent.id = `ptc_${stableFingerprint({
+        projectId: legacyContent.projectId,
+        simulationInputArtifactVersionId: legacyContent.simulationInputArtifactVersionId,
+        simulationInputFingerprint: legacyContent.simulationInputFingerprint,
+        compiledRuntimeFingerprint: legacyContent.compiledRuntimeFingerprint,
+        snapshotId: legacyContent.snapshotId,
+        seed: legacyContent.seed,
+        policy: legacyContent.policy,
+      })}`;
       const { fingerprint: _campaignFingerprint, ...legacyCampaignIdentity } = legacyContent;
       legacyContent.fingerprint = stableFingerprint(legacyCampaignIdentity);
       database.prepare("UPDATE artifact_versions SET schema_version = 1, content_json = ? WHERE id = ?")
@@ -357,10 +372,11 @@ describe("Foundation 5B playtest API", () => {
         method: "GET", url: `/api/long-form/projects/${fixture.projectId}/simulation/playtests/campaigns`,
       })).json().items.find((item: { versionId: string }) => item.versionId === legacy.id);
       expect(legacySummary).toMatchObject({
-        findingCount: legacyContent.findings instanceof Array ? legacyContent.findings.length : 0,
-        totalFindingCount: legacyContent.findings instanceof Array ? legacyContent.findings.length : 0,
-        omittedFindingCount: 0,
-        findingsTruncated: false,
+        findingRetentionStatus: "legacy-unknown",
+        retainedFindingCount: legacyContent.findings instanceof Array ? legacyContent.findings.length : 0,
+        totalFindingCount: null,
+        omittedFindingCount: null,
+        findingsTruncated: null,
       });
       const replay = await reopened.inject({
         method: "POST",
@@ -368,6 +384,16 @@ describe("Foundation 5B playtest API", () => {
       });
       expect(replay.statusCode).toBe(200);
       expect(replay.json()).toMatchObject({ verified: true, trace: { fingerprint: sample.traceFingerprint } });
+      const legacySample = (legacyContent.samples as Array<{ id: string; traceFingerprint: string }>)[0]!;
+      const legacyReplay = await reopened.inject({
+        method: "POST",
+        url: `/api/long-form/projects/${fixture.projectId}/simulation/playtests/campaigns/${legacy.id}/samples/${legacySample.id}/replay`,
+      });
+      expect(legacyReplay.statusCode).toBe(200);
+      expect(legacyReplay.json()).toMatchObject({
+        verified: true,
+        trace: { fingerprint: legacySample.traceFingerprint },
+      });
     } finally {
       await closeApps();
       rmSync(directory, { recursive: true, force: true });
