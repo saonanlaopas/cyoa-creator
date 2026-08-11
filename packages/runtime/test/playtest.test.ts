@@ -129,6 +129,8 @@ function branchingFixture(): { source: RuntimeCompileSource; analysis: PlaytestA
     routeLabels: { "route-a": "Route A", "route-b": "Route B" },
     endingLabels: { "ending-a": "Ending A", "ending-b": "Ending B" },
     mechanicLabels: { resolve: "Resolve", bond: "Bond", tokens: "Tokens" },
+    routeDecisionIds: { "route-a": ["decision-a"], "route-b": ["decision-b"] },
+    sharedDecisionIds: [],
   };
   return { source, analysis };
 }
@@ -327,6 +329,108 @@ describe("Foundation 5B seeded playtesting", () => {
     });
     expect(traceBounded.samples[0]?.hardFailureCodes).toContain("runtime.trace-limit-reached");
     expect(serializedBytes(traceBounded.retainedTraces[0])).toBeLessThanOrEqual(tracePolicy.maxTraceBytesPerSample);
+  });
+
+  it("retains hard errors before lower-priority findings and reports exact count and byte truncation", () => {
+    const fixture = branchingFixture();
+    for (let index = 0; index < 12; index += 1) {
+      const id = `passage-unobserved-${String(index).padStart(2, "0")}`;
+      fixture.source.passageVersions.push({
+        versionId: `pv-${id}`, id, choiceIds: [], terminal: true, endingId: "ending-a",
+        routeIds: ["route-a"], requiredFactIds: [], revealedFactIds: [],
+      });
+      fixture.analysis.passages[id] = {
+        id, title: id, actId: null, sequenceId: "sequence-unobserved", routeIds: [],
+        wordTarget: 100, wordCount: 100, wordBasis: "planned-target", acceptedDraftVersionId: null,
+        requiredFactIds: [], revealedFactIds: [], setupThreadIds: [], payoffThreadIds: [], authoredChoiceCount: 0,
+      };
+    }
+    const runtime = compileRuntime(fixture.source);
+    const basePolicy = createPlaytestPolicy({ sampleCount: 1, maxStepsPerSample: 1 }, DEFAULT_DETERMINISTIC_PATH_POLICY);
+    const countPolicy = { ...basePolicy, maxFindings: 4 };
+    const input = {
+      identity: {
+        projectId: "project-finding-retention", simulationInputArtifactVersionId: "input-finding-retention",
+        simulationInputFingerprint: "finding-retention-input", compiledRuntimeFingerprint: runtime.fingerprint,
+        snapshotId: fixture.source.snapshotId, seed: "finding-retention",
+      },
+      runtime, source: fixture.analysis, policy: countPolicy,
+    };
+    const first = runPlaytestCampaign(input);
+    const second = runPlaytestCampaign(input);
+    expect(second).toEqual(first);
+    expect(first.schemaVersion).toBe(2);
+    expect(first.findings).toHaveLength(4);
+    expect(first.findings[0]?.evidenceLevel).toBe("hard-error");
+    expect(first.findings.slice(1).every((finding) => finding.evidenceLevel !== "hard-error")).toBe(true);
+    expect(first.findingRetention).toMatchObject({
+      retainedFindingCount: 4,
+      omittedFindingCount: first.findingRetention!.totalFindingCount - 4,
+      truncated: true,
+      aggregateReportFindingBasis: "all-generated-findings",
+    });
+    expect(first.findingRetention!.totalFindingCount).toBeGreaterThan(countPolicy.maxFindings);
+
+    const hardFindingBytes = serializedBytes([first.findings[0]]);
+    const bytePolicy = { ...basePolicy, maxFindingBytes: hardFindingBytes + 32 };
+    const byteBounded = runPlaytestCampaign({ ...input, policy: bytePolicy });
+    expect(byteBounded.findings[0]?.evidenceLevel).toBe("hard-error");
+    expect(byteBounded.findingRetention).toMatchObject({ truncated: true });
+    expect(byteBounded.findingRetention!.retainedFindingBytes).toBeLessThanOrEqual(bytePolicy.maxFindingBytes);
+    expect(byteBounded.findingRetention!.omittedFindingCount).toBe(
+      byteBounded.findingRetention!.totalFindingCount - byteBounded.findings.length,
+    );
+  });
+
+  it("attributes observed decisions only to their exact routes and reports genuinely shared decisions separately", () => {
+    const source: RuntimeCompileSource = {
+      snapshotId: "snapshot-route-decisions", structureVersionId: "structure-route-decisions",
+      startPassageId: "passage-start",
+      passageVersions: [
+        { versionId: "pv-start", id: "passage-start", choiceIds: ["choice-a"], terminal: false, endingId: null, routeIds: [], requiredFactIds: [], revealedFactIds: [] },
+        { versionId: "pv-a", id: "passage-a", choiceIds: ["choice-b"], terminal: false, endingId: null, routeIds: ["route-a"], requiredFactIds: [], revealedFactIds: [] },
+        { versionId: "pv-b", id: "passage-b", choiceIds: ["choice-ending"], terminal: false, endingId: null, routeIds: ["route-b"], requiredFactIds: [], revealedFactIds: [] },
+        { versionId: "pv-ending", id: "passage-ending", choiceIds: [], terminal: true, endingId: "ending-b", routeIds: ["route-b"], requiredFactIds: [], revealedFactIds: [] },
+      ],
+      choiceVersions: [
+        { versionId: "cv-a", id: "choice-a", sourcePassageId: "passage-start", destinationPassageId: "passage-a", condition: null, unavailableBehavior: "disabled", unavailableExplanation: "", effects: [], sourceDecisionIds: ["decision-a", "decision-shared"], position: 0 },
+        { versionId: "cv-b", id: "choice-b", sourcePassageId: "passage-a", destinationPassageId: "passage-b", condition: null, unavailableBehavior: "disabled", unavailableExplanation: "", effects: [], sourceDecisionIds: ["decision-b"], position: 0 },
+        { versionId: "cv-ending", id: "choice-ending", sourcePassageId: "passage-b", destinationPassageId: "passage-ending", condition: null, unavailableBehavior: "disabled", unavailableExplanation: "", effects: [], sourceDecisionIds: [], position: 0 },
+      ],
+      threadVersionIds: [], routeIds: ["route-a", "route-b"],
+      routeDecisionIds: ["decision-a", "decision-b", "decision-shared"],
+      endings: [{ id: "ending-b", routeId: "route-b" }],
+      mechanics: { visibleStats: [], relationships: [], flags: [], resources: [], gates: [] },
+    };
+    const analysis: PlaytestAnalysisSource = {
+      passages: Object.fromEntries(source.passageVersions.map((passage) => [passage.id, {
+        id: passage.id, title: passage.id, actId: null, sequenceId: "sequence-route-decisions",
+        routeIds: passage.routeIds, wordTarget: 100, wordCount: 100, wordBasis: "planned-target" as const,
+        acceptedDraftVersionId: null, requiredFactIds: [], revealedFactIds: [], setupThreadIds: [], payoffThreadIds: [],
+        authoredChoiceCount: passage.choiceIds.length,
+      }])),
+      threads: {}, routeLabels: { "route-a": "Route A", "route-b": "Route B" },
+      endingLabels: { "ending-b": "Ending B" }, mechanicLabels: {},
+      routeDecisionIds: { "route-a": ["decision-a"], "route-b": ["decision-b"] },
+      sharedDecisionIds: ["decision-shared"],
+    };
+    const runtime = compileRuntime(source);
+    const policy = createPlaytestPolicy({ sampleCount: 1, maxStepsPerSample: 10 }, DEFAULT_DETERMINISTIC_PATH_POLICY);
+    const input = {
+      identity: {
+        projectId: "project-route-decisions", simulationInputArtifactVersionId: "input-route-decisions",
+        simulationInputFingerprint: "route-decision-input", compiledRuntimeFingerprint: runtime.fingerprint,
+        snapshotId: source.snapshotId, seed: "route-decisions",
+      },
+      runtime, source: analysis, policy,
+    };
+    const first = runPlaytestCampaign(input);
+    const second = runPlaytestCampaign(input);
+    expect(second).toEqual(first);
+    expect(first.samples[0]?.routeIds).toEqual(["route-a", "route-b"]);
+    expect(first.report.routeCoverage.find((route) => route.routeId === "route-a")?.decisionIds).toEqual(["decision-a"]);
+    expect(first.report.routeCoverage.find((route) => route.routeId === "route-b")?.decisionIds).toEqual(["decision-b"]);
+    expect(first.report.sharedDecisionIds).toEqual(["decision-shared"]);
   });
 
   it("runs a bounded deterministic 300-passage campaign without exhaustive enumeration", () => {

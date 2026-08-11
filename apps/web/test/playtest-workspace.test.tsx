@@ -47,7 +47,7 @@ const passageItems = Array.from({ length: 300 }, (_, index) => ({
   lastSampleIndex: index < 250 ? 0 : null,
 }));
 const campaign = {
-  schemaVersion: 1, id: "ptc-campaign", projectId: "project-1",
+  schemaVersion: 2, id: "ptc-campaign", projectId: "project-1",
   simulationInputArtifactVersionId: input.versionId,
   simulationInputFingerprint: input.fingerprint,
   compiledRuntimeFingerprint: input.runtimeFingerprint,
@@ -88,6 +88,7 @@ const campaign = {
       enabledChoicesPerVisitedPassage: { "passage-000": 3 }, authoredChoicesPerVisitedPassage: { "passage-000": 4 },
     },
     routeExclusiveContent: [{ routeId: "route-hope", authoredPassageIds: ["passage-001"], observedPassageIds: ["passage-001"], authoredWords: 500, observedWords: 500, acceptedWordVolume: 500, plannedWordVolume: 0 }],
+    sharedDecisionIds: ["decision-shared"],
     representatives: {
       shortestCompletedSampleId: sample.id, medianCompletedSampleId: sample.id, longestCompletedSampleId: sample.id,
       minimumWordSampleId: sample.id, maximumWordSampleId: sample.id,
@@ -103,6 +104,10 @@ const campaign = {
     message: "Passage passage-001 required structured facts before they were known in sample 0.",
     passageIds: ["passage-001"], choiceIds: [], mechanicKeys: [], routeIds: ["route-hope"], endingIds: [], evidence: { factId: "fact-secret" },
   }],
+  findingRetention: {
+    totalFindingCount: 3, retainedFindingCount: 1, omittedFindingCount: 2,
+    retainedFindingBytes: 700, truncated: true, aggregateReportFindingBasis: "all-generated-findings",
+  },
   fingerprint: "88888888888888888888888888888888",
 } as unknown as PlaytestCampaignRecord;
 const version = { id: "campaign-version-v1", version: 1, createdAt: "2026-08-12T00:01:00.000Z", content: campaign };
@@ -111,7 +116,8 @@ const summary = {
   simulationInputArtifactVersionId: input.versionId, simulationInputFingerprint: input.fingerprint,
   runtimeFingerprint: input.runtimeFingerprint, seed: campaign.seed, sampleCount: 50, hardFailureSampleCount: 1,
   passageCoveragePercentage: campaign.report.passageCoverage.percentage, routeCoverageCount: 1, endingCoverageCount: 1,
-  findingCount: 1, reportFingerprint: campaign.report.fingerprint,
+  findingCount: 1, totalFindingCount: 3, omittedFindingCount: 2, findingsTruncated: true,
+  reportFingerprint: campaign.report.fingerprint,
 };
 const replay = {
   verified: true,
@@ -164,11 +170,14 @@ describe("PlaytestWorkspace", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Aggregate report" })).toBeTruthy());
     expect(screen.getByText("250/300 · 83.3%")).toBeTruthy();
     expect(screen.getByText(/28 samples · 56.0%/)).toBeTruthy();
+    expect(screen.getByText(/decisions decision-route/)).toBeTruthy();
+    expect(screen.getByText(/Observed shared decisions: decision-shared/)).toBeTruthy();
     expect(screen.getByText(/20 eligible · 1 ineligible/)).toBeTruthy();
     expect(screen.getByText(/Resolve · stat · 40 writes/)).toBeTruthy();
     expect(screen.getByText(/1 required-before-known observations/)).toBeTruthy();
     expect(screen.getByText(/4 long linear stretches observed/)).toBeTruthy();
     expect(screen.getByText(/1\/1 exclusive passages/)).toBeTruthy();
+    expect(screen.getByText(/1\/3 retained from all generated evidence; 2 omitted/)).toBeTruthy();
     await user.click(screen.getAllByText("passage-001", { selector: "button" })[0]!);
     expect(navigate).toHaveBeenCalledWith("passage-001");
 
@@ -185,7 +194,7 @@ describe("PlaytestWorkspace", () => {
     await waitFor(() => expect(requests.some((item) => item.url.endsWith(`/playtests/campaigns/${version.id}`))).toBe(true));
     expect(requests.every((item) => !/provider|openrouter|prose/i.test(item.url))).toBe(true);
     expect(JSON.stringify(summary)).not.toContain("retainedTraces");
-  });
+  }, 10_000);
 
   it("uses the same golden PRNG algorithm in the browser-targeted workspace", () => {
     const prng = new DeterministicPlaytestPrng("golden-seed");

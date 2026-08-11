@@ -23,6 +23,9 @@ export interface PlaytestCampaignSummary {
   routeCoverageCount: number;
   endingCoverageCount: number;
   findingCount: number;
+  totalFindingCount: number;
+  omittedFindingCount: number;
+  findingsTruncated: boolean;
   reportFingerprint: string;
 }
 

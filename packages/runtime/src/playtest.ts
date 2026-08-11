@@ -24,6 +24,7 @@ import {
   type PlaytestEvidenceLevel,
   type PlaytestFinding,
   type PlaytestFindingCategory,
+  type PlaytestFindingRetentionDiagnostics,
   type PlaytestPolicy,
   type PlaytestPolicyInputRuntimeBounds,
   type PlaytestPolicyRequest,
@@ -405,6 +406,7 @@ interface CampaignAccumulator {
   routeSamples: Map<string, Set<number>>;
   routeAssociatedSamples: Map<string, Set<number>>;
   routeDecisions: Map<string, Set<string>>;
+  sharedDecisions: Set<string>;
   endingCompleted: Map<string, number>;
   endingIneligible: Map<string, number>;
   mechanics: Map<string, MechanicAccumulator>;
@@ -431,6 +433,7 @@ function createAccumulator(runtime: CompiledRuntime, source: PlaytestAnalysisSou
     routeSamples: new Map(runtime.routeIds.map((id) => [id, new Set<number>()])),
     routeAssociatedSamples: new Map(runtime.routeIds.map((id) => [id, new Set<number>()])),
     routeDecisions: new Map(runtime.routeIds.map((id) => [id, new Set<string>()])),
+    sharedDecisions: new Set<string>(),
     endingCompleted: new Map(Object.keys(runtime.endings).map((id) => [id, 0])),
     endingIneligible: new Map(Object.keys(runtime.endings).map((id) => [id, 0])),
     mechanics: new Map(Object.entries(runtime.mechanics).map(([key, definition]) => [key, {
@@ -768,7 +771,14 @@ function accumulateSample(
   }
   for (const routeId of sample.routeIds) {
     accumulator.routeSamples.get(routeId)?.add(sample.index);
-    for (const decisionId of sample.decisionIds) accumulator.routeDecisions.get(routeId)?.add(decisionId);
+    const relatedDecisions = new Set(source.routeDecisionIds[routeId] ?? []);
+    for (const decisionId of sample.decisionIds) {
+      if (relatedDecisions.has(decisionId)) accumulator.routeDecisions.get(routeId)?.add(decisionId);
+    }
+  }
+  const sharedDecisions = new Set(source.sharedDecisionIds);
+  for (const decisionId of sample.decisionIds) if (sharedDecisions.has(decisionId)) {
+    accumulator.sharedDecisions.add(decisionId);
   }
   if (sample.endingId && sample.result.kind === "completed-ending") increment(accumulator.endingCompleted, sample.endingId);
   if (sample.endingId && sample.result.kind === "ending-ineligible") increment(accumulator.endingIneligible, sample.endingId);
@@ -1032,27 +1042,44 @@ function buildReport(
     continuity: continuityReport(accumulator, source),
     pacing: pacingReport(accumulator, samples),
     routeExclusiveContent: routeExclusiveReport(source, accumulator, runtime.routeIds),
+    sharedDecisionIds: [...accumulator.sharedDecisions].sort(),
     representatives: representativeIds(samples),
   };
   return { ...core, fingerprint: stableFingerprint(core) };
 }
 
 function deterministicFindingOrder(left: PlaytestFinding, right: PlaytestFinding): number {
-  return left.evidenceLevel.localeCompare(right.evidenceLevel)
+  const priority: Record<PlaytestEvidenceLevel, number> = {
+    "hard-error": 0,
+    warning: 1,
+    "coverage-gap": 2,
+    observation: 3,
+  };
+  return priority[left.evidenceLevel] - priority[right.evidenceLevel]
     || left.code.localeCompare(right.code)
     || (left.sampleIndex ?? Number.MAX_SAFE_INTEGER) - (right.sampleIndex ?? Number.MAX_SAFE_INTEGER)
     || left.id.localeCompare(right.id);
 }
 
-function boundedFindings(findings: PlaytestFinding[], policy: PlaytestPolicy): PlaytestFinding[] {
+function boundedFindings(findings: PlaytestFinding[], policy: PlaytestPolicy): {
+  findings: PlaytestFinding[];
+  diagnostics: PlaytestFindingRetentionDiagnostics;
+} {
   const result: PlaytestFinding[] = [];
-  let bytes = 2;
   for (const finding of [...findings].sort(deterministicFindingOrder)) {
-    const nextBytes = bytes + serializedBytes(finding) + 1;
-    if (result.length >= policy.maxFindings || nextBytes > policy.maxFindingBytes) break;
-    result.push(finding); bytes = nextBytes;
+    if (result.length >= policy.maxFindings) break;
+    if (serializedBytes([...result, finding]) > policy.maxFindingBytes) continue;
+    result.push(finding);
   }
-  return result;
+  const diagnostics: PlaytestFindingRetentionDiagnostics = {
+    totalFindingCount: findings.length,
+    retainedFindingCount: result.length,
+    omittedFindingCount: findings.length - result.length,
+    retainedFindingBytes: serializedBytes(result),
+    truncated: result.length !== findings.length,
+    aggregateReportFindingBasis: "all-generated-findings",
+  };
+  return { findings: result, diagnostics };
 }
 
 function retainedTraceIds(report: PlaytestAggregateReport, samples: PlaytestSampleSummary[], policy: PlaytestPolicy): Set<string> {
@@ -1126,11 +1153,11 @@ export function runPlaytestCampaign(input: RunPlaytestCampaignInput): PlaytestCa
   }
   addCampaignFindings(accumulator, context, input.runtime, input.source, summaries);
   const report = buildReport(accumulator, input.runtime, input.source, summaries);
-  const findings = boundedFindings(accumulator.findings, input.policy);
+  const retainedFindings = boundedFindings(accumulator.findings, input.policy);
   const retain = retainedTraceIds(report, summaries, input.policy);
   const retainedTraces = summaries.filter((sample) => retain.has(sample.id)).map((sample) => traces.get(sample.id)!);
   const contentWithoutFingerprint = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     id: campaignId,
     ...campaignIdentity,
     status: "completed" as const,
@@ -1139,7 +1166,8 @@ export function runPlaytestCampaign(input: RunPlaytestCampaignInput): PlaytestCa
     samples: summaries,
     retainedTraces,
     report,
-    findings,
+    findings: retainedFindings.findings,
+    findingRetention: retainedFindings.diagnostics,
   };
   const campaign: PlaytestCampaignRecord = {
     ...contentWithoutFingerprint,

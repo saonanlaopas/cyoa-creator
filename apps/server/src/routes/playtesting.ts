@@ -32,24 +32,35 @@ export function registerPlaytestingRoutes(app: FastifyInstance, service: Playtes
   app.get<{ Params: ProjectParams }>(
     "/api/long-form/projects/:projectId/simulation/playtests/campaigns",
     async (request, reply) => respond(reply, () => ({
-      items: service.listCampaigns(request.params.projectId).map((version) => ({
-        versionId: version.id,
-        version: version.version,
-        createdAt: version.createdAt,
-        campaignId: version.content.id,
-        fingerprint: version.content.fingerprint,
-        simulationInputArtifactVersionId: version.content.simulationInputArtifactVersionId,
-        simulationInputFingerprint: version.content.simulationInputFingerprint,
-        runtimeFingerprint: version.content.compiledRuntimeFingerprint,
-        seed: version.content.seed,
-        sampleCount: version.content.actualSampleCount,
-        hardFailureSampleCount: version.content.report.hardFailureSampleCount,
-        passageCoveragePercentage: version.content.report.passageCoverage.percentage,
-        routeCoverageCount: version.content.report.routeCoverage.filter((item) => item.sampleCount > 0).length,
-        endingCoverageCount: version.content.report.endingCoverage.filter((item) => item.observedCount > 0).length,
-        findingCount: version.content.findings.length,
-        reportFingerprint: version.content.report.fingerprint,
-      })),
+      items: service.listCampaigns(request.params.projectId).map((version) => {
+        const retention = version.content.findingRetention ?? {
+          totalFindingCount: version.content.findings.length,
+          retainedFindingCount: version.content.findings.length,
+          omittedFindingCount: 0,
+          truncated: false,
+        };
+        return {
+          versionId: version.id,
+          version: version.version,
+          createdAt: version.createdAt,
+          campaignId: version.content.id,
+          fingerprint: version.content.fingerprint,
+          simulationInputArtifactVersionId: version.content.simulationInputArtifactVersionId,
+          simulationInputFingerprint: version.content.simulationInputFingerprint,
+          runtimeFingerprint: version.content.compiledRuntimeFingerprint,
+          seed: version.content.seed,
+          sampleCount: version.content.actualSampleCount,
+          hardFailureSampleCount: version.content.report.hardFailureSampleCount,
+          passageCoveragePercentage: version.content.report.passageCoverage.percentage,
+          routeCoverageCount: version.content.report.routeCoverage.filter((item) => item.sampleCount > 0).length,
+          endingCoverageCount: version.content.report.endingCoverage.filter((item) => item.observedCount > 0).length,
+          findingCount: retention.retainedFindingCount,
+          totalFindingCount: retention.totalFindingCount,
+          omittedFindingCount: retention.omittedFindingCount,
+          findingsTruncated: retention.truncated,
+          reportFingerprint: version.content.report.fingerprint,
+        };
+      }),
     })),
   );
 

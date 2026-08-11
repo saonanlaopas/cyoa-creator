@@ -87,6 +87,8 @@ export interface PlaytestAnalysisSource {
   routeLabels: Record<string, string>;
   endingLabels: Record<string, string>;
   mechanicLabels: Record<string, string>;
+  routeDecisionIds: Record<string, string[]>;
+  sharedDecisionIds: string[];
 }
 
 export interface CompactPlaytestStep {
@@ -271,6 +273,8 @@ export interface PlaytestAggregateReport {
   continuity: ContinuityReport;
   pacing: PacingReport;
   routeExclusiveContent: RouteExclusiveReportItem[];
+  /** Present on Foundation 5B schema-v2 reports. */
+  sharedDecisionIds?: string[];
   representatives: RepresentativeSamples;
   fingerprint: string;
 }
@@ -322,8 +326,17 @@ export interface PlaytestCampaignIdentity {
   policy: PlaytestPolicy;
 }
 
+export interface PlaytestFindingRetentionDiagnostics {
+  totalFindingCount: number;
+  retainedFindingCount: number;
+  omittedFindingCount: number;
+  retainedFindingBytes: number;
+  truncated: boolean;
+  aggregateReportFindingBasis: "all-generated-findings";
+}
+
 export interface PlaytestCampaignRecord extends PlaytestCampaignIdentity {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   id: string;
   status: "completed";
   requestedSampleCount: number;
@@ -332,6 +345,8 @@ export interface PlaytestCampaignRecord extends PlaytestCampaignIdentity {
   retainedTraces: CompactPlaytestTrace[];
   report: PlaytestAggregateReport;
   findings: PlaytestFinding[];
+  /** Present on schema v2. Omitted only on historical schema-v1 campaigns. */
+  findingRetention?: PlaytestFindingRetentionDiagnostics;
   fingerprint: string;
 }
 

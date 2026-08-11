@@ -70,14 +70,14 @@ export class PlaytestService {
         seed: input.seed,
       },
       runtime: resolved.runtime,
-      source: analysisSource(resolved),
+      source: buildPlaytestAnalysisSource(resolved),
       policy,
     });
     return this.artifacts.saveArtifact({
       projectId,
       artifactId: PLAYTEST_CAMPAIGN_ARTIFACT_ID,
       artifactType: "playtest-campaign",
-      schemaVersion: 1,
+      schemaVersion: 2,
       content: campaign,
     });
   }
@@ -139,20 +139,68 @@ function sortedRecord(value: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
 }
 
-function analysisSource(resolved: ResolvedSimulationInput): PlaytestAnalysisSource {
+interface ImmutableAcceptedDraftProvenance {
+  id: string;
+  passageId: string;
+  basedOnPassagePlanVersionId: string;
+  upstreamVersions: Record<string, string>;
+  neighboringDraftVersions: Record<string, string>;
+}
+
+export function deriveAcceptedDraftCleanliness(input: {
+  passageVersions: Record<string, string>;
+  acceptedDraftVersions: Record<string, string>;
+  upstreamVersions: Record<string, string>;
+  drafts: ImmutableAcceptedDraftProvenance[];
+}): Record<string, boolean> {
+  const drafts = new Map(input.drafts.map((draft) => [draft.passageId, draft]));
+  const expectedUpstreamFingerprint = stableFingerprint(sortedRecord(input.upstreamVersions));
+  const passageIds = Object.keys(input.acceptedDraftVersions).sort();
+  const dependencies = new Map<string, string[]>();
+  const cleanliness = new Map<string, boolean>();
+  for (const passageId of passageIds) {
+    const draft = drafts.get(passageId);
+    const neighbors = Object.entries(draft?.neighboringDraftVersions ?? {})
+      .sort(([left], [right]) => left.localeCompare(right));
+    dependencies.set(passageId, neighbors.map(([neighborId]) => neighborId));
+    cleanliness.set(passageId, draft !== undefined
+      && draft.id === input.acceptedDraftVersions[passageId]
+      && draft.basedOnPassagePlanVersionId === input.passageVersions[passageId]
+      && stableFingerprint(sortedRecord(draft.upstreamVersions)) === expectedUpstreamFingerprint
+      && neighbors.every(([neighborId, neighborVersionId]) => (
+        input.acceptedDraftVersions[neighborId] === neighborVersionId
+      )));
+  }
+  // Monotone bounded fixed-point propagation keeps exact dependency cycles
+  // clean while deterministically spreading any immutable mismatch through them.
+  for (let pass = 0; pass < passageIds.length; pass += 1) {
+    let changed = false;
+    for (const passageId of passageIds) {
+      if (cleanliness.get(passageId)
+        && dependencies.get(passageId)?.some((neighborId) => cleanliness.get(neighborId) !== true)) {
+        cleanliness.set(passageId, false);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return Object.fromEntries(passageIds.map((passageId) => [passageId, cleanliness.get(passageId) === true]));
+}
+
+export function buildPlaytestAnalysisSource(resolved: ResolvedSimulationInput): PlaytestAnalysisSource {
   const sequenceAct = new Map(resolved.structure.sequences.map((sequence) => [sequence.id, sequence.actId]));
-  const passageVersions = new Map(resolved.input.passageVersions.map((item) => [item.entityId, item.versionId]));
+  const passageVersions = Object.fromEntries(resolved.input.passageVersions.map((item) => [item.entityId, item.versionId]));
   const acceptedDrafts = new Map(resolved.acceptedDrafts.map((draft) => [draft.passageId, draft]));
-  const acceptedReferences = new Map(resolved.input.acceptedDraftVersions.map((item) => [item.entityId, item.versionId]));
-  const exactUpstreamFingerprint = stableFingerprint(sortedRecord(resolved.input.upstreamVersions));
+  const acceptedReferences = Object.fromEntries(resolved.input.acceptedDraftVersions.map((item) => [item.entityId, item.versionId]));
+  const cleanDrafts = deriveAcceptedDraftCleanliness({
+    passageVersions,
+    acceptedDraftVersions: acceptedReferences,
+    upstreamVersions: resolved.input.upstreamVersions,
+    drafts: resolved.acceptedDrafts,
+  });
   const passages = Object.fromEntries(resolved.passages.map((passage) => {
     const draft = acceptedDrafts.get(passage.id);
-    const exactDraft = draft && draft.id === acceptedReferences.get(passage.id)
-      && draft.basedOnPassagePlanVersionId === passageVersions.get(passage.id)
-      && stableFingerprint(sortedRecord(draft.upstreamVersions)) === exactUpstreamFingerprint
-      && Object.entries(draft.neighboringDraftVersions).every(([neighborId, versionId]) => (
-        acceptedReferences.get(neighborId) === versionId
-      ));
+    const exactDraft = cleanDrafts[passage.id] ?? false;
     const wordBasis = exactDraft ? "accepted-prose" as const
       : draft ? "historical-stale-accepted" as const
         : "planned-target" as const;
@@ -173,6 +221,15 @@ function analysisSource(resolved: ResolvedSimulationInput): PlaytestAnalysisSour
       authoredChoiceCount: passage.choiceIds.length,
     }];
   }));
+  const routeDecisionIds: Record<string, string[]> = Object.fromEntries(
+    resolved.routes.routes.map((route) => [route.id, []]),
+  );
+  const sharedDecisionIds: string[] = [];
+  for (const decision of [...resolved.routes.decisionPoints].sort((left, right) => left.id.localeCompare(right.id))) {
+    const relatedRouteIds = [...new Set(decision.choices.flatMap((choice) => choice.routeId ? [choice.routeId] : []))].sort();
+    if (relatedRouteIds.length === 0) sharedDecisionIds.push(decision.id);
+    else for (const routeId of relatedRouteIds) routeDecisionIds[routeId]?.push(decision.id);
+  }
   return {
     passages,
     threads: Object.fromEntries(resolved.threads.map((thread) => [thread.id, {
@@ -191,5 +248,7 @@ function analysisSource(resolved: ResolvedSimulationInput): PlaytestAnalysisSour
       ...resolved.mechanics.flags,
       ...resolved.mechanics.resources,
     ].map((mechanic) => [mechanic.key, mechanic.label])),
+    routeDecisionIds,
+    sharedDecisionIds,
   };
 }

@@ -152,6 +152,7 @@ export function PlaytestWorkspace({ projectId, inputs, defaultInputId, onNavigat
         <button key={item.versionId} onClick={() => void reopen(item.versionId)}>
           <span>v{item.version} · seed {item.seed} · {item.sampleCount} samples</span>
           <small>{item.passageCoveragePercentage.toFixed(1)}% passages · {item.routeCoverageCount} routes · {item.endingCoverageCount} endings · {item.hardFailureSampleCount} hard failures</small>
+          <small>{item.findingCount}/{item.totalFindingCount} findings retained{item.findingsTruncated ? ` · ${item.omittedFindingCount} omitted by bounds` : ""}</small>
           <small>{item.simulationInputFingerprint.slice(0, 12)} / {item.reportFingerprint.slice(0, 12)}</small>
         </button>)}</div>}
     </section>
@@ -205,6 +206,15 @@ function CampaignEvidence(props: {
 }) {
   const content = props.campaign.content;
   const report = content.report;
+  const sharedDecisionIds = report.sharedDecisionIds ?? [];
+  const findingRetention = content.findingRetention ?? {
+    totalFindingCount: content.findings.length,
+    retainedFindingCount: content.findings.length,
+    omittedFindingCount: 0,
+    retainedFindingBytes: 0,
+    truncated: false,
+    aggregateReportFindingBasis: "all-generated-findings" as const,
+  };
   return <section className="playtest-results" aria-label="Playtest campaign evidence">
     <section className="brief-section playtest-overview">
       <header><div><p className="eyebrow">Immutable campaign v{props.campaign.version}</p><h3>Aggregate report</h3></div>
@@ -239,7 +249,8 @@ function CampaignEvidence(props: {
     <section className="playtest-report-grid">
       <section className="brief-section"><h3>Route coverage</h3><div className="compact-table">{report.routeCoverage.map((item) =>
         <div key={item.routeId}><button className="stable-id-link" onClick={() => props.onNavigateStableId?.(item.routeId)}>{item.label}</button>
-          <span>{item.sampleCount} samples · {(item.frequency * 100).toFixed(1)}% · {item.associatedPassageSampleCount} with associated content</span></div>)}</div></section>
+          <span>{item.sampleCount} samples · {(item.frequency * 100).toFixed(1)}% · {item.associatedPassageSampleCount} with associated content · decisions {item.decisionIds.join(", ") || "none"}</span></div>)}</div>
+        {sharedDecisionIds.length > 0 && <p>Observed shared decisions: {sharedDecisionIds.join(", ")}</p>}</section>
       <section className="brief-section"><h3>Ending coverage</h3><div className="compact-table">{report.endingCoverage.map((item) =>
         <div key={item.endingId}><button className="stable-id-link" onClick={() => props.onNavigateStableId?.(item.endingId)}>{item.label}</button>
           <span>{item.completedCount} eligible · {item.ineligibleCount} ineligible · {item.observedCount} observed</span></div>)}</div></section>
@@ -278,7 +289,8 @@ function CampaignEvidence(props: {
       <div key={item.routeId}><button className="stable-id-link" onClick={() => props.onNavigateStableId?.(item.routeId)}>{item.routeId}</button>
         <span>{item.observedPassageIds.length}/{item.authoredPassageIds.length} exclusive passages · {item.observedWords.toLocaleString()}/{item.authoredWords.toLocaleString()} words observed · {item.acceptedWordVolume.toLocaleString()} accepted-word volume</span></div>)}</div></section>
 
-    <section className="brief-section playtest-findings"><header><div><h3>Deterministic findings</h3><p>Sample absence is labeled as bounded evidence, never proof of impossibility.</p></div>
+    <section className="brief-section playtest-findings"><header><div><h3>Deterministic findings</h3><p>Sample absence is labeled as bounded evidence, never proof of impossibility.</p>
+      <p>{findingRetention.retainedFindingCount}/{findingRetention.totalFindingCount} retained from all generated evidence{findingRetention.truncated ? `; ${findingRetention.omittedFindingCount} omitted by deterministic bounds` : ""}.</p></div>
       <label>Filter findings<select aria-label="Filter playtest findings" value={props.findingFilter} onChange={(event) => props.setFindingFilter(event.target.value)}>
         <option value="all">All</option><option value="hard-error">Hard errors</option><option value="warning">Warnings</option>
         <option value="coverage-gap">Coverage gaps</option><option value="observation">Observations</option>

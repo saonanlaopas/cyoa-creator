@@ -3,8 +3,20 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "@story-to-cyoa/persistence";
-import { stableFingerprint } from "@story-to-cyoa/runtime";
+import {
+  DEFAULT_DETERMINISTIC_PATH_POLICY,
+  compileRuntime,
+  createPlaytestPolicy,
+  runPlaytestCampaign,
+  stableFingerprint,
+  type RuntimeCompileSource,
+} from "@story-to-cyoa/runtime";
 import { buildApp } from "../src/app.js";
+import {
+  buildPlaytestAnalysisSource,
+  deriveAcceptedDraftCleanliness,
+} from "../src/services/playtest-service.js";
+import type { ResolvedSimulationInput } from "../src/services/simulation-service.js";
 
 const apps: ReturnType<typeof buildApp>[] = [];
 async function closeApps() { for (const app of apps.splice(0)) await app.close(); }
@@ -59,7 +71,125 @@ function sampleIdentity(sample: Record<string, unknown>) {
   return { ...identity, id: `pts_${fingerprint}`, fingerprint };
 }
 
+function immutableDraftFixture() {
+  const passageIds = ["passage-a", "passage-b", "passage-c", "passage-d", "passage-e", "passage-f", "passage-g"];
+  const passageVersions = Object.fromEntries(passageIds.map((id) => [id, `pv-${id}`]));
+  const acceptedDraftVersions = Object.fromEntries(passageIds.filter((id) => id !== "passage-e")
+    .map((id) => [id, `draft-${id}`]));
+  const upstreamVersions = { brief: "brief-v1", bible: "bible-v1", routes: "routes-v1", endings: "endings-v1", mechanics: "mechanics-v1" };
+  const neighborVersions: Record<string, Record<string, string>> = {
+    "passage-a": {},
+    "passage-b": { "passage-a": "draft-passage-a" },
+    "passage-c": { "passage-b": "draft-passage-b" },
+    "passage-d": {},
+    "passage-f": { "passage-g": "draft-passage-g" },
+    "passage-g": { "passage-c": "draft-passage-c", "passage-f": "draft-passage-f" },
+  };
+  const wordCounts: Record<string, number> = {
+    "passage-a": 100, "passage-b": 200, "passage-c": 300, "passage-d": 400,
+    "passage-f": 600, "passage-g": 700,
+  };
+  const drafts = Object.keys(acceptedDraftVersions).map((passageId) => ({
+    id: acceptedDraftVersions[passageId]!, passageId,
+    basedOnPassagePlanVersionId: passageVersions[passageId]!, upstreamVersions: { ...upstreamVersions },
+    neighboringDraftVersions: neighborVersions[passageId] ?? {}, wordCount: wordCounts[passageId]!,
+  }));
+  const passages = passageIds.map((id, index) => ({
+    id, title: id, sequenceId: "sequence-drafts", routeIds: [] as string[], wordTarget: (index + 1) * 100,
+    choiceIds: index < 4 ? [`choice-${index}`] : [], requiredFactIds: [] as string[], revealedFactIds: [] as string[],
+    setupThreadIds: [] as string[], payoffThreadIds: [] as string[], relationshipIds: [] as string[],
+  }));
+  const resolved = {
+    input: {
+      passageVersions: Object.entries(passageVersions).map(([entityId, versionId]) => ({ entityId, versionId })),
+      acceptedDraftVersions: Object.entries(acceptedDraftVersions).map(([entityId, versionId]) => ({ entityId, versionId })),
+      upstreamVersions,
+    },
+    structure: { sequences: [{ id: "sequence-drafts", actId: "act-drafts" }] },
+    acceptedDrafts: drafts,
+    passages,
+    threads: [],
+    routes: { routes: [], decisionPoints: [] },
+    endings: { endings: [] },
+    mechanics: { visibleStats: [], relationships: [], flags: [], resources: [] },
+  } as unknown as ResolvedSimulationInput;
+  return { resolved, drafts, passageVersions, acceptedDraftVersions, upstreamVersions };
+}
+
 describe("Foundation 5B playtest API", () => {
+  it("derives accepted-prose cleanliness transitively from immutable provenance and handles dependency cycles", () => {
+    const fixture = immutableDraftFixture();
+    const clean = deriveAcceptedDraftCleanliness({
+      passageVersions: fixture.passageVersions,
+      acceptedDraftVersions: fixture.acceptedDraftVersions,
+      upstreamVersions: fixture.upstreamVersions,
+      drafts: fixture.drafts,
+    });
+    expect(clean).toMatchObject({
+      "passage-a": true, "passage-b": true, "passage-c": true, "passage-d": true,
+      "passage-f": true, "passage-g": true,
+    });
+
+    const invalidDrafts = fixture.drafts.map((draft) => draft.passageId === "passage-a"
+      ? { ...draft, basedOnPassagePlanVersionId: "pv-obsolete-a" } : draft);
+    const invalidResolved = { ...fixture.resolved, acceptedDrafts: invalidDrafts } as ResolvedSimulationInput;
+    const analysis = buildPlaytestAnalysisSource(invalidResolved);
+    expect(analysis.passages["passage-a"]?.wordBasis).toBe("historical-stale-accepted");
+    expect(analysis.passages["passage-b"]?.wordBasis).toBe("historical-stale-accepted");
+    expect(analysis.passages["passage-c"]?.wordBasis).toBe("historical-stale-accepted");
+    expect(analysis.passages["passage-d"]?.wordBasis).toBe("accepted-prose");
+    expect(analysis.passages["passage-e"]?.wordBasis).toBe("planned-target");
+    expect(analysis.passages["passage-f"]?.wordBasis).toBe("historical-stale-accepted");
+    expect(analysis.passages["passage-g"]?.wordBasis).toBe("historical-stale-accepted");
+
+    const runtimeSource: RuntimeCompileSource = {
+      snapshotId: "snapshot-draft-closure", structureVersionId: "structure-draft-closure", startPassageId: "passage-a",
+      passageVersions: ["passage-a", "passage-b", "passage-c", "passage-d", "passage-e"].map((id, index) => ({
+        versionId: fixture.passageVersions[id]!, id, choiceIds: index < 4 ? [`choice-${index}`] : [],
+        terminal: index === 4, endingId: index === 4 ? "ending-drafts" : null,
+        routeIds: index === 4 ? ["route-drafts"] : [], requiredFactIds: [], revealedFactIds: [],
+      })),
+      choiceVersions: Array.from({ length: 4 }, (_, index) => ({
+        versionId: `cv-${index}`, id: `choice-${index}`,
+        sourcePassageId: `passage-${String.fromCharCode(97 + index)}`,
+        destinationPassageId: `passage-${String.fromCharCode(98 + index)}`,
+        condition: null, unavailableBehavior: "disabled" as const, unavailableExplanation: "",
+        effects: [], sourceDecisionIds: [], position: 0,
+      })),
+      threadVersionIds: [], routeIds: ["route-drafts"], routeDecisionIds: [],
+      endings: [{ id: "ending-drafts", routeId: "route-drafts" }],
+      mechanics: { visibleStats: [], relationships: [], flags: [], resources: [], gates: [] },
+    };
+    const runtime = compileRuntime(runtimeSource);
+    const policy = createPlaytestPolicy({ sampleCount: 1, maxStepsPerSample: 10 }, DEFAULT_DETERMINISTIC_PATH_POLICY);
+    const campaignInput = {
+      identity: {
+        projectId: "project-draft-closure", simulationInputArtifactVersionId: "input-draft-closure",
+        simulationInputFingerprint: "draft-closure-input", compiledRuntimeFingerprint: runtime.fingerprint,
+        snapshotId: runtimeSource.snapshotId, seed: "draft-closure",
+      },
+      runtime, source: analysis, policy,
+    };
+    const first = runPlaytestCampaign(campaignInput);
+    const second = runPlaytestCampaign(campaignInput);
+    expect(second).toEqual(first);
+    expect(first.samples[0]?.words).toEqual({
+      total: 1_500, basis: "historical-stale-accepted", acceptedWords: 400,
+      plannedWords: 500, historicalStaleAcceptedWords: 600,
+    });
+
+    const invalidCycle = fixture.drafts.map((draft) => draft.passageId === "passage-f"
+      ? { ...draft, basedOnPassagePlanVersionId: "pv-obsolete-f" } : draft);
+    const cycleCleanliness = deriveAcceptedDraftCleanliness({
+      passageVersions: fixture.passageVersions,
+      acceptedDraftVersions: fixture.acceptedDraftVersions,
+      upstreamVersions: fixture.upstreamVersions,
+      drafts: invalidCycle,
+    });
+    expect(cycleCleanliness["passage-f"]).toBe(false);
+    expect(cycleCleanliness["passage-g"]).toBe(false);
+  });
+
   it("previews backend bounds, persists deterministic campaigns, exposes compact metadata, and replays a sample", async () => {
     const fixture = await approvedProject();
     const canonicalBefore = (await fixture.app.inject({
@@ -91,7 +221,7 @@ describe("Foundation 5B playtest API", () => {
     expect(created.statusCode).toBe(201);
     const campaignVersion = created.json();
     expect(campaignVersion.content).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       projectId: fixture.projectId,
       simulationInputArtifactVersionId: fixture.input.id,
       simulationInputFingerprint: fixture.input.content.fingerprint,
@@ -101,6 +231,10 @@ describe("Foundation 5B playtest API", () => {
       requestedSampleCount: 12,
       actualSampleCount: 12,
       status: "completed",
+      findingRetention: {
+        totalFindingCount: expect.any(Number), retainedFindingCount: expect.any(Number),
+        omittedFindingCount: 0, truncated: false, aggregateReportFindingBasis: "all-generated-findings",
+      },
     });
     expect(campaignVersion.content.samples).toHaveLength(12);
     expect(campaignVersion.content.retainedTraces.length).toBeLessThanOrEqual(12);
@@ -116,6 +250,9 @@ describe("Foundation 5B playtest API", () => {
       fingerprint: campaignVersion.content.fingerprint,
       seed: "server-fixed-seed",
       sampleCount: 12,
+      totalFindingCount: campaignVersion.content.findingRetention.totalFindingCount,
+      omittedFindingCount: 0,
+      findingsTruncated: false,
       reportFingerprint: campaignVersion.content.report.fingerprint,
     })]);
     expect(JSON.stringify(list)).not.toContain("selectedChoiceIds");
@@ -162,8 +299,40 @@ describe("Foundation 5B playtest API", () => {
         url: `/api/long-form/projects/${fixture.projectId}/passage-plan/entities/passage/${currentPassage.entityId}`,
         payload: { ...currentPassage.content, title: "Newer canonical title" },
       })).statusCode).toBe(201);
+      const deterministicRerun = (await fixture.app.inject({
+        method: "POST", url: `/api/long-form/projects/${fixture.projectId}/simulation/playtests/campaigns`, payload: {
+          inputArtifactVersionId: fixture.input.id,
+          seed: "historical-seed",
+          policy: { sampleCount: 8, maxStepsPerSample: 40 },
+        },
+      })).json();
+      expect(deterministicRerun.content).toEqual(created.content);
+      const legacy = (await fixture.app.inject({
+        method: "POST", url: `/api/long-form/projects/${fixture.projectId}/simulation/playtests/campaigns`, payload: {
+          inputArtifactVersionId: fixture.input.id,
+          seed: "historical-v1-seed",
+          policy: { sampleCount: 4, maxStepsPerSample: 40 },
+        },
+      })).json();
       apps.splice(apps.indexOf(fixture.app), 1);
       await fixture.app.close();
+
+      const database = openDatabase(databasePath);
+      const legacyRow = database.prepare("SELECT content_json FROM artifact_versions WHERE id = ?")
+        .get(legacy.id) as { content_json: string };
+      const legacyContent = JSON.parse(legacyRow.content_json) as Record<string, unknown> & {
+        report: Record<string, unknown>;
+      };
+      legacyContent.schemaVersion = 1;
+      delete legacyContent.findingRetention;
+      delete legacyContent.report.sharedDecisionIds;
+      const { fingerprint: _reportFingerprint, ...legacyReportIdentity } = legacyContent.report;
+      legacyContent.report.fingerprint = stableFingerprint(legacyReportIdentity);
+      const { fingerprint: _campaignFingerprint, ...legacyCampaignIdentity } = legacyContent;
+      legacyContent.fingerprint = stableFingerprint(legacyCampaignIdentity);
+      database.prepare("UPDATE artifact_versions SET schema_version = 1, content_json = ? WHERE id = ?")
+        .run(JSON.stringify(legacyContent), legacy.id);
+      database.close();
 
       const reopened = buildApp({ databasePath });
       apps.push(reopened);
@@ -174,6 +343,24 @@ describe("Foundation 5B playtest API", () => {
       expect(historical.json().content).toMatchObject({
         fingerprint: originalFingerprint,
         report: { fingerprint: originalReportFingerprint },
+      });
+      const legacyHistorical = await reopened.inject({
+        method: "GET", url: `/api/long-form/projects/${fixture.projectId}/simulation/playtests/campaigns/${legacy.id}`,
+      });
+      expect(legacyHistorical.statusCode).toBe(200);
+      expect(legacyHistorical.json().content).toMatchObject({
+        schemaVersion: 1,
+        fingerprint: legacyContent.fingerprint,
+        report: { fingerprint: legacyContent.report.fingerprint },
+      });
+      const legacySummary = (await reopened.inject({
+        method: "GET", url: `/api/long-form/projects/${fixture.projectId}/simulation/playtests/campaigns`,
+      })).json().items.find((item: { versionId: string }) => item.versionId === legacy.id);
+      expect(legacySummary).toMatchObject({
+        findingCount: legacyContent.findings instanceof Array ? legacyContent.findings.length : 0,
+        totalFindingCount: legacyContent.findings instanceof Array ? legacyContent.findings.length : 0,
+        omittedFindingCount: 0,
+        findingsTruncated: false,
       });
       const replay = await reopened.inject({
         method: "POST",
