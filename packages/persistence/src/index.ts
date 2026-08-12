@@ -16,3 +16,4 @@ export * from "./passage-draft-repository.js";
 export * from "./passage-draft-acceptance-repository.js";
 export * from "./drafting-repository.js";
 export * from "./narrative-review-repository.js";
+export * from "./repair-plan-repository.js";

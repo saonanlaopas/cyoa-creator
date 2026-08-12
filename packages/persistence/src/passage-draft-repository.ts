@@ -244,6 +244,18 @@ export class PassageDraftRepository {
     };
   }
 
+  listHeads(projectId: string): PassageDraftHeadRecord[] {
+    return (this.database.prepare(`SELECT passage_id FROM passage_draft_heads
+      WHERE project_id = ? ORDER BY passage_id`).all(projectId) as Array<{ passage_id: string }>)
+      .map((row) => this.getHead(projectId, row.passage_id)!);
+  }
+
+  listAllVersions(projectId: string): PassageDraftVersionRecord[] {
+    return (this.database.prepare(`SELECT * FROM passage_draft_versions
+      WHERE project_id = ? ORDER BY passage_id, version DESC`).all(projectId) as DraftRow[])
+      .map((row) => this.mapDraft(row));
+  }
+
   listVersions(projectId: string, passageId: string): PassageDraftVersionRecord[] {
     return (this.database.prepare(`SELECT * FROM passage_draft_versions
       WHERE project_id = ? AND passage_id = ? ORDER BY version DESC`)

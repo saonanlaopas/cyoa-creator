@@ -1,7 +1,7 @@
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, NarrativeReviewRepository, openDatabase, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, NarrativeReviewRepository, openDatabase, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, ProjectRepository, RepairPlanRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { JobRunner, type NarrativeReviewProvider, type PassageDraftingProvider, type PassagePlanningProvider } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
@@ -48,6 +48,8 @@ import { NarrativeReviewService } from "./services/narrative-review-service.js";
 import { DeterministicNarrativeReviewProvider } from "./services/narrative-review-provider.js";
 import { OpenRouterNarrativeReviewProvider } from "./services/openrouter-narrative-review-provider.js";
 import { registerNarrativeReviewRoutes } from "./routes/narrative-review.js";
+import { RepairPlanningService } from "./services/repair-planning-service.js";
+import { registerRepairPlanningRoutes } from "./routes/repair-planning.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -82,6 +84,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const generations = new GenerationRepository(database);
   const drafting = new DraftingRepository(database);
   const narrativeReviews = new NarrativeReviewRepository(database);
+  const repairPlans = new RepairPlanRepository(database);
   const passageProposals = new PassageProposalRepository(database);
   const longFormProjects = new LongFormProjectService(
     projects, artifacts, workflow, changeSets, passagePlans, passageDrafts,
@@ -141,6 +144,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const passageProposalService = new PassageProposalService(
     database, projects, passagePlans, generations, passageProposals, passagePlanService,
   );
+  const repairPlanningService = new RepairPlanningService(
+    projects, artifacts, workflow, passagePlans, passageDrafts, narrativeReviews,
+    repairPlans, simulationService, playtestService,
+  );
   const diagnostics = new GenerationDiagnosticStore();
   const runner = new JobRunner(new JobRepository(database));
   void app.register(fastifyMultipart, {
@@ -169,6 +176,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerSimulationRoutes(app, simulationService);
   registerPlaytestingRoutes(app, playtestService);
   registerNarrativeReviewRoutes(app, narrativeReviewService);
+  registerRepairPlanningRoutes(app, repairPlanningService);
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024, workflow);

@@ -851,3 +851,69 @@ test("failed passage candidate validation remains inspectable without mutating t
   expect(after.passages).toEqual(before.passages);
   expect(after.snapshots).toEqual(before.snapshots);
 });
+
+test("repair planning scopes and reopens exact 300-passage evidence without providers or silent rebasing", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const projectId = await seedLargePassagePlan(request);
+  await approveCurrentPassagePlan(request, projectId);
+  const draftResponse = await request.put(`/api/long-form/projects/${projectId}/drafts/passages/passage-000`, {
+    data: { proseMarkdown: "Locked repair evidence prose.", authorNote: "Browser repair fixture" },
+  });
+  await expect(draftResponse).toBeOK();
+  const candidate = (await draftResponse.json()).draft;
+  const accepted = await acceptExactCandidate(request, projectId, "passage-000", candidate.id);
+  let acceptedId = accepted.application.resultingAcceptedVersions["passage-000"] as string;
+  for (const status of ["reviewed", "locked"] as const) {
+    const transition = await request.post(`/api/long-form/projects/${projectId}/drafts/passages/passage-000/transition`, {
+      data: { versionId: acceptedId, status },
+    });
+    await expect(transition).toBeOK(); acceptedId = (await transition.json()).draft.id;
+  }
+  const inputResponse = await request.post(`/api/long-form/projects/${projectId}/simulation/inputs`);
+  await expect(inputResponse).toBeOK(); const input = await inputResponse.json();
+  const runResponse = await request.post(`/api/long-form/projects/${projectId}/simulation/runs`, {
+    data: { inputArtifactVersionId: input.id, choiceIds: ["invented-choice"] },
+  });
+  await expect(runResponse).toBeOK();
+  const before = await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).text();
+  const observedRequests: string[] = []; page.on("request", (entry) => observedRequests.push(entry.url()));
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "repair");
+  }, projectId);
+  await page.goto("/#long-form");
+  await expect(page.getByRole("heading", { name: "Repair planning" })).toBeVisible();
+  await page.getByLabel("Evidence source").selectOption("foundation-5a-runtime");
+  const finding = page.locator(".repair-finding-row");
+  await expect(finding).toHaveCount(1);
+  await expect(page.getByText("Locked repair evidence prose.")).toHaveCount(0);
+  await finding.getByRole("checkbox").click();
+  await page.locator(".repair-evidence-detail summary").click();
+  await expect(page.getByText("Source fingerprint")).toBeVisible();
+  await page.getByLabel("Repair intent").selectOption("prose");
+  const target = page.locator(".repair-target-row").filter({ hasText: "prose:passage-000" });
+  await expect(target.getByText("Locked")).toBeVisible();
+  await target.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Preview repair plan" }).click();
+  const preview = page.getByRole("region", { name: "Repair plan preview" });
+  await expect(preview).toContainText("acceptedLocked");
+  await expect(preview).toContainText("direct");
+  await expect(preview).toContainText("dependent");
+  await expect(preview).toContainText("historical-evidence");
+  const fingerprint = await preview.locator("header > strong").textContent();
+  await preview.getByRole("button", { name: "Save exact plan" }).click();
+  await expect(page.getByText("Repair plan saved.")).toBeVisible();
+  expect(await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).text()).toBe(before);
+  await page.reload();
+  const saved = page.locator(".repair-history button").first(); await expect(saved).toBeVisible(); await saved.click();
+  if (fingerprint) await expect(page.getByLabel("Opened repair plan").getByText(fingerprint, { exact: true })).toBeVisible();
+  const current = await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).json();
+  const passage = current.passages.find((item: { entityId: string }) => item.entityId === "passage-000");
+  await expect(await request.put(`/api/long-form/projects/${projectId}/passage-plan/entities/passage/passage-000`, {
+    data: { ...passage.content, title: "Changed after repair plan" },
+  })).toBeOK();
+  await page.reload(); await page.locator(".repair-history button").first().click();
+  await expect(page.getByLabel("Opened repair plan")).toContainText("historical");
+  await expect(page.getByLabel("Opened repair plan")).toContainText(/Expected base changed|changed/);
+  expect(observedRequests.some((url) => /openrouter|narrative-review.*start|repair.*generate|repair.*apply/i.test(url))).toBe(false);
+});

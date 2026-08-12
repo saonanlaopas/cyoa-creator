@@ -276,6 +276,24 @@ textarea.source { min-height: 20rem; }
 .draft-diagnostics dd { overflow-wrap: anywhere; }
 .draft-review-queue { padding: .75rem; border: 1px solid #4c5d78; border-radius: .7rem; background: #151c28; }
 .simulation-workspace { grid-column: 2 / -1; }
+.repair-workspace { grid-column: 2 / -1; }
+.repair-intake > label, .repair-scope > label { display: grid; gap: .35rem; color: #c3cad6; }
+.repair-intake select, .repair-scope select { border: 1px solid #48536a; border-radius: .55rem; padding: .7rem; background: #11151e; color: #f4efe7; }
+.repair-scope textarea { min-height: 5rem; resize: vertical; }
+.repair-finding-list, .repair-target-list { display: grid; gap: .45rem; max-height: 28rem; overflow: auto; scrollbar-gutter: stable; }
+.repair-finding-row, .repair-target-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .6rem; align-items: start; padding: .65rem; border: 1px solid #3b4659; border-radius: .45rem; background: #11151e; }
+.repair-finding-row > span, .repair-target-row > span { display: grid; gap: .2rem; min-width: 0; }
+.repair-finding-row small, .repair-target-row small, .repair-impact-columns small { display: block; color: #aeb7c6; overflow-wrap: anywhere; }
+.repair-target-row em { width: fit-content; color: #f1c77f; font-style: normal; }
+.repair-evidence-detail, .repair-preview details { padding: .65rem; border: 1px solid #354055; border-radius: .5rem; background: #11151e; }
+.repair-evidence-detail pre, .repair-preview pre { max-height: 22rem; overflow: auto; padding: .6rem; white-space: pre-wrap; overflow-wrap: anywhere; background: #0b1018; }
+.repair-preview > header, .repair-opened > header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
+.repair-preview > header strong, .repair-opened > header strong { max-width: 55%; overflow-wrap: anywhere; }
+.repair-impact-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
+.repair-impact-columns > section { min-width: 0; padding: .65rem; border: 1px solid #354055; border-radius: .45rem; background: #11151e; }
+.repair-impact-columns p { display: grid; gap: .15rem; overflow-wrap: anywhere; }
+.repair-history button { display: flex; justify-content: space-between; gap: 1rem; text-align: left; }
+.repair-history button small { color: #aeb7c6; }
 .simulation-controls label { display: grid; gap: .35rem; color: #c3cad6; }
 .simulation-controls select, .simulation-controls input { border: 1px solid #48536a; border-radius: .55rem; padding: .75rem; background: #11151e; color: #f4efe7; }
 .simulation-controls textarea { min-height: 8rem; resize: vertical; }
@@ -325,7 +343,7 @@ textarea.source { min-height: 20rem; }
 .finding-links, .representative-actions { display: flex; flex-wrap: wrap; gap: .55rem; }
 .selected-sample, .replay-evidence { margin-top: .75rem; padding: .75rem; border: 1px solid #4a5870; border-radius: .55rem; background: #11151e; }
 @media (max-width: 900px) {
-  .playtest-control-grid, .playtest-report-grid, .playtest-kpis { grid-template-columns: 1fr; }
+  .playtest-control-grid, .playtest-report-grid, .playtest-kpis, .repair-impact-columns { grid-template-columns: 1fr; }
   .playtest-overview > header, .playtest-findings > header, .playtest-samples > header { display: grid; }
 }
 .draft-corpus-strip { display: flex; flex-wrap: wrap; gap: .4rem; margin: .6rem 0; }

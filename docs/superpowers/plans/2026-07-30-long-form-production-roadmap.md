@@ -26,8 +26,9 @@ Implementation checkpoints:
 - Foundation 5B is complete and externally accepted at `b69ed9b15542fb39eebd55309141e7b13fbae373`: deterministic seeded campaigns, compact durable evidence, exact sample replay, structural and experience analysis, and metadata-first review UI are implemented.
 - Foundation 5C is complete and externally accepted at `949fe10e353c20ae05397a55d7c6e48a5fba732c`: exact immutable review inputs, bounded findings-only review units, explicit authorization, offline-testable provider execution, strict evidence grounding, immutable provenance, recovery, and metadata-first review UI are implemented.
 - Foundation 5 is **CLOSED** at accepted head `949fe10e353c20ae05397a55d7c6e48a5fba732c`.
+- Foundation 6A is implementation-complete on `checkpoint/foundation-6a-repair-architecture`; external acceptance is pending.
 
-The next objective is Foundation 6A: repair architecture and finding intake. Foundation 6 implementation has not begun.
+The next objective is external review of Foundation 6A. Foundation 6B has not begun.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 
