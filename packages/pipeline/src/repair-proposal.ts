@@ -1,12 +1,17 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
 import {
-  RepairExpectedBaseSchema,
+  REPAIR_PROPOSAL_POLICY_V1,
   RepairPlanDefinitionSchema,
+  RepairProposalCandidateOperationSchema,
+  RepairProposalUnitCandidateSchema,
+  repairProposalCandidateSchema,
+  repairProposalSchema,
   repairTargetKey,
   validateRepairProposalRecord,
   type RepairExpectedBase,
   type RepairPlanDefinition,
+  type RepairProposalCandidateOperation,
+  type RepairProposalUnitCandidate,
 } from "@story-to-cyoa/domain";
 import {
   LongFormEndingPlanSchema,
@@ -39,97 +44,14 @@ import { validateLongFormProject } from "./long-form-foundation.js";
 import { validatePassagePlan, type PassageValidationReport } from "./passage-plan-validator.js";
 import { stableJson } from "./passage-generation-plan.js";
 
-export const repairProposalSchema = Object.freeze({ id: "cyoa.repair-proposal", version: 1 });
-export const repairProposalCandidateSchema = Object.freeze({ id: "cyoa.repair-proposal-unit-candidate", version: 1 });
-
-export const REPAIR_PROPOSAL_POLICY_V1 = Object.freeze({
-  id: "foundation-6b-v1" as const,
-  maxTargetsPerUnit: 4,
-  maxUnits: 24,
-  maxContextBytesPerUnit: 160_000,
-  maxEstimatedInputTokensPerUnit: 24_000,
-  maxOutputTokensPerUnit: 8_000,
-  maxOperationsPerUnit: 16,
-  maxGroupsPerProposal: 48,
-  maxGeneratedIds: 48,
-  maxFindingsPerGroup: 8,
-  maxProposalBytes: 2_000_000,
-  maxAttemptsPerUnit: 3,
-  maxRepairsPerAttempt: 1,
-  maxRepairInputBytes: 128_000,
-});
-
-const Id = z.string().trim().min(1).max(256);
-const Fingerprint = z.string().regex(/^[0-9a-f]{64}$/);
-const Ids = z.array(Id).min(1).max(REPAIR_PROPOSAL_POLICY_V1.maxFindingsPerGroup);
-const JsonObject = z.record(z.string(), z.unknown());
-const ExpectedBase = RepairExpectedBaseSchema;
-
-const CandidateCommonSchema = z.object({
-  logicalKey: Id,
-  groupKey: Id,
-  sourceFindingFingerprints: Ids,
-  expectedBase: ExpectedBase,
-}).strict();
-
-const UpdatePassageSchema = CandidateCommonSchema.extend({
-  kind: z.literal("update-entity"), entityKind: z.literal("passage"), entityId: Id, after: PassagePlanSchema,
-}).strict();
-const UpdateChoiceSchema = CandidateCommonSchema.extend({
-  kind: z.literal("update-entity"), entityKind: z.literal("choice"), entityId: Id, after: ChoicePlanSchema,
-}).strict();
-const UpdateThreadSchema = CandidateCommonSchema.extend({
-  kind: z.literal("update-entity"), entityKind: z.literal("thread"), entityId: Id, after: NarrativeThreadSchema,
-}).strict();
-const UpdateArtifactSchema = CandidateCommonSchema.extend({
-  kind: z.literal("update-entity"),
-  entityKind: z.enum(["mechanic", "relationship", "canon-fact", "route", "route-act", "route-decision", "route-reconvergence", "route-ending-hook", "ending"]),
-  entityId: Id,
-  after: JsonObject,
-}).strict();
-const AddChoiceSchema = CandidateCommonSchema.omit({ expectedBase: true }).extend({
-  kind: z.literal("add-entity"), entityKind: z.literal("choice"), entityId: Id,
-  authorizedParentTargetKey: Id, generatedLogicalKey: Id, after: ChoicePlanSchema,
-}).strict();
-const AddThreadSchema = CandidateCommonSchema.omit({ expectedBase: true }).extend({
-  kind: z.literal("add-entity"), entityKind: z.literal("thread"), entityId: Id,
-  authorizedParentTargetKey: Id, generatedLogicalKey: Id, after: NarrativeThreadSchema,
-}).strict();
-const ProseCandidateSchema = CandidateCommonSchema.extend({
-  kind: z.literal("create-passage-draft-candidate"), entityKind: z.literal("passage-prose"), entityId: Id,
-  proposedProse: z.string().min(1).max(120_000), requiresUnlock: z.boolean(),
-}).strict();
-
-export const RepairProposalCandidateOperationSchema = z.union([
-  UpdatePassageSchema, UpdateChoiceSchema, UpdateThreadSchema, UpdateArtifactSchema,
-  AddChoiceSchema, AddThreadSchema, ProseCandidateSchema,
-]);
-export type RepairProposalCandidateOperation = z.infer<typeof RepairProposalCandidateOperationSchema>;
-
-export const RepairProposalUnitCandidateSchema = z.object({
-  schemaId: z.literal(repairProposalCandidateSchema.id),
-  schemaVersion: z.literal(repairProposalCandidateSchema.version),
-  repairPlanDefinitionFingerprint: Fingerprint,
-  generationFingerprint: Fingerprint,
-  unitId: Id,
-  contextFingerprint: Fingerprint,
-  generatedIds: z.array(z.object({
-    logicalKey: Id,
-    entityKind: z.enum(["choice", "thread"]),
-    authorizedParentTargetKey: Id,
-    id: Id,
-  }).strict()).max(REPAIR_PROPOSAL_POLICY_V1.maxGeneratedIds),
-  groups: z.array(z.object({
-    logicalKey: Id,
-    label: z.string().trim().min(1).max(300),
-    summary: z.string().trim().max(2_000),
-    sourceFindingFingerprints: Ids,
-    authorizedTargetKeys: z.array(Id).min(1).max(REPAIR_PROPOSAL_POLICY_V1.maxTargetsPerUnit),
-    dependsOnGroupKeys: z.array(Id).max(REPAIR_PROPOSAL_POLICY_V1.maxGroupsPerProposal),
-    operations: z.array(RepairProposalCandidateOperationSchema).min(1).max(REPAIR_PROPOSAL_POLICY_V1.maxOperationsPerUnit),
-  }).strict()).min(1).max(REPAIR_PROPOSAL_POLICY_V1.maxGroupsPerProposal),
-}).strict();
-export type RepairProposalUnitCandidate = z.infer<typeof RepairProposalUnitCandidateSchema>;
+export {
+  REPAIR_PROPOSAL_POLICY_V1,
+  RepairProposalCandidateOperationSchema,
+  RepairProposalUnitCandidateSchema,
+  repairProposalCandidateSchema,
+  repairProposalSchema,
+};
+export type { RepairProposalCandidateOperation, RepairProposalUnitCandidate };
 
 export interface RepairProposalBaseState {
   structure: PassageStructure;
@@ -178,6 +100,8 @@ export interface RepairProposalValidationPreview {
   passageValidation: PassageValidationReport;
   planningFindings: ReturnType<typeof validateLongFormProject>;
   resultingEntityFingerprints: Array<{ entityKind: string; entityId: string; fingerprint: string }>;
+  effectiveStateFingerprint: string;
+  evidenceFingerprint: string;
 }
 export interface RepairProposalRecord {
   schemaId: typeof repairProposalSchema.id;
@@ -545,9 +469,25 @@ export function materializeAndValidateRepairProposal(base: RepairProposalBaseSta
     ...passageValidation.findings.filter((item) => item.severity !== "error").map((item) => `${item.code}: ${item.message}`),
     ...planningFindings.filter((item) => item.severity !== "error").map((item) => `${item.code}: ${item.message}`),
   ];
+  const effectiveStateFingerprint = repairProposalFingerprint({
+    bundle: parsedBundle, bible, routes, endings, mechanics,
+    proseCandidates: operations.filter((operation) => operation.kind === "create-passage-draft-candidate")
+      .map((operation) => ({ entityId: operation.entityId, after: operation.after }))
+      .sort((left, right) => left.entityId.localeCompare(right.entityId)),
+  });
   return {
     status: "valid", errors: [], warnings: [...new Set(warnings)].sort(), passageValidation, planningFindings,
     resultingEntityFingerprints: operations.map((item) => ({ entityKind: item.entityKind, entityId: item.entityId, fingerprint: repairProposalFingerprint(item.after) })).sort((a, b) => `${a.entityKind}:${a.entityId}`.localeCompare(`${b.entityKind}:${b.entityId}`)),
+    effectiveStateFingerprint,
+    evidenceFingerprint: repairProposalFingerprint({
+      operations: [...operations].sort((left, right) => left.id.localeCompare(right.id)).map((operation) => ({
+        id: operation.id, entityKind: operation.entityKind, entityId: operation.entityId,
+        before: operation.before, after: operation.after,
+      })),
+      effectiveStateFingerprint,
+      passageValidation,
+      planningFindings,
+    }),
   };
 }
 

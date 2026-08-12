@@ -1,65 +1,21 @@
 import { z } from "zod";
+import {
+  RepairMajorRouteSchema,
+  RepairRouteActSchema,
+  RepairRouteDecisionPointSchema,
+  RepairRouteEndingHookSchema,
+  RepairRouteReconvergenceSchema,
+} from "@story-to-cyoa/domain";
 import type { ProjectBrief } from "./project-brief.js";
 
 const Id = z.string().trim().min(1).max(200);
-const ShortText = z.string().trim().max(1_000);
 const LongText = z.string().trim().max(20_000);
-const WordTarget = z.number().int().min(0).max(2_000_000);
 
-export const RouteActSchema = z.object({
-  id: Id,
-  routeId: Id.nullable(),
-  label: z.string().trim().min(1).max(300),
-  purpose: ShortText.default(""),
-  summary: LongText.default(""),
-  wordTarget: WordTarget,
-});
-
-export const MajorRouteSchema = z.object({
-  id: Id,
-  name: z.string().trim().min(1).max(300),
-  promise: ShortText.default(""),
-  summary: LongText.default(""),
-  entryConditions: z.array(ShortText).max(50).default([]),
-  relationshipArcs: z.array(z.object({
-    relationshipId: Id,
-    trajectory: LongText.default(""),
-    keyMoments: z.array(ShortText).max(50).default([]),
-  })).max(100).default([]),
-  endingHookIds: z.array(Id).max(50).default([]),
-});
-
-export const RouteDecisionPointSchema = z.object({
-  id: Id,
-  label: z.string().trim().min(1).max(300),
-  actId: Id,
-  question: LongText.default(""),
-  choices: z.array(z.object({
-    id: Id,
-    label: z.string().trim().min(1).max(500),
-    destinationActId: Id,
-    routeId: Id.nullable(),
-    conditions: z.array(ShortText).max(50).default([]),
-    consequences: z.array(ShortText).max(50).default([]),
-  })).min(2).max(20),
-});
-
-export const RouteReconvergenceSchema = z.object({
-  id: Id,
-  label: z.string().trim().min(1).max(300),
-  fromActIds: z.array(Id).min(2).max(30),
-  toActId: Id,
-  requirements: z.array(ShortText).max(50).default([]),
-  preservedDifferences: z.array(ShortText).max(100).default([]),
-});
-
-export const RouteEndingHookSchema = z.object({
-  id: Id,
-  label: z.string().trim().min(1).max(300),
-  routeId: Id,
-  type: z.enum(["success", "partial", "failure", "special"]),
-  summary: LongText.default(""),
-});
+export const RouteActSchema = RepairRouteActSchema;
+export const MajorRouteSchema = RepairMajorRouteSchema;
+export const RouteDecisionPointSchema = RepairRouteDecisionPointSchema;
+export const RouteReconvergenceSchema = RepairRouteReconvergenceSchema;
+export const RouteEndingHookSchema = RepairRouteEndingHookSchema;
 
 export const LongFormRoutePlanSchema = z.object({
   schemaVersion: z.literal(1).default(1),

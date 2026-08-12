@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { REPAIR_PROPOSAL_POLICY_V1 } from "@story-to-cyoa/domain";
+import {
+  REPAIR_PROPOSAL_POLICY_V1,
+  validateRepairProposalUnitCandidate,
+  type RepairExpectedBase,
+} from "@story-to-cyoa/domain";
 import type { ArtifactVersion } from "./artifact-repository.js";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
@@ -257,12 +261,17 @@ function assertUnitSnapshot(content: RepairProposalGenerationAggregateShape, uni
       || candidate.repairPlanDefinitionFingerprint !== content.generation.repairPlanDefinitionFingerprint) {
       throw new Error("Repair-proposal generation candidate lineage is invalid");
     }
-    const groups = candidate.groups;
-    if (!Array.isArray(groups) || !groups.length || groups.some((group) => !group || typeof group !== "object"
-      || !Array.isArray((group as Record<string, unknown>).authorizedTargetKeys)
-      || ((group as Record<string, unknown>).authorizedTargetKeys as unknown[]).some((key) => !(stored.targetKeys as unknown[]).includes(key)))) {
-      throw new Error("Repair-proposal generation candidate target lineage is invalid");
-    }
+    const context = stored.context as Record<string, unknown>;
+    const repairPlan = context.repairPlan as Record<string, unknown>;
+    validateRepairProposalUnitCandidate(candidate, {
+      repairPlanDefinitionFingerprint: content.generation.repairPlanDefinitionFingerprint,
+      generationFingerprint: content.generation.fingerprint,
+      unitId: unit.id,
+      contextFingerprint: String(stored.contextFingerprint),
+      authorizedTargetKeys: stored.targetKeys as string[],
+      expectedBases: repairPlan.expectedBases as RepairExpectedBase[],
+      fingerprint: hash,
+    });
   }
 }
 

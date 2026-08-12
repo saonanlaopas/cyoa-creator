@@ -5,7 +5,9 @@ import {
   repairFindingReferenceSchema,
   repairImpactSchema,
   repairPlanSchema,
+  type RepairExpectedBase,
   type RepairPlanDefinition,
+  type RepairTarget,
 } from "@story-to-cyoa/domain";
 import {
   REPAIR_PROPOSAL_POLICY_V1,
@@ -126,6 +128,85 @@ function manualProposal(input: ReturnType<typeof fixture>): RepairProposalRecord
     candidates: [{ candidate: candidate(input, generationFingerprint, unitId, contextFingerprint), attemptId: null }], base: input.base, createdAt: "2026-08-12T00:01:00.000Z" });
 }
 
+function typedUpdateProposal(
+  input: ReturnType<typeof fixture>,
+  kind: "choice" | "mechanic" | "route-act" | "ending",
+): RepairProposalRecord {
+  const specification = (() => {
+    if (kind === "choice") {
+      const entity = input.base.choices[0]!;
+      return {
+        entityId: entity.content.id, entityType: "choice" as const,
+        target: { kind: "passage-plan-choice" as const, choiceId: entity.content.id },
+        expectedBase: { kind: "passage-entity-version" as const, targetKey: `choice:${entity.content.id}`, entityKind: "choice" as const, entityId: entity.content.id, versionId: entity.versionId },
+        after: { ...entity.content, narrativeIntent: "Typed choice repair." },
+      };
+    }
+    if (kind === "mechanic") {
+      const entity = input.base.mechanics.content.visibleStats[0]!;
+      return {
+        entityId: entity.key, entityType: "mechanic" as const,
+        target: { kind: "mechanic" as const, mechanicKey: entity.key },
+        expectedBase: { kind: "artifact-entity-version" as const, targetKey: `mechanic:${entity.key}`, artifactId: "mechanics" as const,
+          artifactVersionId: input.base.mechanics.versionId, entityType: "mechanic", entityId: entity.key, entityFingerprint: fingerprint(entity) },
+        after: { ...entity, description: "Typed mechanic repair." },
+      };
+    }
+    if (kind === "route-act") {
+      const entity = input.base.routes.content.acts[0]!;
+      return {
+        entityId: entity.id, entityType: "route" as const,
+        target: { kind: "route-section" as const, sectionKind: "act" as const, sectionId: entity.id },
+        expectedBase: { kind: "artifact-entity-version" as const, targetKey: `route-act:${entity.id}`, artifactId: "routes" as const,
+          artifactVersionId: input.base.routes.versionId, entityType: "route-act", entityId: entity.id, entityFingerprint: fingerprint(entity) },
+        after: { ...entity, summary: "Typed route-act repair." },
+      };
+    }
+    const entity = input.base.endings.content.endings[0]!;
+    return {
+      entityId: entity.id, entityType: "ending" as const,
+      target: { kind: "ending" as const, endingId: entity.id },
+      expectedBase: { kind: "artifact-entity-version" as const, targetKey: `ending:${entity.id}`, artifactId: "endings" as const,
+        artifactVersionId: input.base.endings.versionId, entityType: "ending", entityId: entity.id, entityFingerprint: fingerprint(entity) },
+      after: { ...entity, summary: "Typed ending repair." },
+    };
+  })();
+  const finding = { ...input.definition.selectedFindings[0]!.finding, entityType: specification.entityType, entityId: specification.entityId };
+  const findingFingerprint = fingerprint(finding);
+  const reference = { ...input.definition.selectedFindings[0]!, finding, findingFingerprint };
+  const targetKey = specification.expectedBase.targetKey;
+  const node = { id: `direct:${specification.target.kind}:${targetKey}`, classification: "direct" as const,
+    entityKind: specification.target.kind, entityId: targetKey, label: targetKey, reason: "Exact typed scope" };
+  const graphCore = { schemaId: repairImpactSchema.id, schemaVersion: 1 as const, policyId: "foundation-6a-impact-v1" as const, nodes: [node], edges: [] };
+  const definition: RepairPlanDefinition = {
+    ...input.definition,
+    selectedFindings: [reference],
+    resolvedFindings: [{ reference, sourceFingerprint: findingFingerprint, sourceState: "current", stateReasons: [], categoryCode: "repair", message: finding.message, entityKeys: [targetKey] }],
+    authorizedTargets: [specification.target as RepairTarget],
+    expectedBases: [specification.expectedBase as RepairExpectedBase],
+    impactGraph: { ...graphCore, fingerprint: fingerprint(graphCore) },
+  };
+  const definitionFingerprint = fingerprint(definition);
+  const plan = new RepairPlanRepository(input.database).create(input.projectId, {
+    id: `repair-plan-${kind}-${randomUUID()}`, definitionFingerprint, definition, createdAt: "2026-08-12T00:00:30.000Z",
+  });
+  const generationFingerprint = fingerprint({ kind, definitionFingerprint });
+  const unitId = `typed-${kind}`; const contextFingerprint = fingerprint({ unitId, targetKey });
+  const output: RepairProposalUnitCandidate = {
+    schemaId: repairProposalCandidateSchema.id, schemaVersion: 1, repairPlanDefinitionFingerprint: definitionFingerprint,
+    generationFingerprint, unitId, contextFingerprint, generatedIds: [],
+    groups: [{ logicalKey: `repair-${kind}`, label: `Repair ${kind}`, summary: "Typed repair", sourceFindingFingerprints: [findingFingerprint],
+      authorizedTargetKeys: [targetKey], dependsOnGroupKeys: [], operations: [{
+        logicalKey: `update-${kind}`, groupKey: `repair-${kind}`, kind: "update-entity", entityKind: kind,
+        entityId: specification.entityId, expectedBase: specification.expectedBase as RepairExpectedBase,
+        after: specification.after, sourceFindingFingerprints: [findingFingerprint],
+      }] }],
+  };
+  return buildRepairProposal({ projectId: input.projectId, repairPlanId: plan.content.id, repairPlanArtifactVersionId: plan.id,
+    repairPlan: definition, generationFingerprint, mode: "manual-deterministic", providerId: null, modelId: null, jobId: null,
+    candidates: [{ candidate: output, attemptId: null }], base: input.base, createdAt: "2026-08-12T00:01:15.000Z" });
+}
+
 function generatedProposal(input: ReturnType<typeof fixture>): RepairProposalRecord {
   const generationFingerprint = "d".repeat(64); const unitId = "manual-generated-unit"; const contextFingerprint = "e".repeat(64);
   const groupKey = "add-thread"; const generatedLogicalKey = "new-thread";
@@ -202,6 +283,29 @@ function reseal(value: RepairProposalRecord): RepairProposalRecord {
   return { ...definition, id: `rpp_${definitionFingerprint.slice(0, 32)}`, definitionFingerprint, createdAt } as RepairProposalRecord;
 }
 
+function resealPayloadForgery(value: RepairProposalRecord): RepairProposalRecord {
+  const operation = value.operations[0]!;
+  const before = operation.before as Record<string, unknown>; const after = operation.after as Record<string, unknown>;
+  operation.fieldDiffs = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()
+    .filter((field) => canonical(before[field]) !== canonical(after[field]))
+    .map((field) => ({ field, before: before[field], after: after[field] }));
+  value.validation.resultingEntityFingerprints = value.operations.map((item) => ({
+    entityKind: item.entityKind, entityId: item.entityId, fingerprint: fingerprint(item.after),
+  })).sort((left, right) => `${left.entityKind}:${left.entityId}`.localeCompare(`${right.entityKind}:${right.entityId}`));
+  value.validation.evidenceFingerprint = fingerprint({
+    operations: value.operations.map((item) => ({ id: item.id, entityKind: item.entityKind, entityId: item.entityId, before: item.before, after: item.after })),
+    effectiveStateFingerprint: value.validation.effectiveStateFingerprint,
+    passageValidation: value.validation.passageValidation,
+    planningFindings: value.validation.planningFindings,
+  });
+  return reseal(value);
+}
+
+function replaceStoredProposal(database: ReturnType<typeof openDatabase>, versionId: string, proposal: RepairProposalRecord): void {
+  database.prepare("UPDATE artifact_versions SET artifact_id = ?, content_json = ? WHERE id = ?")
+    .run(`repair-proposal:${proposal.id}`, JSON.stringify(proposal), versionId);
+}
+
 describe("Repair proposal persistence", () => {
   it("persists and reopens an exact pipeline-produced proposal", () => {
     const value = fixture(); const proposal = manualProposal(value); const repository = new RepairProposalRepository(value.database);
@@ -234,6 +338,28 @@ describe("Repair proposal persistence", () => {
     const mismatch = structuredClone(generated); mismatch.generatedIds[0]!.authorizedParentTargetKey = "passage:wrong";
     for (const forged of [undeclared, orphan, mismatch].map(reseal)) expect(() => repository.create(value.projectId, forged)).toThrow();
     expect(repository.list(value.projectId)).toEqual([]); value.database.close();
+  });
+
+  it("enforces exact canonical entity payload types even when validation evidence and outer identity are resealed", () => {
+    const value = fixture(); const repository = new RepairProposalRepository(value.database);
+    const valid = manualProposal(value); expect(repository.create(value.projectId, valid).content).toEqual(valid);
+    const cases: Array<["choice" | "mechanic" | "route-act" | "ending", (after: Record<string, unknown>) => void]> = [
+      ["choice", (after) => { after.destinationPassageId = 42; }],
+      ["mechanic", (after) => { after.minimum = "invalid"; }],
+      ["route-act", (after) => { after.wordTarget = "invalid"; }],
+      ["ending", (after) => { after.variants = "invalid"; }],
+    ];
+    for (const [kind, corrupt] of cases) {
+      const proposal = typedUpdateProposal(value, kind); corrupt(proposal.operations[0]!.after as Record<string, unknown>);
+      expect(() => repository.create(value.projectId, resealPayloadForgery(proposal))).toThrow();
+    }
+    const wrongPrimitive = structuredClone(typedUpdateProposal(value, "choice"));
+    (wrongPrimitive.operations[0]!.after as Record<string, unknown>).label = false;
+    expect(() => repository.create(value.projectId, resealPayloadForgery(wrongPrimitive))).toThrow();
+    const unknown = structuredClone(typedUpdateProposal(value, "ending"));
+    (unknown.operations[0]!.after as Record<string, unknown>).unknownEntityField = "forged";
+    expect(() => repository.create(value.projectId, resealPayloadForgery(unknown))).toThrow();
+    value.database.close();
   });
 
   it("validates generation artifacts on get, list, and every history transition", () => {
@@ -279,6 +405,33 @@ describe("Repair proposal persistence", () => {
     }
   });
 
+  it("strictly rejects resealed stored candidate corruption on get, list, and history", () => {
+    const corruptions: Array<(candidate: Record<string, unknown>) => void> = [
+      (candidate) => { (((candidate.groups as Array<Record<string, unknown>>)[0]!.operations as Array<Record<string, unknown>>)[0]!).kind = "unknown-operation"; },
+      (candidate) => { delete ((((candidate.groups as Array<Record<string, unknown>>)[0]!.operations as Array<Record<string, unknown>>)[0]!).after as Record<string, unknown>).title; },
+      (candidate) => { (candidate.generatedIds as unknown[]).push({ logicalKey: "forged", entityKind: "thread", authorizedParentTargetKey: "passage:forged", id: "forged" }); },
+      (candidate) => { (((candidate.groups as Array<Record<string, unknown>>)[0]!.operations as Array<Record<string, unknown>>)[0]!).groupKey = "wrong-group"; },
+      (candidate) => { (candidate.groups as unknown[]).push(structuredClone((candidate.groups as unknown[])[0])); },
+      (candidate) => { (((candidate.groups as Array<Record<string, unknown>>)[0]!.operations as Array<Record<string, unknown>>)[0]!).expectedBase = { kind: "passage-entity-version" }; },
+    ];
+    const methods = ["get", "list", "history"] as const;
+    corruptions.forEach((corrupt, index) => {
+      const value = fixture("ai-assisted"); const repository = new RepairProposalGenerationRepository(value.database);
+      const initial = generation(value, `strict-candidate-${index}`); const completed = runToReady(repository, initial, value);
+      new RepairProposalRepository(value.database).completeGeneration(completed.ready, completed.proposal);
+      const row = value.database.prepare("SELECT id, content_json FROM artifact_versions WHERE artifact_id = ? ORDER BY version DESC LIMIT 1")
+        .get(`repair-proposal-generation:${initial.generation.id}`) as { id: string; content_json: string };
+      const aggregate = JSON.parse(row.content_json) as Generation;
+      const envelope = aggregate.job.units[0]!.candidates[0] as { fingerprint: string; candidate: Record<string, unknown> };
+      corrupt(envelope.candidate); envelope.fingerprint = fingerprint(envelope.candidate);
+      value.database.prepare("UPDATE artifact_versions SET content_json = ? WHERE id = ?").run(JSON.stringify(aggregate), row.id);
+      const method = methods[index % methods.length]!;
+      expect(() => method === "get" ? repository.get(value.projectId, initial.generation.id)
+        : method === "list" ? repository.list(value.projectId) : repository.history(value.projectId, initial.generation.id)).toThrow();
+      value.database.close();
+    });
+  });
+
   it("atomically binds final proposal completion to the exact generation, job, units, attempts, context, and candidates", () => {
     const value = fixture("ai-assisted"); const generations = new RepairProposalGenerationRepository(value.database); const proposals = new RepairProposalRepository(value.database);
     const first = runToReady(generations, generation(value, "a"), value); const second = runToReady(generations, generation(value, "b"), value);
@@ -301,6 +454,47 @@ describe("Repair proposal persistence", () => {
     expect(generations.get<Generation>(value.projectId, first.ready.generation.id)?.content.job.status).toBe("running");
     const completed = proposals.completeGeneration(first.ready, first.proposal, { simulateFailure: false });
     expect(completed.generation.content.job.status).toBe("completed"); expect(completed.proposal.content).toEqual(first.proposal);
+    expect(proposals.get(value.projectId, first.proposal.id)?.content).toEqual(first.proposal);
+    expect(proposals.getVersion(value.projectId, completed.proposal.id)?.content).toEqual(first.proposal);
+    expect(proposals.list(value.projectId)[0]?.content).toEqual(first.proposal);
     value.database.close();
+  });
+
+  it("revalidates resealed AI proposal provenance against exact immutable generation history on every read", () => {
+    const methods = ["get", "getVersion", "list"] as const;
+    methods.forEach((method, index) => {
+      const value = fixture("ai-assisted"); const generations = new RepairProposalGenerationRepository(value.database);
+      const proposals = new RepairProposalRepository(value.database); const ready = runToReady(generations, generation(value, `read-job-${index}`), value);
+      const saved = proposals.completeGeneration(ready.ready, ready.proposal).proposal;
+      const forged = structuredClone(ready.proposal); forged.provenance.jobId = `wrong-job-${index}`; const resealed = reseal(forged);
+      replaceStoredProposal(value.database, saved.id, resealed);
+      expect(() => method === "get" ? proposals.get(value.projectId, resealed.id)
+        : method === "getVersion" ? proposals.getVersion(value.projectId, saved.id) : proposals.list(value.projectId)).toThrow();
+      value.database.close();
+    });
+
+    const value = fixture("ai-assisted"); const generations = new RepairProposalGenerationRepository(value.database);
+    const proposals = new RepairProposalRepository(value.database); const ready = runToReady(generations, generation(value, "read-candidate"), value);
+    const saved = proposals.completeGeneration(ready.ready, ready.proposal).proposal;
+    const forged = structuredClone(ready.proposal); forged.provenance.candidates[0]!.contextFingerprint = "0".repeat(64);
+    const resealed = reseal(forged); replaceStoredProposal(value.database, saved.id, resealed);
+    expect(() => proposals.getVersion(value.projectId, saved.id)).toThrow(); value.database.close();
+  });
+
+  it("rejects generation completion-link corruption and same-project cross-wiring on proposal reads", () => {
+    const value = fixture("ai-assisted"); const generations = new RepairProposalGenerationRepository(value.database);
+    const proposals = new RepairProposalRepository(value.database);
+    const first = runToReady(generations, generation(value, "link-first"), value);
+    const second = runToReady(generations, generation(value, "link-second"), value);
+    const firstSaved = proposals.completeGeneration(first.ready, first.proposal).proposal;
+    const secondSaved = proposals.completeGeneration(second.ready, second.proposal).proposal;
+    const row = value.database.prepare("SELECT id, content_json FROM artifact_versions WHERE artifact_id = ? ORDER BY version DESC LIMIT 1")
+      .get(`repair-proposal-generation:${first.ready.generation.id}`) as { id: string; content_json: string };
+    const aggregate = JSON.parse(row.content_json) as Generation;
+    aggregate.job.proposalId = second.proposal.id; aggregate.job.proposalArtifactVersionId = secondSaved.id;
+    value.database.prepare("UPDATE artifact_versions SET content_json = ? WHERE id = ?").run(JSON.stringify(aggregate), row.id);
+    expect(() => proposals.get(value.projectId, first.proposal.id)).toThrow();
+    expect(proposals.get(value.projectId, second.proposal.id)?.id).toBe(secondSaved.id);
+    expect(firstSaved.id).not.toBe(secondSaved.id); value.database.close();
   });
 });

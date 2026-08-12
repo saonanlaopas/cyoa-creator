@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RepairBibleCanonFactSchema, RepairBibleRelationshipSchema } from "@story-to-cyoa/domain";
 
 const Id = z.string().trim().min(1).max(200);
 const ShortText = z.string().trim().max(500);
@@ -14,13 +15,7 @@ export const BibleCharacterSchema = z.object({
   plannedArc: LongText.default(""),
 });
 
-export const BibleRelationshipSchema = z.object({
-  id: Id,
-  characterIds: z.array(Id).min(2).max(6),
-  label: ShortText.default(""),
-  currentState: LongText.default(""),
-  plannedArc: LongText.default(""),
-});
+export const BibleRelationshipSchema = RepairBibleRelationshipSchema;
 
 export const BibleSectionEntrySchema = z.object({
   id: Id,
@@ -28,12 +23,7 @@ export const BibleSectionEntrySchema = z.object({
   description: LongText.default(""),
 });
 
-export const BibleCanonFactSchema = z.object({
-  id: Id,
-  statement: z.string().trim().min(1).max(5_000),
-  sourceExcerptIds: z.array(Id).max(50).default([]),
-  confidence: z.enum(["confirmed", "likely", "uncertain"]).default("confirmed"),
-});
+export const BibleCanonFactSchema = RepairBibleCanonFactSchema;
 
 export const BibleContradictionSchema = z.object({
   id: Id,

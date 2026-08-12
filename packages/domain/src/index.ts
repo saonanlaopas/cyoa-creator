@@ -3,5 +3,7 @@ export * from "./mechanics.js";
 export * from "./passage.js";
 export * from "./project.js";
 export * from "./repair-plan-contract.js";
+export * from "./repair-entity-contract.js";
 export * from "./repair-proposal-contract.js";
+export * from "./repair-proposal-candidate-contract.js";
 export * from "./simulate.js";

@@ -1,4 +1,12 @@
 import { z } from "zod";
+import {
+  RepairChoicePlanSchema,
+  RepairConditionExpressionSchema,
+  RepairNarrativeThreadSchema,
+  RepairPassagePlanSchema,
+  RepairStateEffectSchema,
+  type RepairConditionExpression,
+} from "@story-to-cyoa/domain";
 import type { ProjectBrief } from "./project-brief.js";
 import type { LongFormRoutePlan } from "./long-form-route-plan.js";
 import type { LongFormEndingPlan } from "./long-form-ending-plan.js";
@@ -8,37 +16,9 @@ const Text = z.string().trim().max(20_000);
 const ShortText = z.string().trim().max(1_000);
 const WordTarget = z.number().int().min(0).max(2_000_000);
 
-export const ConditionExpressionSchema: z.ZodType<ConditionExpression> = z.lazy(() => z.union([
-  z.object({ kind: z.literal("all"), items: z.array(ConditionExpressionSchema).min(1).max(20) }),
-  z.object({ kind: z.literal("any"), items: z.array(ConditionExpressionSchema).min(1).max(20) }),
-  z.object({ kind: z.literal("not"), item: ConditionExpressionSchema }),
-  z.object({
-    kind: z.literal("compare"), mechanicKey: Id,
-    operator: z.enum(["eq", "neq", "gt", "gte", "lt", "lte"]),
-    value: z.union([z.number(), z.boolean(), z.string().max(500)]),
-  }),
-  z.object({
-    kind: z.literal("visit-count"), passageId: Id,
-    operator: z.enum(["eq", "neq", "gt", "gte", "lt", "lte"]),
-    value: z.number().int().min(0),
-  }),
-]));
-
-export type ConditionExpression =
-  | { kind: "all"; items: ConditionExpression[] }
-  | { kind: "any"; items: ConditionExpression[] }
-  | { kind: "not"; item: ConditionExpression }
-  | { kind: "compare"; mechanicKey: string; operator: "eq" | "neq" | "gt" | "gte" | "lt" | "lte"; value: number | boolean | string }
-  | { kind: "visit-count"; passageId: string; operator: "eq" | "neq" | "gt" | "gte" | "lt" | "lte"; value: number };
-
-export const StateEffectSchema = z.object({
-  id: Id,
-  mechanicKey: Id,
-  operation: z.enum(["set", "add", "subtract", "clear"]),
-  value: z.union([z.number(), z.boolean(), z.string().max(500)]).nullable(),
-  feedback: ShortText.default(""),
-  visibility: z.enum(["visible", "hidden"]).default("visible"),
-});
+export const ConditionExpressionSchema = RepairConditionExpressionSchema;
+export type ConditionExpression = RepairConditionExpression;
+export const StateEffectSchema = RepairStateEffectSchema;
 
 export const ActPlanSchema = z.object({
   id: Id, label: z.string().trim().min(1).max(300), purpose: ShortText.default(""),
@@ -55,38 +35,9 @@ export const SequencePlanSchema = z.object({
   planningStatus: z.enum(["outline", "planned", "reviewed", "locked"]).default("outline"),
 });
 
-export const PassagePlanSchema = z.object({
-  id: Id, sequenceId: Id, title: z.string().trim().min(1).max(300),
-  kind: z.enum(["scene", "transition", "hub", "climax", "epilogue"]),
-  purpose: ShortText.default(""), summary: Text.default(""), wordTarget: WordTarget,
-  routeIds: z.array(Id).max(30).default([]), tags: z.array(ShortText).max(100).default([]),
-  characterIds: z.array(Id).max(100).default([]), relationshipIds: z.array(Id).max(100).default([]),
-  locationIds: z.array(Id).max(100).default([]), requiredFactIds: z.array(Id).max(100).default([]),
-  revealedFactIds: z.array(Id).max(100).default([]), setupThreadIds: z.array(Id).max(100).default([]),
-  payoffThreadIds: z.array(Id).max(100).default([]), preservedDifferenceIds: z.array(Id).max(100).default([]),
-  choiceIds: z.array(Id).max(100).default([]), terminal: z.boolean().default(false),
-  endingId: Id.nullable().default(null), draftingNotes: z.array(Text).max(100).default([]),
-  unresolvedQuestions: z.array(Text).max(100).default([]),
-  planningStatus: z.enum(["outline", "planned", "reviewed", "locked"]).default("outline"),
-  position: z.number().int().min(0).default(0),
-});
-
-export const ChoicePlanSchema = z.object({
-  id: Id, sourcePassageId: Id, label: z.string().trim().min(1).max(500),
-  destinationPassageId: Id, narrativeIntent: Text.default(""), consequencePreview: Text.default(""),
-  condition: ConditionExpressionSchema.nullable().default(null),
-  unavailableBehavior: z.enum(["hidden", "disabled"]).default("disabled"),
-  unavailableExplanation: Text.default(""), effects: z.array(StateEffectSchema).max(50).default([]),
-  sourceDecisionIds: z.array(Id).max(100).default([]), position: z.number().int().min(0),
-});
-
-export const NarrativeThreadSchema = z.object({
-  id: Id, label: z.string().trim().min(1).max(300), description: Text.default(""),
-  setupPassageIds: z.array(Id).max(500).default([]), payoffPassageIds: z.array(Id).max(500).default([]),
-  routeIds: z.array(Id).max(30).default([]), required: z.boolean().default(false),
-  status: z.enum(["planned", "partially-covered", "covered", "waived"]).default("planned"),
-  waiverRationale: Text.default(""),
-});
+export const PassagePlanSchema = RepairPassagePlanSchema;
+export const ChoicePlanSchema = RepairChoicePlanSchema;
+export const NarrativeThreadSchema = RepairNarrativeThreadSchema;
 
 export const PassageStructureSchema = z.object({
   schemaVersion: z.literal(1).default(1),

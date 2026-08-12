@@ -1,41 +1,12 @@
 import { z } from "zod";
+import { RepairEndingOutcomeSchema, RepairEndingVariantSchema } from "@story-to-cyoa/domain";
 import type { LongFormRoutePlan } from "./long-form-route-plan.js";
 
 const Id = z.string().trim().min(1).max(200);
-const ShortText = z.string().trim().max(1_000);
 const LongText = z.string().trim().max(20_000);
 
-export const EndingVariantSchema = z.object({
-  id: Id,
-  label: z.string().trim().min(1).max(300),
-  requirements: z.array(ShortText).max(100).default([]),
-  differences: z.array(ShortText).max(100).default([]),
-});
-
-export const EndingOutcomeSchema = z.object({
-  id: Id,
-  hookId: Id,
-  routeId: Id,
-  title: z.string().trim().min(1).max(300),
-  type: z.enum(["success", "partial", "failure", "special"]),
-  summary: LongText.default(""),
-  thematicPayoff: LongText.default(""),
-  wordTarget: z.number().int().min(100).max(20_000),
-  requirements: z.array(ShortText).max(150).default([]),
-  exclusions: z.array(ShortText).max(100).default([]),
-  contributingDecisionIds: z.array(Id).max(100).default([]),
-  foreshadowing: z.array(ShortText).max(100).default([]),
-  characterOutcomes: z.array(z.object({
-    characterId: Id,
-    outcome: LongText.default(""),
-  })).max(200).default([]),
-  relationshipOutcomes: z.array(z.object({
-    relationshipId: Id,
-    outcome: LongText.default(""),
-  })).max(200).default([]),
-  stateConsequences: z.array(ShortText).max(150).default([]),
-  variants: z.array(EndingVariantSchema).max(30).default([]),
-});
+export const EndingVariantSchema = RepairEndingVariantSchema;
+export const EndingOutcomeSchema = RepairEndingOutcomeSchema;
 
 export const LongFormEndingPlanSchema = z.object({
   schemaVersion: z.literal(1).default(1),

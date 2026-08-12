@@ -13,6 +13,7 @@ import { transaction } from "./database.js";
 import {
   appendRepairProposalGenerationInTransaction,
   assertRepairProposalGenerationAggregate,
+  RepairProposalGenerationRepository,
   type RepairProposalGenerationAggregateShape,
 } from "./repair-proposal-generation-repository.js";
 
@@ -114,8 +115,21 @@ function checked<T extends RepairProposalAggregateShape>(database: StoryDatabase
   }
   const version = map<T>(row);
   if (version.artifactId !== `${prefix}${version.content.id}`) throw new Error("Repair-proposal artifact identity mismatch");
-  assertProposal(database, projectId, version.content);
+  const proposal = assertProposal(database, projectId, version.content);
+  if (proposal.provenance.mode === "ai-assisted") assertStoredGenerationLineage(database, proposal, version.id);
   return version;
+}
+
+function assertStoredGenerationLineage(database: StoryDatabase, proposal: RepairProposalRecord, proposalArtifactVersionId: string): void {
+  const generations = new RepairProposalGenerationRepository(database).list<RepairProposalGenerationAggregateShape>(proposal.projectId)
+    .filter((item) => item.content.job.id === proposal.provenance.jobId);
+  if (generations.length !== 1) throw new Error("Repair-proposal AI generation provenance is missing or duplicated");
+  const generation = generations[0]!.content;
+  assertCompletionLineage(generation, proposal);
+  const job = generation.job as RepairProposalGenerationAggregateShape["job"] & Record<string, unknown>;
+  if (job.proposalId !== proposal.id || job.proposalArtifactVersionId !== proposalArtifactVersionId) {
+    throw new Error("Repair-proposal AI generation completion linkage mismatch");
+  }
 }
 
 function assertProposal(database: StoryDatabase, projectId: string, value: unknown): RepairProposalRecord {

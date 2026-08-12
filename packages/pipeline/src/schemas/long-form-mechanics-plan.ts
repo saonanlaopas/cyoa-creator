@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  RepairFlagMechanicSchema,
+  RepairRelationshipMechanicSchema,
+  RepairResourceMechanicSchema,
+  RepairVisibleStatMechanicSchema,
+} from "@story-to-cyoa/domain";
 import type { LongFormEndingPlan } from "./long-form-ending-plan.js";
 import type { LongFormStoryBible } from "./long-form-story-bible.js";
 
@@ -6,40 +12,14 @@ const Id = z.string().trim().min(1).max(200);
 const Key = z.string().trim().regex(/^[a-z][a-z0-9_-]*$/).max(100);
 const Text = z.string().trim().max(10_000);
 
-const ScaleSchema = z.object({
-  id: Id,
-  key: Key,
-  label: z.string().trim().min(1).max(200),
-  description: Text.default(""),
-  minimum: z.number().int(),
-  maximum: z.number().int(),
-  initial: z.number().int(),
-  increaseSignals: z.array(Text).max(50).default([]),
-  decreaseSignals: z.array(Text).max(50).default([]),
-});
-
 export const LongFormMechanicsPlanSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   title: z.string().trim().min(1).max(300),
   overview: Text.default(""),
-  visibleStats: z.array(ScaleSchema).max(12).default([]),
-  relationships: z.array(ScaleSchema.extend({
-    relationshipId: Id,
-    bands: z.array(z.object({
-      id: Id,
-      minimum: z.number().int(),
-      label: z.string().trim().min(1).max(200),
-      meaning: Text.default(""),
-    })).max(20).default([]),
-  })).max(100).default([]),
-  flags: z.array(z.object({
-    id: Id, key: Key, label: z.string().trim().min(1).max(200), meaning: Text.default(""),
-  })).max(300).default([]),
-  resources: z.array(z.object({
-    id: Id, key: Key, label: z.string().trim().min(1).max(200),
-    kind: z.enum(["inventory", "currency", "counter"]), initial: z.number().int().default(0),
-    meaning: Text.default(""),
-  })).max(100).default([]),
+  visibleStats: z.array(RepairVisibleStatMechanicSchema).max(12).default([]),
+  relationships: z.array(RepairRelationshipMechanicSchema).max(100).default([]),
+  flags: z.array(RepairFlagMechanicSchema).max(300).default([]),
+  resources: z.array(RepairResourceMechanicSchema).max(100).default([]),
   gates: z.array(z.object({
     id: Id,
     targetType: z.enum(["route", "ending"]),

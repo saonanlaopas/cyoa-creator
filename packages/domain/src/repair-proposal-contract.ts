@@ -5,6 +5,10 @@ import {
   type RepairFingerprint,
   type RepairPlanDefinition,
 } from "./repair-plan-contract.js";
+import {
+  repairMechanicPayloadKind,
+  validateCanonicalRepairEntityPayload,
+} from "./repair-entity-contract.js";
 
 export const repairProposalSchema = Object.freeze({ id: "cyoa.repair-proposal", version: 1 });
 
@@ -143,6 +147,8 @@ const ValidationSchema = z.object({
   passageValidation: PassageValidationSchema,
   planningFindings: z.array(PlanningFindingSchema),
   resultingEntityFingerprints: z.array(z.object({ entityKind: Id, entityId: Id, fingerprint: Fingerprint }).strict()),
+  effectiveStateFingerprint: Fingerprint,
+  evidenceFingerprint: Fingerprint,
 }).strict();
 
 export const RepairProposalRecordSchema = z.object({
@@ -295,6 +301,16 @@ export function validateRepairProposalRecord(value: unknown, context: RepairProp
     entityKind: operation.entityKind, entityId: operation.entityId, fingerprint: fingerprint(operation.after),
   })).sort((left, right) => `${left.entityKind}:${left.entityId}`.localeCompare(`${right.entityKind}:${right.entityId}`));
   if (JSON.stringify(record.validation.resultingEntityFingerprints) !== JSON.stringify(expectedResults)) throw new Error("Repair-proposal validation result fingerprints are invalid");
+  const expectedEvidenceFingerprint = fingerprint({
+    operations: record.operations.map((operation) => ({
+      id: operation.id, entityKind: operation.entityKind, entityId: operation.entityId,
+      before: operation.before, after: operation.after,
+    })),
+    effectiveStateFingerprint: record.validation.effectiveStateFingerprint,
+    passageValidation: record.validation.passageValidation,
+    planningFindings: record.validation.planningFindings,
+  });
+  if (record.validation.evidenceFingerprint !== expectedEvidenceFingerprint) throw new Error("Repair-proposal validation evidence is not bound to its exact effective-state inputs");
   const validationWarnings = [
     ...record.validation.passageValidation.findings.filter((item) => item.severity !== "error").map((item) => `${item.code}: ${item.message}`),
     ...record.validation.planningFindings.filter((item) => item.severity !== "error").map((item) => `${item.code}: ${item.message}`),
@@ -318,6 +334,7 @@ function validateOperation(
   provenanceUnitIds: string[],
 ): void {
   if (operation.kind === "add-entity") {
+    validateCanonicalRepairEntityPayload(operation.entityKind, operation.after);
     if (operation.targetKey !== `${operation.entityKind}:${operation.entityId}` || !operation.authorizedParentTargetKey.startsWith("passage:")) {
       throw new Error("Repair-proposal add operation target is invalid");
     }
@@ -343,6 +360,11 @@ function validateOperation(
     if (operation.kind === "create-passage-draft-candidate") {
       if (expected.kind !== "passage-prose-head" || operation.requiresUnlock !== expected.acceptedLocked) throw new Error("Repair-proposal prose unlock requirement is invalid");
     } else {
+      const typedBefore = validateCanonicalRepairEntityPayload(operation.entityKind, operation.before);
+      const typedAfter = validateCanonicalRepairEntityPayload(operation.entityKind, operation.after);
+      if (operation.entityKind === "mechanic" && repairMechanicPayloadKind(typedBefore) !== repairMechanicPayloadKind(typedAfter)) {
+        throw new Error("Repair-proposal mechanic payload changes its canonical mechanic kind");
+      }
       if (context.expectedBefore && JSON.stringify(operation.before) !== JSON.stringify(context.expectedBefore(operation))) throw new Error("Repair-proposal operation before payload is not the exact immutable base");
       assertProtectedFields(operation.entityKind, operation.before, operation.after);
       if (JSON.stringify(Object.keys(operation.before).sort()) !== JSON.stringify(Object.keys(operation.after).sort())) throw new Error("Repair-proposal update payload is non-canonical");
