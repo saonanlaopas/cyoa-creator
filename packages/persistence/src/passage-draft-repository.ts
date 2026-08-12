@@ -660,6 +660,16 @@ export class PassageDraftRepository {
     return leftRoot !== null && leftRoot === rightRoot;
   }
 
+  acceptedVersionRoots(projectId: string): Record<string, string> {
+    return Object.fromEntries(this.listAllVersions(projectId)
+      .filter((version) => acceptedLifecycle(version.lifecycleStatus))
+      .flatMap((version) => {
+        const root = this.acceptanceRoot(projectId, version);
+        return root ? [[version.id, root] as const] : [];
+      })
+      .sort(([left], [right]) => left.localeCompare(right)));
+  }
+
   insertStalenessInTransaction(input: {
     projectId: string; passageId: string; draftVersionId: string; reasonCode: string;
     sourceEntityKind: string; sourceEntityId: string; fromVersionId: string | null;

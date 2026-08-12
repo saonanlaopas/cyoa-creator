@@ -1,22 +1,19 @@
 import { createHash, randomUUID } from "node:crypto";
+import {
+  REPAIR_PLANNING_POLICY_V1,
+  RepairPlanRecordSchema,
+  validateRepairPlanDefinition,
+  type RepairPlanRecord,
+} from "@story-to-cyoa/domain";
 import type { ArtifactVersion } from "./artifact-repository.js";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 
 export const REPAIR_PLAN_ARTIFACT_TYPE = "repair-plan";
 const prefix = "repair-plan:";
-const maximumPlanBytes = 2_000_000;
+const maximumPlanBytes = REPAIR_PLANNING_POLICY_V1.maxSavedPlanBytes;
 
-export interface RepairPlanAggregateShape {
-  id: string;
-  definitionFingerprint: string;
-  definition: {
-    schemaId: "cyoa.repair-plan"; schemaVersion: 1; projectId: string;
-    selectedFindings: Array<{ projectId: string }>;
-    resolvedFindings: Array<{ reference: { projectId: string } }>;
-  } & Record<string, unknown>;
-  createdAt: string;
-}
+export type RepairPlanAggregateShape = RepairPlanRecord;
 
 type Row = {
   id: string; project_id: string; artifact_id: string; artifact_type: string;
@@ -30,7 +27,6 @@ export class RepairPlanRepository {
   create<T extends RepairPlanAggregateShape>(projectId: string, content: T): ArtifactVersion<T> {
     assertDefinition(projectId, content);
     const serialized = JSON.stringify(content);
-    if (Buffer.byteLength(serialized, "utf8") > maximumPlanBytes) throw new Error("Repair plan exceeds its saved byte limit");
     return transaction(this.database, () => {
       if (!this.database.prepare("SELECT id FROM projects WHERE id = ?").get(projectId)) throw new Error("Repair-plan project not found");
       if (this.database.prepare("SELECT id FROM artifact_versions WHERE project_id = ? AND artifact_id = ?").get(projectId, `${prefix}${content.id}`)) {
@@ -86,18 +82,16 @@ export class RepairPlanRepository {
 }
 
 function assertDefinition(projectId: string, content: RepairPlanAggregateShape): void {
-  if (!content.id || content.definition.projectId !== projectId
-    || content.definition.schemaId !== "cyoa.repair-plan" || content.definition.schemaVersion !== 1) {
-    throw new Error("Repair-plan identity mismatch");
-  }
-  if (!Array.isArray(content.definition.selectedFindings)
-    || content.definition.selectedFindings.some((reference) => reference.projectId !== projectId)
-    || !Array.isArray(content.definition.resolvedFindings)
-    || content.definition.resolvedFindings.some((finding) => finding.reference?.projectId !== projectId)) {
-    throw new Error("Repair-plan source project mismatch");
-  }
-  const fingerprint = createHash("sha256").update(canonical(content.definition)).digest("hex");
-  if (content.definitionFingerprint !== fingerprint) throw new Error("Repair-plan definition fingerprint mismatch");
+  const record = RepairPlanRecordSchema.parse(content);
+  if (Buffer.byteLength(JSON.stringify(record), "utf8") > maximumPlanBytes) throw new Error("Repair plan exceeds its saved byte limit");
+  if (record.definition.projectId !== projectId) throw new Error("Repair-plan identity mismatch");
+  validateRepairPlanDefinition(record.definition, fingerprint);
+  const definitionFingerprint = fingerprint(content.definition);
+  if (content.definitionFingerprint !== definitionFingerprint) throw new Error("Repair-plan definition fingerprint mismatch");
+}
+
+function fingerprint(value: unknown): string {
+  return createHash("sha256").update(canonical(value)).digest("hex");
 }
 
 function assertArtifactIdentity(artifactId: string, content: RepairPlanAggregateShape): void {

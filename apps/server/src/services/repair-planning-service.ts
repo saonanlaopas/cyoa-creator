@@ -556,16 +556,23 @@ export class RepairPlanningService {
     const threads = this.passagePlans.currentEntities<NarrativeThread>(projectId, "thread").map((item) => item.content);
     const heads = this.drafts.listHeads(projectId);
     const acceptedIds = new Set(heads.flatMap((head) => head.accepted ? [head.accepted.id] : []));
+    const acceptedRoots = this.drafts.acceptedVersionRoots(projectId);
     const drafts = this.drafts.listAllVersions(projectId).map((draft) => ({
       id: draft.id, passageId: draft.passageId, basedOnPassagePlanVersionId: draft.basedOnPassagePlanVersionId,
-      neighboringDraftVersions: draft.neighboringDraftVersions, accepted: acceptedIds.has(draft.id),
+      neighboringDraftVersions: draft.neighboringDraftVersions,
+      neighboringAcceptedRoots: Object.fromEntries(Object.entries(draft.neighboringDraftVersions)
+        .flatMap(([passageId, versionId]) => acceptedRoots[versionId] ? [[passageId, acceptedRoots[versionId]]] : [])),
+      accepted: acceptedIds.has(draft.id), acceptedRoot: acceptedRoots[draft.id] ?? null,
     }));
     const mechanics = this.approvedArtifact<LongFormMechanicsPlan>(projectId, "mechanics", LongFormMechanicsPlanSchema);
     const endings = this.approvedArtifact<LongFormEndingPlan>(projectId, "endings", LongFormEndingPlanSchema);
     return {
       passages, choices, threads, drafts,
       mechanicGates: mechanics.content.gates.map((gate) => ({ id: gate.id, mechanicKeys: gate.conditions.map((condition) => condition.mechanicKey), targetType: gate.targetType, targetId: gate.targetId })),
-      routeSections: this.routeSections(projectId),
+      routeSections: this.routeSectionsFrom(
+        this.approvedArtifact<LongFormRoutePlan>(projectId, "routes", LongFormRoutePlanSchema).content,
+        endings.content.endings,
+      ),
       endings: endings.content.endings.map((ending) => ({ id: ending.id, routeId: ending.routeId, relationshipIds: ending.relationshipOutcomes.map((item) => item.relationshipId) })),
       historicalEvidence: this.historicalEvidence(projectId),
     };
@@ -608,16 +615,14 @@ export class RepairPlanningService {
   }
 
   private routeSections(projectId: string): RepairImpactIndex["routeSections"] {
-    return this.routeSectionsFrom(this.approvedArtifact<LongFormRoutePlan>(projectId, "routes", LongFormRoutePlanSchema).content);
+    return this.routeSectionsFrom(
+      this.approvedArtifact<LongFormRoutePlan>(projectId, "routes", LongFormRoutePlanSchema).content,
+      this.approvedArtifact<LongFormEndingPlan>(projectId, "endings", LongFormEndingPlanSchema).content.endings,
+    );
   }
 
-  private routeSectionsFrom(routes: LongFormRoutePlan): RepairImpactIndex["routeSections"] {
-    return [
-      ...routes.acts.map((item) => ({ kind: "act" as const, id: item.id, routeIds: item.routeId ? [item.routeId] : [] })),
-      ...routes.decisionPoints.map((item) => ({ kind: "decision" as const, id: item.id, routeIds: [...new Set(item.choices.flatMap((choice) => choice.routeId ? [choice.routeId] : []))].sort() })),
-      ...routes.reconvergences.map((item) => ({ kind: "reconvergence" as const, id: item.id, routeIds: [] })),
-      ...routes.endingHooks.map((item) => ({ kind: "ending-hook" as const, id: item.id, routeIds: [item.routeId] })),
-    ];
+  private routeSectionsFrom(routes: LongFormRoutePlan, endings: LongFormEndingPlan["endings"] = []): RepairImpactIndex["routeSections"] {
+    return repairImpactRouteSections(routes, endings);
   }
 
   private approvedArtifact<T>(projectId: string, artifactId: string, schema: { parse(value: unknown): T }): ArtifactVersion<T> {
@@ -658,6 +663,52 @@ export class RepairPlanningService {
     if (!project || project.mode !== "long-form") throw failure("project_not_found", "Long-form project not found");
     return project;
   }
+}
+
+export function repairImpactRouteSections(
+  routes: LongFormRoutePlan,
+  endings: LongFormEndingPlan["endings"] = [],
+): RepairImpactIndex["routeSections"] {
+  const acts = new Map(routes.acts.map((act) => [act.id, act]));
+  const routesForActs = (actIds: string[]) => sortedIds(actIds.flatMap((actId) => {
+    const routeId = acts.get(actId)?.routeId;
+    return routeId ? [routeId] : [];
+  }));
+  return [
+    ...routes.acts.map((item) => ({
+      kind: "act" as const, id: item.id, routeIds: item.routeId ? [item.routeId] : [], owningActId: null,
+      destinationActIds: [], fromActIds: [], toActId: null,
+      ownedDecisionIds: sortedIds(routes.decisionPoints.filter((decision) => decision.actId === item.id).map((decision) => decision.id)),
+      incomingDecisionIds: sortedIds(routes.decisionPoints.filter((decision) => decision.choices.some((choice) => choice.destinationActId === item.id)).map((decision) => decision.id)),
+      reconvergenceIds: sortedIds(routes.reconvergences.filter((reconvergence) => reconvergence.fromActIds.includes(item.id) || reconvergence.toActId === item.id).map((reconvergence) => reconvergence.id)),
+      endingIds: [],
+    })),
+    ...routes.decisionPoints.map((item) => {
+      const destinationActIds = sortedIds(item.choices.map((choice) => choice.destinationActId));
+      const owningRouteId = acts.get(item.actId)?.routeId;
+      return {
+        kind: "decision" as const, id: item.id,
+        routeIds: sortedIds([
+          ...(owningRouteId ? [owningRouteId] : []),
+          ...item.choices.flatMap((choice) => choice.routeId ? [choice.routeId] : []),
+          ...routesForActs(destinationActIds),
+        ]),
+        owningActId: item.actId, destinationActIds, fromActIds: [], toActId: null,
+        ownedDecisionIds: [], incomingDecisionIds: [], reconvergenceIds: [], endingIds: [],
+      };
+    }),
+    ...routes.reconvergences.map((item) => ({
+      kind: "reconvergence" as const, id: item.id,
+      routeIds: routesForActs([...item.fromActIds, item.toActId]), owningActId: null,
+      destinationActIds: [], fromActIds: sortedIds(item.fromActIds), toActId: item.toActId,
+      ownedDecisionIds: [], incomingDecisionIds: [], reconvergenceIds: [], endingIds: [],
+    })),
+    ...routes.endingHooks.map((item) => ({
+      kind: "ending-hook" as const, id: item.id, routeIds: [item.routeId], owningActId: null,
+      destinationActIds: [], fromActIds: [], toActId: null, ownedDecisionIds: [], incomingDecisionIds: [], reconvergenceIds: [],
+      endingIds: sortedIds(endings.filter((ending) => ending.hookId === item.id).map((ending) => ending.id)),
+    })),
+  ];
 }
 
 export interface RepairPlanView extends RepairPlanRecord {
@@ -781,6 +832,7 @@ function reviewTargetKeys(review: NarrativeReviewAggregate): string[] {
 }
 
 function sortedRecord(value: Record<string, string>): Record<string, string> { return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))); }
+function sortedIds(values: string[]): string[] { return [...new Set(values)].sort(); }
 function splitKey(value: string): [string, string] { const separator = value.indexOf(":"); return [value.slice(0, separator), value.slice(separator + 1)]; }
 function failure(code: string, message: string, details?: unknown): RepairPlanningServiceError { return new RepairPlanningServiceError(code, message, details); }
 function isResolvedFinding(value: unknown): value is ResolvedRepairFinding { return Boolean(value && typeof value === "object" && "reference" in value && "sourceFingerprint" in value); }

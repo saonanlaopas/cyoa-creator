@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import {
+  NarrativeReviewEvidenceReferenceSchema,
+  type NarrativeReviewEvidenceReference,
+} from "@story-to-cyoa/domain";
 import { stableJson } from "./passage-generation-plan.js";
 import type { ChoicePlan, NarrativeThread, PassagePlan } from "./schemas/passage-plan.js";
 
@@ -15,15 +19,9 @@ export const NarrativeReviewCategorySchema = z.enum([
 ]);
 export type NarrativeReviewCategory = z.infer<typeof NarrativeReviewCategorySchema>;
 
+export { NarrativeReviewEvidenceReferenceSchema, type NarrativeReviewEvidenceReference };
+
 const ids = z.array(z.string().min(1).max(256)).max(24);
-export const NarrativeReviewEvidenceReferenceSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("passage"), passageId: z.string().min(1), draftVersionId: z.string().min(1) }).strict(),
-  z.object({ kind: z.literal("choice"), choiceId: z.string().min(1), sourcePassageId: z.string().min(1) }).strict(),
-  z.object({ kind: z.literal("simulation-run"), runVersionId: z.string().min(1), traceFingerprint: z.string().min(1) }).strict(),
-  z.object({ kind: z.literal("playtest-finding"), campaignVersionId: z.string().min(1), findingId: z.string().min(1) }).strict(),
-  z.object({ kind: z.literal("playtest-sample"), campaignVersionId: z.string().min(1), sampleId: z.string().min(1), traceFingerprint: z.string().min(1) }).strict(),
-]);
-export type NarrativeReviewEvidenceReference = z.infer<typeof NarrativeReviewEvidenceReferenceSchema>;
 
 export const NarrativeReviewFindingCandidateSchema = z.object({
   logicalKey: z.string().min(1).max(160),

@@ -166,7 +166,12 @@ describe("passage draft acceptance repository", () => {
     const count = (f.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_staleness_events").get() as { count: number }).count;
     const acceptedB2 = f.drafts.getHead(f.project.id, "passage-2")!.accepted!;
     const reviewedB2 = f.drafts.transition(f.project.id, "passage-2", acceptedB2.id, "reviewed");
-    f.drafts.transition(f.project.id, "passage-2", reviewedB2.id, "locked");
+    const lockedB2 = f.drafts.transition(f.project.id, "passage-2", reviewedB2.id, "locked");
+    const roots = f.drafts.acceptedVersionRoots(f.project.id);
+    expect(roots[acceptedB2.id]).toBeDefined();
+    expect(roots[reviewedB2.id]).toBe(roots[acceptedB2.id]);
+    expect(roots[lockedB2.id]).toBe(roots[acceptedB2.id]);
+    expect(roots[b2.id]).toBeUndefined();
     expect((f.database.prepare("SELECT COUNT(*) AS count FROM passage_draft_staleness_events").get() as { count: number }).count).toBe(count);
     const noOpPreview = f.acceptance.preview(f.project.id, [{ passageId: "passage-2", candidateDraftVersionId: b2.id }]);
     expect(noOpPreview.items[0]?.noOp).toBe(true);

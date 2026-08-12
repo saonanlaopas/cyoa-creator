@@ -16,11 +16,14 @@ const index: RepairImpactIndex = {
   choices: [{ id: "c1", sourcePassageId: "p1", destinationPassageId: "p2", mechanicKeys: ["trust"], sourceDecisionIds: ["d1"] }],
   threads: [{ id: "t1", setupPassageIds: ["p1"], payoffPassageIds: ["p2"], routeIds: ["r1"] }],
   drafts: [
-    { id: "draft-p1", passageId: "p1", basedOnPassagePlanVersionId: "pv1", neighboringDraftVersions: {}, accepted: true },
-    { id: "draft-p2", passageId: "p2", basedOnPassagePlanVersionId: "pv2", neighboringDraftVersions: { p1: "draft-p1" }, accepted: true },
+    { id: "draft-p1", passageId: "p1", basedOnPassagePlanVersionId: "pv1", neighboringDraftVersions: {}, neighboringAcceptedRoots: {}, accepted: true, acceptedRoot: "root-a" },
+    { id: "draft-p2", passageId: "p2", basedOnPassagePlanVersionId: "pv2", neighboringDraftVersions: { p1: "draft-p1-old" }, neighboringAcceptedRoots: { p1: "root-a" }, accepted: true, acceptedRoot: "root-b" },
   ],
   mechanicGates: [{ id: "gate1", mechanicKeys: ["trust"], targetType: "ending", targetId: "e1" }],
-  routeSections: [{ kind: "decision", id: "d1", routeIds: ["r1"] }],
+  routeSections: [{
+    kind: "decision", id: "d1", routeIds: ["r1"], owningActId: "a1", destinationActIds: ["a2"],
+    fromActIds: [], toActId: null, ownedDecisionIds: [], incomingDecisionIds: [], reconvergenceIds: [], endingIds: [],
+  }],
   endings: [{ id: "e1", routeId: "r1", relationshipIds: ["rel1"] }],
   historicalEvidence: [{ kind: "simulation-run", id: "run1", targetKeys: ["passage:p1", "prose:p1"] }],
 };
@@ -54,6 +57,62 @@ describe("Foundation 6A repair planning", () => {
     const graph = buildRepairImpactGraph([{ kind: "passage-plan-passage", passageId: "p1" }], index);
     expect(malicious).toContain("unrelated");
     expect(graph.nodes.some((item) => item.entityId === "unrelated")).toBe(false);
+  });
+
+  it("expands every route-section kind through exact typed relationships", () => {
+    const routeIndex: RepairImpactIndex = {
+      ...index,
+      routeSections: [
+        { kind: "act", id: "a1", routeIds: ["r1"], owningActId: null, destinationActIds: [], fromActIds: [], toActId: null, ownedDecisionIds: ["d1"], incomingDecisionIds: ["d0"], reconvergenceIds: ["join"], endingIds: [] },
+        { kind: "decision", id: "d1", routeIds: ["r1", "r2"], owningActId: "a1", destinationActIds: ["a2"], fromActIds: [], toActId: null, ownedDecisionIds: [], incomingDecisionIds: [], reconvergenceIds: [], endingIds: [] },
+        { kind: "reconvergence", id: "join", routeIds: ["r1", "r2"], owningActId: null, destinationActIds: [], fromActIds: ["a1", "a2"], toActId: "a3", ownedDecisionIds: [], incomingDecisionIds: [], reconvergenceIds: [], endingIds: [] },
+        { kind: "ending-hook", id: "hook", routeIds: ["r2"], owningActId: null, destinationActIds: [], fromActIds: [], toActId: null, ownedDecisionIds: [], incomingDecisionIds: [], reconvergenceIds: [], endingIds: ["e2", "r-unrelated"] },
+        { kind: "act", id: "unrelated-act", routeIds: ["r-unrelated"], owningActId: null, destinationActIds: [], fromActIds: [], toActId: null, ownedDecisionIds: [], incomingDecisionIds: [], reconvergenceIds: [], endingIds: [] },
+      ],
+      choices: [...index.choices, { id: "unrelated-choice", sourcePassageId: "unrelated", destinationPassageId: "unrelated", mechanicKeys: [], sourceDecisionIds: ["unrelated-decision"] }],
+    };
+    const targets: RepairTarget[] = [
+      { kind: "route-section", sectionKind: "act", sectionId: "a1" },
+      { kind: "route-section", sectionKind: "decision", sectionId: "d1" },
+      { kind: "route-section", sectionKind: "reconvergence", sectionId: "join" },
+      { kind: "route-section", sectionKind: "ending-hook", sectionId: "hook" },
+    ];
+    const graph = buildRepairImpactGraph(targets, routeIndex);
+    expect(buildRepairImpactGraph([...targets].reverse(), routeIndex)).toEqual(graph);
+    expect(graph.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ entityKind: "route", entityId: "r1" }),
+      expect.objectContaining({ entityKind: "route", entityId: "r2" }),
+      expect.objectContaining({ entityKind: "route-decision", entityId: "d0" }),
+      expect.objectContaining({ entityKind: "route-decision", entityId: "d1" }),
+      expect.objectContaining({ entityKind: "route-reconvergence", entityId: "join" }),
+      expect.objectContaining({ entityKind: "route-act", entityId: "a1" }),
+      expect.objectContaining({ entityKind: "route-act", entityId: "a2" }),
+      expect.objectContaining({ entityKind: "route-act", entityId: "a3" }),
+      expect.objectContaining({ entityKind: "choice", entityId: "c1" }),
+      expect.objectContaining({ entityKind: "ending", entityId: "e2" }),
+    ]));
+    expect(graph.nodes.some((item) => item.entityKind === "route" && item.entityId === "r-unrelated")).toBe(false);
+    expect(graph.nodes.some((item) => item.entityId === "unrelated-act" || item.entityId === "unrelated-choice")).toBe(false);
+  });
+
+  it("traverses accepted-equivalent prose dependencies transitively with cycle protection", () => {
+    const proseIndex: RepairImpactIndex = {
+      ...index,
+      drafts: [
+        { id: "a-locked", passageId: "a", basedOnPassagePlanVersionId: "pa", neighboringDraftVersions: { b: "b-accepted" }, neighboringAcceptedRoots: { b: "root-b" }, accepted: true, acceptedRoot: "root-a" },
+        { id: "b-accepted", passageId: "b", basedOnPassagePlanVersionId: "pb", neighboringDraftVersions: { a: "a-v1" }, neighboringAcceptedRoots: { a: "root-a" }, accepted: true, acceptedRoot: "root-b" },
+        { id: "c-accepted", passageId: "c", basedOnPassagePlanVersionId: "pc", neighboringDraftVersions: { b: "b-reviewed" }, neighboringAcceptedRoots: { b: "root-b" }, accepted: true, acceptedRoot: "root-c" },
+        { id: "d-accepted", passageId: "d", basedOnPassagePlanVersionId: "pd", neighboringDraftVersions: {}, neighboringAcceptedRoots: {}, accepted: true, acceptedRoot: "root-d" },
+      ],
+    };
+    const first = buildRepairImpactGraph([{ kind: "passage-prose", passageId: "a" }], proseIndex);
+    const second = buildRepairImpactGraph([{ kind: "passage-prose", passageId: "a" }], { ...proseIndex, drafts: [...proseIndex.drafts].reverse() });
+    expect(second).toEqual(first);
+    expect(first.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ entityKind: "passage-draft", entityId: "b-accepted" }),
+      expect.objectContaining({ entityKind: "passage-draft", entityId: "c-accepted" }),
+    ]));
+    expect(first.nodes.some((item) => item.entityId === "d-accepted")).toBe(false);
   });
 
   it("retains static overrides and explicitly labels schema-v1 playtest retention unknown", () => {
