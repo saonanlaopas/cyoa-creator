@@ -852,7 +852,7 @@ test("failed passage candidate validation remains inspectable without mutating t
   expect(after.snapshots).toEqual(before.snapshots);
 });
 
-test("repair planning scopes and reopens exact 300-passage evidence without providers or silent rebasing", async ({ page, request }) => {
+test("repair planning and bounded proposals stay explicit and immutable across a 300-passage project", async ({ page, request }) => {
   test.setTimeout(120_000);
   const projectId = await seedLargePassagePlan(request);
   await approveCurrentPassagePlan(request, projectId);
@@ -907,6 +907,22 @@ test("repair planning scopes and reopens exact 300-passage evidence without prov
   await page.reload();
   const saved = page.locator(".repair-history button").first(); await expect(saved).toBeVisible(); await saved.click();
   if (fingerprint) await expect(page.getByLabel("Opened repair plan").getByText(fingerprint, { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Preview proposal generation" }).click();
+  const generationPreview = page.locator(".repair-generation-preview");
+  await expect(generationPreview).toContainText("ai-assisted");
+  await expect(generationPreview).toContainText("prose:passage-000");
+  await expect(generationPreview).toContainText(/Provider calls\s*0/);
+  expect(await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).text()).toBe(before);
+  await page.getByRole("button", { name: "Save exact generation plan" }).click();
+  await page.getByRole("button", { name: "Authorize exact fingerprint" }).click();
+  await page.getByRole("button", { name: "Start generation" }).click();
+  await expect(page.locator(".repair-proposal-history button").filter({ hasText: "ai-assisted" }).first()).toBeVisible();
+  await page.locator(".repair-proposal-history button").filter({ hasText: "ai-assisted" }).first().click();
+  const immutableProposal = page.getByLabel("Opened repair proposal");
+  await expect(immutableProposal).toContainText("create-passage-draft-candidate");
+  await expect(immutableProposal).toContainText("requires a later explicit prose unlock");
+  await expect(page.getByRole("button", { name: /apply|accept|unlock/i })).toHaveCount(0);
+  expect(await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).text()).toBe(before);
   const current = await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).json();
   const passage = current.passages.find((item: { entityId: string }) => item.entityId === "passage-000");
   await expect(await request.put(`/api/long-form/projects/${projectId}/passage-plan/entities/passage/passage-000`, {
@@ -915,5 +931,5 @@ test("repair planning scopes and reopens exact 300-passage evidence without prov
   await page.reload(); await page.locator(".repair-history button").first().click();
   await expect(page.getByLabel("Opened repair plan")).toContainText("historical");
   await expect(page.getByLabel("Opened repair plan")).toContainText(/Expected base changed|changed/);
-  expect(observedRequests.some((url) => /openrouter|narrative-review.*start|repair.*generate|repair.*apply/i.test(url))).toBe(false);
+  expect(observedRequests.some((url) => /openrouter|repair.*apply/i.test(url))).toBe(false);
 });

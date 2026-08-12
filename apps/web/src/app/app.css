@@ -294,6 +294,24 @@ textarea.source { min-height: 20rem; }
 .repair-impact-columns p { display: grid; gap: .15rem; overflow-wrap: anywhere; }
 .repair-history button { display: flex; justify-content: space-between; gap: 1rem; text-align: left; }
 .repair-history button small { color: #aeb7c6; }
+.repair-proposal-workspace, .repair-proposal-detail { display: grid; gap: .8rem; }
+.repair-proposal-workspace > header, .repair-proposal-detail > header, .repair-generation-job > header { display: flex; justify-content: space-between; align-items: start; gap: 1rem; }
+.repair-proposal-workspace header strong, .repair-proposal-detail header strong, .repair-generation-job header strong { max-width: 55%; overflow-wrap: anywhere; }
+.repair-provider-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+.repair-provider-fields label { display: grid; gap: .35rem; }
+.repair-provider-fields select, .repair-provider-fields input { min-width: 0; border: 1px solid #48536a; border-radius: .45rem; padding: .65rem; background: #11151e; color: #f4efe7; }
+.repair-generation-preview, .repair-generation-job { display: grid; gap: .65rem; padding-block: .75rem; border-block: 1px solid #354055; }
+.repair-generation-preview > strong { overflow-wrap: anywhere; }
+.repair-generation-preview p, .repair-generation-job details { margin: 0; }
+.repair-generation-preview p { display: grid; gap: .2rem; }
+.repair-generation-preview small, .repair-generation-job small { color: #aeb7c6; overflow-wrap: anywhere; }
+.repair-proposal-actions { display: flex; flex-wrap: wrap; gap: .55rem; }
+.repair-proposal-history button { display: flex; justify-content: space-between; gap: 1rem; text-align: left; }
+.repair-proposal-history button small { color: #aeb7c6; }
+.repair-proposal-detail details { padding-block: .65rem; border-bottom: 1px solid #354055; }
+.repair-operation { display: grid; gap: .4rem; padding-block: .65rem; }
+.repair-operation em { color: #f1c77f; font-style: normal; }
+.repair-operation pre { max-height: 18rem; overflow: auto; padding: .6rem; white-space: pre-wrap; overflow-wrap: anywhere; background: #0b1018; }
 .simulation-controls label { display: grid; gap: .35rem; color: #c3cad6; }
 .simulation-controls select, .simulation-controls input { border: 1px solid #48536a; border-radius: .55rem; padding: .75rem; background: #11151e; color: #f4efe7; }
 .simulation-controls textarea { min-height: 8rem; resize: vertical; }
@@ -343,7 +361,7 @@ textarea.source { min-height: 20rem; }
 .finding-links, .representative-actions { display: flex; flex-wrap: wrap; gap: .55rem; }
 .selected-sample, .replay-evidence { margin-top: .75rem; padding: .75rem; border: 1px solid #4a5870; border-radius: .55rem; background: #11151e; }
 @media (max-width: 900px) {
-  .playtest-control-grid, .playtest-report-grid, .playtest-kpis, .repair-impact-columns { grid-template-columns: 1fr; }
+  .playtest-control-grid, .playtest-report-grid, .playtest-kpis, .repair-impact-columns, .repair-provider-fields { grid-template-columns: 1fr; }
   .playtest-overview > header, .playtest-findings > header, .playtest-samples > header { display: grid; }
 }
 .draft-corpus-strip { display: flex; flex-wrap: wrap; gap: .4rem; margin: .6rem 0; }

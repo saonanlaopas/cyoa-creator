@@ -139,7 +139,7 @@ function assertInitialAggregateState(content: NarrativeReviewAggregateShape): vo
   }
 }
 
-function assertUnitHistoryTransition(previous: Record<string, unknown>, next: Record<string, unknown>): void {
+export function assertUnitHistoryTransition(previous: Record<string, unknown>, next: Record<string, unknown>): void {
   const beforeAttempts = arrayOfRecords(previous.attempts, "attempt history");
   const afterAttempts = arrayOfRecords(next.attempts, "attempt history");
   assertAttemptSequence(beforeAttempts);

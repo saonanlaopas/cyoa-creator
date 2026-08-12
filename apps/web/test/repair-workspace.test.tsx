@@ -17,7 +17,7 @@ const response = (body: unknown, status = 200) => new Response(JSON.stringify(bo
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("RepairWorkspace", () => {
-  it("loads metadata first, displays locked exact scope, previews, saves, and reopens historical plans without generation controls", async () => {
+  it("loads metadata first, displays locked exact scope, previews, saves, and blocks historical proposal generation", async () => {
     const requests: Array<{ url: string; method: string }> = [];
     let listed = false;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
@@ -29,6 +29,8 @@ describe("RepairWorkspace", () => {
       if (url.endsWith("/plans") && method === "POST") { listed = true; return response(saved, 201); }
       if (url.endsWith("/plans") && method === "GET") return response({ items: listed ? [{ id: saved.id, artifactVersionId: saved.artifactVersionId, createdAt: saved.createdAt, definitionFingerprint: saved.definitionFingerprint, intent: definition.intent, findingCount: 1, targetCount: 1, impactCount: 2, currentState: { status: "historical", reasons: ["Expected base changed: prose:p1"] } }] : [] });
       if (url.endsWith("/plans/repair-1")) return response({ ...saved, currentState: { status: "historical", reasons: ["Expected base changed: prose:p1"] }, eligibleForGeneration: false });
+      if (url.endsWith("/proposal-generations")) return response({ items: [] });
+      if (url.endsWith("/proposals")) return response({ items: [] });
       return response({ error: `Unexpected ${method} ${url}` }, 404);
     });
     const user = userEvent.setup();
@@ -49,5 +51,55 @@ describe("RepairWorkspace", () => {
     expect(await screen.findByText("Expected base changed: prose:p1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /generate|apply|authorize|start/i })).toBeNull();
     expect(requests.every((item) => !/openrouter|provider/.test(item.url))).toBe(true);
+  });
+
+  it("runs the explicit AI proposal lifecycle and reopens immutable groups without execution controls", async () => {
+    const generationPreview = {
+      repairPlan: saved, generationFingerprint: "d".repeat(64), mode: "ai-assisted", providerId: "offline-repair-proposal", modelId: "deterministic-repair-v1",
+      policy: { maxUnits: 24 }, estimatedInputTokens: 120, expectedGroupStrategy: "one coherent group", providerCalls: 0, canonicalMutations: 0,
+      units: [{ id: "unit-1", position: 0, targetKeys: ["prose:p1"], contextFingerprint: "e".repeat(64), estimatedInputTokens: 120, serializedContextBytes: 480, maximumOutputTokens: 8000 }],
+    };
+    const generation = (status: string) => ({
+      generation: { id: "generation-1", fingerprint: generationPreview.generationFingerprint, status: status === "planned" ? "planned" : "authorized", providerId: "offline-repair-proposal", modelId: "deterministic-repair-v1" },
+      job: { id: "job-1", status, proposalId: status === "completed" ? "proposal-1" : null, units: [{ ...generationPreview.units[0], status: status === "completed" ? "completed" : "pending", attempts: status === "completed" ? [{ id: "attempt-1", number: 1, status: "completed", error: null, repair: { performed: 0 } }] : [] }] },
+      currentState: { status: "current", reasons: [] },
+    });
+    const proposal = {
+      id: "proposal-1", definitionFingerprint: "f".repeat(64), repairPlanId: saved.id,
+      provenance: { mode: "ai-assisted", providerId: "offline-repair-proposal", modelId: "deterministic-repair-v1" },
+      groups: [{ id: "group-1", label: "Repair prose:p1", summary: "Bounded prose candidate", operationIds: ["operation-1"], dependsOnGroupIds: [], validation: { status: "valid" } }],
+      operations: [{ id: "operation-1", kind: "create-passage-draft-candidate", entityKind: "passage-prose", entityId: "p1", fieldDiffs: [{ field: "proposedProse", before: null, after: "Candidate prose" }], requiresUnlock: true }],
+      validation: { status: "valid", errors: [], warnings: [] }, currentState: { status: "current", reasons: [] },
+    };
+    let completed = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request); const method = init?.method ?? "GET";
+      if (url.includes("/findings?")) return response({ items: [], truncated: false, limit: 500 });
+      if (url.endsWith("/plans") && method === "GET") return response({ items: [{ id: saved.id, artifactVersionId: saved.artifactVersionId, createdAt: saved.createdAt, definitionFingerprint: saved.definitionFingerprint, intent: definition.intent, findingCount: 1, targetCount: 1, impactCount: 2, currentState: { status: "current", reasons: [] } }] });
+      if (url.endsWith("/plans/repair-1")) return response(saved);
+      if (url.endsWith("/proposals/generation-preview")) return response(generationPreview);
+      if (url.endsWith("/proposal-generations") && method === "POST") return response(generation("planned"), 201);
+      if (url.endsWith("/proposal-generations") && method === "GET") return response({ items: completed ? [generation("completed")] : [] });
+      if (url.endsWith("/proposal-generations/generation-1/authorize")) return response(generation("authorized"));
+      if (url.endsWith("/proposal-generations/generation-1/start")) { completed = true; return response(generation("running")); }
+      if (url.endsWith("/proposal-generations/generation-1")) return response(generation(completed ? "completed" : "running"));
+      if (url.endsWith("/proposals") && method === "GET") return response({ items: completed ? [proposal] : [] });
+      if (url.endsWith("/proposals/proposal-1")) return response(proposal);
+      return response({ error: `Unexpected ${method} ${url}` }, 404);
+    });
+    const user = userEvent.setup(); render(<RepairWorkspace projectId="project-1" />);
+    await user.click(await screen.findByRole("button", { name: /prose · 1 findings · 1 targets/i }));
+    expect(await screen.findByRole("heading", { name: "Repair proposals" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Preview proposal generation" }));
+    expect(await screen.findByText(generationPreview.generationFingerprint)).toBeTruthy();
+    expect(screen.getByText("0", { selector: "dd" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Save exact generation plan" }));
+    await user.click(await screen.findByRole("button", { name: "Authorize exact fingerprint" }));
+    await user.click(await screen.findByRole("button", { name: "Start generation" }));
+    expect(await screen.findByText(/completed · offline-repair-proposal/i)).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: /ai-assisted · 1 groups · 1 operations/i }));
+    expect(await screen.findByRole("heading", { name: "Immutable proposal" })).toBeTruthy();
+    expect(screen.getByText("create-passage-draft-candidate · passage-prose:p1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /apply|accept|unlock/i })).toBeNull();
   });
 });
