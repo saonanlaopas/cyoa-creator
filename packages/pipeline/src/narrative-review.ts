@@ -4,8 +4,8 @@ import { stableJson } from "./passage-generation-plan.js";
 import type { ChoicePlan, NarrativeThread, PassagePlan } from "./schemas/passage-plan.js";
 
 export const narrativeReviewContextSchema = Object.freeze({ id: "cyoa.narrative-review-context", version: 1 });
-export const narrativeReviewOutputSchema = Object.freeze({ id: "cyoa.narrative-review-output", version: 1 });
-export const narrativeReviewFindingSchema = Object.freeze({ id: "cyoa.narrative-review-finding", version: 1 });
+export const narrativeReviewOutputSchema = Object.freeze({ id: "cyoa.narrative-review-output", version: 2 });
+export const narrativeReviewFindingSchema = Object.freeze({ id: "cyoa.narrative-review-finding", version: 2 });
 
 export const NarrativeReviewCategorySchema = z.enum([
   "pacing", "repetitive-prose", "weak-or-unclear-choices", "indistinguishable-choices",
@@ -37,6 +37,7 @@ export const NarrativeReviewFindingCandidateSchema = z.object({
   routeIds: ids,
   endingIds: ids,
   mechanicKeys: ids,
+  factIds: ids,
   threadIds: ids,
   acceptedDraftVersionIds: ids,
   evidenceReferences: z.array(NarrativeReviewEvidenceReferenceSchema).min(1).max(32),
@@ -291,9 +292,20 @@ function validateRelations(findings: NarrativeReviewFindingCandidate[], context:
   const evidence = context.quotedAuthoringEvidence;
   const passages = new Set([...evidence.targets.map((item) => item.passage.id), ...evidence.neighboringAcceptedProse.map((item) => item.passageId)]);
   const choices = new Map(evidence.choices.map((item) => [item.content.id, item.content]));
-  const routes = new Set([...collectNamed(evidence.targets, "routeIds"), ...collectNamed(evidence.upstream.routes, "id")]);
-  const endings = new Set([...evidence.targets.flatMap((item) => item.passage.endingId ? [item.passage.endingId] : []), ...collectNamed(evidence.upstream.endings, "id")]);
-  const mechanics = new Set([...collectNamed(evidence, "mechanicKey"), ...collectNamed(evidence.upstream.mechanics, "key")]);
+  const routes = new Set([
+    ...evidence.targets.flatMap((item) => item.passage.routeIds),
+    ...typedCollectionValues(evidence.upstream.routes, "routes", "id"),
+  ]);
+  const endings = new Set([
+    ...evidence.targets.flatMap((item) => item.passage.endingId ? [item.passage.endingId] : []),
+    ...typedCollectionValues(evidence.upstream.endings, "endings", "id"),
+  ]);
+  const mechanics = new Set([
+    ...evidence.choices.flatMap((item) => mechanicKeysFromChoice(item.content)),
+    ...["visibleStats", "relationships", "flags", "resources"].flatMap((collection) =>
+      typedCollectionValues(evidence.upstream.mechanics, collection, "key")),
+  ]);
+  const facts = new Set(typedCollectionValues(evidence.upstream.bible, "canonFacts", "id"));
   const threads = new Set(evidence.threads.map((item) => item.content.id));
   const draftPassageByVersion = new Map([...evidence.targets, ...evidence.neighboringAcceptedProse.map((draft) => ({ acceptedDraft: draft }))]
     .flatMap((item) => item.acceptedDraft ? [[item.acceptedDraft.draftVersionId, item.acceptedDraft.passageId] as const] : []));
@@ -308,12 +320,14 @@ function validateRelations(findings: NarrativeReviewFindingCandidate[], context:
     finding.routeIds.filter((id) => !routes.has(id)).forEach((id) => issues.push(`Unknown route ${id}`));
     finding.endingIds.filter((id) => !endings.has(id)).forEach((id) => issues.push(`Unknown ending ${id}`));
     finding.mechanicKeys.filter((id) => !mechanics.has(id)).forEach((id) => issues.push(`Unknown mechanic ${id}`));
+    finding.factIds.filter((id) => !facts.has(id)).forEach((id) => issues.push(`Unknown canon fact ${id}`));
     finding.threadIds.filter((id) => !threads.has(id)).forEach((id) => issues.push(`Unknown thread ${id}`));
     finding.acceptedDraftVersionIds.filter((id) => !drafts.has(id)).forEach((id) => issues.push(`Unknown accepted draft ${id}`));
     if (["weak-or-unclear-choices", "indistinguishable-choices"].includes(finding.category) && finding.choiceIds.length === 0) issues.push(`${finding.category} requires exact choice IDs`);
     if (finding.category === "route-differentiation" && finding.routeIds.length === 0) issues.push("route-differentiation requires exact route IDs");
     if (finding.category === "setup-payoff" && finding.threadIds.length === 0) issues.push("setup-payoff requires exact thread IDs");
     if (finding.category === "ending-buildup" && finding.endingIds.length === 0) issues.push("ending-buildup requires an exact ending ID");
+    if (finding.category === "false-knowledge" && finding.factIds.length === 0) issues.push("false-knowledge requires at least one exact canon fact ID");
     for (const reference of finding.evidenceReferences) {
       if (reference.kind === "passage" && (!passages.has(reference.passageId) || draftPassageByVersion.get(reference.draftVersionId) !== reference.passageId)) issues.push(`Invalid passage/draft relationship ${reference.passageId}`);
       if (reference.kind === "choice" && choices.get(reference.choiceId)?.sourcePassageId !== reference.sourcePassageId) issues.push(`Invalid choice/source relationship ${reference.choiceId}`);
@@ -381,6 +395,27 @@ function collectNamed(value: unknown, key: string, result = new Set<string>()): 
     collectNamed(item, key, result);
   });
   return result;
+}
+function typedCollectionValues(value: unknown, collection: string, field: string): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const items = (value as Record<string, unknown>)[collection];
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const candidate = (item as Record<string, unknown>)[field];
+    return typeof candidate === "string" ? [candidate] : [];
+  });
+}
+function mechanicKeysFromChoice(choice: ChoicePlan): string[] {
+  const result = new Set(choice.effects.map((effect) => effect.mechanicKey));
+  const visit = (condition: ChoicePlan["condition"]): void => {
+    if (!condition || condition.kind === "visit-count") return;
+    if (condition.kind === "compare") result.add(condition.mechanicKey);
+    else if (condition.kind === "not") visit(condition.item);
+    else condition.items.forEach(visit);
+  };
+  visit(choice.condition);
+  return [...result];
 }
 function lastIndexWhere<T>(items: T[], predicate: (item: T) => boolean): number {
   for (let index = items.length - 1; index >= 0; index -= 1) if (predicate(items[index]!)) return index;

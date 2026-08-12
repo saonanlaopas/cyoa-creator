@@ -18,14 +18,15 @@ import {
   type ReviewSimulationEvidence,
 } from "@story-to-cyoa/pipeline";
 import { redactSecret } from "@story-to-cyoa/openrouter";
-import type {
-  ArtifactRepository,
-  NarrativeReviewAggregateShape,
-  NarrativeReviewRepository,
-  PassageDraftRepository,
-  PassagePlanRepository,
-  ProjectRepository,
-  WorkflowRepository,
+import {
+  narrativeReviewFindingFingerprint,
+  type ArtifactRepository,
+  type NarrativeReviewAggregateShape,
+  type NarrativeReviewRepository,
+  type PassageDraftRepository,
+  type PassagePlanRepository,
+  type ProjectRepository,
+  type WorkflowRepository,
 } from "@story-to-cyoa/persistence";
 import { SimulationService } from "./simulation-service.js";
 import { PlaytestService } from "./playtest-service.js";
@@ -418,13 +419,13 @@ export class NarrativeReviewService {
 }
 
 function persistedFinding(review: NarrativeReviewAggregate, unit: NarrativeReviewUnitRecord, attempt: NarrativeReviewAttemptRecord, finding: NarrativeReviewFindingCandidate): NarrativeReviewFindingRecord {
-  const identity = {
+  const durable = {
     reviewPlanId: review.plan.id, jobId: review.job.id, unitId: unit.id, attemptId: attempt.id,
     reviewInputFingerprint: review.reviewInput.fingerprint, contextFingerprint: unit.contextFingerprint,
-    logicalKey: finding.logicalKey, category: finding.category, evidenceReferences: finding.evidenceReferences,
+    ...finding,
   };
-  const fingerprint = narrativeReviewDigest(identity);
-  return { schemaId: narrativeReviewFindingSchema.id, schemaVersion: narrativeReviewFindingSchema.version, id: `nrf_${fingerprint.slice(0, 24)}`, fingerprint, ...identity, ...finding };
+  const fingerprint = narrativeReviewFindingFingerprint(durable);
+  return { schemaId: narrativeReviewFindingSchema.id, schemaVersion: narrativeReviewFindingSchema.version, id: `nrf_${fingerprint.slice(0, 24)}`, fingerprint, ...durable };
 }
 function requireUnit(review: NarrativeReviewAggregate, unitId: string): NarrativeReviewUnitRecord {
   const unit = review.job.units.find((item) => item.id === unitId); if (!unit) throw new NarrativeReviewServiceError("review_unit_not_found", "Narrative-review unit not found"); return unit;

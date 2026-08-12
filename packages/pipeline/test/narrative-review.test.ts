@@ -13,16 +13,18 @@ function fixture(): NarrativeReviewPlanInput {
     versionId: `pv-${id}`,
     content: {
       id, title: id, sequenceId: "sequence", purpose: `purpose ${id}`, summary: `summary ${id}`,
-      routeIds: id === "unrelated" ? ["route-other"] : ["route-main"], endingId: null,
+      routeIds: id === "unrelated" ? ["route-other"] : ["route-main"], endingId: id === "c" ? "ending-main" : null,
       choiceIds: id === "a" ? ["choice-ab"] : [], characterIds: [], relationshipIds: [], locationIds: [],
-      requiredFactIds: [], revealedFactIds: [], setupThreadIds: [], payoffThreadIds: [], preservedDifferenceIds: [],
+      requiredFactIds: id === "a" ? ["fact-in-context"] : [], revealedFactIds: [], setupThreadIds: [], payoffThreadIds: [], preservedDifferenceIds: [],
       wordTarget: 800, terminal: index > 1, planningStatus: "planned",
     } as unknown as PassagePlan,
   }));
   const choices = [{
     versionId: "cv-ab", content: {
       id: "choice-ab", sourcePassageId: "a", destinationPassageId: "b", label: "Continue", position: 0,
-      condition: null, effects: [], sourceDecisionIds: [], unavailableBehavior: "disabled", unavailableExplanation: "",
+      condition: { kind: "compare", mechanicKey: "trust", operator: "gte", value: 1 },
+      effects: [{ id: "effect-seen", mechanicKey: "flag-seen", operation: "set", value: true, feedback: "", visibility: "visible" }],
+      sourceDecisionIds: ["decision-main"], unavailableBehavior: "disabled", unavailableExplanation: "",
     } as unknown as ChoicePlan,
   }];
   return {
@@ -35,8 +37,22 @@ function fixture(): NarrativeReviewPlanInput {
     })),
     scopePassageIds: ["a", "b", "c"],
     upstream: {
-      routes: { routes: [{ id: "route-main", name: "Main" }, { id: "route-other", name: "Other" }] },
-      mechanics: { visibleStats: [{ key: "trust", label: "Trust" }] },
+      routes: {
+        routes: [{ id: "route-main", name: "Main" }, { id: "route-other", name: "Other" }],
+        acts: [{ id: "act-not-route", routeIds: ["route-main"] }],
+        decisionPoints: [{ id: "decision-not-route", routeIds: ["route-main"], choices: [{ id: "decision-choice-not-route", routeId: "route-main" }] }],
+        reconvergences: [{ id: "reconvergence-not-route", routeIds: ["route-main"] }],
+        endingHooks: [{ id: "ending-hook-not-route", routeId: "route-main" }],
+      },
+      endings: {
+        endings: [{ id: "ending-main", variants: [{ id: "variant-not-ending" }] }],
+        unresolvedQuestions: [{ id: "ending-question-not-ending", endingId: "ending-main" }],
+      },
+      bible: { canonFacts: [{ id: "fact-in-context", statement: "The bell is cracked." }, { id: "fact-outside", statement: "This fact is not connected." }] },
+      mechanics: {
+        visibleStats: [{ key: "trust", label: "Trust" }], flags: [{ key: "flag-seen", label: "Seen" }],
+        gates: [{ id: "gate-not-mechanic", targetId: "route-main", conditions: [{ mechanicKey: "gate-only" }] }],
+      },
     },
     simulationRuns: [{ versionId: "run-choice", traceFingerprint: "run-trace", passageIds: [], choiceIds: ["choice-ab"], raw: {} }],
     campaigns: [{
@@ -45,7 +61,7 @@ function fixture(): NarrativeReviewPlanInput {
       findings: [{ id: "hard", evidenceLevel: "hard-error", passageIds: ["a"], choiceIds: [], routeIds: [], endingIds: [], mechanicKeys: [], raw: {} },
         { id: "choice-only", evidenceLevel: "warning", passageIds: [], choiceIds: ["choice-ab"], routeIds: [], endingIds: [], mechanicKeys: [], raw: {} },
         { id: "irrelevant", evidenceLevel: "observation", passageIds: ["unrelated"], choiceIds: [], routeIds: [], endingIds: [], mechanicKeys: [], raw: {} }],
-      samples: [], report: { fingerprint: "report" },
+      samples: [{ id: "sample-a", passageIds: ["a"], choiceIds: ["choice-ab"], routeIds: ["route-main"], endingId: null, traceFingerprint: "sample-trace", hardFailure: null, raw: {} }], report: { fingerprint: "report" },
     }, {
       versionId: "campaign-v1", campaignId: "legacy", schemaVersion: 1,
       findingRetention: { status: "legacy-unknown", retained: 2, total: null, omitted: null, truncated: null },
@@ -83,16 +99,25 @@ describe("Foundation 5C bounded narrative review", () => {
     const finding = {
       logicalKey: "pacing-a", category: "pacing", severity: "warning", confidence: "high",
       message: "The emotional beat is abrupt.", reviewNote: "Inspect the pause before the choice.",
-      passageIds: ["a"], choiceIds: ["choice-ab"], routeIds: ["route-main"], endingIds: [], mechanicKeys: [], threadIds: [],
+      passageIds: ["a"], choiceIds: ["choice-ab"], routeIds: ["route-main"], endingIds: [], mechanicKeys: ["trust", "flag-seen"], factIds: [], threadIds: [],
       acceptedDraftVersionIds: ["draft-a"], evidenceReferences: [
         { kind: "passage", passageId: "a", draftVersionId: "draft-a" },
         { kind: "choice", choiceId: "choice-ab", sourcePassageId: "a" },
         { kind: "playtest-finding", campaignVersionId: "campaign-v2", findingId: "hard" },
       ],
     };
-    const raw = JSON.stringify({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: 1, findings: [finding] });
+    const raw = JSON.stringify({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: narrativeReviewOutputSchema.version, findings: [finding] });
     expect(validateNarrativeReviewOutput({ raw, context: unit.context, maximumOutputTokens: 8_000 }).output.findings).toHaveLength(1);
-    const invalid = (change: object) => JSON.stringify({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: 1, findings: [{ ...finding, ...change }] });
+    expect(validateNarrativeReviewOutput({
+      raw: JSON.stringify({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: narrativeReviewOutputSchema.version, findings: [{ ...finding, logicalKey: "route-main", category: "route-differentiation", choiceIds: [], mechanicKeys: [], acceptedDraftVersionIds: [], evidenceReferences: [{ kind: "passage", passageId: "a", draftVersionId: "draft-a" }] }] }),
+      context: unit.context, maximumOutputTokens: 8_000,
+    }).output.findings[0]?.routeIds).toEqual(["route-main"]);
+    const endingUnit = buildNarrativeReviewPlan(fixture()).units.find((item) => item.passageIds.includes("c"))!;
+    expect(validateNarrativeReviewOutput({
+      raw: JSON.stringify({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: narrativeReviewOutputSchema.version, findings: [{ ...finding, logicalKey: "ending-main", category: "ending-buildup", passageIds: ["c"], choiceIds: [], routeIds: [], endingIds: ["ending-main"], mechanicKeys: [], acceptedDraftVersionIds: ["draft-c"], evidenceReferences: [{ kind: "passage", passageId: "c", draftVersionId: "draft-c" }] }] }),
+      context: endingUnit.context, maximumOutputTokens: 8_000,
+    }).output.findings[0]?.endingIds).toEqual(["ending-main"]);
+    const invalid = (change: object) => JSON.stringify({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: narrativeReviewOutputSchema.version, findings: [{ ...finding, ...change }] });
     const expectIssue = (change: object, issue: RegExp) => {
       try {
         validateNarrativeReviewOutput({ raw: invalid(change), context: unit.context, maximumOutputTokens: 8_000 });
@@ -105,12 +130,26 @@ describe("Foundation 5C bounded narrative review", () => {
     expect(() => validateNarrativeReviewOutput({ raw: invalid({ evidenceReferences: [{ kind: "choice", choiceId: "choice-ab", sourcePassageId: "b" }] }), context: unit.context, maximumOutputTokens: 8_000 })).toThrow(/invalid evidence/i);
     expectIssue({ evidenceReferences: [{ kind: "passage", passageId: "a", draftVersionId: "draft-b" }] }, /passage\/draft relationship/i);
     expectIssue({ routeIds: ["invented-route"] }, /unknown route/i);
+    for (const id of ["act-not-route", "decision-not-route", "decision-choice-not-route", "reconvergence-not-route", "ending-hook-not-route"]) {
+      expectIssue({ routeIds: [id] }, /unknown route/i);
+    }
     expectIssue({ endingIds: ["invented-ending"] }, /unknown ending/i);
+    for (const id of ["variant-not-ending", "ending-question-not-ending"]) expectIssue({ endingIds: [id] }, /unknown ending/i);
     expectIssue({ mechanicKeys: ["invented-mechanic"] }, /unknown mechanic/i);
+    expectIssue({ mechanicKeys: ["gate-only"] }, /unknown mechanic/i);
+    expectIssue({ factIds: ["fact-outside"] }, /unknown canon fact/i);
     expectIssue({ threadIds: ["invented-thread"] }, /unknown thread/i);
     expectIssue({ acceptedDraftVersionIds: ["invented-draft"] }, /unknown accepted draft/i);
     expect(() => validateNarrativeReviewOutput({ raw: invalid({ replacementProse: "Apply this patch" }), context: unit.context, maximumOutputTokens: 8_000 })).toThrow(/strict schema/i);
-    expect(() => validateNarrativeReviewOutput({ raw: JSON.stringify({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: 1, findings: [finding, finding] }), context: unit.context, maximumOutputTokens: 8_000 })).toThrow(/invalid evidence/i);
+    const falseKnowledge = {
+      ...finding, logicalKey: "false-knowledge-a", category: "false-knowledge", factIds: ["fact-in-context"],
+      evidenceReferences: [{ kind: "playtest-sample", campaignVersionId: "campaign-v2", sampleId: "sample-a", traceFingerprint: "sample-trace" }],
+    };
+    expect(validateNarrativeReviewOutput({ raw: JSON.stringify({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: narrativeReviewOutputSchema.version, findings: [falseKnowledge] }), context: unit.context, maximumOutputTokens: 8_000 }).output.findings[0]?.factIds).toEqual(["fact-in-context"]);
+    expectIssue({ category: "false-knowledge", factIds: [] }, /exact canon fact ID/i);
+    expectIssue({ category: "false-knowledge", factIds: ["fact-in-context"], evidenceReferences: [{ kind: "simulation-run", runVersionId: "run-choice", traceFingerprint: "wrong" }] }, /invalid simulation trace/i);
+    expectIssue({ category: "false-knowledge", factIds: ["fact-in-context"], evidenceReferences: [{ kind: "playtest-sample", campaignVersionId: "campaign-v2", sampleId: "sample-a", traceFingerprint: "wrong" }] }, /invalid playtest sample/i);
+    expect(() => validateNarrativeReviewOutput({ raw: JSON.stringify({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: narrativeReviewOutputSchema.version, findings: [finding, finding] }), context: unit.context, maximumOutputTokens: 8_000 })).toThrow(/invalid evidence/i);
     expect(() => validateNarrativeReviewOutput({ raw: `${raw}${"x".repeat(5_000)}`, context: unit.context, maximumOutputTokens: 100 })).toThrow(/effective bound/i);
   });
 

@@ -2,7 +2,7 @@ export interface NarrativeReviewFinding {
   id: string; fingerprint: string; category: string; severity: "info" | "warning" | "error";
   confidence: string; message: string; reviewNote: string;
   passageIds: string[]; choiceIds: string[]; routeIds: string[]; endingIds: string[];
-  mechanicKeys: string[]; threadIds: string[]; acceptedDraftVersionIds: string[];
+  mechanicKeys: string[]; factIds: string[]; threadIds: string[]; acceptedDraftVersionIds: string[];
   evidenceReferences: Array<Record<string, string>>;
   reviewPlanId: string; jobId: string; unitId: string; attemptId: string;
   reviewInputFingerprint: string; contextFingerprint: string;

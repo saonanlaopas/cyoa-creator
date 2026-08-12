@@ -52,7 +52,7 @@ describe("NarrativeReviewWorkspace", () => {
           saved.job.units[0]!.findings = [{
             id: "finding", fingerprint: "finding-fingerprint", category: "pacing", severity: "warning", confidence: "high",
             message: "The transition lands abruptly.", reviewNote: "Inspect the emotional beat.",
-            passageIds: ["passage-0"], choiceIds: [], routeIds: [], endingIds: [], mechanicKeys: [], threadIds: [], acceptedDraftVersionIds: ["draft-0"],
+            passageIds: ["passage-0"], choiceIds: [], routeIds: [], endingIds: [], mechanicKeys: [], factIds: [], threadIds: [], acceptedDraftVersionIds: ["draft-0"],
             evidenceReferences: [{ kind: "passage", passageId: "passage-0", draftVersionId: "draft-0" }],
             reviewPlanId: base.plan.id, jobId: base.job.id, unitId: "unit-0", attemptId: "attempt-1", reviewInputFingerprint: "review-input", contextFingerprint: "context-0",
           }];

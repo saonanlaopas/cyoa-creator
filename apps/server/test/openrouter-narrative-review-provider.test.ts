@@ -16,7 +16,7 @@ describe("OpenRouterNarrativeReviewProvider", () => {
     const fetchStub: typeof fetch = async (_url, init) => {
       expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${secret}`);
       bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: 1, findings: [] }) } }], usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 } }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: narrativeReviewOutputSchema.version, findings: [] }) } }], usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 } }), { status: 200, headers: { "content-type": "application/json" } });
     };
     const client = new OpenRouterClient({ credentialStore: new EnvironmentCredentialStore({ environment: { OPENROUTER_API_KEY: secret } }), fetch: fetchStub });
     const provider = new OpenRouterNarrativeReviewProvider(client, {
@@ -29,12 +29,12 @@ describe("OpenRouterNarrativeReviewProvider", () => {
       modelId: "fixture/reviewer", inputFingerprint: "input", contextFingerprint: "context",
       context, categories: ["pacing"], maximumOutputTokens: 600, signal,
     });
-    expect(JSON.parse(result.output)).toEqual({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: 1, findings: [] });
+    expect(JSON.parse(result.output)).toEqual({ schemaId: narrativeReviewOutputSchema.id, schemaVersion: narrativeReviewOutputSchema.version, findings: [] });
     expect(bodies).toHaveLength(1);
     expect(bodies[0]).toMatchObject({
       model: "fixture/reviewer", max_tokens: 600, temperature: 0, provider: { require_parameters: true },
       response_format: { type: "json_schema", json_schema: { strict: true, schema: { properties: {
-        schemaId: { type: "string", const: narrativeReviewOutputSchema.id }, schemaVersion: { type: "number", const: 1 },
+        schemaId: { type: "string", const: narrativeReviewOutputSchema.id }, schemaVersion: { type: "number", const: narrativeReviewOutputSchema.version },
       } } } },
     });
     const messages = bodies[0]!.messages as Array<{ role: string; content: string }>;

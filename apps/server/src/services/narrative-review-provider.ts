@@ -61,7 +61,7 @@ function validOutput(context: NarrativeReviewContext, empty: boolean, invalidEvi
     confidence: "medium",
     message: "The bounded passage may move through its planned turn before the emotional beat has room to register.",
     reviewNote: "Review the beat duration and its relationship to the directly connected choices.",
-    passageIds: [target.passage.id], choiceIds: [], routeIds: [], endingIds: [], mechanicKeys: [], threadIds: [],
+    passageIds: [target.passage.id], choiceIds: [], routeIds: [], endingIds: [], mechanicKeys: [], factIds: [], threadIds: [],
     acceptedDraftVersionIds: target.acceptedDraft ? [target.acceptedDraft.draftVersionId] : [],
     evidenceReferences: target.acceptedDraft ? [{
       kind: "passage", passageId: target.passage.id,

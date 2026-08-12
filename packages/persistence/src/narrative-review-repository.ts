@@ -1,10 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { ArtifactVersion } from "./artifact-repository.js";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 
 export const NARRATIVE_REVIEW_ARTIFACT_TYPE = "narrative-review";
 const prefix = "narrative-review:";
+const terminalAttemptStatuses = new Set(["completed", "failed", "cancelled"]);
 
 export interface NarrativeReviewAggregateShape {
   schemaVersion: 1;
@@ -86,6 +87,8 @@ export class NarrativeReviewRepository {
           throw new Error("Narrative-review plan definition is immutable");
         }
         assertImmutableAggregateDefinition(previous, content);
+      } else {
+        assertInitialAggregateState(content);
       }
       options.assertFreshInTransaction?.();
       const id = randomUUID();
@@ -122,6 +125,88 @@ function assertImmutableAggregateDefinition(previous: NarrativeReviewAggregateSh
   if (JSON.stringify((before.job.units ?? []).map(unitDefinition)) !== JSON.stringify((after.job.units ?? []).map(unitDefinition))) {
     throw new Error("Narrative-review unit definitions are immutable");
   }
+  for (let index = 0; index < (before.job.units ?? []).length; index += 1) {
+    assertUnitHistoryTransition(before.job.units![index]!, after.job.units![index]!);
+  }
+}
+
+function assertInitialAggregateState(content: NarrativeReviewAggregateShape): void {
+  const aggregate = content as NarrativeReviewAggregateShape & { job?: { units?: Array<{ attempts?: unknown[]; findings?: unknown[] }> } };
+  for (const unit of aggregate.job?.units ?? []) {
+    if ((unit.attempts?.length ?? 0) !== 0 || (unit.findings?.length ?? 0) !== 0) {
+      throw new Error("Narrative-review history must start empty");
+    }
+  }
+}
+
+function assertUnitHistoryTransition(previous: Record<string, unknown>, next: Record<string, unknown>): void {
+  const beforeAttempts = arrayOfRecords(previous.attempts, "attempt history");
+  const afterAttempts = arrayOfRecords(next.attempts, "attempt history");
+  if (afterAttempts.length < beforeAttempts.length || afterAttempts.length > beforeAttempts.length + 1) {
+    throw new Error("Narrative-review attempts are append-only");
+  }
+  let completedAttemptId: string | undefined;
+  for (let index = 0; index < beforeAttempts.length; index += 1) {
+    const before = beforeAttempts[index]!; const after = afterAttempts[index]!;
+    if (before.id !== after.id) throw new Error("Narrative-review attempts are append-only");
+    if (terminalAttemptStatuses.has(String(before.status))) {
+      if (canonicalJson(before) !== canonicalJson(after)) throw new Error("Terminal narrative-review attempts are immutable");
+      continue;
+    }
+    if (before.status !== "running") throw new Error("Narrative-review attempt lifecycle is invalid");
+    if (after.status === "running") {
+      if (canonicalJson(before) !== canonicalJson(after)) throw new Error("Running narrative-review attempts may only change when they finish");
+      continue;
+    }
+    if (!terminalAttemptStatuses.has(String(after.status))
+      || canonicalJson(stableAttemptFields(before)) !== canonicalJson(stableAttemptFields(after))
+      || typeof after.finishedAt !== "string" || !after.finishedAt) {
+      throw new Error("Narrative-review attempt completion is invalid");
+    }
+    if (after.status === "completed" && after.error !== null) throw new Error("Completed narrative-review attempts cannot contain an error");
+    if (after.status === "failed" && (!after.error || typeof after.error !== "object")) throw new Error("Failed narrative-review attempts require an error");
+    completedAttemptId = String(after.id);
+  }
+  if (afterAttempts.length === beforeAttempts.length + 1) {
+    if (beforeAttempts.some((attempt) => attempt.status === "running")) throw new Error("A running narrative-review attempt must finish before retry");
+    const appended = afterAttempts.at(-1)!;
+    if (appended.status !== "running" || appended.number !== beforeAttempts.length + 1
+      || typeof appended.id !== "string" || typeof appended.startedAt !== "string") {
+      throw new Error("New narrative-review attempts must append in running state");
+    }
+  }
+
+  const beforeFindings = arrayOfRecords(previous.findings, "finding history");
+  const afterFindings = arrayOfRecords(next.findings, "finding history");
+  if (afterFindings.length < beforeFindings.length) throw new Error("Narrative-review findings are append-only");
+  for (let index = 0; index < beforeFindings.length; index += 1) {
+    if (canonicalJson(beforeFindings[index]) !== canonicalJson(afterFindings[index])) {
+      throw new Error("Narrative-review findings are immutable");
+    }
+  }
+  if (previous.status === "completed" && (next.status !== "completed" || afterFindings.length !== beforeFindings.length)) {
+    throw new Error("Completed narrative-review unit findings are immutable");
+  }
+  if (afterFindings.length > beforeFindings.length) {
+    if (!completedAttemptId || next.status !== "completed"
+      || afterFindings.slice(beforeFindings.length).some((finding) => finding.attemptId !== completedAttemptId)) {
+      throw new Error("Narrative-review findings may only be appended by their completed attempt");
+    }
+  }
+}
+
+function stableAttemptFields(attempt: Record<string, unknown>): Record<string, unknown> {
+  const { status: _status, finishedAt: _finishedAt, error: _error, repair: _repair,
+    usage: _usage, providerMetadata: _providerMetadata, ...stable } = attempt;
+  return stable;
+}
+
+function arrayOfRecords(value: unknown, label: string): Array<Record<string, unknown>> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => !item || typeof item !== "object" || Array.isArray(item))) {
+    throw new Error(`Narrative-review ${label} is invalid`);
+  }
+  return value as Array<Record<string, unknown>>;
 }
 
 function assertAggregateLineage(content: NarrativeReviewAggregateShape): void {
@@ -152,9 +237,32 @@ function assertAggregateLineage(content: NarrativeReviewAggregateShape): void {
         || finding.contextFingerprint !== unit.contextFingerprint) {
         throw new Error("Narrative-review finding lineage is invalid");
       }
+      const stored = finding as Record<string, unknown>;
+      if (typeof stored.schemaVersion === "number" && stored.schemaVersion >= 2) {
+        const fingerprint = narrativeReviewFindingFingerprint(stored);
+        if (stored.fingerprint !== fingerprint || stored.id !== `nrf_${fingerprint.slice(0, 24)}`) {
+          throw new Error("Narrative-review finding fingerprint is invalid");
+        }
+      }
       findingIds.add(finding.id);
     }
   }
+}
+
+export function narrativeReviewFindingFingerprint(finding: Record<string, unknown>): string {
+  const { schemaId: _schemaId, schemaVersion: _schemaVersion, id: _id, fingerprint: _fingerprint, ...durable } = finding;
+  return createHash("sha256").update(canonicalJson(durable)).digest("hex");
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function map<T>(row: Row): ArtifactVersion<T> {
