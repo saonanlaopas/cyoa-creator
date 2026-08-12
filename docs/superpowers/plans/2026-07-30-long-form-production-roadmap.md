@@ -24,9 +24,10 @@ Implementation checkpoints:
 - Foundation 4 is **CLOSED** at accepted head `1cf2b003375851a27999036e0935d54ff6a894a6`.
 - Foundation 5A is complete and externally accepted at `218166b32990cf70d858d2c876ce3be542f7768a`: immutable simulation inputs, deterministic runtime execution, exact replay, bounded traces, and offline inspection are implemented.
 - Foundation 5B is complete and externally accepted at `b69ed9b15542fb39eebd55309141e7b13fbae373`: deterministic seeded campaigns, compact durable evidence, exact sample replay, structural and experience analysis, and metadata-first review UI are implemented.
-- Foundation 5C is implementation-complete on its checkpoint branch: exact immutable review inputs, bounded findings-only review units, explicit authorization, offline-testable provider execution, strict evidence grounding, immutable provenance, recovery, and metadata-first review UI are implemented. External acceptance remains required before Foundation 5 is closed.
+- Foundation 5C is complete and externally accepted at `949fe10e353c20ae05397a55d7c6e48a5fba732c`: exact immutable review inputs, bounded findings-only review units, explicit authorization, offline-testable provider execution, strict evidence grounding, immutable provenance, recovery, and metadata-first review UI are implemented.
+- Foundation 5 is **CLOSED** at accepted head `949fe10e353c20ae05397a55d7c6e48a5fba732c`.
 
-The next objective is external review and acceptance of Foundation 5C; Foundation 6 has not begun.
+The next objective is Foundation 6A: repair architecture and finding intake. Foundation 6 implementation has not begun.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 
@@ -470,21 +471,107 @@ Do not begin a checkpoint until the previous checkpoint has an externally accept
 
 Turn selected validation, simulation, playtest, and narrative-review findings into bounded reviewable repairs without regenerating unrelated work. Foundation 6, not Foundation 5, owns repair proposal creation and application.
 
-#### Work
+#### Shared principles
 
-1. Convert findings into proposals scoped to passages, choices, route sections, mechanics, relationships, or endings.
-2. Show affected entities, dependencies, expected base versions, and validation impact before application.
-3. Split large repairs into coherent, independently reviewable groups.
-4. Apply selected groups transactionally through stable-ID operations.
-5. Preserve accepted prose unless its exact passage is included in an approved repair.
-6. Re-run only the validations and simulations affected by the accepted change, followed by a milestone-level verification pass when the repair batch is complete.
+1. Findings are immutable evidence, not commands. No repair occurs without explicit human selection and review.
+2. Repair scope is explicit and stable-ID based. Finding evidence and authorized mutation targets are separate: a finding may cite many entities while authorizing a change to only one.
+3. Every proposed mutation carries an exact expected base. Proposals never mean "edit whatever is current" and never silently rebase.
+4. Provider output is always a bounded candidate or proposal, never direct canonical mutation.
+5. Selected dependency-complete groups apply transactionally; unrelated canonical content remains untouched.
+6. Accepted and locked prose remains protected by the Foundation 4B lifecycle, acceptance, history, and restore rules.
+7. Repair evidence, proposal provenance, applications, and resulting verification remain immutable and inspectable.
+8. Foundation 5 evidence remains immutable historical evidence even when later content makes it stale or supersedes it.
+9. Reuse the accepted Foundation 1 and 4A-3 stable-ID operation, proposal grouping, preview, dependency, transactional application, and audit architecture rather than creating a second mutation language.
+10. Normal verification remains offline. No live OpenRouter call is required for Foundation 6 acceptance.
+
+#### Checkpoint 6A: Repair architecture and finding intake
+
+**Purpose:** Establish the durable, deterministic repair domain before any model can generate repair content. This checkpoint answers: **"What exact finding are we attempting to repair, against what immutable state, with what authorized scope and dependency impact?"** It is primarily provider-free.
+
+1. Define a typed repair-finding reference union over the accepted sources rather than flattening findings into an untyped payload:
+   - Foundation 3 static validation findings, retaining stable code, severity, entity references, evidence, override state, and the exact validation snapshot/version;
+   - Foundation 5A runtime/simulation findings, retaining finding ID/code, simulation-input artifact version and fingerprint, runtime fingerprint, run version, step, passage, choice, mechanic, and ending evidence;
+   - Foundation 5B playtest findings, retaining finding ID/fingerprint, campaign artifact version, simulation-input lineage, seed/policy, sample ID/index, trace fingerprint, evidence level, and stable entity IDs;
+   - Foundation 5C narrative-review findings, retaining finding ID/fingerprint, review input/plan/job/unit/attempt lineage, context fingerprint, evidence references, accepted-draft versions, and passage, choice, route, ending, mechanic, fact, and thread IDs.
+2. Reject unknown finding kinds, cross-project references, corrupted fingerprints or lineage, mismatched artifact versions, and evidence that cannot resolve against its exact immutable source. Preserve stale evidence as history, but surface it explicitly and reject it as a current repair base.
+3. Keep human selection repair-plan-local. A repair plan records explicitly selected findings; Foundation 6A does not create a generic issue tracker or mutate source findings. Resolution/disposition evidence is recorded by 6C against the immutable source reference.
+4. Define repair intent/category, eligibility, lifecycle, and an explicit mutation allowlist over stable targets such as passage-plan passages, choices, narrative threads, accepted passage prose, mechanics, relationships, route sections/entities, endings, and relevant approved planning-artifact sections/entities.
+5. Capture exact expected bases for every allowed target. Use immutable per-entity version IDs where available; for whole-artifact planning records, use the exact artifact version plus deterministic section/entity content fingerprint where needed.
+6. Calculate a deterministic impact graph before generation. Classify directly affected entities, deterministically discoverable possible dependents, and historical evidence that would become stale. Do not claim semantic impact that cannot be derived from references, version lineage, or accepted staleness rules.
+7. Include known dependency paths such as passage structure to choices, neighbors, drafts, simulation inputs, campaigns, and reviews; mechanics to conditions, effects, runtime paths, and endings; routes to passages, decisions, and ending eligibility; and accepted prose to drafts that used it as neighbor context.
+8. Add a provider-free repair-plan preview showing selected findings and source evidence, exact immutable bases, authorized mutation targets, affected dependencies, expected staleness, repair category, context/evidence availability, whether 6B AI assistance would be required, and a deterministic plan fingerprint.
+9. Preview performs zero provider calls and zero canonical mutation. It produces no replacement prose, edit operations, mechanic/route/ending changes, or proposal groups.
+10. Keep the legacy `proposeNarrativeRepair` helper isolated from this contract. Its shallow legacy output is not accepted Foundation 6 intake, provenance, scope, or authorization.
+
+**Acceptance gate:** A finding from every supported source resolves to exact immutable evidence; corrupted, mismatched, or cross-project evidence is rejected; stale input is visible and rejected from generation while its historical evidence remains inspectable; exact bases and authorized mutation scope are inspectable; dependency impact is deterministic; preview is provider-free; and no canonical content changes.
+
+**Recommended engineering model:** Sol High, because repair-base, provenance, staleness, and dependency semantics form a high-risk architecture boundary.
+
+#### Checkpoint 6B: Bounded repair proposal generation
+
+**Purpose:** Turn one exact authorized 6A repair input into bounded, validated, stable-ID repair proposals. This checkpoint answers: **"What exact changes are proposed to repair this selected finding?"** It does not apply them.
+
+1. Reuse and deliberately extend the accepted stable-ID proposal operation types, expected bases, proposal groups, group dependencies, validation previews, and immutable provenance. Do not introduce whole-project replacement artifacts or an incompatible mutation language.
+2. Support narrowly authorized structural or deterministic repairs to passage properties, choices, thread references, mechanics, relationships/facts, route or ending metadata, plus prose repairs limited to exact selected passage-draft candidates.
+3. Preserve accepted prose unless its exact passage is authorized. Generated prose remains a Foundation 4B draft candidate and cannot silently replace an accepted or locked head.
+4. Keep provider-free plan/proposal preview separate from execution. Manual and deterministic repairs need no provider. AI-assisted work follows `Preview -> Save -> Authorize exact fingerprint -> explicit Start -> bounded provider work -> strict structured candidate -> local validation`.
+5. Bound context to selected finding evidence, authorized targets and bases, relevant neighbors and accepted prose, upstream obligations, and relevant simulation, playtest, or 5C evidence. Do not send the whole project by default; evidence remains untrusted quoted data.
+6. Require strict versioned output. Every operation identifies its stable target and entity type, exact expected base version/fingerprint, operation kind, bounded payload, finding/source lineage, repair-plan lineage, and dependency group.
+7. Reject invented or cross-project IDs, out-of-scope targets, wrong bases, unrelated operations, unsupported operation kinds, and whole-project replacements before persistence as a proposal.
+8. Split proposals into coherent independently reviewable groups, such as one prose repair, one mechanic plus directly dependent choices, one route segment, or one ending plus exact buildup references. Dependencies are explicit so one safe group can be selected without unrelated groups.
+9. Define backend hard ceilings for targets, serialized context, output, operations, groups, attempts, and at most one structural-output repair. A single finding must not become an unbounded generation job.
+10. Use deterministic offline providers and stubbed OpenRouter boundaries for tests. Proposal generation mutates no canonical authoring state, and proposals are immutable and reopenable.
+
+**Acceptance gate:** A selected exact finding produces a bounded proposal over exact stable IDs and bases; unrelated entities are absent; provider-free preview works; AI execution requires exact authorization; malformed output cannot become a proposal; prose remains reviewable through 4B; and canonical state is unchanged.
+
+**Recommended engineering model:** Sol High or Terra High.
+
+#### Checkpoint 6C: Review, application, and targeted revalidation
+
+**Purpose:** Review exact repair proposals, apply selected dependency-safe groups transactionally, then prove the repaired state with targeted deterministic verification. This checkpoint answers: **"Should these exact repairs be applied, and what became stale or newly valid after application?"**
+
+1. Provide readable group review showing source finding and rationale, exact stable IDs and bases, before/after values, prose diffs where relevant, dependencies, expected invalidation/staleness, validation preview, and deterministically known simulation impact. Raw JSON is not the primary review interface.
+2. Before Apply, revalidate finding/evidence identity, exact entity and whole-artifact bases, accepted prose heads and locks, approved upstream dependencies, proposal-group dependencies, and expected impact. If anything relevant changed, mark the proposal stale and require refresh or regeneration; never silently rebase.
+3. Apply selected dependency-complete groups through the existing service/proposal architecture in one transaction. If any precondition, operation, validation, or audit write fails, roll back the entire selected application.
+4. Preserve ordinary immutable versions, history, comparison, restore, audit lineage, project ownership, and accepted-prose locking. Prose repairs create or reference normal draft candidates; explicit 4B review/acceptance remains required, and locked prose requires explicit unlock before replacement.
+5. Determine affected deterministic checks after application and rerun only relevant Foundation 3 validation, Foundation 5A paths, and Foundation 5B campaigns or selected coverage checks where invalidated. Complete the repair batch with the milestone-level offline verification gate.
+6. Do not automatically invoke 5C AI narrative review. A new qualitative review remains separate explicit provider-authorized work.
+7. Link resulting validation evidence to the repair application and classify the source finding as resolved, still present, superseded, invalidated by changed base, or requiring re-review. Applying an edit alone never proves a finding fixed; qualitative 5C findings normally become `repair applied -> requires re-review or author acknowledgement` unless deterministic evidence proves resolution.
+8. Keep restored and superseded repair, simulation, campaign, and review evidence as immutable historical records. Restoring pre-repair content may make later evidence stale again but never deletes it.
+
+**Acceptance gate:** Exact proposals are readable; stale proposals cannot overwrite newer state; selected groups apply atomically; one passage, route section, mechanic, or ending repair leaves unrelated content untouched; applied changes remain versioned, comparable, and restorable; locked prose cannot be bypassed; affected deterministic checks can rerun without regenerating unaffected evidence; and canonical state remains recoverable.
+
+**Recommended engineering model:** Sol High.
+
+#### Foundation 6 / Foundation 7 boundary
+
+Foundation 6 owns `finding -> repair intent -> repair proposal -> review -> application -> targeted verification`.
+
+Foundation 7 owns `approved project -> compiled native game -> browser player -> save/runtime UX -> portable and publishing exports`.
+
+Foundation 6 does not implement the native player, save files, rewind, native static builds, standalone HTML, Twee export, or publishing/export compatibility.
+
+#### Implementation sequence
+
+Implement the checkpoints sequentially:
+
+`6A -> commit/push/CI -> external review -> fixes if needed -> accepted SHA`
+
+then `6B`, through the same commit/push/CI/review/fix/accepted-SHA gate,
+
+then `6C`, through the same gate.
+
+Do not begin a checkpoint until the previous checkpoint has an externally accepted SHA. Do not implement all of Foundation 6 in one checkpoint. Foundation 6 closes only after 6C passes external review.
 
 #### Acceptance gate
 
-- A finding can produce a reviewable repair proposal linked to its evidence and snapshot.
+- Findings from every supported accepted source resolve through typed immutable provenance.
+- A selected finding can produce a reviewable repair proposal linked to its exact evidence, snapshot/input, and authorized mutation scope.
 - Repairing one passage, route section, mechanic, or ending does not rewrite unrelated content.
-- Stale repair proposals cannot overwrite newer entity versions.
-- Applied repairs remain versioned, comparable, and restorable.
+- Stale repair proposals cannot overwrite newer entity or artifact versions.
+- Selected dependency-safe groups apply atomically and preserve Foundation 4B prose locks.
+- Applied repairs remain versioned, comparable, restorable, and linked to targeted verification evidence.
+- Unaffected evidence is not needlessly regenerated, and qualitative findings are not declared resolved merely because an edit was applied.
 
 ### Foundation 7: native player and publishing exports (formerly Production 4)
 
