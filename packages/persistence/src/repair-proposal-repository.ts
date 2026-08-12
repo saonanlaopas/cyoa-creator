@@ -1,32 +1,29 @@
 import { createHash, randomUUID } from "node:crypto";
+import {
+  REPAIR_PROPOSAL_POLICY_V1,
+  RepairPlanRecordSchema,
+  validateRepairPlanDefinition,
+  validateRepairProposalRecord,
+  type RepairProposalOperation,
+  type RepairProposalRecord,
+} from "@story-to-cyoa/domain";
 import type { ArtifactVersion } from "./artifact-repository.js";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
-import { appendRepairProposalGenerationInTransaction, type RepairProposalGenerationAggregateShape } from "./repair-proposal-generation-repository.js";
+import {
+  appendRepairProposalGenerationInTransaction,
+  assertRepairProposalGenerationAggregate,
+  type RepairProposalGenerationAggregateShape,
+} from "./repair-proposal-generation-repository.js";
 
 export const REPAIR_PROPOSAL_ARTIFACT_TYPE = "repair-proposal";
+const REPAIR_PLAN_ARTIFACT_TYPE = "repair-plan";
 const prefix = "repair-proposal:";
-const maximumBytes = 2_000_000;
 
 export interface RepairProposalAggregateShape {
-  schemaId: "cyoa.repair-proposal";
-  schemaVersion: 1;
   id: string;
   projectId: string;
-  repairPlanId: string;
   repairPlanArtifactVersionId: string;
-  repairPlanDefinitionFingerprint: string;
-  definitionFingerprint: string;
-  sourceFindingFingerprints: string[];
-  expectedBases: unknown[];
-  generatedIds: Array<{ id: string }>;
-  groups: Array<{ id: string; operationIds: string[]; dependsOnGroupIds: string[]; sourceFindingFingerprints?: string[]; authorizedTargetKeys?: string[] }>;
-  operations: Array<{
-    id: string; groupId: string; sourceFindingFingerprints: string[]; kind?: unknown; entityKind?: unknown;
-    entityId?: unknown; targetKey?: unknown; expectedBase?: unknown; authorizedParentTargetKey?: unknown;
-    before?: unknown; after?: unknown; fieldDiffs?: unknown; requiresUnlock?: unknown;
-  }>;
-  validation: { status: "valid"; errors: string[] };
   createdAt: string;
 }
 
@@ -40,8 +37,7 @@ export class RepairProposalRepository {
   public constructor(private readonly database: StoryDatabase) {}
 
   create<T extends RepairProposalAggregateShape>(projectId: string, content: T, assertFreshInTransaction?: () => void): ArtifactVersion<T> {
-    assertProposal(projectId, content);
-    const serialized = JSON.stringify(content);
+    const serialized = JSON.stringify(assertProposal(this.database, projectId, content));
     return transaction(this.database, () => {
       if (!this.database.prepare("SELECT id FROM projects WHERE id = ?").get(projectId)) throw new Error("Repair-proposal project not found");
       if (this.database.prepare("SELECT id FROM artifact_versions WHERE project_id = ? AND artifact_id = ?").get(projectId, `${prefix}${content.id}`)) {
@@ -62,10 +58,16 @@ export class RepairProposalRepository {
     proposal: P,
     options: { assertFreshInTransaction?: () => void; simulateFailure?: boolean } = {},
   ): { generation: ArtifactVersion<G>; proposal: ArtifactVersion<P> } {
-    assertProposal(generation.projectId, proposal);
+    assertRepairProposalGenerationAggregate(generation, { allowUnlinkedCompleted: true });
+    const canonicalProposal = assertProposal(this.database, generation.projectId, proposal);
+    assertCompletionLineage(generation, canonicalProposal);
     return transaction(this.database, () => {
       if (this.database.prepare("SELECT id FROM artifact_versions WHERE project_id = ? AND artifact_id = ?").get(generation.projectId, `${prefix}${proposal.id}`)) throw new Error("Repair proposal already exists");
       options.assertFreshInTransaction?.();
+      // Revalidate both untrusted aggregates inside the same transaction that commits them.
+      assertRepairProposalGenerationAggregate(generation, { allowUnlinkedCompleted: true });
+      const transactionProposal = assertProposal(this.database, generation.projectId, proposal);
+      assertCompletionLineage(generation, transactionProposal);
       const proposalVersionId = randomUUID();
       const next = structuredClone(generation) as G & { job: G["job"] & Record<string, unknown> };
       const nextJob = next.job as Record<string, unknown>;
@@ -85,80 +87,131 @@ export class RepairProposalRepository {
       WHERE project_id = ? AND artifact_id = ? AND artifact_type = ? ORDER BY version DESC`)
       .all(projectId, `${prefix}${proposalId}`, REPAIR_PROPOSAL_ARTIFACT_TYPE) as Row[];
     if (rows.length > 1 || (rows[0] && rows[0].version !== 1)) throw new Error("Repair proposals are immutable");
-    return rows[0] ? checked<T>(projectId, rows[0]) : undefined;
+    return rows[0] ? checked<T>(this.database, projectId, rows[0]) : undefined;
   }
 
   getVersion<T extends RepairProposalAggregateShape>(projectId: string, versionId: string): ArtifactVersion<T> | undefined {
     const row = this.database.prepare(`SELECT * FROM artifact_versions WHERE project_id = ? AND id = ? AND artifact_type = ?`)
       .get(projectId, versionId, REPAIR_PROPOSAL_ARTIFACT_TYPE) as Row | undefined;
-    return row ? checked<T>(projectId, row) : undefined;
+    return row ? checked<T>(this.database, projectId, row) : undefined;
   }
 
   list<T extends RepairProposalAggregateShape>(projectId: string): ArtifactVersion<T>[] {
-    return (this.database.prepare(`SELECT * FROM artifact_versions WHERE project_id = ? AND artifact_type = ? ORDER BY created_at DESC, artifact_id`)
-      .all(projectId, REPAIR_PROPOSAL_ARTIFACT_TYPE) as Row[]).map((row) => checked<T>(projectId, row));
+    const rows = this.database.prepare(`SELECT * FROM artifact_versions WHERE project_id = ? AND artifact_type = ? ORDER BY created_at DESC, artifact_id`)
+      .all(projectId, REPAIR_PROPOSAL_ARTIFACT_TYPE) as Row[];
+    const seen = new Set<string>();
+    return rows.map((row) => {
+      if (seen.has(row.artifact_id)) throw new Error("Repair proposals are immutable");
+      seen.add(row.artifact_id);
+      return checked<T>(this.database, projectId, row);
+    });
   }
 }
 
-function checked<T extends RepairProposalAggregateShape>(projectId: string, row: Row): ArtifactVersion<T> {
-  if (row.version !== 1) throw new Error("Repair proposals are immutable");
+function checked<T extends RepairProposalAggregateShape>(database: StoryDatabase, projectId: string, row: Row): ArtifactVersion<T> {
+  if (row.project_id !== projectId || row.artifact_type !== REPAIR_PROPOSAL_ARTIFACT_TYPE || row.schema_version !== 1 || row.version !== 1) {
+    throw new Error("Repair-proposal artifact identity mismatch");
+  }
   const version = map<T>(row);
   if (version.artifactId !== `${prefix}${version.content.id}`) throw new Error("Repair-proposal artifact identity mismatch");
-  assertProposal(projectId, version.content);
+  assertProposal(database, projectId, version.content);
   return version;
 }
 
-function assertProposal(projectId: string, content: RepairProposalAggregateShape): void {
-  if (content.schemaId !== "cyoa.repair-proposal" || content.schemaVersion !== 1 || content.projectId !== projectId) throw new Error("Repair-proposal identity mismatch");
-  if (Buffer.byteLength(JSON.stringify(content), "utf8") > maximumBytes) throw new Error("Repair proposal exceeds its saved byte limit");
-  if (content.validation.status !== "valid" || content.validation.errors.length) throw new Error("Invalid repair proposal cannot be persisted");
-  const { id: _id, definitionFingerprint: _fingerprint, createdAt: _createdAt, ...definition } = content;
-  const fingerprint = hash(definition);
-  if (content.definitionFingerprint !== fingerprint || content.id !== `rpp_${fingerprint.slice(0, 32)}`) throw new Error("Repair-proposal definition fingerprint mismatch");
-  unique(content.sourceFindingFingerprints, "Repair-proposal finding lineage is duplicated");
-  unique(content.generatedIds.map((item) => item.id), "Repair-proposal generated IDs are duplicated");
-  unique(content.groups.map((item) => item.id), "Repair-proposal groups are duplicated");
-  unique(content.operations.map((item) => item.id), "Repair-proposal operations are duplicated");
-  if (!content.groups.length || !content.operations.length || !content.expectedBases.length || !content.sourceFindingFingerprints.length) throw new Error("Repair proposal must contain bounded groups, operations, bases, and finding lineage");
-  const groupIds = new Set(content.groups.map((item) => item.id));
-  const operationIds = new Set(content.operations.map((item) => item.id));
-  for (const group of content.groups) {
-    if (group.dependsOnGroupIds.some((id) => !groupIds.has(id) || id === group.id)) throw new Error("Repair-proposal group dependency is invalid");
-    if (group.operationIds.some((id) => !operationIds.has(id))) throw new Error("Repair-proposal group operation lineage is invalid");
-    if (!group.operationIds.length || group.sourceFindingFingerprints?.some((id) => !content.sourceFindingFingerprints.includes(id))) throw new Error("Repair-proposal group lineage is invalid");
+function assertProposal(database: StoryDatabase, projectId: string, value: unknown): RepairProposalRecord {
+  if (Buffer.byteLength(JSON.stringify(value), "utf8") > REPAIR_PROPOSAL_POLICY_V1.maxProposalBytes) throw new Error("Repair proposal exceeds its saved byte limit");
+  const candidate = value as Partial<RepairProposalRecord>;
+  const row = typeof candidate.repairPlanArtifactVersionId === "string"
+    ? database.prepare("SELECT * FROM artifact_versions WHERE project_id = ? AND id = ? AND artifact_type = ?")
+      .get(projectId, candidate.repairPlanArtifactVersionId, REPAIR_PLAN_ARTIFACT_TYPE) as Row | undefined
+    : undefined;
+  if (!row || row.version !== 1 || row.schema_version !== 1) throw new Error("Repair-proposal exact repair plan not found");
+  const planRecord = RepairPlanRecordSchema.parse(JSON.parse(row.content_json));
+  validateRepairPlanDefinition(planRecord.definition, fingerprint);
+  if (row.artifact_id !== `repair-plan:${planRecord.id}` || planRecord.definitionFingerprint !== fingerprint(planRecord.definition)) {
+    throw new Error("Repair-proposal repair-plan artifact is invalid");
   }
-  const expectedBases = new Set(content.expectedBases.map(canonical));
-  const generatedIds = new Set(content.generatedIds.map((item) => item.id));
-  for (const operation of content.operations) {
-    if (!groupIds.has(operation.groupId) || operation.sourceFindingFingerprints.some((id) => !content.sourceFindingFingerprints.includes(id))) {
-      throw new Error("Repair-proposal operation lineage is invalid");
-    }
-    if (!operation.id || typeof operation.entityId !== "string" || typeof operation.targetKey !== "string" || !Array.isArray(operation.fieldDiffs)
-      || typeof operation.requiresUnlock !== "boolean" || !["update-entity", "add-entity", "create-passage-draft-candidate"].includes(String(operation.kind))) {
-      throw new Error("Repair-proposal operation contract is invalid");
-    }
-    if (operation.kind === "add-entity") {
-      if (operation.expectedBase !== null || !generatedIds.has(operation.entityId) || typeof operation.authorizedParentTargetKey !== "string") throw new Error("Repair-proposal add operation authority is invalid");
-    } else if (!expectedBases.has(canonical(operation.expectedBase))) throw new Error("Repair-proposal operation expected base is invalid");
-  }
-  const assigned = content.groups.flatMap((group) => group.operationIds);
-  if (assigned.length !== operationIds.size || new Set(assigned).size !== assigned.length) throw new Error("Repair-proposal operations must belong to exactly one group");
-  assertAcyclic(content.groups);
+  return validateRepairProposalRecord(value, {
+    projectId,
+    repairPlanId: planRecord.id,
+    repairPlanArtifactVersionId: row.id,
+    repairPlanDefinitionFingerprint: planRecord.definitionFingerprint,
+    repairPlan: planRecord.definition,
+    fingerprint,
+    expectedBefore: (operation) => exactBefore(database, projectId, operation),
+  });
 }
 
-function assertAcyclic(groups: RepairProposalAggregateShape["groups"]): void {
-  const byId = new Map(groups.map((group) => [group.id, group])); const visiting = new Set<string>(); const visited = new Set<string>();
-  const visit = (id: string): void => {
-    if (visiting.has(id)) throw new Error("Repair-proposal group dependency cycle");
-    if (visited.has(id)) return;
-    const group = byId.get(id); if (!group) throw new Error("Repair-proposal group dependency is invalid");
-    visiting.add(id); group.dependsOnGroupIds.forEach(visit); visiting.delete(id); visited.add(id);
-  };
-  groups.forEach((group) => visit(group.id));
+function exactBefore(database: StoryDatabase, projectId: string, operation: RepairProposalOperation): unknown {
+  if (operation.kind !== "update-entity") return null;
+  const base = operation.expectedBase;
+  if (base.kind === "passage-entity-version") {
+    const row = database.prepare(`SELECT project_id, entity_kind, entity_id, content_json FROM passage_entity_versions WHERE id = ?`)
+      .get(base.versionId) as { project_id: string; entity_kind: string; entity_id: string; content_json: string } | undefined;
+    if (!row || row.project_id !== projectId || row.entity_kind !== base.entityKind || row.entity_id !== base.entityId) throw new Error("Repair-proposal exact passage base is missing");
+    return JSON.parse(row.content_json);
+  }
+  if (base.kind !== "artifact-entity-version") throw new Error("Repair-proposal update base kind is invalid");
+  const row = database.prepare("SELECT project_id, artifact_id, content_json FROM artifact_versions WHERE id = ?")
+    .get(base.artifactVersionId) as { project_id: string; artifact_id: string; content_json: string } | undefined;
+  if (!row || row.project_id !== projectId || row.artifact_id !== base.artifactId) throw new Error("Repair-proposal exact artifact base is missing");
+  const entity = locateArtifactEntity(JSON.parse(row.content_json), base.entityType, base.entityId);
+  if (!entity || fingerprint(entity) !== base.entityFingerprint) throw new Error("Repair-proposal exact artifact entity base is missing");
+  return entity;
 }
 
-function unique(values: string[], message: string): void { if (new Set(values).size !== values.length) throw new Error(message); }
-function hash(value: unknown): string { return createHash("sha256").update(canonical(value)).digest("hex"); }
+function locateArtifactEntity(artifact: unknown, entityType: string, entityId: string): unknown {
+  if (!artifact || typeof artifact !== "object") return undefined;
+  const value = artifact as Record<string, unknown>;
+  const collection = entityType === "relationship" ? value.relationships
+    : entityType === "canon-fact" ? value.canonFacts
+      : entityType === "route" ? value.routes
+        : entityType === "route-act" ? value.acts
+          : entityType === "route-decision" ? value.decisionPoints
+            : entityType === "route-reconvergence" ? value.reconvergences
+              : entityType === "route-ending-hook" ? value.endingHooks
+                : entityType === "ending" ? value.endings : undefined;
+  if (entityType === "mechanic") {
+    const mechanics = [value.visibleStats, value.relationships, value.flags, value.resources].flatMap((items) => Array.isArray(items) ? items : []);
+    return mechanics.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).key === entityId);
+  }
+  return Array.isArray(collection) ? collection.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).id === entityId) : undefined;
+}
+
+function assertCompletionLineage(generation: RepairProposalGenerationAggregateShape, proposal: RepairProposalRecord): void {
+  const aggregate = generation as RepairProposalGenerationAggregateShape & Record<string, unknown>;
+  const generationRecord = generation.generation as RepairProposalGenerationAggregateShape["generation"] & Record<string, unknown>;
+  const job = generation.job as RepairProposalGenerationAggregateShape["job"] & Record<string, unknown>;
+  const equal = proposal.projectId === generation.projectId
+    && proposal.repairPlanId === generationRecord.repairPlanId
+    && proposal.repairPlanArtifactVersionId === generationRecord.repairPlanArtifactVersionId
+    && proposal.repairPlanDefinitionFingerprint === generationRecord.repairPlanDefinitionFingerprint
+    && proposal.generationFingerprint === generationRecord.fingerprint
+    && proposal.provenance.mode === "ai-assisted"
+    && proposal.provenance.providerId === generationRecord.providerId
+    && proposal.provenance.modelId === generationRecord.modelId
+    && proposal.provenance.jobId === generation.job.id;
+  if (!equal || aggregate.schemaVersion !== 1 || job.status !== "completed") throw new Error("Repair-proposal completion generation lineage mismatch");
+  const provenanceByUnit = new Map(proposal.provenance.candidates.map((item) => [item.unitId, item]));
+  if (provenanceByUnit.size !== proposal.provenance.candidates.length || provenanceByUnit.size !== generation.job.units.length) {
+    throw new Error("Repair-proposal completion candidate provenance is incomplete or duplicated");
+  }
+  for (const unit of generation.job.units) {
+    const stored = unit as typeof unit & Record<string, unknown>;
+    const candidates = Array.isArray(unit.candidates) ? unit.candidates as Array<Record<string, unknown>> : [];
+    const attempts = Array.isArray(unit.attempts) ? unit.attempts as Array<Record<string, unknown>> : [];
+    const provenance = provenanceByUnit.get(unit.id);
+    if (unit.status !== "completed" || candidates.length !== 1 || !provenance) throw new Error("Repair-proposal completion unit lineage is invalid");
+    const candidate = candidates[0]!;
+    const attempt = attempts.find((item) => item.id === candidate.attemptId);
+    if (!attempt || attempt.status !== "completed" || provenance.attemptId !== candidate.attemptId
+      || provenance.contextFingerprint !== stored.contextFingerprint || provenance.candidateFingerprint !== candidate.fingerprint) {
+      throw new Error("Repair-proposal completion candidate lineage mismatch");
+    }
+  }
+}
+
+function fingerprint(value: unknown): string { return createHash("sha256").update(canonical(value)).digest("hex"); }
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") return `{${Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;

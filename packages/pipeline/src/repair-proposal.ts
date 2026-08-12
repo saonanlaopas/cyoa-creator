@@ -4,6 +4,7 @@ import {
   RepairExpectedBaseSchema,
   RepairPlanDefinitionSchema,
   repairTargetKey,
+  validateRepairProposalRecord,
   type RepairExpectedBase,
   type RepairPlanDefinition,
 } from "@story-to-cyoa/domain";
@@ -410,6 +411,15 @@ export function buildRepairProposal(input: BuildRepairProposalInput): RepairProp
     createdAt: input.createdAt,
   };
   if (Buffer.byteLength(stableJson(record), "utf8") > REPAIR_PROPOSAL_POLICY_V1.maxProposalBytes) fail("Repair proposal exceeds its serialized byte limit");
+  validateRepairProposalRecord(record, {
+    projectId: input.projectId,
+    repairPlanId: input.repairPlanId,
+    repairPlanArtifactVersionId: input.repairPlanArtifactVersionId,
+    repairPlanDefinitionFingerprint: planFingerprint,
+    repairPlan: plan,
+    fingerprint: repairProposalFingerprint,
+    expectedBefore: (operation) => operations.find((item) => item.id === operation.id)?.before,
+  });
   return record;
 }
 
