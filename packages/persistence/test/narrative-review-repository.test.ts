@@ -123,6 +123,7 @@ describe("NarrativeReviewRepository", () => {
       (value: typeof completed) => { value.job.units[0]!.findings[0] = finding({ logicalKey: "replacement" }); },
       (value: typeof completed) => { value.job.units[0]!.findings[0]!.message = "Rewritten"; },
       (value: typeof completed) => { value.job.units[0]!.findings[0]!.severity = "error"; },
+      (value: typeof completed) => { value.job.units[0]!.findings[0]!.confidence = "low"; },
       (value: typeof completed) => { value.job.units[0]!.findings[0]!.evidenceReferences = [{ kind: "passage", passageId: "passage-b", draftVersionId: "draft-b" }]; },
     ];
     for (const mutate of mutations) {
@@ -131,6 +132,10 @@ describe("NarrativeReviewRepository", () => {
       if (item) refreshFindingIdentity(item);
       expect(() => repository.update(changed)).toThrow(/finding|lineage/i);
     }
+    const changedId = structuredClone(completed); changedId.job.units[0]!.findings[0]!.id = "nrf_replaced";
+    expect(() => repository.update(changedId)).toThrow(/fingerprint/i);
+    const changedFingerprint = structuredClone(completed); changedFingerprint.job.units[0]!.findings[0]!.fingerprint = "replaced";
+    expect(() => repository.update(changedFingerprint)).toThrow(/fingerprint/i);
     database.close();
   });
 
