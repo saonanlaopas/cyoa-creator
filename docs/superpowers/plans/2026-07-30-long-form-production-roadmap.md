@@ -26,9 +26,11 @@ Implementation checkpoints:
 - Foundation 5B is complete and externally accepted at `b69ed9b15542fb39eebd55309141e7b13fbae373`: deterministic seeded campaigns, compact durable evidence, exact sample replay, structural and experience analysis, and metadata-first review UI are implemented.
 - Foundation 5C is complete and externally accepted at `949fe10e353c20ae05397a55d7c6e48a5fba732c`: exact immutable review inputs, bounded findings-only review units, explicit authorization, offline-testable provider execution, strict evidence grounding, immutable provenance, recovery, and metadata-first review UI are implemented.
 - Foundation 5 is **CLOSED** at accepted head `949fe10e353c20ae05397a55d7c6e48a5fba732c`.
-- Foundation 6A is implementation-complete on `checkpoint/foundation-6a-repair-architecture`; external acceptance is pending.
+- Foundation 6A is complete and externally accepted at `e8d1e9832dc90dcf6904af9448579e00e9e5a915`.
+- Foundation 6B is complete and externally accepted at `eb800c173640b231bf890d0a65e67bf6ed3f6c18`.
+- Foundation 6C is implementation-complete on `checkpoint/foundation-6c-repair-application`; external acceptance is pending.
 
-The next objective is external review of Foundation 6A. Foundation 6B has not begun.
+The next objective is external review of Foundation 6C. Foundation 6 is not closed until that review passes.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 
@@ -528,6 +530,8 @@ Turn selected validation, simulation, playtest, and narrative-review findings in
 **Recommended engineering model:** Sol High or Terra High.
 
 #### Checkpoint 6C: Review, application, and targeted revalidation
+
+**Implementation status:** Complete on `checkpoint/foundation-6c-repair-application`; external acceptance is pending.
 
 **Purpose:** Review exact repair proposals, apply selected dependency-safe groups transactionally, then prove the repaired state with targeted deterministic verification. This checkpoint answers: **"Should these exact repairs be applied, and what became stale or newly valid after application?"**
 

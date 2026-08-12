@@ -31,6 +31,7 @@ describe("RepairWorkspace", () => {
       if (url.endsWith("/plans/repair-1")) return response({ ...saved, currentState: { status: "historical", reasons: ["Expected base changed: prose:p1"] }, eligibleForGeneration: false });
       if (url.endsWith("/proposal-generations")) return response({ items: [] });
       if (url.endsWith("/proposals")) return response({ items: [] });
+      if (url.endsWith("/applications")) return response({ items: [] });
       return response({ error: `Unexpected ${method} ${url}` }, 404);
     });
     const user = userEvent.setup();
@@ -85,6 +86,7 @@ describe("RepairWorkspace", () => {
       if (url.endsWith("/proposal-generations/generation-1")) return response(generation(completed ? "completed" : "running"));
       if (url.endsWith("/proposals") && method === "GET") return response({ items: completed ? [proposal] : [] });
       if (url.endsWith("/proposals/proposal-1")) return response(proposal);
+      if (url.endsWith("/applications")) return response({ items: [] });
       return response({ error: `Unexpected ${method} ${url}` }, 404);
     });
     const user = userEvent.setup(); render(<RepairWorkspace projectId="project-1" />);
@@ -101,5 +103,58 @@ describe("RepairWorkspace", () => {
     expect(await screen.findByRole("heading", { name: "Immutable proposal" })).toBeTruthy();
     expect(screen.getByText("create-passage-draft-candidate · passage-prose:p1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /apply|accept|unlock/i })).toBeNull();
+  });
+
+  it("reviews an exact group, previews dependency-safe mutation, applies explicitly, and reopens history", async () => {
+    const proposal = {
+      id: "proposal-1", definitionFingerprint: "f".repeat(64), repairPlanId: saved.id,
+      provenance: { mode: "ai-assisted", providerId: "offline-repair-proposal", modelId: "deterministic-repair-v1" },
+      groups: [{ id: "group-1", label: "Repair prose:p1", summary: "Bounded prose candidate", operationIds: ["operation-1"], dependsOnGroupIds: [], validation: { status: "valid" } }],
+      operations: [{ id: "operation-1", kind: "create-passage-draft-candidate", entityKind: "passage-prose", entityId: "p1", fieldDiffs: [{ field: "proposedProse", before: null, after: "Candidate prose" }], requiresUnlock: true }],
+      validation: { status: "valid", errors: [], warnings: [] }, currentState: { status: "current", reasons: [] },
+    };
+    const applicationPreview = {
+      explicitlySelectedGroupIds: ["group-1"], requiredDependencyGroupIds: [], effectiveGroupIds: ["group-1"],
+      groups: proposal.groups, operations: proposal.operations,
+      expectedBases: [{ kind: "passage-prose-head", targetKey: "prose:p1", currentDraftVersionId: "draft-v1" }],
+      currentBases: { "prose:p1": "draft-v1" }, generatedEntityIds: [], wouldStale: [],
+      validation: { status: "valid" }, errors: [], warnings: [], verificationPlan: [{ kind: "historical-only", sourceFingerprint: fingerprint, bounded: true, description: "Require explicit narrative re-review." }],
+      definitionFingerprint: "1".repeat(64), previewFingerprint: "2".repeat(64), applyAllowed: true, providerCalls: 0, canonicalMutations: 0,
+    };
+    const application = {
+      id: "application-1", proposalId: proposal.id, result: "applied", appliedAt: "2026-08-13T00:00:00.000Z",
+      definitionFingerprint: applicationPreview.definitionFingerprint, previewFingerprint: applicationPreview.previewFingerprint,
+      explicitlySelectedGroupIds: ["group-1"], requiredDependencyGroupIds: [], effectiveGroupIds: ["group-1"], operationIds: ["operation-1"],
+      resultingVersions: [{ operationId: "operation-1", entityKind: "passage-prose", entityId: "p1", versionId: "draft-v2" }],
+      stalenessEvents: [], verification: { checks: applicationPreview.verificationPlan, dispositions: [{ sourceKind: "foundation-5c-narrative-review", sourceFingerprint: fingerprint, status: "requires-narrative-rereview", message: "Explicit narrative re-review is required." }] },
+    };
+    let applied = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request); const method = init?.method ?? "GET";
+      if (url.includes("/findings?")) return response({ items: [], truncated: false, limit: 500 });
+      if (url.endsWith("/plans") && method === "GET") return response({ items: [] });
+      if (url.endsWith("/proposal-generations")) return response({ items: [] });
+      if (url.endsWith("/proposals") && method === "GET") return response({ items: [proposal] });
+      if (url.endsWith("/proposals/proposal-1") && method === "GET") return response(proposal);
+      if (url.endsWith("/application-preview")) return response(applicationPreview);
+      if (url.endsWith("/proposals/proposal-1/apply")) { applied = true; return response(application, 201); }
+      if (url.endsWith("/applications") && method === "GET") return response({ items: applied ? [application] : [] });
+      if (url.endsWith("/applications/application-1")) return response(application);
+      return response({ error: `Unexpected ${method} ${url}` }, 404);
+    });
+    const user = userEvent.setup(); render(<RepairWorkspace projectId="project-1" />);
+    await user.click(await screen.findByRole("button", { name: /ai-assisted.*1 groups.*1 operations/i }));
+    await user.click(screen.getByRole("checkbox", { name: /Repair prose:p1/i }));
+    await user.click(screen.getByRole("button", { name: "Preview selected repair" }));
+    expect(await screen.findByText("Accepted prose stays locked and unchanged.")).toBeTruthy();
+    expect(screen.getByText("Require explicit narrative re-review.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Apply exact preview" }));
+    expect(await screen.findByRole("heading", { name: "Application result" })).toBeTruthy();
+    expect(screen.getByText("draft-v2")).toBeTruthy();
+    expect(screen.getByText(/requires-narrative-rereview/)).toBeTruthy();
+
+    cleanup(); render(<RepairWorkspace projectId="project-1" />);
+    await user.click(await screen.findByRole("button", { name: /applied.*1 operations/i }));
+    expect(await screen.findByText("draft-v2")).toBeTruthy();
   });
 });

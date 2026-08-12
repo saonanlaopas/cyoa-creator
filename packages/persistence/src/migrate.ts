@@ -7,6 +7,7 @@ import {
   passagePlanningCandidatesMigrationSql,
   passageDraftArchitectureMigrationSql,
   passageDraftAcceptanceMigrationSql,
+  repairApplicationMigrationSql,
   passageDraftGenerationMigrationSql,
   passageDraftProvenanceMigrationSql,
   passageProposalMigrationSql,
@@ -198,6 +199,24 @@ export function migrate(database: StoryDatabase): void {
       assertValidPassageDraftAcceptanceLineage(database);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (13, ?)",
+      ).run(new Date().toISOString());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const repairApplicationApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 14",
+  ).get();
+  if (!repairApplicationApplied) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      assertValidRepairApplicationLineage(database);
+      database.exec(repairApplicationMigrationSql);
+      assertValidRepairApplicationLineage(database);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (14, ?)",
       ).run(new Date().toISOString());
       database.exec("COMMIT");
     } catch (error) {
@@ -463,6 +482,65 @@ function assertValidPassageDraftAcceptanceLineage(database: StoryDatabase): void
     LIMIT 1
   `).get();
   if (invalid) throw new Error("Cannot migrate passage drafts with invalid acceptance audit lineage");
+}
+
+function assertValidRepairApplicationLineage(database: StoryDatabase): void {
+  if (!hasTable(database, "repair_applications")) return;
+  const invalidApplication = database.prepare(`
+    SELECT applications.id
+    FROM repair_applications applications
+    LEFT JOIN artifact_versions proposals
+      ON proposals.project_id = applications.project_id
+      AND proposals.id = applications.proposal_artifact_version_id
+      AND proposals.artifact_type = 'repair-proposal'
+    LEFT JOIN artifact_versions plans
+      ON plans.project_id = applications.project_id
+      AND plans.id = applications.repair_plan_artifact_version_id
+      AND plans.artifact_type = 'repair-plan'
+    WHERE proposals.id IS NULL OR plans.id IS NULL
+      OR json_extract(proposals.content_json, '$.id') != applications.proposal_id
+      OR json_extract(applications.content_json, '$.id') != applications.id
+      OR json_extract(applications.content_json, '$.projectId') != applications.project_id
+      OR json_extract(applications.content_json, '$.proposalArtifactVersionId') != applications.proposal_artifact_version_id
+      OR json_extract(applications.content_json, '$.repairPlanArtifactVersionId') != applications.repair_plan_artifact_version_id
+    LIMIT 1
+  `).get();
+  if (invalidApplication) throw new Error("Cannot migrate repair applications with invalid proposal lineage");
+  const invalidDraft = database.prepare(`
+    SELECT links.draft_version_id
+    FROM repair_application_draft_links links
+    LEFT JOIN repair_applications applications
+      ON applications.project_id = links.project_id AND applications.id = links.application_id
+    LEFT JOIN passage_draft_versions drafts
+      ON drafts.project_id = links.project_id AND drafts.id = links.draft_version_id
+      AND drafts.passage_id = links.passage_id AND drafts.lifecycle_status = 'candidate'
+    WHERE applications.id IS NULL OR drafts.id IS NULL
+      OR json_extract(links.provenance_json, '$.applicationId') != links.application_id
+      OR json_extract(links.provenance_json, '$.operationId') != links.operation_id
+      OR json_extract(links.provenance_json, '$.draftVersionId') != links.draft_version_id
+      OR NOT EXISTS (
+        SELECT 1 FROM json_each(applications.content_json, '$.operationIds')
+        WHERE value = links.operation_id
+      )
+    LIMIT 1
+  `).get();
+  if (invalidDraft) throw new Error("Cannot migrate repair applications with invalid draft lineage");
+  const invalidResult = database.prepare(`
+    SELECT results.version_id
+    FROM repair_application_result_versions results
+    LEFT JOIN repair_applications applications
+      ON applications.project_id = results.project_id AND applications.id = results.application_id
+    WHERE applications.id IS NULL
+      OR NOT EXISTS (
+        SELECT 1 FROM json_each(applications.content_json, '$.resultingVersions') items
+        WHERE json_extract(items.value, '$.operationId') = results.operation_id
+          AND json_extract(items.value, '$.entityKind') = results.entity_kind
+          AND json_extract(items.value, '$.entityId') = results.entity_id
+          AND json_extract(items.value, '$.versionId') = results.version_id
+      )
+    LIMIT 1
+  `).get();
+  if (invalidResult) throw new Error("Cannot migrate repair applications with invalid result lineage");
 }
 
 function canonicalRecordJson(value: Record<string, unknown>): string {

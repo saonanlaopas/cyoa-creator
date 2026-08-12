@@ -80,6 +80,39 @@ export interface RepairProposal {
   currentState?: { status: "current" | "historical"; reasons: string[] };
 }
 
+export interface RepairApplicationPreview {
+  projectId: string; proposalId: string; proposalArtifactVersionId: string;
+  proposalFingerprint: string; proposalDefinitionFingerprint: string;
+  proposalState: { status: "current" | "historical"; reasons: string[] };
+  explicitlySelectedGroupIds: string[]; requiredDependencyGroupIds: string[]; effectiveGroupIds: string[];
+  groups: RepairProposal["groups"];
+  operations: RepairProposal["operations"];
+  expectedBases: Array<Record<string, unknown> & { targetKey: string }>;
+  currentBases: Record<string, string | null>;
+  generatedEntityIds: Array<{ entityKind: "choice" | "thread"; entityId: string }>;
+  impactNodeIds: string[]; wouldStale: string[];
+  validation: RepairProposal["validation"] | null;
+  errors: string[]; warnings: string[];
+  verificationPlan: Array<{ kind: "static" | "exact-simulation-replay" | "historical-only"; sourceFingerprint: string; bounded: boolean; description: string }>;
+  definitionFingerprint: string; previewFingerprint: string; applyAllowed: boolean;
+  providerCalls: 0; canonicalMutations: 0;
+}
+
+export interface RepairApplication {
+  id: string; projectId: string; proposalId: string; proposalArtifactVersionId: string;
+  proposalDefinitionFingerprint: string; repairPlanId: string; repairPlanArtifactVersionId: string;
+  repairPlanDefinitionFingerprint: string; explicitlySelectedGroupIds: string[];
+  requiredDependencyGroupIds: string[]; effectiveGroupIds: string[]; operationIds: string[];
+  expectedBases: Array<Record<string, unknown> & { targetKey: string }>;
+  generatedEntityIds: Array<{ entityKind: "choice" | "thread"; entityId: string }>;
+  previewFingerprint: string; definitionFingerprint: string; validationFingerprint: string;
+  preApplyVersions: Record<string, string | null>;
+  resultingVersions: Array<{ operationId: string; entityKind: string; entityId: string; versionId: string }>;
+  stalenessEvents: Array<{ id: string; reasonCode: string; sourceEntityKind: string; sourceEntityId: string; draftVersionId: string; passageId: string }>;
+  verification: { checks: RepairApplicationPreview["verificationPlan"]; dispositions: Array<{ sourceKind: RepairFindingSourceKind; sourceFingerprint: string; status: string; verificationKind: string; message: string; evidence: Record<string, unknown> }> };
+  result: "applied"; appliedAt: string;
+}
+
 export interface RepairPlanPreview {
   definition: RepairPlanDefinition;
   fingerprint: string;
@@ -177,3 +210,11 @@ export const listRepairProposals = async (projectId: string) =>
   json<{ items: RepairProposal[] }>(await fetch(`${root(projectId)}/proposals`));
 export const loadRepairProposal = async (projectId: string, proposalId: string) =>
   json<RepairProposal>(await fetch(`${root(projectId)}/proposals/${encodeURIComponent(proposalId)}`));
+export const previewRepairApplication = (projectId: string, proposalId: string, selectedGroupIds: string[]) =>
+  post<RepairApplicationPreview>(`${root(projectId)}/proposals/${encodeURIComponent(proposalId)}/application-preview`, { selectedGroupIds });
+export const applyRepairProposal = (projectId: string, proposalId: string, selectedGroupIds: string[], previewFingerprint: string) =>
+  post<RepairApplication>(`${root(projectId)}/proposals/${encodeURIComponent(proposalId)}/apply`, { selectedGroupIds, previewFingerprint });
+export const listRepairApplications = async (projectId: string) =>
+  json<{ items: RepairApplication[] }>(await fetch(`${root(projectId)}/applications`));
+export const loadRepairApplication = async (projectId: string, applicationId: string) =>
+  json<RepairApplication>(await fetch(`${root(projectId)}/applications/${encodeURIComponent(applicationId)}`));

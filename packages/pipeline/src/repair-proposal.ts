@@ -428,7 +428,19 @@ function artifactOperationKind(entityType: string): RepairProposalOperation["ent
   fail(`Unsupported repair artifact entity type: ${entityType}`);
 }
 
-export function materializeAndValidateRepairProposal(base: RepairProposalBaseState, operations: RepairProposalOperation[]): RepairProposalValidationPreview {
+export interface MaterializedRepairProposalState {
+  bundle: PassagePlanBundle;
+  bible: LongFormStoryBible;
+  routes: LongFormRoutePlan;
+  endings: LongFormEndingPlan;
+  mechanics: LongFormMechanicsPlan;
+  proseCandidates: Array<{ entityId: string; after: RepairProposalOperation["after"] }>;
+}
+
+export function materializeRepairProposalState(
+  base: RepairProposalBaseState,
+  operations: RepairProposalOperation[],
+): MaterializedRepairProposalState {
   const bundle: PassagePlanBundle = structuredClone({
     schemaVersion: 1, structure: base.structure,
     passages: base.passages.map((item) => item.content), choices: base.choices.map((item) => item.content), threads: base.threads.map((item) => item.content),
@@ -458,6 +470,20 @@ export function materializeAndValidateRepairProposal(base: RepairProposalBaseSta
   routes = LongFormRoutePlanSchema.parse(routes);
   endings = LongFormEndingPlanSchema.parse(endings);
   mechanics = LongFormMechanicsPlanSchema.parse(mechanics);
+  return {
+    bundle: parsedBundle,
+    bible,
+    routes,
+    endings,
+    mechanics,
+    proseCandidates: operations.filter((operation) => operation.kind === "create-passage-draft-candidate")
+      .map((operation) => ({ entityId: operation.entityId, after: operation.after }))
+      .sort((left, right) => left.entityId.localeCompare(right.entityId)),
+  };
+}
+
+export function materializeAndValidateRepairProposal(base: RepairProposalBaseState, operations: RepairProposalOperation[]): RepairProposalValidationPreview {
+  const { bundle: parsedBundle, bible, routes, endings, mechanics, proseCandidates } = materializeRepairProposalState(base, operations);
   const passageValidation = validatePassagePlan({ bundle: parsedBundle, bible, routes, endings, mechanics });
   const planningFindings = validateLongFormProject({ brief: null, bible, routes, endings, mechanics });
   const errors = [
@@ -471,9 +497,7 @@ export function materializeAndValidateRepairProposal(base: RepairProposalBaseSta
   ];
   const effectiveStateFingerprint = repairProposalFingerprint({
     bundle: parsedBundle, bible, routes, endings, mechanics,
-    proseCandidates: operations.filter((operation) => operation.kind === "create-passage-draft-candidate")
-      .map((operation) => ({ entityId: operation.entityId, after: operation.after }))
-      .sort((left, right) => left.entityId.localeCompare(right.entityId)),
+    proseCandidates,
   });
   return {
     status: "valid", errors: [], warnings: [...new Set(warnings)].sort(), passageValidation, planningFindings,

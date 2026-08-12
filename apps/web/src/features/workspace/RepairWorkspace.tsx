@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  applyRepairProposal,
   authorizeRepairProposalGeneration,
   cancelRepairProposalGeneration,
   createRepairProposalGeneration,
@@ -8,12 +9,15 @@ import {
   listRepairPlans,
   listRepairProposalGenerations,
   listRepairProposals,
+  listRepairApplications,
+  loadRepairApplication,
   loadRepairProposal,
   loadRepairProposalGeneration,
   loadRepairPlan,
   previewRepairPlan,
   previewManualRepairProposal,
   previewRepairProposalGeneration,
+  previewRepairApplication,
   resolveRepairFinding,
   retryRepairProposalUnit,
   saveManualRepairProposal,
@@ -27,6 +31,8 @@ import {
   type RepairPlanSummary,
   type RepairPlanView,
   type RepairProposal,
+  type RepairApplication,
+  type RepairApplicationPreview,
   type RepairProposalGeneration,
   type RepairProposalGenerationPreview,
   type RepairTargetOption,
@@ -62,6 +68,8 @@ export function RepairWorkspace({ projectId }: Props) {
   const [generations, setGenerations] = useState<RepairProposalGeneration[]>([]);
   const [proposals, setProposals] = useState<RepairProposal[]>([]);
   const [openedProposal, setOpenedProposal] = useState<RepairProposal | null>(null);
+  const [applications, setApplications] = useState<RepairApplication[]>([]);
+  const [openedApplication, setOpenedApplication] = useState<RepairApplication | null>(null);
   const [providerId, setProviderId] = useState("offline-repair-proposal");
   const [modelId, setModelId] = useState("deterministic-repair-v1");
   const [busy, setBusy] = useState(false);
@@ -69,13 +77,15 @@ export function RepairWorkspace({ projectId }: Props) {
 
   const refreshPlans = async () => setPlans((await listRepairPlans(projectId)).items);
   const refreshProposalHistory = async () => {
-    const [savedGenerations, savedProposals] = await Promise.all([listRepairProposalGenerations(projectId), listRepairProposals(projectId)]);
-    setGenerations(savedGenerations.items); setProposals(savedProposals.items);
+    const [savedGenerations, savedProposals, savedApplications] = await Promise.all([
+      listRepairProposalGenerations(projectId), listRepairProposals(projectId), listRepairApplications(projectId),
+    ]);
+    setGenerations(savedGenerations.items); setProposals(savedProposals.items); setApplications(savedApplications.items);
   };
   useEffect(() => {
-    setSelected([]); setTargetOptions([]); setTargetKeys([]); setPreview(null); setOpened(null); setProposalPreview(null); setManualProposal(null); setGeneration(null); setOpenedProposal(null); setMessage(null);
-    void Promise.all([listRepairFindings(projectId, sourceKind), listRepairPlans(projectId), listRepairProposalGenerations(projectId), listRepairProposals(projectId)])
-      .then(([found, saved, savedGenerations, savedProposals]) => { setFindings(found.items); setPlans(saved.items); setGenerations(savedGenerations.items); setProposals(savedProposals.items); })
+    setSelected([]); setTargetOptions([]); setTargetKeys([]); setPreview(null); setOpened(null); setProposalPreview(null); setManualProposal(null); setGeneration(null); setOpenedProposal(null); setOpenedApplication(null); setMessage(null);
+    void Promise.all([listRepairFindings(projectId, sourceKind), listRepairPlans(projectId), listRepairProposalGenerations(projectId), listRepairProposals(projectId), listRepairApplications(projectId)])
+      .then(([found, saved, savedGenerations, savedProposals, savedApplications]) => { setFindings(found.items); setPlans(saved.items); setGenerations(savedGenerations.items); setProposals(savedProposals.items); setApplications(savedApplications.items); })
       .catch((error: Error) => setMessage(error.message));
   }, [projectId, sourceKind]);
 
@@ -201,7 +211,20 @@ export function RepairWorkspace({ projectId }: Props) {
         setBusy(true); try { setOpenedProposal(await loadRepairProposal(projectId, item.id)); } catch (error) { setMessage((error as Error).message); } finally { setBusy(false); }
       }}><span>{item.provenance.mode} · {item.groups.length} groups · {item.operations.length} operations</span><small>{item.currentState?.status ?? "current"} · {item.definitionFingerprint.slice(0, 12)}</small></button>)}
     </section>
-    {openedProposal && <ProposalDetail proposal={openedProposal} />}
+    {openedProposal && <><ProposalDetail proposal={openedProposal} /><ApplicationWorkspace
+      projectId={projectId} proposal={openedProposal} busy={busy} setBusy={setBusy}
+      setMessage={setMessage} onApplied={async (application) => { setOpenedApplication(application); await refreshProposalHistory(); }}
+    /></>}
+    <section className="brief-section repair-application-history">
+      <h2>Repair application history</h2>
+      {applications.length === 0 ? <p>No canonical repairs applied.</p> : applications.map((application) => <button key={application.id} onClick={async () => {
+        setBusy(true); setMessage(null);
+        try { setOpenedApplication(await loadRepairApplication(projectId, application.id)); }
+        catch (error) { setMessage((error as Error).message); }
+        finally { setBusy(false); }
+      }}><span>{application.result} · {application.operationIds.length} operations</span><small>{application.appliedAt} · {application.definitionFingerprint.slice(0, 12)}</small></button>)}
+    </section>
+    {openedApplication && <ApplicationResult application={openedApplication} />}
   </section>;
 }
 
@@ -274,6 +297,71 @@ function ProposalDetail({ proposal, preview = false }: { proposal: RepairProposa
       {proposal.operations.filter((operation) => group.operationIds.includes(operation.id)).map((operation) => <article key={operation.id} className="repair-operation"><strong>{operation.kind} · {operation.entityKind}:{operation.entityId}</strong>{operation.requiresUnlock && <em>Candidate requires a later explicit prose unlock</em>}{operation.fieldDiffs.map((diff) => <pre key={diff.field}>{JSON.stringify(diff, null, 2)}</pre>)}</article>)}
     </details>)}
   </section>;
+}
+
+function ApplicationWorkspace(props: {
+  projectId: string; proposal: RepairProposal; busy: boolean; setBusy(value: boolean): void;
+  setMessage(value: string | null): void; onApplied(application: RepairApplication): Promise<void>;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [preview, setPreview] = useState<RepairApplicationPreview | null>(null);
+  useEffect(() => { setSelected([]); setPreview(null); }, [props.proposal.id]);
+  const run = async (action: () => Promise<void>) => {
+    props.setBusy(true); props.setMessage(null);
+    try { await action(); } catch (error) { props.setMessage((error as Error).message); } finally { props.setBusy(false); }
+  };
+  const toggle = (id: string, checked: boolean) => {
+    setSelected((items) => checked ? [...items, id] : items.filter((item) => item !== id));
+    setPreview(null);
+  };
+  return <section className="brief-section repair-application-workspace" aria-label="Repair application review">
+    <header><div><p className="eyebrow">Foundation 6C</p><h2>Review and apply</h2></div><span className="workflow-status">Explicit mutation</span></header>
+    {props.proposal.currentState?.status === "historical" && <p className="error">This proposal is historical. Create a new repair plan and proposal against current state.</p>}
+    <div className="repair-application-groups" aria-label="Proposal group selection">
+      {props.proposal.groups.map((group) => <label key={group.id} className="repair-target-row">
+        <input type="checkbox" checked={selected.includes(group.id)} disabled={props.busy || props.proposal.currentState?.status === "historical"} onChange={(event) => toggle(group.id, event.target.checked)} />
+        <span><strong>{group.label}</strong><small>{group.summary}</small><small>Requires: {group.dependsOnGroupIds.join(", ") || "None"}</small></span>
+      </label>)}
+    </div>
+    <button disabled={props.busy || !selected.length || props.proposal.currentState?.status === "historical"} onClick={() => void run(async () => setPreview(await previewRepairApplication(props.projectId, props.proposal.id, selected)))}>Preview selected repair</button>
+    {preview && <section className="repair-application-preview">
+      <dl className="simulation-metadata">
+        <div><dt>Explicit groups</dt><dd>{preview.explicitlySelectedGroupIds.length}</dd></div>
+        <div><dt>Required dependencies</dt><dd>{preview.requiredDependencyGroupIds.length}</dd></div>
+        <div><dt>Operations</dt><dd>{preview.operations.length}</dd></div>
+        <div><dt>Provider calls</dt><dd>{preview.providerCalls}</dd></div>
+      </dl>
+      {preview.requiredDependencyGroupIds.length > 0 && <p className="status">Automatically included dependencies: {preview.requiredDependencyGroupIds.join(", ")}</p>}
+      {preview.errors.map((error) => <p className="error" key={error}>{error}</p>)}
+      {preview.warnings.map((warning) => <p className="status" key={warning}>{warning}</p>)}
+      <details open><summary>Selected changes</summary>{preview.operations.map((operation) => <article key={operation.id} className="repair-operation"><strong>{operation.kind} · {operation.entityKind}:{operation.entityId}</strong>{operation.requiresUnlock && <em>Accepted prose stays locked and unchanged.</em>}{operation.fieldDiffs.map((diff) => <div className="repair-field-diff" key={diff.field}><h4>{diff.field}</h4><div><span><small>Before</small>{displayValue(diff.before)}</span><span><small>After</small>{displayValue(diff.after)}</span></div></div>)}</article>)}</details>
+      <details><summary>Exact bases and protection</summary>{preview.expectedBases.map((base) => <p key={base.targetKey}><strong>{base.targetKey}</strong><small>Expected {String((base as Record<string, unknown>).versionId ?? (base as Record<string, unknown>).artifactVersionId ?? (base as Record<string, unknown>).currentDraftVersionId ?? "no draft")}</small><small>Current {preview.currentBases[base.targetKey] ?? "missing"}</small></p>)}</details>
+      {preview.generatedEntityIds.length > 0 && <details><summary>Generated stable IDs</summary>{preview.generatedEntityIds.map((item) => <p key={item.entityId}>{item.entityKind}: {item.entityId}</p>)}</details>}
+      <details open><summary>Targeted verification</summary>{preview.verificationPlan.map((check) => <p key={check.sourceFingerprint}><strong>{check.kind}</strong> {check.description}</p>)}</details>
+      <details><summary>Expected stale impact</summary>{preview.wouldStale.length ? preview.wouldStale.map((item) => <p key={item}>{item}</p>) : <p>No direct draft staleness predicted.</p>}</details>
+      <strong>{preview.previewFingerprint}</strong>
+      <button className="primary" disabled={props.busy || !preview.applyAllowed} onClick={() => void run(async () => {
+        const applied = await applyRepairProposal(props.projectId, props.proposal.id, selected, preview.previewFingerprint);
+        props.setMessage("Repair applied atomically. Prose repairs remain review candidates.");
+        await props.onApplied(applied);
+      })}>Apply exact preview</button>
+    </section>}
+  </section>;
+}
+
+function ApplicationResult({ application }: { application: RepairApplication }) {
+  return <section className="brief-section repair-application-result" aria-label="Repair application result">
+    <header><div><p className="eyebrow">{application.result}</p><h2>Application result</h2></div><strong>{application.definitionFingerprint}</strong></header>
+    <dl className="simulation-metadata"><div><dt>Applied</dt><dd>{application.appliedAt}</dd></div><div><dt>Groups</dt><dd>{application.effectiveGroupIds.length}</dd></div><div><dt>Versions</dt><dd>{application.resultingVersions.length}</dd></div><div><dt>Staleness events</dt><dd>{application.stalenessEvents.length}</dd></div></dl>
+    <details open><summary>Resulting immutable versions</summary>{application.resultingVersions.map((item) => <p key={item.operationId}><strong>{item.entityKind}:{item.entityId}</strong><small>{item.versionId}</small></p>)}</details>
+    <details open><summary>Source finding disposition</summary>{application.verification.dispositions.map((item) => <p key={item.sourceFingerprint}><strong>{item.status}</strong> {item.message}<small>{item.sourceKind}</small></p>)}</details>
+  </section>;
+}
+
+function displayValue(value: unknown) {
+  if (typeof value === "string") return <span>{value || "(empty)"}</span>;
+  if (value === null || value === undefined) return <span>(none)</span>;
+  return <code>{JSON.stringify(value)}</code>;
 }
 
 function RepairPreview({ preview, onSave, busy }: { preview: RepairPlanPreview; onSave(): Promise<void>; busy: boolean }) {

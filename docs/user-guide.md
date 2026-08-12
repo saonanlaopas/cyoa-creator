@@ -88,6 +88,16 @@ The campaign report separates hard runtime failures from bounded observations. I
 
 Every sample retains its seed, index, exact stable-ID choice path, result, and trace fingerprint. Select a representative or filtered sample and use **Replay exact sample** to execute that path again through the same historical runtime and verify its fingerprint. Campaign lists load compact metadata; full trace detail is generated for one selected replay at a time. Reloading or restarting the app preserves immutable campaigns and reports.
 
+## Review and apply repairs
+
+Open **Repair planning** to turn an immutable static-validation, simulation, playtest, or narrative-review finding into a narrowly scoped repair. Select the finding, intent, and exact stable-ID targets, then save a repair plan. Historical evidence remains readable, but a plan whose source evidence, canonical base, accepted prose, or lock state changed cannot generate or apply a proposal.
+
+Repair proposals are immutable. Manual deterministic proposals remain local; AI-assisted proposal generation uses the same explicit preview, save, fingerprint authorization, and start controls as other bounded jobs. Applying a proposal never calls a provider. Open a current proposal, select one or more coherent groups, and choose **Preview selected repair**. The preview automatically includes required dependency groups, recomputes the selected effective state, displays readable field differences, exact bases, generated IDs, expected staleness, validation, and targeted verification, and performs no writes.
+
+Choose **Apply exact preview** only after reviewing that fingerprint. The server repeats every proposal, plan, base, dependency, generated-ID, prose-head, and lock check inside one SQLite transaction. Passage, choice, thread, planning-artifact, prose-candidate, staleness, result-lineage, and application-audit writes either commit together or all roll back. Prose repairs create ordinary candidate drafts: accepted and locked prose stays unchanged, no unlock or acceptance occurs, and the candidate must pass through the normal draft review flow.
+
+Application history retains the selected groups, dependency closure, pre-apply and resulting version IDs, stale evidence, and finding disposition. Foundation 3 checks rerun deterministically. Relevant Foundation 5A paths are replayed with their original bounded path policy against the repaired effective state. Playtest campaigns remain immutable historical evidence and require a new bounded campaign when broader sampling is needed; qualitative narrative findings require a separate explicit re-review. A proposal can be applied successfully only once.
+
 ## Planned long-form runtime and exports
 
 Long-form projects will use the application's structured project model and native browser player as their canonical runtime. Twee 3 targeting SugarCube will be an interoperability export rather than the source of truth. Ink may be added later when a concrete integration requires it. Hosted Games is not a target under its current policy excluding AI-generated work.

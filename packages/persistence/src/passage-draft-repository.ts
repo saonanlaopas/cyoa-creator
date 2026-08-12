@@ -350,7 +350,12 @@ export class PassageDraftRepository {
   }
 
   markStaleForUpstreamVersion(projectId: string, artifactId: string, approvedVersionId: string): number {
-    return transaction(this.database, () => {
+    return transaction(this.database, () => this.markStaleForUpstreamVersionInTransaction(
+      projectId, artifactId, approvedVersionId,
+    ));
+  }
+
+  markStaleForUpstreamVersionInTransaction(projectId: string, artifactId: string, approvedVersionId: string): number {
       const approved = this.database.prepare(`SELECT content_json FROM artifact_versions
         WHERE project_id = ? AND artifact_id = ? AND id = ?`)
         .get(projectId, artifactId, approvedVersionId) as { content_json: string } | undefined;
@@ -396,7 +401,6 @@ export class PassageDraftRepository {
       }
       for (const passageId of [...affectedPassages].sort()) this.propagateIfAcceptedHeadStale(projectId, passageId);
       return affected;
-    });
   }
 
   refreshStaleness(

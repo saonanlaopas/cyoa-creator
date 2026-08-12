@@ -49,30 +49,34 @@ export class ArtifactRepository {
   saveArtifact<T>(input: SaveArtifactInput<T>): ArtifactVersion<T> {
     const content = input.schema ? input.schema.parse(input.content) : input.content;
     JSON.stringify(content);
-    return transaction(this.database, () => {
-      const latest = this.database.prepare(`
-        SELECT COALESCE(MAX(version), 0) AS version
-        FROM artifact_versions WHERE project_id = ? AND artifact_id = ?
-      `).get(input.projectId, input.artifactId) as { version: number };
-      const artifactType = input.artifactType ?? input.artifactId;
-      const id = randomUUID();
-      this.database.prepare(`
-        INSERT INTO artifact_versions
-          (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
-      `).run(
-        id, input.projectId, input.artifactId, artifactType, latest.version + 1,
-        input.schemaVersion ?? 1, JSON.stringify(content), new Date().toISOString(),
-      );
-      for (const upstream of input.dependencies ?? []) {
-        this.addDependency(input.projectId, upstream, input.artifactId);
-      }
-      const chainIndex = artifactChain.indexOf(artifactType as typeof artifactChain[number]);
-      if (chainIndex > 0) this.addDependency(input.projectId, artifactChain[chainIndex - 1], input.artifactId);
-      this.markDependentsStale(input.projectId, input.artifactId);
-      if (input.simulateFailure) throw new Error("Simulated artifact transaction failure");
-      return this.getVersion<T>(id)!;
-    });
+    return transaction(this.database, () => this.saveArtifactInTransaction({ ...input, content }));
+  }
+
+  saveArtifactInTransaction<T>(input: SaveArtifactInput<T>): ArtifactVersion<T> {
+    const content = input.schema ? input.schema.parse(input.content) : input.content;
+    JSON.stringify(content);
+    const latest = this.database.prepare(`
+      SELECT COALESCE(MAX(version), 0) AS version
+      FROM artifact_versions WHERE project_id = ? AND artifact_id = ?
+    `).get(input.projectId, input.artifactId) as { version: number };
+    const artifactType = input.artifactType ?? input.artifactId;
+    const id = randomUUID();
+    this.database.prepare(`
+      INSERT INTO artifact_versions
+        (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+    `).run(
+      id, input.projectId, input.artifactId, artifactType, latest.version + 1,
+      input.schemaVersion ?? 1, JSON.stringify(content), new Date().toISOString(),
+    );
+    for (const upstream of input.dependencies ?? []) {
+      this.addDependency(input.projectId, upstream, input.artifactId);
+    }
+    const chainIndex = artifactChain.indexOf(artifactType as typeof artifactChain[number]);
+    if (chainIndex > 0) this.addDependency(input.projectId, artifactChain[chainIndex - 1], input.artifactId);
+    this.markDependentsStale(input.projectId, input.artifactId);
+    if (input.simulateFailure) throw new Error("Simulated artifact transaction failure");
+    return this.getVersion<T>(id)!;
   }
 
   private addDependency(projectId: string, upstream: string, dependent: string): void {

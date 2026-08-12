@@ -1324,3 +1324,166 @@ BEFORE DELETE ON passage_draft_acceptance_items
 WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
 BEGIN SELECT RAISE(ABORT, 'Passage draft acceptance items are append-only'); END;
 `;
+
+export const repairApplicationMigrationSql = `
+CREATE TABLE repair_applications (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  proposal_id TEXT NOT NULL,
+  proposal_artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE CASCADE,
+  repair_plan_artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE CASCADE,
+  definition_fingerprint TEXT NOT NULL,
+  preview_fingerprint TEXT NOT NULL,
+  content_json TEXT NOT NULL,
+  applied_at TEXT NOT NULL,
+  UNIQUE(project_id, id),
+  UNIQUE(project_id, proposal_id),
+  UNIQUE(project_id, definition_fingerprint),
+  UNIQUE(project_id, preview_fingerprint)
+);
+
+CREATE TABLE repair_application_draft_links (
+  project_id TEXT NOT NULL,
+  application_id TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  passage_id TEXT NOT NULL,
+  draft_version_id TEXT NOT NULL,
+  provenance_json TEXT NOT NULL,
+  PRIMARY KEY(project_id, application_id, operation_id),
+  UNIQUE(project_id, draft_version_id),
+  FOREIGN KEY(project_id, application_id)
+    REFERENCES repair_applications(project_id, id) ON DELETE CASCADE,
+  FOREIGN KEY(project_id, draft_version_id, passage_id)
+    REFERENCES passage_draft_versions(project_id, id, passage_id) ON DELETE CASCADE
+);
+
+CREATE TABLE repair_application_result_versions (
+  project_id TEXT NOT NULL,
+  application_id TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  entity_kind TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  version_id TEXT NOT NULL,
+  PRIMARY KEY(project_id, application_id, operation_id),
+  UNIQUE(project_id, version_id, operation_id),
+  FOREIGN KEY(project_id, application_id)
+    REFERENCES repair_applications(project_id, id) ON DELETE CASCADE
+);
+
+CREATE INDEX repair_applications_history
+  ON repair_applications(project_id, applied_at DESC, id);
+
+CREATE TRIGGER repair_applications_lineage_insert
+BEFORE INSERT ON repair_applications
+WHEN NOT EXISTS (
+  SELECT 1 FROM artifact_versions proposal
+  JOIN artifact_versions repair_plan
+    ON repair_plan.project_id = proposal.project_id
+    AND repair_plan.id = NEW.repair_plan_artifact_version_id
+    AND repair_plan.artifact_type = 'repair-plan'
+  WHERE proposal.project_id = NEW.project_id
+    AND proposal.id = NEW.proposal_artifact_version_id
+    AND proposal.artifact_type = 'repair-proposal'
+    AND json_extract(proposal.content_json, '$.id') = NEW.proposal_id
+    AND json_extract(proposal.content_json, '$.definitionFingerprint') = json_extract(NEW.content_json, '$.proposalDefinitionFingerprint')
+    AND json_extract(proposal.content_json, '$.repairPlanArtifactVersionId') = NEW.repair_plan_artifact_version_id
+    AND json_extract(NEW.content_json, '$.schemaId') = 'cyoa.repair-application'
+    AND json_extract(NEW.content_json, '$.schemaVersion') = 1
+    AND json_extract(NEW.content_json, '$.id') = NEW.id
+    AND json_extract(NEW.content_json, '$.projectId') = NEW.project_id
+    AND json_extract(NEW.content_json, '$.proposalId') = NEW.proposal_id
+    AND json_extract(NEW.content_json, '$.proposalArtifactVersionId') = NEW.proposal_artifact_version_id
+    AND json_extract(NEW.content_json, '$.repairPlanArtifactVersionId') = NEW.repair_plan_artifact_version_id
+    AND json_extract(NEW.content_json, '$.definitionFingerprint') = NEW.definition_fingerprint
+    AND json_extract(NEW.content_json, '$.previewFingerprint') = NEW.preview_fingerprint
+    AND json_extract(NEW.content_json, '$.result') = 'applied'
+)
+BEGIN SELECT RAISE(ABORT, 'Repair application lineage mismatch'); END;
+
+CREATE TRIGGER repair_application_draft_links_lineage_insert
+BEFORE INSERT ON repair_application_draft_links
+WHEN NOT EXISTS (
+  SELECT 1 FROM repair_applications applications
+  JOIN passage_draft_versions drafts
+    ON drafts.project_id = applications.project_id
+    AND drafts.id = NEW.draft_version_id
+    AND drafts.passage_id = NEW.passage_id
+    AND drafts.lifecycle_status = 'candidate'
+  WHERE applications.project_id = NEW.project_id
+    AND applications.id = NEW.application_id
+    AND EXISTS (
+      SELECT 1 FROM json_each(applications.content_json, '$.operationIds')
+      WHERE value = NEW.operation_id
+    )
+    AND json_extract(NEW.provenance_json, '$.applicationId') = NEW.application_id
+    AND json_extract(NEW.provenance_json, '$.operationId') = NEW.operation_id
+    AND json_extract(NEW.provenance_json, '$.draftVersionId') = NEW.draft_version_id
+)
+BEGIN SELECT RAISE(ABORT, 'Repair draft provenance lineage mismatch'); END;
+
+CREATE TRIGGER repair_application_result_versions_lineage_insert
+BEFORE INSERT ON repair_application_result_versions
+WHEN NOT EXISTS (
+  SELECT 1 FROM repair_applications applications
+  WHERE applications.project_id = NEW.project_id
+    AND applications.id = NEW.application_id
+    AND EXISTS (
+      SELECT 1 FROM json_each(applications.content_json, '$.resultingVersions') results
+      WHERE json_extract(results.value, '$.operationId') = NEW.operation_id
+        AND json_extract(results.value, '$.entityKind') = NEW.entity_kind
+        AND json_extract(results.value, '$.entityId') = NEW.entity_id
+        AND json_extract(results.value, '$.versionId') = NEW.version_id
+    )
+    AND (
+      (NEW.entity_kind = 'passage-prose' AND EXISTS (
+        SELECT 1 FROM passage_draft_versions drafts
+        WHERE drafts.project_id = NEW.project_id AND drafts.id = NEW.version_id
+          AND drafts.passage_id = NEW.entity_id AND drafts.lifecycle_status = 'candidate'
+      ))
+      OR (NEW.entity_kind IN ('passage', 'choice', 'thread') AND EXISTS (
+        SELECT 1 FROM passage_entity_versions versions
+        WHERE versions.project_id = NEW.project_id AND versions.id = NEW.version_id
+          AND versions.entity_kind = NEW.entity_kind AND versions.entity_id = NEW.entity_id
+      ))
+      OR (NEW.entity_kind IN ('relationship', 'canon-fact') AND EXISTS (
+        SELECT 1 FROM artifact_versions versions
+        WHERE versions.project_id = NEW.project_id AND versions.id = NEW.version_id AND versions.artifact_id = 'bible'
+      ))
+      OR (NEW.entity_kind IN ('route', 'route-act', 'route-decision', 'route-reconvergence', 'route-ending-hook') AND EXISTS (
+        SELECT 1 FROM artifact_versions versions
+        WHERE versions.project_id = NEW.project_id AND versions.id = NEW.version_id AND versions.artifact_id = 'routes'
+      ))
+      OR (NEW.entity_kind = 'ending' AND EXISTS (
+        SELECT 1 FROM artifact_versions versions
+        WHERE versions.project_id = NEW.project_id AND versions.id = NEW.version_id AND versions.artifact_id = 'endings'
+      ))
+      OR (NEW.entity_kind = 'mechanic' AND EXISTS (
+        SELECT 1 FROM artifact_versions versions
+        WHERE versions.project_id = NEW.project_id AND versions.id = NEW.version_id AND versions.artifact_id = 'mechanics'
+      ))
+    )
+)
+BEGIN SELECT RAISE(ABORT, 'Repair application result version lineage mismatch'); END;
+
+CREATE TRIGGER repair_applications_immutable_update
+BEFORE UPDATE ON repair_applications
+BEGIN SELECT RAISE(ABORT, 'Repair applications are immutable'); END;
+CREATE TRIGGER repair_applications_immutable_delete
+BEFORE DELETE ON repair_applications
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Repair applications are append-only'); END;
+CREATE TRIGGER repair_application_draft_links_immutable_update
+BEFORE UPDATE ON repair_application_draft_links
+BEGIN SELECT RAISE(ABORT, 'Repair draft provenance is immutable'); END;
+CREATE TRIGGER repair_application_draft_links_immutable_delete
+BEFORE DELETE ON repair_application_draft_links
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Repair draft provenance is append-only'); END;
+CREATE TRIGGER repair_application_result_versions_immutable_update
+BEFORE UPDATE ON repair_application_result_versions
+BEGIN SELECT RAISE(ABORT, 'Repair application result lineage is immutable'); END;
+CREATE TRIGGER repair_application_result_versions_immutable_delete
+BEFORE DELETE ON repair_application_result_versions
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'Repair application result lineage is append-only'); END;
+`;

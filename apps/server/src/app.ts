@@ -1,7 +1,7 @@
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, NarrativeReviewRepository, openDatabase, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, ProjectRepository, RepairPlanRepository, RepairProposalGenerationRepository, RepairProposalRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, NarrativeReviewRepository, openDatabase, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, ProjectRepository, RepairApplicationRepository, RepairPlanRepository, RepairProposalGenerationRepository, RepairProposalRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { JobRunner, type NarrativeReviewProvider, type PassageDraftingProvider, type PassagePlanningProvider, type RepairProposalProvider } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
@@ -54,6 +54,8 @@ import { RepairProposalService } from "./services/repair-proposal-service.js";
 import { DeterministicRepairProposalProvider } from "./services/repair-proposal-provider.js";
 import { OpenRouterRepairProposalProvider } from "./services/openrouter-repair-proposal-provider.js";
 import { registerRepairProposalRoutes } from "./routes/repair-proposals.js";
+import { RepairApplicationService } from "./services/repair-application-service.js";
+import { registerRepairApplicationRoutes } from "./routes/repair-applications.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -92,6 +94,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const repairPlans = new RepairPlanRepository(database);
   const repairProposalGenerations = new RepairProposalGenerationRepository(database);
   const repairProposals = new RepairProposalRepository(database);
+  const repairApplications = new RepairApplicationRepository(database);
   const passageProposals = new PassageProposalRepository(database);
   const longFormProjects = new LongFormProjectService(
     projects, artifacts, workflow, changeSets, passagePlans, passageDrafts,
@@ -165,6 +168,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     repairProposalGenerations, repairProposals,
     [offlineRepairProposalProvider, new OpenRouterRepairProposalProvider(openRouter)],
   );
+  const repairApplicationService = new RepairApplicationService(
+    database, projects, artifacts, workflow, passagePlans, passageDrafts,
+    repairPlanningService, repairProposals, repairApplications,
+  );
   const diagnostics = new GenerationDiagnosticStore();
   const runner = new JobRunner(new JobRepository(database));
   void app.register(fastifyMultipart, {
@@ -196,6 +203,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerNarrativeReviewRoutes(app, narrativeReviewService);
   registerRepairPlanningRoutes(app, repairPlanningService);
   registerRepairProposalRoutes(app, repairProposalService);
+  registerRepairApplicationRoutes(app, repairApplicationService);
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024, workflow);
