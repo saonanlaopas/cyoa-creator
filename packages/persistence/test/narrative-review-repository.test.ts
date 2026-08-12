@@ -51,7 +51,7 @@ function appendRunning(repository: NarrativeReviewRepository, value: ReturnType<
   return repository.update(next).content;
 }
 
-function finishAttempt(repository: NarrativeReviewRepository, value: ReturnType<typeof aggregate>, status: "completed" | "failed", withFinding = false) {
+function finishAttempt(repository: NarrativeReviewRepository, value: ReturnType<typeof aggregate>, status: "completed" | "failed" | "cancelled", withFinding = false) {
   const next = structuredClone(value); const attempt = next.job.units[0]!.attempts.at(-1)!;
   attempt.status = status; attempt.finishedAt = `finished-${attempt.number}`;
   if (status === "failed") attempt.error = { code: "failed", message: "Failed", retryable: true, validationIssues: [] };
@@ -110,6 +110,82 @@ describe("NarrativeReviewRepository", () => {
       const changed = structuredClone(completed); mutate(changed);
       expect(() => repository.update(changed)).toThrow(/attempt|lineage/i);
     }
+    database.close();
+  });
+
+  it("rejects impossible unit and attempt lifecycle combinations", () => {
+    const database = openDatabase(); const projects = new ProjectRepository(database);
+    const repository = new NarrativeReviewRepository(database);
+    const pending = repository.create(aggregate(projects.create("Invalid lifecycle", undefined, "long-form").id)).content;
+    for (const status of ["completed", "failed"]) {
+      const changed = structuredClone(pending); changed.job.units[0]!.status = status;
+      expect(() => repository.update(changed)).toThrow(/status does not agree|pending unit transition/i);
+    }
+    const wrongNumber = structuredClone(pending); wrongNumber.job.units[0]!.status = "running";
+    wrongNumber.job.units[0]!.attempts.push(runningAttempt("attempt-a", 2));
+    expect(() => repository.update(wrongNumber)).toThrow(/numbers must match append order/i);
+
+    const running = appendRunning(repository, pending, "attempt-a", 1);
+    const mismatches = [
+      { attempt: "failed", unit: "running" },
+      { attempt: "completed", unit: "running" },
+      { attempt: "failed", unit: "completed" },
+      { attempt: "completed", unit: "failed" },
+    ];
+    for (const mismatch of mismatches) {
+      const changed = structuredClone(running); const attempt = changed.job.units[0]!.attempts[0]!;
+      attempt.status = mismatch.attempt; attempt.finishedAt = "finished-1";
+      if (mismatch.attempt === "failed") attempt.error = { code: "failed", message: "Failed", retryable: true, validationIssues: [] };
+      changed.job.units[0]!.status = mismatch.unit;
+      expect(() => repository.update(changed)).toThrow(/status does not agree|completion must agree/i);
+    }
+
+    const completed = finishAttempt(repository, running, "completed");
+    const afterCompletion = structuredClone(completed);
+    afterCompletion.job.units[0]!.attempts.push(runningAttempt("attempt-b", 2));
+    expect(() => repository.update(afterCompletion)).toThrow(/status does not agree|terminal/i);
+
+    const failedPending = repository.create(aggregate(projects.create("Invalid retry", undefined, "long-form").id)).content;
+    const failedRunning = appendRunning(repository, failedPending, "attempt-a", 1);
+    const failed = finishAttempt(repository, failedRunning, "failed");
+    const retryWithoutPreparation = structuredClone(failed);
+    retryWithoutPreparation.job.units[0]!.attempts.push(runningAttempt("attempt-b", 2));
+    expect(() => repository.update(retryWithoutPreparation)).toThrow(/status does not agree|retry preparation/i);
+    database.close();
+  });
+
+  it("accepts the exact initial, retry, completion, failure, and cancellation lifecycles", () => {
+    const database = openDatabase(); const projects = new ProjectRepository(database);
+    const repository = new NarrativeReviewRepository(database);
+    const completionPending = repository.create(aggregate(projects.create("Valid completion", undefined, "long-form").id)).content;
+    const completionRunning = appendRunning(repository, completionPending, "attempt-a", 1);
+    expect(finishAttempt(repository, completionRunning, "completed").job.units[0]).toMatchObject({
+      status: "completed", attempts: [{ number: 1, status: "completed" }],
+    });
+
+    const pending = repository.create(aggregate(projects.create("Valid retry", undefined, "long-form").id)).content;
+    const firstRunning = appendRunning(repository, pending, "attempt-a", 1);
+    expect(firstRunning.job.units[0]).toMatchObject({ status: "running", attempts: [{ number: 1, status: "running" }] });
+    const failed = finishAttempt(repository, firstRunning, "failed");
+    expect(failed.job.units[0]).toMatchObject({ status: "failed", attempts: [{ number: 1, status: "failed" }] });
+    const retryPending = structuredClone(failed); retryPending.job.units[0]!.status = "pending";
+    const prepared = repository.update(retryPending).content;
+    expect(prepared.job.units[0]).toMatchObject({ status: "pending", attempts: [{ number: 1, status: "failed" }] });
+    const retryRunning = appendRunning(repository, prepared, "attempt-b", 2);
+    expect(retryRunning.job.units[0]).toMatchObject({ status: "running", attempts: [{ number: 1 }, { number: 2, status: "running" }] });
+    const completed = finishAttempt(repository, retryRunning, "completed", true);
+    expect(completed.job.units[0]).toMatchObject({ status: "completed", attempts: [{ status: "failed" }, { status: "completed" }] });
+
+    const pendingCancellation = repository.create(aggregate(projects.create("Pending cancellation", undefined, "long-form").id)).content;
+    const cancelledPending = structuredClone(pendingCancellation); cancelledPending.job.units[0]!.status = "cancelled";
+    expect(repository.update(cancelledPending).content.job.units[0]).toMatchObject({ status: "cancelled", attempts: [] });
+
+    const runningCancellation = repository.create(aggregate(projects.create("Running cancellation", undefined, "long-form").id)).content;
+    const cancellationRunning = appendRunning(repository, runningCancellation, "attempt-a", 1);
+    const cancelledRunning = finishAttempt(repository, cancellationRunning, "cancelled");
+    expect(cancelledRunning.job.units[0]).toMatchObject({ status: "cancelled", attempts: [{ status: "cancelled" }] });
+    const cancelledRetry = structuredClone(cancelledRunning); cancelledRetry.job.units[0]!.attempts.push(runningAttempt("attempt-b", 2));
+    expect(() => repository.update(cancelledRetry)).toThrow(/status does not agree|terminal/i);
     database.close();
   });
 

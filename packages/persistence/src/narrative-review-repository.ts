@@ -131,10 +131,10 @@ function assertImmutableAggregateDefinition(previous: NarrativeReviewAggregateSh
 }
 
 function assertInitialAggregateState(content: NarrativeReviewAggregateShape): void {
-  const aggregate = content as NarrativeReviewAggregateShape & { job?: { units?: Array<{ attempts?: unknown[]; findings?: unknown[] }> } };
+  const aggregate = content as NarrativeReviewAggregateShape & { job?: { units?: Array<{ status?: unknown; attempts?: unknown[]; findings?: unknown[] }> } };
   for (const unit of aggregate.job?.units ?? []) {
-    if ((unit.attempts?.length ?? 0) !== 0 || (unit.findings?.length ?? 0) !== 0) {
-      throw new Error("Narrative-review history must start empty");
+    if (unit.status !== "pending" || (unit.attempts?.length ?? 0) !== 0 || (unit.findings?.length ?? 0) !== 0) {
+      throw new Error("Narrative-review units must start pending with empty history");
     }
   }
 }
@@ -142,10 +142,14 @@ function assertInitialAggregateState(content: NarrativeReviewAggregateShape): vo
 function assertUnitHistoryTransition(previous: Record<string, unknown>, next: Record<string, unknown>): void {
   const beforeAttempts = arrayOfRecords(previous.attempts, "attempt history");
   const afterAttempts = arrayOfRecords(next.attempts, "attempt history");
+  assertAttemptSequence(beforeAttempts);
+  assertUnitLifecycleState(previous, beforeAttempts);
+  assertAttemptSequence(afterAttempts);
   if (afterAttempts.length < beforeAttempts.length || afterAttempts.length > beforeAttempts.length + 1) {
     throw new Error("Narrative-review attempts are append-only");
   }
   let completedAttemptId: string | undefined;
+  let finishedAttemptStatus: string | undefined;
   for (let index = 0; index < beforeAttempts.length; index += 1) {
     const before = beforeAttempts[index]!; const after = afterAttempts[index]!;
     if (before.id !== after.id) throw new Error("Narrative-review attempts are append-only");
@@ -165,6 +169,7 @@ function assertUnitHistoryTransition(previous: Record<string, unknown>, next: Re
     }
     if (after.status === "completed" && after.error !== null) throw new Error("Completed narrative-review attempts cannot contain an error");
     if (after.status === "failed" && (!after.error || typeof after.error !== "object")) throw new Error("Failed narrative-review attempts require an error");
+    finishedAttemptStatus = String(after.status);
     completedAttemptId = String(after.id);
   }
   if (afterAttempts.length === beforeAttempts.length + 1) {
@@ -175,6 +180,8 @@ function assertUnitHistoryTransition(previous: Record<string, unknown>, next: Re
       throw new Error("New narrative-review attempts must append in running state");
     }
   }
+  assertUnitLifecycleState(next, afterAttempts);
+  assertUnitLifecycleTransition(previous, next, afterAttempts.length === beforeAttempts.length + 1, finishedAttemptStatus);
 
   const beforeFindings = arrayOfRecords(previous.findings, "finding history");
   const afterFindings = arrayOfRecords(next.findings, "finding history");
@@ -193,6 +200,65 @@ function assertUnitHistoryTransition(previous: Record<string, unknown>, next: Re
       throw new Error("Narrative-review findings may only be appended by their completed attempt");
     }
   }
+}
+
+function assertAttemptSequence(attempts: Array<Record<string, unknown>>): void {
+  let runningCount = 0;
+  attempts.forEach((attempt, index) => {
+    if (attempt.number !== index + 1) throw new Error("Narrative-review attempt numbers must match append order");
+    if (attempt.status === "running") {
+      runningCount += 1;
+      if (index !== attempts.length - 1) throw new Error("Only the latest narrative-review attempt may be running");
+    } else if (!terminalAttemptStatuses.has(String(attempt.status))) {
+      throw new Error("Narrative-review attempt lifecycle is invalid");
+    }
+  });
+  if (runningCount > 1) throw new Error("A narrative-review unit may have only one running attempt");
+}
+
+function assertUnitLifecycleState(unit: Record<string, unknown>, attempts: Array<Record<string, unknown>>): void {
+  const status = String(unit.status); const latest = attempts.at(-1);
+  if (status === "pending") {
+    if (latest?.status === "running" || (latest && latest.status !== "failed")) {
+      throw new Error("A pending narrative-review unit may only await its first attempt or a failed-attempt retry");
+    }
+    return;
+  }
+  if (status === "running" && latest?.status === "running") return;
+  if (status === "completed" && latest?.status === "completed") return;
+  if (status === "failed" && latest?.status === "failed") return;
+  if (status === "cancelled" && (!latest || latest.status === "cancelled" || latest.status === "failed")) return;
+  throw new Error("Narrative-review unit status does not agree with its latest attempt");
+}
+
+function assertUnitLifecycleTransition(
+  previous: Record<string, unknown>,
+  next: Record<string, unknown>,
+  appendedAttempt: boolean,
+  finishedAttemptStatus: string | undefined,
+): void {
+  const before = String(previous.status); const after = String(next.status);
+  if (before === "completed" || before === "cancelled") {
+    if (after !== before || appendedAttempt) throw new Error(`Narrative-review ${before} units are terminal`);
+    return;
+  }
+  if (before === "pending") {
+    if (after === "pending" && !appendedAttempt) return;
+    if (after === "running" && appendedAttempt) return;
+    if (after === "cancelled" && !appendedAttempt) return;
+    throw new Error("Narrative-review pending unit transition is invalid");
+  }
+  if (before === "running") {
+    if (after === "running" && !appendedAttempt && !finishedAttemptStatus) return;
+    if (["completed", "failed", "cancelled"].includes(after)
+      && !appendedAttempt && finishedAttemptStatus === after) return;
+    throw new Error("Narrative-review unit and attempt completion must agree");
+  }
+  if (before === "failed") {
+    if ((after === "failed" || after === "pending") && !appendedAttempt) return;
+    throw new Error("A failed narrative-review unit requires explicit retry preparation");
+  }
+  throw new Error("Narrative-review unit lifecycle is invalid");
 }
 
 function stableAttemptFields(attempt: Record<string, unknown>): Record<string, unknown> {
