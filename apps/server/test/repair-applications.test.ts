@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import type { RepairProposalRecord } from "@story-to-cyoa/domain";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +10,7 @@ import {
   PassagePlanRepository,
   ProjectRepository,
   RepairApplicationRepository,
+  type RepairApplicationMutationResult,
   RepairPlanRepository,
   RepairProposalRepository,
   WorkflowRepository,
@@ -28,7 +30,7 @@ import {
 } from "@story-to-cyoa/pipeline";
 import { buildApp } from "../src/app.js";
 import { DeterministicRepairProposalProvider } from "../src/services/repair-proposal-provider.js";
-import { RepairApplicationService } from "../src/services/repair-application-service.js";
+import { RepairApplicationService, foundation3FindingPresence } from "../src/services/repair-application-service.js";
 import { RepairPlanningService } from "../src/services/repair-planning-service.js";
 import { SimulationService } from "../src/services/simulation-service.js";
 import { PlaytestService } from "../src/services/playtest-service.js";
@@ -246,6 +248,7 @@ function directService(databasePath: string) {
     passagePlans,
     planning,
     proposals: new RepairProposalRepository(database),
+    applications: new RepairApplicationRepository(database),
     service: new RepairApplicationService(
       database, projects, artifacts, workflow, passagePlans, drafts, planning,
       new RepairProposalRepository(database), new RepairApplicationRepository(database),
@@ -271,6 +274,37 @@ function repairBase(value: ReturnType<typeof directService>, projectId: string):
   } as RepairProposalBaseState;
 }
 
+function applyThroughRepository(
+  value: ReturnType<typeof directService>,
+  projectId: string,
+  proposalId: string,
+  groupIds: string[],
+  previewFingerprint: string,
+  alter?: (result: RepairApplicationMutationResult) => void,
+) {
+  const proposalVersion = value.proposals.get<RepairProposalRecord>(projectId, proposalId);
+  if (!proposalVersion) throw new Error("Missing direct persistence proposal fixture");
+  const preview = value.service.preview(projectId, proposalId, groupIds);
+  const privateService = value.service as unknown as PrivateRepairMutation;
+  return value.applications.apply({
+    projectId,
+    proposalId,
+    proposalArtifactVersionId: proposalVersion.id,
+    proposalDefinitionFingerprint: proposalVersion.content.definitionFingerprint,
+    explicitlySelectedGroupIds: groupIds,
+    previewFingerprint,
+    mutateInTransaction: (proposal) => {
+      const result = privateService.mutate(proposal, preview);
+      alter?.(result);
+      return result;
+    },
+  });
+}
+
+interface PrivateRepairMutation {
+  mutate(proposal: RepairProposalRecord, preview: ReturnType<RepairApplicationService["preview"]>): RepairApplicationMutationResult;
+}
+
 async function waitForJob(app: ReturnType<typeof buildApp>, projectId: string, generationId: string) {
   for (let count = 0; count < 200; count += 1) {
     const current = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/repair/proposal-generations/${generationId}` })).json();
@@ -281,6 +315,37 @@ async function waitForJob(app: ReturnType<typeof buildApp>, projectId: string, g
 }
 
 describe("Foundation 6C repair application", () => {
+  it("matches Foundation 3 dispositions against the exact passage or planning validation source", () => {
+    const source = (entityType: "passage" | "mechanic" | "ending", entityId: string, code: string) => ({
+      code, severity: "warning" as const, entityType, entityId, message: "Exact source finding.",
+      evidence: [entityId], suggestion: "Repair it.", acknowledged: false,
+    });
+    const passage = source("passage", "passage-a", "passage.warning");
+    const mechanic = source("mechanic", "resolve", "mechanic.warning");
+    const ending = source("ending", "ending-a", "ending.warning");
+    const validation = (input: { passage?: boolean; mechanic?: boolean; ending?: boolean; unrelated?: boolean }) => ({
+      status: "valid" as const, errors: [], warnings: [], resultingEntityFingerprints: [],
+      effectiveStateFingerprint: "a".repeat(64), evidenceFingerprint: "b".repeat(64),
+      passageValidation: {
+        findings: input.passage ? [passage] : [],
+        budgets: { project: { target: 0, planned: 0, difference: 0 }, acts: [], sequences: [], routes: [] },
+        coverage: { reachablePassageIds: [], unreachablePassageIds: [], endingCoverage: [], routeCoverage: [], pathWords: { minimum: null, maximum: null, representative: null, truncated: false }, mechanicCoverage: [] },
+      },
+      planningFindings: [
+        ...(input.mechanic ? [{ code: mechanic.code, severity: mechanic.severity, artifactId: "mechanics" as const, entityId: mechanic.entityId, message: mechanic.message }] : []),
+        ...(input.ending ? [{ code: ending.code, severity: ending.severity, artifactId: "endings" as const, entityId: ending.entityId, message: ending.message }] : []),
+        ...(input.unrelated ? [{ code: mechanic.code, severity: mechanic.severity, artifactId: "mechanics" as const, entityId: "other-mechanic", message: "Same severity and code, different entity." }] : []),
+      ],
+    });
+    expect(foundation3FindingPresence(passage, validation({ passage: true }))).toMatchObject({ remains: true, matchedSource: "passage-validation" });
+    expect(foundation3FindingPresence(passage, validation({}))).toEqual({ remains: false, matchedSource: null, matchedFindingFingerprint: null });
+    expect(foundation3FindingPresence(mechanic, validation({ mechanic: true }))).toMatchObject({ remains: true, matchedSource: "planning-validation" });
+    expect(foundation3FindingPresence(mechanic, validation({ unrelated: true }))).toEqual({ remains: false, matchedSource: null, matchedFindingFingerprint: null });
+    expect(foundation3FindingPresence(ending, validation({ ending: true }))).toMatchObject({ remains: true, matchedSource: "planning-validation" });
+    expect(foundation3FindingPresence(ending, validation({}))).toEqual({ remains: false, matchedSource: null, matchedFindingFingerprint: null });
+    expect(foundation3FindingPresence(mechanic, validation({ mechanic: true })).matchedFindingFingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it("previews without writes, applies exact groups atomically, retains audit, and rejects duplicates", async () => {
     const value = await fixture();
     const proposal = value.proposal as { id: string; groups: Array<{ id: string }>; operations: Array<{ entityId: string }> };
@@ -353,6 +418,97 @@ describe("Foundation 6C repair application", () => {
     direct.database.close();
   }, 30_000);
 
+  it("defends exact passage bases and canonical results against direct persistence bypasses", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-repair-persistence-boundary-")); temporaryDirectories.push(directory);
+    const databasePath = join(directory, "project.sqlite");
+    const value = await fixture("passage-plan", databasePath);
+    const proposal = value.proposal as RepairProposalRecord;
+    const groups = proposal.groups.map((group) => group.id);
+    const preview = (await value.app.inject({ method: "POST", url: `${value.root}/proposals/${proposal.id}/application-preview`, payload: { selectedGroupIds: groups } })).json();
+    const direct = directService(databasePath);
+    const operation = proposal.operations[0]!;
+    if (operation.kind !== "update-entity" || operation.expectedBase.kind !== "passage-entity-version") throw new Error("Passage bypass fixture is invalid");
+    const counts = () => ({
+      applications: (direct.database.prepare("SELECT COUNT(*) count FROM repair_applications").get() as { count: number }).count,
+      versions: (direct.database.prepare("SELECT COUNT(*) count FROM passage_entity_versions").get() as { count: number }).count,
+    });
+    const before = counts();
+
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groups, preview.previewFingerprint, (result) => {
+      result.application.resultingVersions[0]!.versionId = operation.expectedBase.versionId;
+    })).toThrow(/exact new current entity version/);
+    expect(counts()).toEqual(before);
+
+    const unrelated = direct.passagePlans.currentEntities(value.projectId, "passage").find((item) => item.entityId !== operation.entityId);
+    if (!unrelated) throw new Error("Passage bypass fixture needs an unrelated version");
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groups, preview.previewFingerprint, (result) => {
+      result.application.resultingVersions[0]!.versionId = unrelated.id;
+    })).toThrow(/exact new current entity version/);
+    expect(counts()).toEqual(before);
+
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groups, preview.previewFingerprint, () => {
+      direct.passagePlans.insertEntityVersionInTransaction(value.projectId, "passage", operation.entityId, {
+        ...(operation.after as Record<string, unknown>), title: "Forged newer result",
+      });
+    })).toThrow(/exact new current entity version/);
+    expect(counts()).toEqual(before);
+
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groups, preview.previewFingerprint, (result) => {
+      result.application.definitionFingerprint = "f".repeat(64);
+      result.application.id = `rap_${"f".repeat(32)}`;
+    })).toThrow(/definition fingerprint/);
+    expect(counts()).toEqual(before);
+
+    direct.passagePlans.insertEntityVersionInTransaction(value.projectId, "passage", operation.entityId, operation.after);
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groups, preview.previewFingerprint))
+      .toThrow(/exact passage base changed/);
+    expect(direct.applications.list(value.projectId)).toEqual([]);
+    direct.database.close();
+  }, 30_000);
+
+  it("rejects stale artifact and prose bases at the direct persistence boundary", async () => {
+    const artifactDirectory = mkdtempSync(join(tmpdir(), "cyoa-repair-artifact-base-")); temporaryDirectories.push(artifactDirectory);
+    const artifactPath = join(artifactDirectory, "project.sqlite");
+    const artifactValue = await fixture("mechanic", artifactPath);
+    const artifactProposal = artifactValue.proposal as RepairProposalRecord;
+    const artifactGroups = artifactProposal.groups.map((group) => group.id);
+    const artifactPreview = (await artifactValue.app.inject({ method: "POST", url: `${artifactValue.root}/proposals/${artifactProposal.id}/application-preview`, payload: { selectedGroupIds: artifactGroups } })).json();
+    const artifactDirect = directService(artifactPath);
+    const artifactOperation = artifactProposal.operations[0]!;
+    if (artifactOperation.kind !== "update-entity" || artifactOperation.expectedBase.kind !== "artifact-entity-version") throw new Error("Artifact bypass fixture is invalid");
+    expect(() => applyThroughRepository(artifactDirect, artifactValue.projectId, artifactProposal.id, artifactGroups, artifactPreview.previewFingerprint, (result) => {
+      result.application.resultingVersions[0]!.versionId = artifactOperation.expectedBase.artifactVersionId;
+    })).toThrow(/exact new current artifact version/);
+    expect(artifactDirect.applications.list(artifactValue.projectId)).toEqual([]);
+    const mechanicHead = artifactDirect.artifacts.getCurrent(artifactValue.projectId, "mechanics")!;
+    artifactDirect.artifacts.saveArtifact({ projectId: artifactValue.projectId, artifactId: "mechanics", artifactType: "mechanics", content: mechanicHead.content });
+    expect(() => applyThroughRepository(artifactDirect, artifactValue.projectId, artifactProposal.id, artifactGroups, artifactPreview.previewFingerprint))
+      .toThrow(/exact artifact base changed/);
+    expect(artifactDirect.applications.list(artifactValue.projectId)).toEqual([]);
+    artifactDirect.database.close();
+
+    const proseDirectory = mkdtempSync(join(tmpdir(), "cyoa-repair-prose-base-")); temporaryDirectories.push(proseDirectory);
+    const prosePath = join(proseDirectory, "project.sqlite");
+    const proseValue = await fixture("prose", prosePath);
+    const proseProposal = proseValue.proposal as RepairProposalRecord;
+    const proseGroups = proseProposal.groups.map((group) => group.id);
+    const prosePreview = (await proseValue.app.inject({ method: "POST", url: `${proseValue.root}/proposals/${proseProposal.id}/application-preview`, payload: { selectedGroupIds: proseGroups } })).json();
+    const proseDirect = directService(prosePath);
+    const proseOperation = proseProposal.operations.find((item) => item.kind === "create-passage-draft-candidate");
+    if (!proseOperation || proseOperation.expectedBase.kind !== "passage-prose-head") throw new Error("Prose bypass fixture is invalid");
+    proseDirect.drafts.createVersion({
+      projectId: proseValue.projectId, passageId: proseOperation.entityId,
+      basedOnPassagePlanVersionId: proseOperation.expectedBase.passagePlanVersionId,
+      proseMarkdown: "A competing candidate.", sourceKind: "manual",
+      upstreamVersions: proseOperation.expectedBase.upstreamVersions,
+      neighboringDraftVersions: proseOperation.expectedBase.neighboringDraftVersions,
+    });
+    expect(() => applyThroughRepository(proseDirect, proseValue.projectId, proseProposal.id, proseGroups, prosePreview.previewFingerprint))
+      .toThrow(/exact prose head changed/);
+    expect(proseDirect.applications.list(proseValue.projectId)).toEqual([]);
+    proseDirect.database.close();
+  }, 40_000);
+
   it("creates a normal candidate with durable repair lineage and leaves accepted prose unchanged", async () => {
     const value = await fixture("prose");
     const proposal = value.proposal as { id: string; groups: Array<{ id: string }>; operations: Array<{ entityId: string }> };
@@ -390,6 +546,48 @@ describe("Foundation 6C repair application", () => {
     expect(after.head.acceptedLocked).toBe(true);
     expect(value.provider.calls.length).toBe(providerCallsBeforeApplication);
   }, 20_000);
+
+  it("rejects forged repair-draft provenance completely and atomically", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-repair-provenance-")); temporaryDirectories.push(directory);
+    const databasePath = join(directory, "project.sqlite");
+    const value = await fixture("prose", databasePath);
+    const proposal = value.proposal as RepairProposalRecord;
+    const groups = proposal.groups.map((group) => group.id);
+    const preview = (await value.app.inject({ method: "POST", url: `${value.root}/proposals/${proposal.id}/application-preview`, payload: { selectedGroupIds: groups } })).json();
+    const direct = directService(databasePath);
+    const counts = () => ({
+      applications: direct.applications.list(value.projectId).length,
+      drafts: (direct.database.prepare("SELECT COUNT(*) count FROM passage_draft_versions").get() as { count: number }).count,
+      links: (direct.database.prepare("SELECT COUNT(*) count FROM repair_application_draft_links").get() as { count: number }).count,
+    });
+    const before = counts();
+    const forged: Array<(result: RepairApplicationMutationResult) => void> = [
+      (result) => { result.draftLinks[0]!.provenance.proposalDefinitionFingerprint = "f".repeat(64); },
+      (result) => { result.draftLinks[0]!.provenance.repairPlanId = "forged-plan"; },
+      (result) => { result.draftLinks[0]!.provenance.sourceFindingFingerprints = ["f".repeat(64)]; },
+      (result) => { result.draftLinks[0]!.provenance.passagePlanBaseVersionId = "forged-passage-version"; },
+      (result) => { result.draftLinks[0]!.provenance.expectedCurrentDraftVersionId = "forged-current"; },
+      (result) => { result.draftLinks[0]!.provenance.expectedAcceptedDraftVersionId = "forged-accepted"; },
+      (result) => { result.draftLinks[0]!.provenance.upstreamVersions = { ...result.draftLinks[0]!.provenance.upstreamVersions, bible: "forged-upstream" }; },
+      (result) => { result.draftLinks[0]!.provenance.neighboringDraftVersions = { "forged-neighbor": "forged-version" }; },
+      (result) => {
+        result.draftLinks[0]!.passageId = "wrong-passage";
+        result.draftLinks[0]!.provenance.passageId = "wrong-passage";
+      },
+    ];
+    for (const alter of forged) {
+      expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groups, preview.previewFingerprint, alter))
+        .toThrow(/provenance|draft candidate/);
+      expect(counts()).toEqual(before);
+    }
+    const applied = direct.service.apply(value.projectId, proposal.id, groups, preview.previewFingerprint);
+    const proseResult = applied.resultingVersions.find((item) => item.entityKind === "passage-prose")!;
+    direct.database.exec("DROP TRIGGER repair_application_draft_links_immutable_update");
+    direct.database.prepare("UPDATE repair_application_draft_links SET provenance_json = json_remove(provenance_json, '$.passageId') WHERE draft_version_id = ?")
+      .run(proseResult.versionId);
+    expect(direct.applications.getDraftProvenance(value.projectId, proseResult.versionId)?.passageId).toBe(proseResult.entityId);
+    direct.database.close();
+  }, 30_000);
 
   it("rejects duplicate, unknown, and tampered selections before canonical writes", async () => {
     const value = await fixture();
@@ -569,6 +767,14 @@ describe("Foundation 6C repair application", () => {
     expect(preview).toMatchObject({ applyAllowed: true, generatedEntityIds: [{ entityKind: "choice", entityId: choiceId }] });
     const unrelatedVersions = new Map(base.passages.filter((item) => item.content.id !== passage.content.id)
       .map((item) => [item.content.id, item.versionId]));
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groupIds, preview.previewFingerprint, () => {
+      direct.database.prepare("DELETE FROM passage_entity_heads WHERE project_id = ? AND entity_kind = 'choice' AND entity_id = ?")
+        .run(value.projectId, choiceId);
+      direct.database.prepare("DELETE FROM passage_entity_versions WHERE project_id = ? AND entity_kind = 'choice' AND entity_id = ?")
+        .run(value.projectId, choiceId);
+    })).toThrow(/exact new current entity version/);
+    expect(direct.passagePlans.currentEntity(value.projectId, "choice", choiceId)).toBeUndefined();
+    expect(direct.applications.list(value.projectId)).toEqual([]);
     const applied = direct.service.apply(value.projectId, proposal.id, groupIds, preview.previewFingerprint);
     expect(applied.resultingVersions.map((item) => `${item.entityKind}:${item.entityId}`).sort()).toEqual([
       `choice:${choiceId}`, `passage:${passage.content.id}`,
@@ -621,6 +827,10 @@ describe("Foundation 6C repair application", () => {
     const applied = await value.app.inject({ method: "POST", url: `${value.root}/proposals/${proposal.id}/apply`, payload: { selectedGroupIds, previewFingerprint: preview.previewFingerprint } });
     expect(applied.statusCode, applied.body).toBe(201);
     expect(applied.json().resultingVersions).toEqual([expect.objectContaining({ entityKind: "ending", entityId: targetId })]);
+    expect(applied.json().verification.dispositions[0].evidence).toMatchObject({
+      validationFingerprint: applied.json().validationFingerprint,
+      validationResult: expect.stringMatching(/present|absent/),
+    });
     const endingVersionsAfter = (await value.app.inject({ method: "GET", url: `/api/projects/${value.projectId}/artifacts/endings/versions` })).json();
     const routeVersionsAfter = (await value.app.inject({ method: "GET", url: `/api/projects/${value.projectId}/artifacts/routes/versions` })).json();
     expect(endingVersionsAfter).toHaveLength(endingVersionsBefore.length + 1);
@@ -646,6 +856,10 @@ describe("Foundation 6C repair application", () => {
     const applied = await value.app.inject({ method: "POST", url: `${value.root}/proposals/${proposal.id}/apply`, payload: { selectedGroupIds, previewFingerprint: preview.previewFingerprint } });
     expect(applied.statusCode, applied.body).toBe(201);
     expect(applied.json().resultingVersions).toEqual([expect.objectContaining({ entityKind: "mechanic", entityId: targetId })]);
+    expect(applied.json().verification.dispositions[0].evidence).toMatchObject({
+      validationFingerprint: applied.json().validationFingerprint,
+      validationResult: expect.stringMatching(/present|absent/),
+    });
     const versionsAfter = (await value.app.inject({ method: "GET", url: `/api/projects/${value.projectId}/artifacts/mechanics/versions` })).json();
     expect(versionsAfter).toHaveLength(versionsBefore.length + 1);
     expect(versionsAfter.find((item: { id: string }) => item.id === oldHead.id).content).toEqual(oldHead.content);

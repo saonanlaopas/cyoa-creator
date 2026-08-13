@@ -1,5 +1,10 @@
 import type { StoryDatabase } from "./database.js";
 import {
+  RepairApplicationRecordSchema,
+  RepairDraftProvenanceSchema,
+  RepairProposalRecordSchema,
+} from "@story-to-cyoa/domain";
+import {
   generationCandidateLineageMigrationSql,
   generationJobParentLineageTriggerSql,
   generationKernelMigrationSql,
@@ -8,6 +13,7 @@ import {
   passageDraftArchitectureMigrationSql,
   passageDraftAcceptanceMigrationSql,
   repairApplicationMigrationSql,
+  repairDraftProvenanceLineageMigrationSql,
   passageDraftGenerationMigrationSql,
   passageDraftProvenanceMigrationSql,
   passageProposalMigrationSql,
@@ -217,6 +223,24 @@ export function migrate(database: StoryDatabase): void {
       assertValidRepairApplicationLineage(database);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (14, ?)",
+      ).run(new Date().toISOString());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const repairDraftProvenanceApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 15",
+  ).get();
+  if (!repairDraftProvenanceApplied) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      assertValidRepairDraftProvenance(database);
+      database.exec(repairDraftProvenanceLineageMigrationSql);
+      assertValidRepairDraftProvenance(database);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (15, ?)",
       ).run(new Date().toISOString());
       database.exec("COMMIT");
     } catch (error) {
@@ -541,6 +565,88 @@ function assertValidRepairApplicationLineage(database: StoryDatabase): void {
     LIMIT 1
   `).get();
   if (invalidResult) throw new Error("Cannot migrate repair applications with invalid result lineage");
+}
+
+function assertValidRepairDraftProvenance(database: StoryDatabase): void {
+  if (!hasTable(database, "repair_application_draft_links")) return;
+  const rows = database.prepare(`SELECT
+      links.project_id, links.application_id, links.operation_id, links.passage_id,
+      links.draft_version_id, links.provenance_json,
+      applications.content_json AS application_json,
+      proposals.content_json AS proposal_json,
+      drafts.based_on_passage_plan_version_id, drafts.prose_markdown,
+      drafts.lifecycle_status, drafts.source_kind
+    FROM repair_application_draft_links links
+    LEFT JOIN repair_applications applications
+      ON applications.project_id = links.project_id AND applications.id = links.application_id
+    LEFT JOIN artifact_versions proposals
+      ON proposals.project_id = links.project_id
+      AND proposals.id = applications.proposal_artifact_version_id
+      AND proposals.artifact_type = 'repair-proposal'
+    LEFT JOIN passage_draft_versions drafts
+      ON drafts.project_id = links.project_id AND drafts.id = links.draft_version_id
+      AND drafts.passage_id = links.passage_id`)
+    .all() as Array<{
+      project_id: string; application_id: string; operation_id: string; passage_id: string;
+      draft_version_id: string; provenance_json: string; application_json: string | null;
+      proposal_json: string | null; based_on_passage_plan_version_id: string | null;
+      prose_markdown: string | null; lifecycle_status: string | null; source_kind: string | null;
+    }>;
+  for (const row of rows) {
+    try {
+      if (!row.application_json || !row.proposal_json || !row.based_on_passage_plan_version_id) throw new Error("missing lineage row");
+      const application = RepairApplicationRecordSchema.parse(JSON.parse(row.application_json));
+      const proposal = RepairProposalRecordSchema.parse(JSON.parse(row.proposal_json));
+      const storedProvenance = JSON.parse(row.provenance_json) as Record<string, unknown>;
+      const provenance = RepairDraftProvenanceSchema.parse({
+        ...storedProvenance,
+        passageId: storedProvenance.passageId ?? row.passage_id,
+      });
+      const operation = proposal.operations.find((item) => item.id === row.operation_id);
+      const passageResult = application.resultingVersions.find((item) => item.entityKind === "passage" && item.entityId === row.passage_id);
+      const effectivePassagePlanBaseVersionId = passageResult?.versionId
+        ?? (operation?.expectedBase?.kind === "passage-prose-head" ? operation.expectedBase.passagePlanVersionId : null);
+      if (!operation || operation.kind !== "create-passage-draft-candidate" || operation.expectedBase.kind !== "passage-prose-head"
+        || application.id !== row.application_id || application.projectId !== row.project_id
+        || application.proposalId !== proposal.id || application.proposalArtifactVersionId !== provenance.proposalArtifactVersionId
+        || provenance.applicationId !== application.id
+        || provenance.applicationDefinitionFingerprint !== application.definitionFingerprint
+        || provenance.proposalId !== application.proposalId
+        || provenance.proposalDefinitionFingerprint !== application.proposalDefinitionFingerprint
+        || provenance.repairPlanId !== application.repairPlanId
+        || provenance.repairPlanArtifactVersionId !== application.repairPlanArtifactVersionId
+        || provenance.repairPlanDefinitionFingerprint !== application.repairPlanDefinitionFingerprint
+        || provenance.operationId !== operation.id || provenance.passageId !== row.passage_id
+        || provenance.draftVersionId !== row.draft_version_id
+        || JSON.stringify(provenance.sourceFindingFingerprints) !== JSON.stringify(operation.sourceFindingFingerprints)
+        || provenance.passagePlanBaseVersionId !== effectivePassagePlanBaseVersionId
+        || provenance.expectedCurrentDraftVersionId !== operation.expectedBase.currentDraftVersionId
+        || provenance.expectedAcceptedDraftVersionId !== operation.expectedBase.acceptedDraftVersionId
+        || canonicalRecordJson(provenance.upstreamVersions) !== canonicalRecordJson(operation.expectedBase.upstreamVersions)
+        || canonicalRecordJson(provenance.neighboringDraftVersions) !== canonicalRecordJson(operation.expectedBase.neighboringDraftVersions)
+        || row.lifecycle_status !== "candidate" || row.source_kind !== "manual"
+        || row.based_on_passage_plan_version_id !== provenance.passagePlanBaseVersionId
+        || row.prose_markdown !== operation.after.proposedProse
+        || canonicalRecordJson(draftUpstreamVersions(database, row.project_id, row.draft_version_id)) !== canonicalRecordJson(provenance.upstreamVersions)
+        || canonicalRecordJson(draftNeighborVersions(database, row.project_id, row.draft_version_id)) !== canonicalRecordJson(provenance.neighboringDraftVersions)) {
+        throw new Error("lineage mismatch");
+      }
+    } catch (error) {
+      throw new Error("Cannot migrate repair drafts with invalid exact provenance", { cause: error });
+    }
+  }
+}
+
+function draftUpstreamVersions(database: StoryDatabase, projectId: string, draftVersionId: string): Record<string, string> {
+  const rows = database.prepare(`SELECT artifact_id, artifact_version_id FROM passage_draft_upstream_artifacts
+    WHERE project_id = ? AND draft_version_id = ? ORDER BY artifact_id`).all(projectId, draftVersionId) as Array<{ artifact_id: string; artifact_version_id: string }>;
+  return Object.fromEntries(rows.map((row) => [row.artifact_id, row.artifact_version_id]));
+}
+
+function draftNeighborVersions(database: StoryDatabase, projectId: string, draftVersionId: string): Record<string, string> {
+  const rows = database.prepare(`SELECT neighbor_passage_id, neighbor_draft_version_id FROM passage_draft_neighbor_versions
+    WHERE project_id = ? AND draft_version_id = ? ORDER BY neighbor_passage_id`).all(projectId, draftVersionId) as Array<{ neighbor_passage_id: string; neighbor_draft_version_id: string }>;
+  return Object.fromEntries(rows.map((row) => [row.neighbor_passage_id, row.neighbor_draft_version_id]));
 }
 
 function canonicalRecordJson(value: Record<string, unknown>): string {

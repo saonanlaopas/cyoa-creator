@@ -1487,3 +1487,78 @@ BEFORE DELETE ON repair_application_result_versions
 WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
 BEGIN SELECT RAISE(ABORT, 'Repair application result lineage is append-only'); END;
 `;
+
+export const repairDraftProvenanceLineageMigrationSql = `
+CREATE TRIGGER repair_application_draft_links_provenance_v15_insert
+BEFORE INSERT ON repair_application_draft_links
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM repair_applications applications
+  JOIN artifact_versions proposals
+    ON proposals.project_id = applications.project_id
+    AND proposals.id = applications.proposal_artifact_version_id
+    AND proposals.artifact_type = 'repair-proposal'
+  JOIN passage_draft_versions drafts
+    ON drafts.project_id = NEW.project_id
+    AND drafts.id = NEW.draft_version_id
+    AND drafts.passage_id = NEW.passage_id
+    AND drafts.lifecycle_status = 'candidate'
+    AND drafts.source_kind = 'manual'
+  WHERE applications.project_id = NEW.project_id
+    AND applications.id = NEW.application_id
+    AND json_extract(NEW.provenance_json, '$.applicationId') = applications.id
+    AND json_extract(NEW.provenance_json, '$.applicationDefinitionFingerprint') = applications.definition_fingerprint
+    AND json_extract(NEW.provenance_json, '$.proposalId') = applications.proposal_id
+    AND json_extract(NEW.provenance_json, '$.proposalArtifactVersionId') = applications.proposal_artifact_version_id
+    AND json_extract(NEW.provenance_json, '$.proposalDefinitionFingerprint') = json_extract(applications.content_json, '$.proposalDefinitionFingerprint')
+    AND json_extract(NEW.provenance_json, '$.repairPlanId') = json_extract(applications.content_json, '$.repairPlanId')
+    AND json_extract(NEW.provenance_json, '$.repairPlanArtifactVersionId') = applications.repair_plan_artifact_version_id
+    AND json_extract(NEW.provenance_json, '$.repairPlanDefinitionFingerprint') = json_extract(applications.content_json, '$.repairPlanDefinitionFingerprint')
+    AND json_extract(NEW.provenance_json, '$.operationId') = NEW.operation_id
+    AND json_extract(NEW.provenance_json, '$.passageId') = NEW.passage_id
+    AND json_extract(NEW.provenance_json, '$.draftVersionId') = NEW.draft_version_id
+    AND json_extract(NEW.provenance_json, '$.passagePlanBaseVersionId') = drafts.based_on_passage_plan_version_id
+    AND EXISTS (
+      SELECT 1 FROM json_each(proposals.content_json, '$.operations') operations
+      WHERE json_extract(operations.value, '$.id') = NEW.operation_id
+        AND json_extract(operations.value, '$.kind') = 'create-passage-draft-candidate'
+        AND json_extract(operations.value, '$.entityId') = NEW.passage_id
+        AND json_extract(operations.value, '$.after.proposedProse') = drafts.prose_markdown
+        AND (
+          json_extract(operations.value, '$.expectedBase.passagePlanVersionId') = drafts.based_on_passage_plan_version_id
+          OR EXISTS (
+            SELECT 1 FROM json_each(applications.content_json, '$.resultingVersions') passage_results
+            WHERE json_extract(passage_results.value, '$.entityKind') = 'passage'
+              AND json_extract(passage_results.value, '$.entityId') = NEW.passage_id
+              AND json_extract(passage_results.value, '$.versionId') = drafts.based_on_passage_plan_version_id
+          )
+        )
+        AND json_extract(operations.value, '$.expectedBase.currentDraftVersionId') IS json_extract(NEW.provenance_json, '$.expectedCurrentDraftVersionId')
+        AND json_extract(operations.value, '$.expectedBase.acceptedDraftVersionId') IS json_extract(NEW.provenance_json, '$.expectedAcceptedDraftVersionId')
+        AND json_extract(operations.value, '$.sourceFindingFingerprints') = json_extract(NEW.provenance_json, '$.sourceFindingFingerprints')
+        AND json_extract(operations.value, '$.expectedBase.upstreamVersions') = json_extract(NEW.provenance_json, '$.upstreamVersions')
+        AND json_extract(operations.value, '$.expectedBase.neighboringDraftVersions') = json_extract(NEW.provenance_json, '$.neighboringDraftVersions')
+    )
+    AND (SELECT COUNT(*) FROM passage_draft_upstream_artifacts WHERE project_id = NEW.project_id AND draft_version_id = NEW.draft_version_id)
+      = (SELECT COUNT(*) FROM json_each(NEW.provenance_json, '$.upstreamVersions'))
+    AND NOT EXISTS (
+      SELECT 1 FROM json_each(NEW.provenance_json, '$.upstreamVersions') expected
+      WHERE NOT EXISTS (
+        SELECT 1 FROM passage_draft_upstream_artifacts actual
+        WHERE actual.project_id = NEW.project_id AND actual.draft_version_id = NEW.draft_version_id
+          AND actual.artifact_id = expected.key AND actual.artifact_version_id = expected.value
+      )
+    )
+    AND (SELECT COUNT(*) FROM passage_draft_neighbor_versions WHERE project_id = NEW.project_id AND draft_version_id = NEW.draft_version_id)
+      = (SELECT COUNT(*) FROM json_each(NEW.provenance_json, '$.neighboringDraftVersions'))
+    AND NOT EXISTS (
+      SELECT 1 FROM json_each(NEW.provenance_json, '$.neighboringDraftVersions') expected
+      WHERE NOT EXISTS (
+        SELECT 1 FROM passage_draft_neighbor_versions actual
+        WHERE actual.project_id = NEW.project_id AND actual.draft_version_id = NEW.draft_version_id
+          AND actual.neighbor_passage_id = expected.key AND actual.neighbor_draft_version_id = expected.value
+      )
+    )
+)
+BEGIN SELECT RAISE(ABORT, 'Repair draft provenance exact lineage mismatch'); END;
+`;

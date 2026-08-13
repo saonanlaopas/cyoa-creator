@@ -18,6 +18,7 @@ const v10FixturePath = join(fixtureDirectory, "schema-v10.sqlite");
 const v11FixturePath = join(fixtureDirectory, "schema-v11.sqlite");
 const v12FixturePath = join(fixtureDirectory, "schema-v12.sqlite");
 const v13FixturePath = join(fixtureDirectory, "schema-v13.sqlite");
+const v14FixturePath = join(fixtureDirectory, "schema-v14.sqlite");
 const temporaryDirectories: string[] = [];
 afterEach(() => temporaryDirectories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
 const digest = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -36,7 +37,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v4FixturePath, copyPath);
     const database = openDatabase(copyPath);
 
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(14);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(15);
     expect((database.prepare("SELECT COUNT(*) AS count FROM generation_plans").get() as { count: number }).count).toBe(0);
     expect(database.prepare("SELECT name, mode FROM projects WHERE id = 'fixture-project'").get()).toEqual({
       name: "Frozen v4 project", mode: "long-form",
@@ -73,7 +74,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v5FixturePath, copyPath);
     const database = openDatabase(copyPath);
 
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(14);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(15);
     expect(database.prepare("SELECT name FROM projects WHERE id = 'fixture-project-v5'").get()).toEqual({
       name: "Frozen v5 project",
     });
@@ -155,7 +156,7 @@ describe("generation kernel migration", () => {
     const copyPath = join(directory, "schema-v6.sqlite");
     copyFileSync(v6FixturePath, copyPath);
     const database = openDatabase(copyPath);
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(14);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(15);
     expect({
       plans: (database.prepare("SELECT COUNT(*) AS count FROM generation_plans").get() as { count: number }).count,
       jobs: (database.prepare("SELECT COUNT(*) AS count FROM generation_jobs").get() as { count: number }).count,
@@ -222,7 +223,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v7FixturePath, copyPath);
     const database = openDatabase(copyPath);
 
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(14);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(15);
     expect({
       unit: database.prepare(`
         SELECT context_json, context_diagnostics_json, context_fingerprint
@@ -299,7 +300,7 @@ describe("generation kernel migration", () => {
     const copyPath = join(directory, "schema-v8.sqlite");
     copyFileSync(v8FixturePath, copyPath);
     const database = openDatabase(copyPath);
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(14);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(15);
     expect({
       project: database.prepare("SELECT id, name, mode FROM projects WHERE id = 'fixture-project-v7'").get(),
       snapshot: database.prepare("SELECT id, status, structure_version_id FROM passage_plan_snapshots LIMIT 1").get(),
@@ -375,7 +376,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v9FixturePath, copyPath);
     const database = openDatabase(copyPath);
 
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(14);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(15);
     expect({
       project: database.prepare("SELECT id, name, mode FROM projects WHERE id = 'fixture-project-v7'").get(),
       snapshot: database.prepare("SELECT id, status, structure_version_id FROM passage_plan_snapshots LIMIT 1").get(),
@@ -474,7 +475,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v10FixturePath, copyPath);
     const database = openDatabase(copyPath);
     expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version)
-      .toBe(14);
+      .toBe(15);
     expect({
       drafts: (database.prepare("SELECT COUNT(*) AS count FROM passage_draft_versions").get() as { count: number }).count,
       plans: (database.prepare("SELECT COUNT(*) AS count FROM drafting_plans").get() as { count: number }).count,
@@ -541,7 +542,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v11FixturePath, copyPath);
     const database = openDatabase(copyPath);
     expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version)
-      .toBe(14);
+      .toBe(15);
     expect({
       projects: (database.prepare("SELECT COUNT(*) AS count FROM projects").get() as { count: number }).count,
       generationCandidates: (database.prepare("SELECT COUNT(*) AS count FROM generation_unit_candidates").get() as { count: number }).count,
@@ -611,7 +612,7 @@ describe("generation kernel migration", () => {
     copyFileSync(v12FixturePath, copyPath);
     const database = openDatabase(copyPath);
     expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version)
-      .toBe(14);
+      .toBe(15);
     expect({
       drafts: (database.prepare("SELECT COUNT(*) AS count FROM passage_draft_versions").get() as { count: number }).count,
       accepted: database.prepare("SELECT accepted_version_id, accepted_locked FROM passage_draft_heads WHERE accepted_version_id IS NOT NULL LIMIT 1").get(),
@@ -654,7 +655,7 @@ describe("generation kernel migration", () => {
     expect(digest(v12FixturePath)).toBe(originalHash);
   });
 
-  it("migrates only a temporary copy of the frozen schema-v13 fixture losslessly to v14", () => {
+  it("migrates only a temporary copy of the frozen schema-v13 fixture losslessly through v15", () => {
     const originalHash = digest(v13FixturePath);
     const frozen = new DatabaseSync(v13FixturePath, { readOnly: true });
     expect((frozen.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(13);
@@ -672,7 +673,7 @@ describe("generation kernel migration", () => {
     const copyPath = join(directory, "schema-v13.sqlite");
     copyFileSync(v13FixturePath, copyPath);
     const database = openDatabase(copyPath);
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(14);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(15);
     expect({
       projects: (database.prepare("SELECT COUNT(*) count FROM projects").get() as { count: number }).count,
       artifacts: (database.prepare("SELECT COUNT(*) count FROM artifact_versions").get() as { count: number }).count,
@@ -711,5 +712,37 @@ describe("generation kernel migration", () => {
       .toBeUndefined();
     database.close();
     expect(digest(v13FixturePath)).toBe(originalHash);
+  });
+
+  it("migrates a frozen schema-v14 database additively to v15 without changing the fixture", () => {
+    const originalHash = digest(v14FixturePath);
+    const frozen = new DatabaseSync(v14FixturePath, { readOnly: true });
+    expect((frozen.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(14);
+    frozen.close();
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v15-migration-"));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v14.sqlite");
+    copyFileSync(v14FixturePath, copyPath);
+    const database = openDatabase(copyPath);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(15);
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'repair_application_draft_links_provenance_v15_insert'").get())
+      .toEqual({ name: "repair_application_draft_links_provenance_v15_insert" });
+    database.close();
+    expect(digest(v14FixturePath)).toBe(originalHash);
+  });
+
+  it("rolls back the additive v15 trigger and version on migration failure", () => {
+    const originalHash = digest(v14FixturePath);
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v15-rollback-"));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v14-conflict.sqlite");
+    copyFileSync(v14FixturePath, copyPath);
+    const database = new DatabaseSync(copyPath);
+    database.exec("CREATE TRIGGER repair_application_draft_links_provenance_v15_insert BEFORE INSERT ON repair_application_draft_links BEGIN SELECT 1; END");
+    expect(() => migrate(database)).toThrow();
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(14);
+    expect((database.prepare("SELECT COUNT(*) count FROM sqlite_master WHERE type = 'trigger' AND name = 'repair_application_draft_links_provenance_v15_insert'").get() as { count: number }).count).toBe(1);
+    database.close();
+    expect(digest(v14FixturePath)).toBe(originalHash);
   });
 });

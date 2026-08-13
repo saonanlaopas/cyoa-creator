@@ -17,6 +17,8 @@ import {
 } from "@story-to-cyoa/pipeline";
 import {
   REPAIR_APPLICATION_POLICY_V1,
+  type RepairDraftProvenance,
+  type RepairFindingReference,
   type RepairApplicationRecord,
   type RepairFindingDisposition,
   type RepairProposalOperation,
@@ -29,7 +31,6 @@ import {
   type ProjectRepository,
   type RepairApplicationRepository,
   type RepairApplicationSelection,
-  type RepairDraftProvenance,
   type RepairProposalRepository,
   type StoryDatabase,
   type WorkflowRepository,
@@ -339,6 +340,7 @@ export class RepairApplicationService {
           repairPlanDefinitionFingerprint: proposal.repairPlanDefinitionFingerprint,
           operationId: operation.id,
           sourceFindingFingerprints: operation.sourceFindingFingerprints,
+          passageId: operation.entityId,
           passagePlanBaseVersionId: passageVersionId,
           expectedCurrentDraftVersionId: expected.currentDraftVersionId,
           expectedAcceptedDraftVersionId: expected.acceptedDraftVersionId,
@@ -470,15 +472,22 @@ export class RepairApplicationService {
     for (const item of plan.resolvedFindings.filter((finding) => selected.has(finding.sourceFingerprint))) {
       if (item.reference.kind === "foundation-3-static-validation") {
         const source = item.reference.finding;
-        const remains = preview.validation!.passageValidation.findings.some((finding) =>
-          finding.code === source.code && finding.entityType === source.entityType && finding.entityId === source.entityId);
+        const presence = foundation3FindingPresence(source, preview.validation!);
         dispositions.push({
           sourceKind: item.reference.kind,
           sourceFingerprint: item.sourceFingerprint,
-          status: remains ? "still-present" : "deterministically-resolved",
+          status: presence.remains ? "still-present" : "deterministically-resolved",
           verificationKind: "static",
-          message: remains ? "The exact static finding remains after repair." : "The exact static finding is absent from deterministic validation.",
-          evidence: { code: source.code, entityType: source.entityType, entityId: source.entityId, validationFingerprint: preview.validation!.evidenceFingerprint },
+          message: presence.remains ? "The exact static finding remains after repair." : "The exact static finding is absent from deterministic validation.",
+          evidence: {
+            code: source.code,
+            entityType: source.entityType,
+            entityId: source.entityId,
+            validationFingerprint: preview.validation!.evidenceFingerprint,
+            validationResult: presence.remains ? "present" : "absent",
+            matchedValidationSource: presence.matchedSource,
+            matchedFindingFingerprint: presence.matchedFindingFingerprint,
+          },
         });
       } else if (item.reference.kind === "foundation-5a-runtime") {
         const replay = this.replayRuntimeFinding(proposal, preview, effective, resultingVersions, item.reference);
@@ -618,4 +627,37 @@ export class RepairApplicationService {
 
 function failure(code: string, message: string, details?: unknown): RepairApplicationServiceError {
   return new RepairApplicationServiceError(code, message, details);
+}
+
+type Foundation3Finding = Extract<RepairFindingReference, { kind: "foundation-3-static-validation" }>["finding"];
+type Foundation3Validation = NonNullable<RepairApplicationPreview["validation"]>;
+
+export function foundation3FindingPresence(
+  source: Foundation3Finding,
+  validation: Foundation3Validation,
+): { remains: boolean; matchedSource: "passage-validation" | "planning-validation" | null; matchedFindingFingerprint: string | null } {
+  const passageFinding = validation.passageValidation.findings.find((finding) =>
+    finding.code === source.code && finding.entityType === source.entityType && finding.entityId === source.entityId);
+  if (passageFinding) return {
+    remains: true,
+    matchedSource: "passage-validation",
+    matchedFindingFingerprint: repairProposalFingerprint(passageFinding),
+  };
+  const planningArtifactByEntityType: Partial<Record<Foundation3Finding["entityType"], string>> = {
+    act: "routes",
+    mechanic: "mechanics",
+    route: "routes",
+    ending: "endings",
+  };
+  const planningFinding = validation.planningFindings.find((finding) => {
+    if (finding.code !== source.code || finding.entityId !== source.entityId) return false;
+    const artifactId = planningArtifactByEntityType[source.entityType];
+    if (artifactId) return finding.artifactId === artifactId;
+    return source.entityType === "project" && (source.entityId === "project" || source.entityId === finding.artifactId);
+  });
+  return planningFinding ? {
+    remains: true,
+    matchedSource: "planning-validation",
+    matchedFindingFingerprint: repairProposalFingerprint(planningFinding),
+  } : { remains: false, matchedSource: null, matchedFindingFingerprint: null };
 }

@@ -46,6 +46,40 @@ const StalenessEventSchema = z.object({
   passageId: Id,
 }).strict();
 
+export const RepairDraftProvenanceSchema = z.object({
+  applicationId: Id,
+  applicationDefinitionFingerprint: Fingerprint,
+  proposalId: Id,
+  proposalArtifactVersionId: Id,
+  proposalDefinitionFingerprint: Fingerprint,
+  repairPlanId: Id,
+  repairPlanArtifactVersionId: Id,
+  repairPlanDefinitionFingerprint: Fingerprint,
+  operationId: Id,
+  sourceFindingFingerprints: z.array(Fingerprint).min(1).max(REPAIR_APPLICATION_POLICY_V1.maxOperations),
+  passageId: Id,
+  passagePlanBaseVersionId: Id,
+  expectedCurrentDraftVersionId: Id.nullable(),
+  expectedAcceptedDraftVersionId: Id.nullable(),
+  upstreamVersions: z.record(z.string(), Id),
+  neighboringDraftVersions: z.record(z.string(), Id),
+  draftVersionId: Id,
+}).strict();
+export type RepairDraftProvenance = z.infer<typeof RepairDraftProvenanceSchema>;
+
+export const RepairApplicationDefinitionSchema = z.object({
+  policy: z.object({ id: z.literal(REPAIR_APPLICATION_POLICY_V1.id) }).strict(),
+  proposalId: Id,
+  proposalArtifactVersionId: Id,
+  proposalDefinitionFingerprint: Fingerprint,
+  explicitlySelectedGroupIds: z.array(Id).min(1).max(REPAIR_APPLICATION_POLICY_V1.maxSelectedGroups),
+  requiredDependencyGroupIds: z.array(Id).max(REPAIR_APPLICATION_POLICY_V1.maxSelectedGroups),
+  effectiveGroupIds: z.array(Id).min(1).max(REPAIR_APPLICATION_POLICY_V1.maxSelectedGroups),
+  operationIds: Ids.min(1),
+  expectedBases: z.array(RepairExpectedBaseSchema).min(1),
+}).strict();
+export type RepairApplicationDefinition = z.infer<typeof RepairApplicationDefinitionSchema>;
+
 export const RepairApplicationRecordSchema = z.object({
   schemaId: z.literal(repairApplicationSchema.id),
   schemaVersion: z.literal(repairApplicationSchema.version),
@@ -83,3 +117,17 @@ export const RepairApplicationRecordSchema = z.object({
   appliedAt: z.string().datetime(),
 }).strict();
 export type RepairApplicationRecord = z.infer<typeof RepairApplicationRecordSchema>;
+
+export function repairApplicationDefinitionFromRecord(record: RepairApplicationRecord): RepairApplicationDefinition {
+  return RepairApplicationDefinitionSchema.parse({
+    policy: record.policy,
+    proposalId: record.proposalId,
+    proposalArtifactVersionId: record.proposalArtifactVersionId,
+    proposalDefinitionFingerprint: record.proposalDefinitionFingerprint,
+    explicitlySelectedGroupIds: record.explicitlySelectedGroupIds,
+    requiredDependencyGroupIds: record.requiredDependencyGroupIds,
+    effectiveGroupIds: record.effectiveGroupIds,
+    operationIds: record.operationIds,
+    expectedBases: record.expectedBases,
+  });
+}
