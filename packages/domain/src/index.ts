@@ -8,3 +8,4 @@ export * from "./repair-proposal-contract.js";
 export * from "./repair-proposal-candidate-contract.js";
 export * from "./repair-application-contract.js";
 export * from "./simulate.js";
+export * from "./stable-id.js";

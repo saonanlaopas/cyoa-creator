@@ -3,6 +3,7 @@ import {
   REPAIR_APPLICATION_POLICY_V1,
   RepairApplicationRecordSchema,
   RepairDraftProvenanceSchema,
+  collectStableIds,
   repairApplicationDefinitionFromRecord,
   type RepairApplicationRecord,
   type RepairDraftProvenance,
@@ -58,7 +59,9 @@ export class RepairApplicationRepository {
         .get(input.projectId, input.proposalId)) throw new Error("Repair proposal already has a successful application");
       const selection = selectGroups(proposalVersion.content, input.explicitlySelectedGroupIds);
       const operations = selection.operationIds.map((id) => proposalVersion.content.operations.find((item) => item.id === id)!);
+      assertGeneratedIdsAvailable(this.database, input.projectId, operations);
       const preconditions = assertOperationPreconditions(this.database, input.projectId, operations);
+      const canonicalBefore = captureCanonicalState(this.database);
       const result = input.mutateInTransaction(proposalVersion.content, selection);
       const record = RepairApplicationRecordSchema.parse(result.application);
       if (Buffer.byteLength(JSON.stringify(record), "utf8") > REPAIR_APPLICATION_POLICY_V1.maxAuditBytes) {
@@ -66,6 +69,7 @@ export class RepairApplicationRepository {
       }
       assertApplicationIdentity(record, input, proposalVersion.content, selection);
       assertOperationResults(this.database, record, proposalVersion.content, operations, preconditions, result.draftLinks);
+      assertCanonicalMutationFootprint(this.database, canonicalBefore, record, operations);
       this.database.prepare(`INSERT INTO repair_applications (
         id, project_id, proposal_id, proposal_artifact_version_id, repair_plan_artifact_version_id,
         definition_fingerprint, preview_fingerprint, content_json, applied_at
@@ -250,6 +254,178 @@ interface OperationPrecondition {
   expectedArtifactContent: unknown | null;
 }
 type OperationPreconditions = Map<string, OperationPrecondition>;
+
+interface CanonicalState {
+  structureVersions: CanonicalRows;
+  structureHeads: CanonicalRows;
+  entityVersions: CanonicalRows;
+  entityHeads: CanonicalRows;
+  artifactVersions: CanonicalRows;
+  draftVersions: CanonicalRows;
+  draftUpstream: CanonicalRows;
+  draftNeighbors: CanonicalRows;
+  draftHeads: CanonicalRows;
+}
+type CanonicalRow = Record<string, unknown>;
+type CanonicalRows = Map<string, CanonicalRow>;
+
+function assertGeneratedIdsAvailable(
+  database: StoryDatabase,
+  projectId: string,
+  operations: RepairProposalOperation[],
+): void {
+  const generated = operations.filter((operation) => operation.kind === "add-entity");
+  if (!generated.length) return;
+  const stableIds = collectCurrentStableIds(database, projectId);
+  for (const operation of generated) {
+    if (stableIds.has(operation.entityId)) {
+      throw new Error(`Generated ${operation.entityKind} ${operation.entityId} collides with an existing stable ID`);
+    }
+  }
+}
+
+function collectCurrentStableIds(database: StoryDatabase, projectId: string): Set<string> {
+  const values: unknown[] = [];
+  const structure = database.prepare(`SELECT versions.content_json
+    FROM passage_structure_heads heads JOIN passage_structure_versions versions ON versions.id = heads.version_id
+    WHERE heads.project_id = ?`).get(projectId) as { content_json: string } | undefined;
+  if (structure) values.push(JSON.parse(structure.content_json));
+  const entities = database.prepare(`SELECT versions.content_json
+    FROM passage_entity_heads heads JOIN passage_entity_versions versions ON versions.id = heads.version_id
+    WHERE heads.project_id = ? AND heads.tombstoned = 0`).all(projectId) as Array<{ content_json: string }>;
+  values.push(...entities.map((row) => JSON.parse(row.content_json)));
+  const artifacts = database.prepare(`SELECT artifact_id, version, content_json FROM artifact_versions
+    WHERE project_id = ? AND artifact_id IN ('bible', 'routes', 'endings', 'mechanics')
+    ORDER BY artifact_id, version DESC`).all(projectId) as Array<{ artifact_id: string; version: number; content_json: string }>;
+  const seen = new Set<string>();
+  for (const row of artifacts) {
+    if (seen.has(row.artifact_id)) continue;
+    seen.add(row.artifact_id);
+    values.push(JSON.parse(row.content_json));
+  }
+  return collectStableIds(values);
+}
+
+function captureCanonicalState(database: StoryDatabase): CanonicalState {
+  return {
+    structureVersions: rowsBy(database, `SELECT id, project_id, version, content_json, restored_from_version_id, created_at
+      FROM passage_structure_versions ORDER BY id`, (row) => String(row.id)),
+    structureHeads: rowsBy(database, `SELECT project_id, version_id FROM passage_structure_heads ORDER BY project_id`,
+      (row) => String(row.project_id)),
+    entityVersions: rowsBy(database, `SELECT id, project_id, entity_kind, entity_id, version, content_json,
+        restored_from_version_id, created_at FROM passage_entity_versions ORDER BY id`, (row) => String(row.id)),
+    entityHeads: rowsBy(database, `SELECT project_id, entity_kind, entity_id, version_id, tombstoned
+      FROM passage_entity_heads ORDER BY project_id, entity_kind, entity_id`, entityHeadKey),
+    artifactVersions: rowsBy(database, `SELECT id, project_id, artifact_id, artifact_type, version, schema_version,
+        content_json, restored_from_version_id, created_at FROM artifact_versions ORDER BY id`, (row) => String(row.id)),
+    draftVersions: rowsBy(database, `SELECT id, project_id, passage_id, version, based_on_passage_plan_version_id,
+        prose_markdown, word_count, lifecycle_status, source_kind, generation_plan_id, generation_job_id,
+        generation_unit_id, author_note, restored_from_version_id, created_at FROM passage_draft_versions ORDER BY id`,
+      (row) => String(row.id)),
+    draftUpstream: rowsBy(database, `SELECT draft_version_id, project_id, artifact_id, artifact_version_id
+      FROM passage_draft_upstream_artifacts ORDER BY draft_version_id, artifact_id`,
+      (row) => `${String(row.draft_version_id)}:${String(row.artifact_id)}`),
+    draftNeighbors: rowsBy(database, `SELECT draft_version_id, project_id, neighbor_passage_id, neighbor_draft_version_id
+      FROM passage_draft_neighbor_versions ORDER BY draft_version_id, neighbor_passage_id`,
+      (row) => `${String(row.draft_version_id)}:${String(row.neighbor_passage_id)}`),
+    draftHeads: rowsBy(database, `SELECT project_id, passage_id, current_version_id, accepted_version_id, accepted_locked
+      FROM passage_draft_heads ORDER BY project_id, passage_id`, draftHeadKey),
+  };
+}
+
+function assertCanonicalMutationFootprint(
+  database: StoryDatabase,
+  before: CanonicalState,
+  record: RepairApplicationRecord,
+  operations: RepairProposalOperation[],
+): void {
+  const after = captureCanonicalState(database);
+  assertRowsUnchanged(before.structureVersions, after.structureVersions, "passage structure versions");
+  assertRowsUnchanged(before.structureHeads, after.structureHeads, "passage structure heads");
+
+  const resultByOperation = new Map(record.resultingVersions.map((result) => [result.operationId, result]));
+  const entityVersionIds = new Set<string>();
+  const artifactVersionIds = new Set<string>();
+  const draftVersionIds = new Set<string>();
+  const draftUpstreamKeys = new Set<string>();
+  const draftNeighborKeys = new Set<string>();
+  const expectedEntityHeads = cloneRows(before.entityHeads);
+  const expectedDraftHeads = cloneRows(before.draftHeads);
+  for (const operation of operations) {
+    const result = resultByOperation.get(operation.id);
+    if (!result) throw new Error("Repair application canonical mutation result is missing");
+    if (["passage", "choice", "thread"].includes(operation.entityKind)) {
+      entityVersionIds.add(result.versionId);
+      const row = {
+        project_id: record.projectId, entity_kind: operation.entityKind, entity_id: operation.entityId,
+        version_id: result.versionId, tombstoned: 0,
+      };
+      expectedEntityHeads.set(entityHeadKey(row), row);
+    } else if (operation.kind === "create-passage-draft-candidate") {
+      draftVersionIds.add(result.versionId);
+      if (operation.expectedBase.kind !== "passage-prose-head") throw new Error("Repair application draft footprint base is invalid");
+      Object.keys(operation.expectedBase.upstreamVersions).forEach((artifactId) => draftUpstreamKeys.add(`${result.versionId}:${artifactId}`));
+      Object.keys(operation.expectedBase.neighboringDraftVersions).forEach((passageId) => draftNeighborKeys.add(`${result.versionId}:${passageId}`));
+      const key = draftHeadKey({ project_id: record.projectId, passage_id: operation.entityId });
+      const previous = before.draftHeads.get(key);
+      expectedDraftHeads.set(key, {
+        project_id: record.projectId,
+        passage_id: operation.entityId,
+        current_version_id: result.versionId,
+        accepted_version_id: previous?.accepted_version_id ?? null,
+        accepted_locked: previous?.accepted_locked ?? 0,
+      });
+    } else if (operation.expectedBase?.kind === "artifact-entity-version") {
+      artifactVersionIds.add(result.versionId);
+    }
+  }
+  assertAppendOnlyRows(before.entityVersions, after.entityVersions, entityVersionIds, "passage entity versions");
+  assertExactRows(expectedEntityHeads, after.entityHeads, "passage entity heads");
+  assertAppendOnlyRows(before.artifactVersions, after.artifactVersions, artifactVersionIds, "artifact versions");
+  assertAppendOnlyRows(before.draftVersions, after.draftVersions, draftVersionIds, "passage draft versions");
+  assertAppendOnlyRows(before.draftUpstream, after.draftUpstream, draftUpstreamKeys, "passage draft upstream provenance");
+  assertAppendOnlyRows(before.draftNeighbors, after.draftNeighbors, draftNeighborKeys, "passage draft neighbor provenance");
+  assertExactRows(expectedDraftHeads, after.draftHeads, "passage draft heads");
+}
+
+function rowsBy(database: StoryDatabase, sql: string, key: (row: CanonicalRow) => string): CanonicalRows {
+  const result = new Map<string, CanonicalRow>();
+  for (const row of database.prepare(sql).all() as CanonicalRow[]) result.set(key(row), row);
+  return result;
+}
+
+function cloneRows(rows: CanonicalRows): CanonicalRows {
+  return new Map([...rows].map(([key, row]) => [key, { ...row }]));
+}
+
+function entityHeadKey(row: CanonicalRow): string {
+  return `${String(row.project_id)}:${String(row.entity_kind)}:${String(row.entity_id)}`;
+}
+
+function draftHeadKey(row: CanonicalRow): string {
+  return `${String(row.project_id)}:${String(row.passage_id)}`;
+}
+
+function assertRowsUnchanged(before: CanonicalRows, after: CanonicalRows, label: string): void {
+  assertExactRows(before, after, label);
+}
+
+function assertAppendOnlyRows(before: CanonicalRows, after: CanonicalRows, allowedNewIds: Set<string>, label: string): void {
+  for (const [key, row] of before) {
+    if (canonical(after.get(key)) !== canonical(row)) throw new Error(`Repair application made an unauthorized canonical mutation to ${label}`);
+  }
+  const actualNewIds = new Set([...after.keys()].filter((key) => !before.has(key)));
+  if (canonical([...actualNewIds].sort()) !== canonical([...allowedNewIds].sort())) {
+    throw new Error(`Repair application made an unauthorized canonical mutation to ${label}`);
+  }
+}
+
+function assertExactRows(expected: CanonicalRows, actual: CanonicalRows, label: string): void {
+  if (expected.size !== actual.size) throw new Error(`Repair application made an unauthorized canonical mutation to ${label}`);
+  for (const [key, row] of expected) {
+    if (canonical(actual.get(key)) !== canonical(row)) throw new Error(`Repair application made an unauthorized canonical mutation to ${label}`);
+  }
+}
 
 function assertOperationPreconditions(
   database: StoryDatabase,

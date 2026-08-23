@@ -17,6 +17,7 @@ import {
 } from "@story-to-cyoa/pipeline";
 import {
   REPAIR_APPLICATION_POLICY_V1,
+  collectStableIds,
   type RepairDraftProvenance,
   type RepairFindingReference,
   type RepairApplicationRecord,
@@ -178,8 +179,9 @@ export class RepairApplicationService {
       currentBases[base.targetKey] = comparison.current;
       if (!comparison.matches) errors.push(comparison.message);
     }
+    const stableIds = collectStableIds(currentBase);
     for (const operation of operations.filter((item) => item.kind === "add-entity")) {
-      if (this.passagePlans.currentEntity(proposal.projectId, operation.entityKind, operation.entityId)) {
+      if (stableIds.has(operation.entityId)) {
         errors.push(`Generated ${operation.entityKind} ${operation.entityId} now collides with canonical content`);
       }
     }

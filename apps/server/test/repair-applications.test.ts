@@ -274,6 +274,78 @@ function repairBase(value: ReturnType<typeof directService>, projectId: string):
   } as RepairProposalBaseState;
 }
 
+function createGeneratedProposal(
+  value: Awaited<ReturnType<typeof fixture>>,
+  direct: ReturnType<typeof directService>,
+  entityKind: "choice" | "thread",
+) {
+  const plan = direct.planning.get(value.projectId, value.plan.id);
+  const base = repairBase(direct, value.projectId);
+  const expectedBase = plan.definition.expectedBases.find((item) => item.kind === "passage-entity-version" && item.entityKind === "passage");
+  if (!expectedBase || expectedBase.kind !== "passage-entity-version" || expectedBase.entityKind !== "passage") {
+    throw new Error("Generated-entity fixture requires an authorized passage base");
+  }
+  const passage = base.passages.find((item) => item.content.id === expectedBase.entityId);
+  const destination = base.passages.find((item) => item.content.id !== expectedBase.entityId);
+  if (!passage || !destination) throw new Error("Generated-entity fixture requires two passages");
+  const generationFingerprint = repairProposalFingerprint({ kind: `foundation-6c-generated-${entityKind}`, plan: plan.definitionFingerprint });
+  const unitId = `unit-generated-${entityKind}`;
+  const groupLogicalKey = `passage-and-generated-${entityKind}`;
+  const generatedLogicalKey = `new-${entityKind}`;
+  const generatedId = deterministicRepairEntityId({
+    repairPlanDefinitionFingerprint: plan.definitionFingerprint,
+    generationFingerprint,
+    unitId,
+    groupLogicalKey,
+    entityKind,
+    logicalKey: generatedLogicalKey,
+  });
+  const findingFingerprints = plan.definition.resolvedFindings.map((item) => item.sourceFingerprint).sort();
+  const generatedOperation = entityKind === "choice" ? {
+    logicalKey: "create-choice", groupKey: groupLogicalKey, kind: "add-entity" as const,
+    entityKind, entityId: generatedId, authorizedParentTargetKey: expectedBase.targetKey, generatedLogicalKey,
+    after: {
+      id: generatedId, sourcePassageId: passage.content.id, label: "Take the repaired path",
+      destinationPassageId: destination.content.id, narrativeIntent: "Exercise the explicitly repaired branch.",
+      consequencePreview: "A new route opens.", condition: null, unavailableBehavior: "disabled" as const,
+      unavailableExplanation: "", effects: [], sourceDecisionIds: [], position: passage.content.choiceIds.length,
+    }, sourceFindingFingerprints: findingFingerprints,
+  } : {
+    logicalKey: "create-thread", groupKey: groupLogicalKey, kind: "add-entity" as const,
+    entityKind, entityId: generatedId, authorizedParentTargetKey: expectedBase.targetKey, generatedLogicalKey,
+    after: {
+      id: generatedId, label: "Generated repair thread", description: "A bounded repair thread.",
+      setupPassageIds: [passage.content.id], payoffPassageIds: [destination.content.id], routeIds: [],
+      required: false, status: "planned" as const, waiverRationale: "",
+    }, sourceFindingFingerprints: findingFingerprints,
+  };
+  const operations = entityKind === "choice" ? [{
+    logicalKey: "update-passage", groupKey: groupLogicalKey, kind: "update-entity" as const,
+    entityKind: "passage" as const, entityId: passage.content.id, expectedBase,
+    after: { ...passage.content, choiceIds: [...passage.content.choiceIds, generatedId] },
+    sourceFindingFingerprints: findingFingerprints,
+  }, generatedOperation] : [generatedOperation];
+  const candidate = RepairProposalUnitCandidateSchema.parse({
+    schemaId: repairProposalCandidateSchema.id, schemaVersion: repairProposalCandidateSchema.version,
+    repairPlanDefinitionFingerprint: plan.definitionFingerprint, generationFingerprint, unitId,
+    contextFingerprint: repairProposalFingerprint({ unitId, expectedBase }),
+    generatedIds: [{ logicalKey: generatedLogicalKey, entityKind, authorizedParentTargetKey: expectedBase.targetKey, id: generatedId }],
+    groups: [{
+      logicalKey: groupLogicalKey, label: `Repair with deterministic ${entityKind}`,
+      summary: "One atomic structural repair.", sourceFindingFingerprints: findingFingerprints,
+      authorizedTargetKeys: [expectedBase.targetKey], dependsOnGroupKeys: [], operations,
+    }],
+  });
+  const proposal = buildRepairProposal({
+    projectId: value.projectId, repairPlanId: plan.id, repairPlanArtifactVersionId: plan.artifactVersionId,
+    repairPlan: plan.definition, generationFingerprint, mode: "manual-deterministic", providerId: null,
+    modelId: null, jobId: null, candidates: [{ candidate, attemptId: null }], base,
+    createdAt: new Date().toISOString(),
+  });
+  direct.proposals.create(value.projectId, proposal);
+  return { proposal, groupIds: proposal.groups.map((group) => group.id), generatedId, passage, destination, expectedBase, base };
+}
+
 function applyThroughRepository(
   value: ReturnType<typeof directService>,
   projectId: string,
@@ -509,6 +581,92 @@ describe("Foundation 6C repair application", () => {
     proseDirect.database.close();
   }, 40_000);
 
+  it("rejects every canonical mutation outside the selected operation footprint", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-repair-footprint-")); temporaryDirectories.push(directory);
+    const databasePath = join(directory, "project.sqlite");
+    const value = await fixture("passage-plan", databasePath);
+    const direct = directService(databasePath);
+    const proposal = value.proposal as RepairProposalRecord;
+    const groups = proposal.groups.map((group) => group.id);
+    const preview = direct.service.preview(value.projectId, proposal.id, groups);
+    const selected = proposal.operations[0]!;
+    const unrelatedPassage = direct.passagePlans.currentEntities<PassagePlan>(value.projectId, "passage")
+      .find((item) => item.entityId !== selected.entityId)!;
+    const unrelatedChoice = direct.passagePlans.currentEntities<ChoicePlan>(value.projectId, "choice")[0]!;
+    const counts = () => ({
+      entities: (direct.database.prepare("SELECT COUNT(*) count FROM passage_entity_versions WHERE project_id = ?").get(value.projectId) as { count: number }).count,
+      artifacts: (direct.database.prepare("SELECT COUNT(*) count FROM artifact_versions WHERE project_id = ?").get(value.projectId) as { count: number }).count,
+      drafts: (direct.database.prepare("SELECT COUNT(*) count FROM passage_draft_versions WHERE project_id = ?").get(value.projectId) as { count: number }).count,
+      stale: (direct.database.prepare("SELECT COUNT(*) count FROM passage_draft_staleness_events WHERE project_id = ?").get(value.projectId) as { count: number }).count,
+      applications: direct.applications.list(value.projectId).length,
+    });
+    const before = counts();
+    const attacks: Array<() => unknown> = [
+      () => applyThroughRepository(direct, value.projectId, proposal.id, groups, preview.previewFingerprint, () => {
+        direct.passagePlans.insertEntityVersionInTransaction(value.projectId, "passage", unrelatedPassage.entityId, {
+          ...unrelatedPassage.content, title: "Unauthorized passage Z mutation",
+        });
+      }),
+      () => applyThroughRepository(direct, value.projectId, proposal.id, groups, preview.previewFingerprint, () => {
+        direct.passagePlans.insertEntityVersionInTransaction(value.projectId, "choice", unrelatedChoice.entityId, {
+          ...unrelatedChoice.content, label: "Unauthorized choice mutation",
+        });
+      }),
+      () => applyThroughRepository(direct, value.projectId, proposal.id, groups, preview.previewFingerprint, () => {
+        const mechanics = direct.artifacts.getCurrent(value.projectId, "mechanics")!;
+        direct.artifacts.saveArtifactInTransaction({
+          projectId: value.projectId, artifactId: "mechanics", artifactType: "mechanics", content: mechanics.content,
+        });
+      }),
+    ];
+    for (const attack of attacks) {
+      expect(attack).toThrow(/unauthorized canonical mutation/);
+      expect(counts()).toEqual(before);
+    }
+    const applied = direct.service.apply(value.projectId, proposal.id, groups, preview.previewFingerprint);
+    expect(applied.result).toBe("applied");
+    expect(direct.applications.list(value.projectId)).toHaveLength(1);
+    direct.database.close();
+  }, 40_000);
+
+  it("rejects extra draft and passage writes around an otherwise valid prose repair", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-repair-prose-footprint-")); temporaryDirectories.push(directory);
+    const databasePath = join(directory, "project.sqlite");
+    const value = await fixture("prose", databasePath);
+    const direct = directService(databasePath);
+    const proposal = value.proposal as RepairProposalRecord;
+    const groups = proposal.groups.map((group) => group.id);
+    const preview = direct.service.preview(value.projectId, proposal.id, groups);
+    const selectedPassageId = proposal.operations.find((item) => item.kind === "create-passage-draft-candidate")!.entityId;
+    const unrelated = direct.passagePlans.currentEntities<PassagePlan>(value.projectId, "passage")
+      .find((item) => item.entityId !== selectedPassageId)!;
+    const upstreamVersions = Object.fromEntries(["bible", "routes", "endings", "mechanics"].map((artifactId) => [
+      artifactId, direct.artifacts.getCurrent(value.projectId, artifactId)!.id,
+    ]));
+    const counts = () => ({
+      entities: (direct.database.prepare("SELECT COUNT(*) count FROM passage_entity_versions WHERE project_id = ?").get(value.projectId) as { count: number }).count,
+      drafts: (direct.database.prepare("SELECT COUNT(*) count FROM passage_draft_versions WHERE project_id = ?").get(value.projectId) as { count: number }).count,
+      applications: direct.applications.list(value.projectId).length,
+    });
+    const before = counts();
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groups, preview.previewFingerprint, () => {
+      direct.drafts.createVersionInTransaction({
+        projectId: value.projectId, passageId: unrelated.entityId, basedOnPassagePlanVersionId: unrelated.id,
+        proseMarkdown: "Unauthorized extra draft.", sourceKind: "manual", upstreamVersions, neighboringDraftVersions: {},
+      });
+    })).toThrow(/unauthorized canonical mutation/);
+    expect(counts()).toEqual(before);
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groups, preview.previewFingerprint, () => {
+      direct.passagePlans.insertEntityVersionInTransaction(value.projectId, "passage", unrelated.entityId, {
+        ...unrelated.content, title: "Unauthorized prose-side passage mutation",
+      });
+    })).toThrow(/unauthorized canonical mutation/);
+    expect(counts()).toEqual(before);
+    const applied = direct.service.apply(value.projectId, proposal.id, groups, preview.previewFingerprint);
+    expect(applied.resultingVersions).toEqual([expect.objectContaining({ entityKind: "passage-prose" })]);
+    direct.database.close();
+  }, 40_000);
+
   it("creates a normal candidate with durable repair lineage and leaves accepted prose unchanged", async () => {
     const value = await fixture("prose");
     const proposal = value.proposal as { id: string; groups: Array<{ id: string }>; operations: Array<{ entityId: string }> };
@@ -675,96 +833,62 @@ describe("Foundation 6C repair application", () => {
     const databasePath = join(directory, "project.sqlite");
     const value = await fixture("passage-plan", databasePath);
     const direct = directService(databasePath);
-    const plan = direct.planning.get(value.projectId, value.plan.id);
-    const base = repairBase(direct, value.projectId);
-    const expectedBase = plan.definition.expectedBases.find((item) => item.kind === "passage-entity-version" && item.entityKind === "passage");
-    if (!expectedBase || expectedBase.kind !== "passage-entity-version" || expectedBase.entityKind !== "passage") {
-      throw new Error("Generated-choice fixture requires an authorized passage base");
-    }
-    const passage = base.passages.find((item) => item.content.id === expectedBase.entityId);
-    const destination = base.passages.find((item) => item.content.id !== expectedBase.entityId);
-    if (!passage || !destination) throw new Error("Generated-choice fixture requires two passages");
-    const generationFingerprint = repairProposalFingerprint({ kind: "foundation-6c-generated-choice", plan: plan.definitionFingerprint });
-    const unitId = "unit-generated-choice";
-    const groupLogicalKey = "passage-and-generated-choice";
-    const generatedLogicalKey = "new-choice";
-    const choiceId = deterministicRepairEntityId({
-      repairPlanDefinitionFingerprint: plan.definitionFingerprint,
-      generationFingerprint,
-      unitId,
-      groupLogicalKey,
-      entityKind: "choice",
-      logicalKey: generatedLogicalKey,
-    });
-    const findingFingerprints = plan.definition.resolvedFindings.map((item) => item.sourceFingerprint).sort();
-    const candidate = RepairProposalUnitCandidateSchema.parse({
-      schemaId: repairProposalCandidateSchema.id,
-      schemaVersion: repairProposalCandidateSchema.version,
-      repairPlanDefinitionFingerprint: plan.definitionFingerprint,
-      generationFingerprint,
-      unitId,
-      contextFingerprint: repairProposalFingerprint({ unitId, expectedBase }),
-      generatedIds: [{ logicalKey: generatedLogicalKey, entityKind: "choice", authorizedParentTargetKey: expectedBase.targetKey, id: choiceId }],
-      groups: [{
-        logicalKey: groupLogicalKey,
-        label: "Repair passage with deterministic choice",
-        summary: "One atomic structural repair.",
-        sourceFindingFingerprints: findingFingerprints,
-        authorizedTargetKeys: [expectedBase.targetKey],
-        dependsOnGroupKeys: [],
-        operations: [{
-          logicalKey: "update-passage",
-          groupKey: groupLogicalKey,
-          kind: "update-entity",
-          entityKind: "passage",
-          entityId: passage.content.id,
-          expectedBase,
-          after: { ...passage.content, choiceIds: [...passage.content.choiceIds, choiceId] },
-          sourceFindingFingerprints: findingFingerprints,
-        }, {
-          logicalKey: "create-choice",
-          groupKey: groupLogicalKey,
-          kind: "add-entity",
-          entityKind: "choice",
-          entityId: choiceId,
-          authorizedParentTargetKey: expectedBase.targetKey,
-          generatedLogicalKey,
-          after: {
-            id: choiceId,
-            sourcePassageId: passage.content.id,
-            label: "Take the repaired path",
-            destinationPassageId: destination.content.id,
-            narrativeIntent: "Exercise the explicitly repaired branch.",
-            consequencePreview: "A new route opens.",
-            condition: null,
-            unavailableBehavior: "disabled",
-            unavailableExplanation: "",
-            effects: [],
-            sourceDecisionIds: [],
-            position: passage.content.choiceIds.length,
-          },
-          sourceFindingFingerprints: findingFingerprints,
-        }],
-      }],
-    });
-    const proposal = buildRepairProposal({
-      projectId: value.projectId,
-      repairPlanId: plan.id,
-      repairPlanArtifactVersionId: plan.artifactVersionId,
-      repairPlan: plan.definition,
-      generationFingerprint,
-      mode: "manual-deterministic",
-      providerId: null,
-      modelId: null,
-      jobId: null,
-      candidates: [{ candidate, attemptId: null }],
-      base,
-      createdAt: new Date().toISOString(),
-    });
-    direct.proposals.create(value.projectId, proposal);
-    const groupIds = proposal.groups.map((group) => group.id);
+    const { proposal, groupIds, generatedId: choiceId, passage, destination, expectedBase, base } = createGeneratedProposal(value, direct, "choice");
     const preview = direct.service.preview(value.projectId, proposal.id, groupIds);
     expect(preview).toMatchObject({ applyAllowed: true, generatedEntityIds: [{ entityKind: "choice", entityId: choiceId }] });
+    const generatedChoiceOperation = proposal.operations.find((item) => item.kind === "add-entity" && item.entityKind === "choice")!;
+    direct.passagePlans.insertEntityVersionInTransaction(value.projectId, "choice", choiceId, generatedChoiceOperation.after);
+    expect(direct.service.preview(value.projectId, proposal.id, groupIds)).toMatchObject({
+      applyAllowed: false, errors: expect.arrayContaining([expect.stringMatching(/collides with canonical content/)]),
+    });
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groupIds, preview.previewFingerprint))
+      .toThrow(/collides with an existing stable ID/);
+    direct.database.prepare("DELETE FROM passage_entity_heads WHERE project_id = ? AND entity_kind = 'choice' AND entity_id = ?")
+      .run(value.projectId, choiceId);
+    direct.database.prepare("DELETE FROM passage_entity_versions WHERE project_id = ? AND entity_kind = 'choice' AND entity_id = ?")
+      .run(value.projectId, choiceId);
+
+    direct.passagePlans.insertEntityVersionInTransaction<NarrativeThread>(value.projectId, "thread", choiceId, {
+      id: choiceId, label: "Cross-kind collision", description: "", setupPassageIds: [], payoffPassageIds: [],
+      routeIds: [], required: false, status: "planned", waiverRationale: "",
+    });
+    expect(direct.service.preview(value.projectId, proposal.id, groupIds)).toMatchObject({
+      applyAllowed: false, errors: expect.arrayContaining([expect.stringMatching(/collides with canonical content/)]),
+    });
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groupIds, preview.previewFingerprint))
+      .toThrow(/collides with an existing stable ID/);
+    direct.database.prepare("DELETE FROM passage_entity_heads WHERE project_id = ? AND entity_kind = 'thread' AND entity_id = ?")
+      .run(value.projectId, choiceId);
+    direct.database.prepare("DELETE FROM passage_entity_versions WHERE project_id = ? AND entity_kind = 'thread' AND entity_id = ?")
+      .run(value.projectId, choiceId);
+
+    const mechanics = direct.artifacts.getCurrent<Record<string, unknown>>(value.projectId, "mechanics")!;
+    const originalMechanics = JSON.stringify(mechanics.content);
+    direct.database.prepare("UPDATE artifact_versions SET content_json = ? WHERE id = ?").run(JSON.stringify({
+      ...mechanics.content,
+      unresolvedQuestions: [
+        ...((mechanics.content.unresolvedQuestions as unknown[]) ?? []),
+        { id: choiceId, question: "Collision introduced after proposal creation.", answer: "" },
+      ],
+    }), mechanics.id);
+    expect(direct.service.preview(value.projectId, proposal.id, groupIds)).toMatchObject({
+      applyAllowed: false, errors: expect.arrayContaining([expect.stringMatching(/collides with canonical content/)]),
+    });
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groupIds, preview.previewFingerprint))
+      .toThrow(/collides with an existing stable ID/);
+    direct.database.prepare("UPDATE artifact_versions SET content_json = ? WHERE id = ?").run(originalMechanics, mechanics.id);
+
+    const unrelatedForProse = base.passages.find((item) => item.content.id !== passage.content.id)!;
+    direct.drafts.createVersion({
+      projectId: value.projectId, passageId: unrelatedForProse.content.id,
+      basedOnPassagePlanVersionId: unrelatedForProse.versionId,
+      proseMarkdown: `This ordinary prose mentions ${choiceId} without declaring an ID.`, sourceKind: "manual",
+      upstreamVersions: {
+        bible: base.bible.versionId, routes: base.routes.versionId,
+        endings: base.endings.versionId, mechanics: base.mechanics.versionId,
+      }, neighboringDraftVersions: {},
+    });
+    expect(direct.service.preview(value.projectId, proposal.id, groupIds).applyAllowed).toBe(true);
     const unrelatedVersions = new Map(base.passages.filter((item) => item.content.id !== passage.content.id)
       .map((item) => [item.content.id, item.versionId]));
     expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groupIds, preview.previewFingerprint, () => {
@@ -787,6 +911,33 @@ describe("Foundation 6C repair application", () => {
       expect(direct.passagePlans.currentEntity(value.projectId, "passage", passageId)?.id).toBe(versionId);
     }
     expect(direct.passagePlans.listEntityVersions(value.projectId, "passage", passage.content.id).map((item) => item.id)).toContain(expectedBase.versionId);
+    direct.database.close();
+  }, 30_000);
+
+  it("rejects a generated thread ID that collides with a newer cross-kind stable ID", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-repair-generated-thread-")); temporaryDirectories.push(directory);
+    const databasePath = join(directory, "project.sqlite");
+    const value = await fixture("passage-plan", databasePath);
+    const direct = directService(databasePath);
+    const { proposal, groupIds, generatedId: threadId } = createGeneratedProposal(value, direct, "thread");
+    const preview = direct.service.preview(value.projectId, proposal.id, groupIds);
+    expect(preview.applyAllowed).toBe(true);
+    const sourceChoice = direct.passagePlans.currentEntities<ChoicePlan>(value.projectId, "choice")[0]!;
+    direct.passagePlans.insertEntityVersionInTransaction(value.projectId, "choice", threadId, {
+      ...sourceChoice.content, id: threadId,
+    });
+    expect(direct.service.preview(value.projectId, proposal.id, groupIds)).toMatchObject({
+      applyAllowed: false, errors: expect.arrayContaining([expect.stringMatching(/collides with canonical content/)]),
+    });
+    expect(() => applyThroughRepository(direct, value.projectId, proposal.id, groupIds, preview.previewFingerprint))
+      .toThrow(/collides with an existing stable ID/);
+    expect(direct.applications.list(value.projectId)).toEqual([]);
+    direct.database.prepare("DELETE FROM passage_entity_heads WHERE project_id = ? AND entity_kind = 'choice' AND entity_id = ?")
+      .run(value.projectId, threadId);
+    direct.database.prepare("DELETE FROM passage_entity_versions WHERE project_id = ? AND entity_kind = 'choice' AND entity_id = ?")
+      .run(value.projectId, threadId);
+    const applied = direct.service.apply(value.projectId, proposal.id, groupIds, preview.previewFingerprint);
+    expect(applied.resultingVersions).toEqual([expect.objectContaining({ entityKind: "thread", entityId: threadId })]);
     direct.database.close();
   }, 30_000);
 
