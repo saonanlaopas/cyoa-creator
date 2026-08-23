@@ -64,6 +64,7 @@ import { registerPublicationExportRoutes } from "./routes/publication-exports.js
 export interface BuildAppOptions {
   databasePath?: string;
   maxImportBytes?: number;
+  maxPortableProjectBytes?: number;
   credentials?: CredentialStore;
   openRouterClient?: OpenRouterClient;
   passagePlanningProvider?: PassagePlanningProvider;
@@ -183,7 +184,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const diagnostics = new GenerationDiagnosticStore();
   const runner = new JobRunner(new JobRepository(database));
   void app.register(fastifyMultipart, {
-    limits: { files: 1, fileSize: options.maxImportBytes ?? 25 * 1024 * 1024 },
+    limits: { files: 1 },
   });
   app.addHook("onClose", async () => {
     await passageDraftingService.shutdown();
@@ -208,7 +209,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerPassageDraftingRoutes(app, passageDraftingService);
   registerSimulationRoutes(app, simulationService);
   registerNativeCompilationRoutes(app, nativeCompilationService);
-  registerPublicationExportRoutes(app, publicationExportService);
+  registerPublicationExportRoutes(app, publicationExportService, options.maxPortableProjectBytes);
   registerPlaytestingRoutes(app, playtestService);
   registerNarrativeReviewRoutes(app, narrativeReviewService);
   registerRepairPlanningRoutes(app, repairPlanningService);

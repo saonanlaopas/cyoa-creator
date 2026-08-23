@@ -1,12 +1,24 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { strToU8, zipSync } from "fflate";
 import type { PublicationExportService } from "../services/publication-export-service.js";
+import { PORTABLE_PROJECT_LIMITS } from "../services/publication-export-service.js";
 
 interface ProjectParams { projectId: string }
 interface FormatParams extends ProjectParams { format: "portable" | "markdown" | "static" | "standalone" | "twee" }
 interface Query { inputArtifactVersionId?: string }
 
-export function registerPublicationExportRoutes(app: FastifyInstance, service: PublicationExportService): void {
+export function resolvePortableUploadLimit(configured?: number): number {
+  if (configured === undefined) return PORTABLE_PROJECT_LIMITS.archiveBytes;
+  if (!Number.isSafeInteger(configured) || configured <= 0) throw new Error("portable_project_upload_limit_invalid");
+  return Math.min(configured, PORTABLE_PROJECT_LIMITS.archiveBytes);
+}
+
+export function registerPublicationExportRoutes(
+  app: FastifyInstance,
+  service: PublicationExportService,
+  maximumUploadBytes: number = PORTABLE_PROJECT_LIMITS.archiveBytes,
+): void {
+  const uploadLimit = resolvePortableUploadLimit(maximumUploadBytes);
   app.get<{ Params: ProjectParams; Querystring: Query }>("/api/long-form/projects/:projectId/publication/twee-compatibility", async (request, reply) => {
     try { return service.inspectTwee(request.params.projectId, request.query.inputArtifactVersionId); }
     catch (error) { return reply.code(400).send({ code: "twee_compatibility_failed", error: (error as Error).message }); }
@@ -27,18 +39,28 @@ export function registerPublicationExportRoutes(app: FastifyInstance, service: P
     } catch (error) { return reply.code(400).send({ code: "publication_export_failed", error: (error as Error).message }); }
   });
   app.post("/api/portable-projects/preview", async (request, reply) => {
-    try { return service.previewPortable(await upload(request)); }
-    catch (error) { return reply.code(400).send({ code: "portable_project_invalid", error: (error as Error).message }); }
+    try { return service.previewPortable(await upload(request, uploadLimit)); }
+    catch (error) { return reply.code(uploadStatus(error)).send({ code: "portable_project_invalid", error: (error as Error).message }); }
   });
   app.post("/api/portable-projects/import", async (request, reply) => {
-    try { return reply.code(201).send(service.importPortable(await upload(request))); }
-    catch (error) { return reply.code((error as Error).message.includes("conflict") ? 409 : 400).send({ code: "portable_project_import_failed", error: (error as Error).message }); }
+    try { return reply.code(201).send(service.importPortable(await upload(request, uploadLimit))); }
+    catch (error) { return reply.code((error as Error).message.includes("conflict") ? 409 : uploadStatus(error)).send({ code: "portable_project_import_failed", error: (error as Error).message }); }
   });
 }
 
-async function upload(request: { file(): Promise<{ toBuffer(): Promise<Buffer> } | undefined> }): Promise<Uint8Array> {
-  const file = await request.file(); if (!file) throw new Error("portable_project_file_required"); return new Uint8Array(await file.toBuffer());
+async function upload(request: { file(options: { limits: { files: number; fileSize: number } }): Promise<{ toBuffer(): Promise<Buffer>; file: { truncated: boolean } } | undefined> }, maximumBytes: number): Promise<Uint8Array> {
+  try {
+    const file = await request.file({ limits: { files: 1, fileSize: maximumBytes } });
+    if (!file) throw new Error("portable_project_file_required");
+    const buffer = await file.toBuffer();
+    if (file.file.truncated || buffer.byteLength > maximumBytes) throw new Error("portable_project_upload_too_large");
+    return new Uint8Array(buffer);
+  } catch (error) {
+    if ((error as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") throw new Error("portable_project_upload_too_large");
+    throw error;
+  }
 }
+function uploadStatus(error: unknown): 400 | 413 { return (error as Error).message.includes("upload_too_large") ? 413 : 400; }
 function send(reply: FastifyReply, bytes: Uint8Array, contentType: string, filename: string, fingerprint: string) {
   return reply.header("content-type", contentType).header("content-disposition", `attachment; filename="${filename}"`)
     .header("x-cyoa-artifact-fingerprint", fingerprint).header("x-content-type-options", "nosniff").send(Buffer.from(bytes));

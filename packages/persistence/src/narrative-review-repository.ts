@@ -64,6 +64,31 @@ export class NarrativeReviewRepository {
       .all(projectId, `${prefix}${planId}`, NARRATIVE_REVIEW_ARTIFACT_TYPE) as Row[]).map(map<T>);
   }
 
+  validateProjectHistory(projectId: string): void {
+    const rows = this.database.prepare(`SELECT * FROM artifact_versions
+      WHERE project_id = ? AND artifact_type = ? ORDER BY artifact_id, version`)
+      .all(projectId, NARRATIVE_REVIEW_ARTIFACT_TYPE) as Row[];
+    const grouped = new Map<string, Row[]>();
+    for (const row of rows) grouped.set(row.artifact_id, [...(grouped.get(row.artifact_id) ?? []), row]);
+    for (const [artifactId, history] of grouped) {
+      const versions = history.map((row, index) => {
+        if (row.project_id !== projectId || row.schema_version !== 1 || row.version !== index + 1) {
+          throw new Error("Narrative-review artifact history identity is invalid");
+        }
+        const version = map<NarrativeReviewAggregateShape>(row);
+        if (artifactId !== `${prefix}${version.content.plan.id}` || version.content.projectId !== projectId) {
+          throw new Error("Narrative-review artifact identity mismatch");
+        }
+        assertAggregateLineage(version.content);
+        return version.content;
+      });
+      if (versions[0]) assertInitialAggregateState(versions[0]);
+      for (let index = 1; index < versions.length; index += 1) {
+        assertImmutableAggregateDefinition(versions[index - 1]!, versions[index]!);
+      }
+    }
+  }
+
   private append<T extends NarrativeReviewAggregateShape>(
     projectId: string,
     planId: string,

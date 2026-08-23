@@ -6,8 +6,9 @@ import { compileSugarCube, renderNativeTwee } from "@story-to-cyoa/export-twine"
 import { PortableProjectRepository, PORTABLE_PROJECT_TABLES, type PortableProjectRows } from "@story-to-cyoa/persistence";
 import { assertNativePlayerConfig, loadNativeGame, stableFingerprint, type NativeGameBundle, type NativePlayerConfig } from "@story-to-cyoa/runtime";
 import type { NativeCompilationService } from "./native-compilation-service.js";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { validatePortableAuthoringProject } from "./portable-project-validator.js";
 
 export const PORTABLE_PROJECT_LIMITS = Object.freeze({ archiveBytes: 128_000_000, uncompressedBytes: 256_000_000, entries: 16, pathLength: 160, rows: 1_000_000, artifacts: 100_000, passageVersions: 100_000, choiceVersions: 300_000, threadVersions: 100_000, draftVersions: 100_000, snapshots: 20_000, textBytes: 50_000_000 });
 export const PUBLICATION_EXPORT_LIMITS = Object.freeze({ staticArchiveBytes: 128_000_000, standaloneHtmlBytes: 96_000_000, tweeArchiveBytes: 128_000_000 });
@@ -29,6 +30,8 @@ export class PublicationExportService {
   public constructor(
     private readonly portable: PortableProjectRepository,
     private readonly nativeCompilation: NativeCompilationService,
+    private readonly tweeCompiler: typeof compileSugarCube = compileSugarCube,
+    private readonly temporaryDirectoryRoot: string = tmpdir(),
   ) {}
 
   exportPortable(projectId: string): { bytes: Uint8Array; manifest: PortableManifest } {
@@ -63,28 +66,32 @@ export class PublicationExportService {
 
   importPortable(bytes: Uint8Array): { projectId: string; projectFingerprint: string } {
     const parsed = this.parsePortable(bytes);
-    this.portable.importRows(parsed.rows);
+    this.portable.importRows(parsed.rows, validatePortableAuthoringProject);
     return { projectId: parsed.rows.projectId, projectFingerprint: parsed.manifest.projectFingerprint };
   }
 
   exportMarkdown(projectId: string, inputArtifactVersionId?: string): { text: string; fingerprint: string; bundleFingerprint: string } {
     const source = this.nativeCompilation.compile(projectId, inputArtifactVersionId); const { bundle } = source;
     const choices = new Map(bundle.choices.map((choice) => [choice.id, choice]));
-    const lines = [`# ${this.projectTitle(projectId, bundle)}`, "",
+    const sections = [[`# ${this.projectTitle(projectId, bundle)}`, "",
       `> Native bundle: \`${bundle.bundleFingerprint}\`  `, `> Source input: \`${bundle.source.inputFingerprint}\`  `,
       `> Compilation input version: \`${source.input?.id ?? "captured-current"}\``, "",
-      "This manuscript is a readable publication export, not a lossless import format.", ""];
+      "This manuscript is a readable publication export, not a lossless import format."].join("\n")];
     bundle.passages.forEach((passage, index) => {
-      lines.push(`## ${index + 1}. ${passage.presentation.title}`, "", `Stable ID: \`${passage.id}\`  `,
-        `Routes: ${passage.routeIds.length ? passage.routeIds.map((id) => `\`${id}\``).join(", ") : "shared"}`, "", passage.proseMarkdown, "");
+      const marker = String(index + 1).padStart(6, "0");
+      const heading = [`## ${index + 1}. ${passage.presentation.title}`, "", `Stable ID: \`${passage.id}\`  `,
+        `Routes: ${passage.routeIds.length ? passage.routeIds.map((id) => `\`${id}\``).join(", ") : "shared"}`, "",
+        `<!-- CYOA ACCEPTED PROSE START ${marker} -->`].join("\n");
+      let section = `${heading}\n${passage.proseMarkdown}\n<!-- CYOA ACCEPTED PROSE END ${marker} -->`;
       if (passage.choiceIds.length) {
-        lines.push("Choices:", "");
-        for (const id of passage.choiceIds) { const choice = choices.get(id); if (choice) lines.push(`- ${choice.text} → \`${choice.destinationPassageId}\``); }
-        lines.push("");
+        const choiceLines = ["Choices:", ""];
+        for (const id of passage.choiceIds) { const choice = choices.get(id); if (choice) choiceLines.push(`- ${choice.text} → \`${choice.destinationPassageId}\``); }
+        section += `\n\n${choiceLines.join("\n")}`;
       }
-      if (passage.terminal) lines.push(`Ending: \`${passage.endingId}\``, "");
+      if (passage.terminal) section += `\n\nEnding: \`${passage.endingId}\``;
+      sections.push(section);
     });
-    const text = lines.join("\n").replace(/[ \t]+\n/g, "\n").replace(/\n+$/, "\n");
+    const text = `${sections.join("\n\n")}\n`;
     return { text, fingerprint: stableFingerprint(text), bundleFingerprint: bundle.bundleFingerprint };
   }
 
@@ -124,10 +131,9 @@ export class PublicationExportService {
     const source = this.nativeCompilation.compile(projectId, inputArtifactVersionId);
     const title = this.projectTitle(projectId, source.bundle); const rendered = renderNativeTwee(source.bundle, source.playerConfig, title);
     if (!rendered.compatible || !rendered.twee) throw new Error(`twee_incompatible: ${rendered.diagnostics.map((item) => item.message).join("; ")}`);
-    const directory = resolve(tmpdir(), `cyoa-twee-${process.pid}-${Date.now()}`); const output = resolve(directory, "story.html");
-    await mkdir(directory, { recursive: true });
+    const directory = await mkdtemp(resolve(this.temporaryDirectoryRoot, "cyoa-twee-")); const output = resolve(directory, "story.html");
     try {
-      const result = await compileSugarCube(rendered.twee, output, { allowFallback: false });
+      const result = await this.tweeCompiler(rendered.twee, output, { allowFallback: false });
       if (result.compiler !== "tweego") throw new Error("Pinned Tweego was not used");
       const html = new Uint8Array(await readFile(output)); const tweeBytes = strToU8(rendered.twee);
       const meaning = { ...publicationMeaning("twee3-sugarcube", source, title), ifid: rendered.ifid, tweegoVersion: "2.1.1", tweeFingerprint: stableFingerprint(rendered.twee) };

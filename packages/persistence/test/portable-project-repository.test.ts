@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ArtifactRepository, openDatabase, PortableProjectRepository, ProjectRepository } from "../src/index.js";
 
 describe("PortableProjectRepository", () => {
+  const acceptDomainFixture = () => undefined;
   it("round-trips immutable authoring history and rejects collisions", () => {
     const source = openDatabase(); const target = openDatabase();
     try {
@@ -10,9 +11,9 @@ describe("PortableProjectRepository", () => {
       artifacts.saveArtifact({ projectId: "portable-project", artifactId: "brief", artifactType: "brief", schemaVersion: 1, content: { title: "v1" } });
       artifacts.saveArtifact({ projectId: "portable-project", artifactId: "brief", artifactType: "brief", schemaVersion: 1, content: { title: "v2" } });
       const exported = new PortableProjectRepository(source).exportRows("portable-project");
-      const repository = new PortableProjectRepository(target); repository.importRows(exported);
+      const repository = new PortableProjectRepository(target); repository.importRows(exported, acceptDomainFixture);
       expect(repository.exportRows("portable-project")).toEqual(exported);
-      expect(() => repository.importRows(exported)).toThrow(/portable_project_conflict/);
+      expect(() => repository.importRows(exported, acceptDomainFixture)).toThrow(/portable_project_conflict/);
     } finally { source.close(); target.close(); }
   });
 
@@ -22,8 +23,65 @@ describe("PortableProjectRepository", () => {
       new ProjectRepository(source).create("Portable tale", "portable-project", "long-form");
       const rows = new PortableProjectRepository(source).exportRows("portable-project");
       rows.tables.artifact_dependencies.push({ project_id: "another-project", upstream_artifact_id: "brief", dependent_artifact_id: "bible" });
-      expect(() => new PortableProjectRepository(target).importRows(rows)).toThrow(/lineage_invalid/);
+      expect(() => new PortableProjectRepository(target).importRows(rows, acceptDomainFixture)).toThrow(/lineage_invalid/);
       expect(new ProjectRepository(target).get("portable-project")).toBeUndefined();
+    } finally { source.close(); target.close(); }
+  });
+
+  it("rejects exact entity-head lineage mismatches that ordinary foreign keys permit", () => {
+    const source = openDatabase(); const target = openDatabase();
+    try {
+      new ProjectRepository(source).create("Hostile", "hostile", "long-form");
+      source.prepare(`INSERT INTO passage_entity_versions
+        (id, project_id, entity_kind, entity_id, version, content_json, created_at)
+        VALUES ('passage-a-v1', 'hostile', 'passage', 'passage-a', 1, '{"id":"passage-a"}', '2026-08-24T00:00:00.000Z')`).run();
+      source.prepare(`INSERT INTO passage_entity_heads
+        (project_id, entity_kind, entity_id, version_id, tombstoned)
+        VALUES ('hostile', 'passage', 'passage-b', 'passage-a-v1', 0)`).run();
+      const rows = new PortableProjectRepository(source).exportRows("hostile");
+      expect(() => new PortableProjectRepository(target).importRows(rows, acceptDomainFixture)).toThrow(/entity head/);
+      expect(new ProjectRepository(target).get("hostile")).toBeUndefined();
+    } finally { source.close(); target.close(); }
+  });
+
+  it("rejects cross-project head and workflow references without touching the existing project", () => {
+    const source = openDatabase(); const target = openDatabase();
+    try {
+      new ProjectRepository(source).create("Imported", "imported", "long-form");
+      new ProjectRepository(target).create("Existing", "existing", "long-form");
+      target.prepare(`INSERT INTO passage_entity_versions
+        (id, project_id, entity_kind, entity_id, version, content_json, created_at)
+        VALUES ('existing-passage-v1', 'existing', 'passage', 'passage-x', 1, '{"id":"passage-x"}', '2026-08-24T00:00:00.000Z')`).run();
+      target.prepare(`INSERT INTO artifact_versions
+        (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, created_at)
+        VALUES ('existing-brief-v1', 'existing', 'brief', 'brief', 1, 1, '{}', 0, '2026-08-24T00:00:00.000Z')`).run();
+      const rows = new PortableProjectRepository(source).exportRows("imported");
+      rows.tables.passage_entity_heads.push({ project_id: "imported", entity_kind: "passage", entity_id: "passage-x", version_id: "existing-passage-v1", tombstoned: 0 });
+      rows.tables.artifact_workflow_state.push({ project_id: "imported", artifact_id: "brief", status: "approved", approved_version_id: "existing-brief-v1", updated_at: "2026-08-24T00:00:00.000Z" });
+      expect(() => new PortableProjectRepository(target).importRows(rows, acceptDomainFixture)).toThrow(/lineage_invalid/);
+      expect(new ProjectRepository(target).get("imported")).toBeUndefined();
+      expect(new ProjectRepository(target).get("existing")?.name).toBe("Existing");
+    } finally { source.close(); target.close(); }
+  });
+
+  it("rejects snapshot items whose declared identity differs from their immutable version", () => {
+    const source = openDatabase(); const target = openDatabase(); const at = "2026-08-24T00:00:00.000Z";
+    try {
+      new ProjectRepository(source).create("Snapshot", "snapshot-project", "long-form");
+      source.prepare("INSERT INTO passage_structure_versions (id, project_id, version, content_json, created_at) VALUES ('structure-v1', 'snapshot-project', 1, '{}', ?)").run(at);
+      source.prepare(`INSERT INTO passage_entity_versions
+        (id, project_id, entity_kind, entity_id, version, content_json, created_at)
+        VALUES ('passage-a-v1', 'snapshot-project', 'passage', 'passage-a', 1, '{"id":"passage-a"}', ?)`)
+        .run(at);
+      source.prepare(`INSERT INTO passage_plan_snapshots
+        (id, project_id, version, structure_version_id, upstream_versions_json, validation_json, status, created_at)
+        VALUES ('snapshot-v1', 'snapshot-project', 1, 'structure-v1', '{}', '[]', 'draft', ?)`)
+        .run(at);
+      source.prepare(`INSERT INTO passage_plan_snapshot_items (snapshot_id, entity_kind, entity_id, version_id)
+        VALUES ('snapshot-v1', 'passage', 'passage-b', 'passage-a-v1')`).run();
+      const rows = new PortableProjectRepository(source).exportRows("snapshot-project");
+      expect(() => new PortableProjectRepository(target).importRows(rows, acceptDomainFixture)).toThrow(/snapshot item/);
+      expect(new ProjectRepository(target).get("snapshot-project")).toBeUndefined();
     } finally { source.close(); target.close(); }
   });
 
@@ -48,7 +106,7 @@ describe("PortableProjectRepository", () => {
       source.prepare("INSERT INTO passage_plan_state (project_id, status, approved_snapshot_id, updated_at) VALUES (?, 'approved', ?, ?)")
         .run("large-project", "snapshot-v1", "2026-08-24T00:00:00.000Z");
       const exported = new PortableProjectRepository(source).exportRows("large-project");
-      new PortableProjectRepository(target).importRows(exported);
+      new PortableProjectRepository(target).importRows(exported, acceptDomainFixture);
       expect(new PortableProjectRepository(target).exportRows("large-project")).toEqual(exported);
       expect(exported.tables.passage_entity_versions).toHaveLength(300);
     } finally { source.close(); target.close(); }
@@ -75,7 +133,7 @@ describe("PortableProjectRepository", () => {
       source.prepare("UPDATE drafting_job_units SET status = 'completed', finished_at = ? WHERE job_id = 'job-1'").run(at);
       source.prepare("UPDATE drafting_jobs SET status = 'completed', finished_at = ? WHERE id = 'job-1'").run(at);
       const exported = new PortableProjectRepository(source).exportRows("generated-project");
-      new PortableProjectRepository(target).importRows(exported);
+      new PortableProjectRepository(target).importRows(exported, acceptDomainFixture);
       expect(new PortableProjectRepository(target).exportRows("generated-project")).toEqual(exported);
       expect(exported.tables.passage_draft_generation_provenance).toHaveLength(1);
     } finally { source.close(); target.close(); }

@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { createNativePlayerConfig, nativeBundleFingerprint } from "@story-to-cyoa/runtime";
@@ -51,6 +54,57 @@ describe("Foundation 7C publication exports", () => {
     } finally { context.database.close(); }
   });
 
+  it.each([
+    ["passage", "passage", { id: "passage-invalid" }],
+    ["choice", "choice", { id: "choice-invalid", sourcePassageId: 7 }],
+    ["thread", "thread", { id: "thread-invalid", status: "impossible" }],
+  ] as const)("rejects invalid %s domain content atomically", (_label, kind, content) => {
+    const source = service(); const target = service();
+    try {
+      new ProjectRepository(source.database).create("Hostile", "hostile", "long-form");
+      new ProjectRepository(target.database).create("Untouched", "untouched", "long-form");
+      source.database.prepare(`INSERT INTO passage_entity_versions
+        (id, project_id, entity_kind, entity_id, version, content_json, created_at) VALUES (?, 'hostile', ?, ?, 1, ?, ?)`)
+        .run(`${kind}-version`, kind, `${kind}-invalid`, JSON.stringify(content), "2026-08-24T00:00:00.000Z");
+      expect(() => target.service.importPortable(source.service.exportPortable("hostile").bytes)).toThrow(/domain_invalid/);
+      expect(new ProjectRepository(target.database).get("hostile")).toBeUndefined();
+      expect(new ProjectRepository(target.database).get("untouched")?.name).toBe("Untouched");
+    } finally { source.database.close(); target.database.close(); }
+  });
+
+  it.each(["routes", "mechanics", "endings"] as const)("rejects invalid %s artifacts atomically", (artifactId) => {
+    const source = service(); const target = service();
+    try {
+      new ProjectRepository(source.database).create("Hostile", "hostile", "long-form");
+      new ArtifactRepository(source.database).saveArtifact({ projectId: "hostile", artifactId, content: { invalid: true } });
+      expect(() => target.service.importPortable(source.service.exportPortable("hostile").bytes)).toThrow(/domain_invalid/);
+      expect(new ProjectRepository(target.database).get("hostile")).toBeUndefined();
+    } finally { source.database.close(); target.database.close(); }
+  });
+
+  it("rejects invalid passage structure content atomically", () => {
+    const source = service(); const target = service();
+    try {
+      new ProjectRepository(source.database).create("Hostile", "hostile", "long-form");
+      source.database.prepare(`INSERT INTO passage_structure_versions
+        (id, project_id, version, content_json, created_at) VALUES ('structure-invalid', 'hostile', 1, '{"acts":"not-an-array"}', '2026-08-24T00:00:00.000Z')`).run();
+      expect(() => target.service.importPortable(source.service.exportPortable("hostile").bytes)).toThrow(/domain_invalid/);
+      expect(new ProjectRepository(target.database).get("hostile")).toBeUndefined();
+    } finally { source.database.close(); target.database.close(); }
+  });
+
+  it("rejects malformed JSON-bearing rows before commit", () => {
+    const source = service(); const target = service();
+    try {
+      new ProjectRepository(source.database).create("Hostile", "hostile", "long-form");
+      source.database.prepare(`INSERT INTO artifact_versions
+        (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, created_at)
+        VALUES ('bad-json', 'hostile', 'brief', 'brief', 1, 1, '{', 0, '2026-08-24T00:00:00.000Z')`).run();
+      expect(() => target.service.importPortable(source.service.exportPortable("hostile").bytes)).toThrow(/json_invalid/);
+      expect(new ProjectRepository(target.database).get("hostile")).toBeUndefined();
+    } finally { source.database.close(); target.database.close(); }
+  });
+
   it("excludes source/provider secret material while preserving an explicitly authored literal", () => {
     const context = service(); try {
       new ProjectRepository(context.database).create("Archive", "archive", "long-form"); const artifacts = new ArtifactRepository(context.database);
@@ -64,16 +118,26 @@ describe("Foundation 7C publication exports", () => {
 
   it("renders deterministic readable Markdown from accepted native prose", () => {
     const context = service(); try {
+      const exact = "  leading\r\nHard break  \r\n```text\r\ncode trailing   \r\n```\r\n## hostile\r\n---\r\n:: passage\r\nfinal   ";
+      context.bundle.passages[0]!.proseMarkdown = exact;
+      context.bundle.bundleFingerprint = nativeBundleFingerprint(context.bundle);
       const first = context.service.exportMarkdown("ignored"); const second = context.service.exportMarkdown("ignored");
-      expect(first).toEqual(second); expect(first.text).toContain("Exact prose 0.");
+      expect(first).toEqual(second);
+      expect(proseBody(first.text, 1)).toBe(exact);
       expect(first.text).toContain("not a lossless import format"); expect(first.text).not.toContain("runtimeFingerprint\":");
     } finally { context.database.close(); }
   });
 
   it("builds bounded 300-passage static and standalone publications with inert payloads", async () => {
     const context = service(openDatabase(), 300, true); try {
+      const exactBodies = context.bundle.passages.map((passage, index) => {
+        const prose = `  passage ${index}\r\nline with hard break  \r\n\`\`\`\r\nblock ${index}   \r\n\`\`\``;
+        passage.proseMarkdown = prose; return prose;
+      });
+      context.bundle.bundleFingerprint = nativeBundleFingerprint(context.bundle);
       const markdown = context.service.exportMarkdown("ignored");
       expect(markdown.text.match(/^## \d+\./gm)).toHaveLength(300);
+      exactBodies.forEach((body, index) => expect(proseBody(markdown.text, index + 1)).toBe(body));
       const staticResult = await context.service.exportStatic("ignored"); const files = unzipSync(staticResult.bytes);
       expect(Object.keys(files).sort()).toEqual(["assets/player.css", "assets/player.js", "game.json", "index.html", "manifest.json", "player-config.json"]);
       expect(new TextDecoder().decode(files["index.html"]!)).not.toContain("localhost");
@@ -83,6 +147,36 @@ describe("Foundation 7C publication exports", () => {
     } finally { context.database.close(); }
   }, 30_000);
 
+  it("uses isolated cleaned workspaces for overlapping Twee compilations", async () => {
+    const database = openDatabase(); const root = await mkdtemp(resolve(tmpdir(), "cyoa-twee-concurrency-test-"));
+    try {
+      new ProjectRepository(database).create("First title", "first", "long-form");
+      new ProjectRepository(database).create("Second title", "second", "long-form");
+      const bundles = { first: playerFixture(4), second: playerFixture(5) };
+      const configs = {
+        first: createNativePlayerConfig(playerConfigInput(bundles.first), bundles.first),
+        second: createNativePlayerConfig(playerConfigInput(bundles.second), bundles.second),
+      };
+      let started = 0; let release!: () => void;
+      const bothStarted = new Promise<void>((resolvePromise) => { release = resolvePromise; });
+      const directories: string[] = [];
+      const compiler: typeof import("@story-to-cyoa/export-twine").compileSugarCube = async (twee, outputPath) => {
+        directories.push(dirname(outputPath)); started += 1; if (started === 2) release(); await bothStarted;
+        const html = `<!doctype html><title>${twee.includes("First title") ? "first" : "second"}</title>`;
+        await writeFile(outputPath, html, "utf8");
+        return { outputPath, compiler: "tweego", bytes: Buffer.byteLength(html) };
+      };
+      const native = { compile: (projectId: "first" | "second") => ({ bundle: bundles[projectId], playerConfig: configs[projectId] }) } as unknown as NativeCompilationService;
+      const exporter = new PublicationExportService(new PortableProjectRepository(database), native, compiler, root);
+      const [first, second] = await Promise.all([exporter.exportTwee("first"), exporter.exportTwee("second")]);
+      expect(new TextDecoder().decode(first.html)).toContain("<title>first</title>");
+      expect(new TextDecoder().decode(second.html)).toContain("<title>second</title>");
+      expect(new Set(directories).size).toBe(2);
+      expect(await readdir(root)).toEqual([]);
+      expect(JSON.stringify([first.manifest, second.manifest])).not.toContain(root);
+    } finally { database.close(); await rm(root, { recursive: true, force: true }); }
+  });
+
   it("renders and real-compiles a 300-passage SugarCube publication", async () => {
     const context = service(openDatabase(), 300); try {
       const result = await context.service.exportTwee("ignored");
@@ -91,3 +185,12 @@ describe("Foundation 7C publication exports", () => {
     } finally { context.database.close(); }
   }, 30_000);
 });
+
+function proseBody(markdown: string, passageNumber: number): string {
+  const marker = String(passageNumber).padStart(6, "0");
+  const start = `<!-- CYOA ACCEPTED PROSE START ${marker} -->\n`;
+  const end = `\n<!-- CYOA ACCEPTED PROSE END ${marker} -->`;
+  const from = markdown.indexOf(start); const to = markdown.indexOf(end, from + start.length);
+  expect(from).toBeGreaterThanOrEqual(0); expect(to).toBeGreaterThanOrEqual(0);
+  return markdown.slice(from + start.length, to);
+}
