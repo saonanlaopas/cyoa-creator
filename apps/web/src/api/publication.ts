@@ -117,3 +117,21 @@ export const compileNativeBuild = async (projectId: string, inputArtifactVersion
     headers: { "content-type": "application/json" },
     body: JSON.stringify(inputArtifactVersionId ? { inputArtifactVersionId } : {}),
   }));
+
+export type PublicationExportFormat = "portable" | "markdown" | "static" | "standalone" | "twee";
+export const publicationExportUrl = (projectId: string, format: PublicationExportFormat, inputArtifactVersionId?: string) =>
+  `${root(projectId)}/exports/${format}${inputArtifactVersionId ? `?inputArtifactVersionId=${encodeURIComponent(inputArtifactVersionId)}` : ""}`;
+
+async function portableRequest<T>(path: "preview" | "import", file: File): Promise<T> {
+  const data = new FormData(); data.append("file", file);
+  return json<T>(await fetch(`/api/portable-projects/${path}`, { method: "POST", body: data }));
+}
+export const previewPortableProject = (file: File) => portableRequest<{
+  manifest: { projectId: string; projectFingerprint: string; historyMode: string; counts: Record<string, number>; exclusions: string[] };
+  projectName: string; conflict: boolean;
+}>("preview", file);
+export const importPortableProject = (file: File) => portableRequest<{ projectId: string; projectFingerprint: string }>("import", file);
+export const inspectTweeCompatibility = async (projectId: string) => json<{
+  compatible: boolean; blockers: Array<{ code: string; message: string; path?: string }>;
+  warnings: Array<{ code: string; message: string }>; compatibilityFingerprint: string;
+}>(await fetch(`${root(projectId)}/twee-compatibility`));

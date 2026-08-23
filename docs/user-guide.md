@@ -112,7 +112,13 @@ The default rewind policy restores the previous validated runtime checkpoint. A 
 
 **Debug current build** is a separate, explicit launch. It exposes a bounded diagnostic summary without changing runtime behavior. Normal play cannot reveal that panel. Passage prose is rendered as text rather than executable HTML, and the responsive player retains keyboard-accessible choices, status announcements, dialogs, and focus movement after passage changes.
 
-Portable project bundles, static web packages, standalone HTML, Markdown publishing exports, and Twee/SugarCube interoperability remain Foundation 7C work. The structured project model and native browser player remain canonical; Hosted Games is not a target under its current policy excluding AI-generated work.
+### Portable and publishing exports
+
+The Publication workspace exports five bounded formats. **Portable project ZIP** (`cyoa.portable-project/v1`) is the re-importable authoring archive. It preserves stable project/game identity, immutable planning and artifact versions (including project-owned review evidence stored there), passage-plan structures/entities/snapshots, draft versions and heads, exact draft-generation/upstream/neighbor provenance, staleness and acceptance history, repair-application links, and player configuration. Its manifest explicitly excludes credentials, machine paths, browser saves, chat/source bodies, passage-planning jobs/candidates, and provider raw responses, so it is not represented as a whole-database backup.
+
+**Markdown** is a deterministic readable manuscript, not an import format. **Static web ZIP** packages relative-path player assets, the exact native bundle and exact player config for ordinary static hosting, including subdirectories. **Standalone HTML** embeds the same accepted player and exact inputs as inert base64 data and plays from `file://`; if IndexedDB is unavailable, it warns and continues with session-only saves. **Twee 3 + SugarCube ZIP** includes deterministic source and HTML compiled with the pinned real Tweego/SugarCube toolchain. SugarCube saves and native-player saves are intentionally separate.
+
+Portable import treats every archive as hostile. Preview is write-free. Confirmed import validates archive paths and size limits, file hashes, schema, relationships, lineage, and semantic fingerprint before one atomic SQLite transaction. Version 1 preserves the source project/game ID only when unused; an existing-ID collision is shown and rejected rather than overwriting content or silently changing save identity. These local exports and imports make no provider calls.
 
 ## Play and export the quick result
 

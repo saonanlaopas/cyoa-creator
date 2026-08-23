@@ -19,6 +19,8 @@
     "@story-to-cyoa/pipeline": "workspace:*",
     "@story-to-cyoa/persistence": "workspace:*",
     "@story-to-cyoa/runtime": "workspace:*",
+    "esbuild": "^0.25.8",
+    "fflate": "^0.8.2",
     "fastify": "^5.5.0"
   },
   "devDependencies": {

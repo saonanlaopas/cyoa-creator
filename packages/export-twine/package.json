@@ -19,6 +19,7 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@story-to-cyoa/domain": "workspace:*"
+    "@story-to-cyoa/domain": "workspace:*",
+    "@story-to-cyoa/runtime": "workspace:*"
   }
 }

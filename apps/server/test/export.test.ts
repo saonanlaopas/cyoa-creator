@@ -18,7 +18,7 @@ describe("export routes", () => {
     expect(twee.body).toContain(":: StoryData");
     const html = await app.inject({ method: "GET", url: `/api/projects/${project.id}/export/html` });
     expect(html.statusCode).toBe(200);
-    expect(html.body).toContain("<!doctype html>");
+    expect(html.body.toLowerCase()).toContain("<!doctype html>");
     await app.close();
     database.close();
   });

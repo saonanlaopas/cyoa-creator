@@ -73,6 +73,35 @@ const response = (value: unknown, status = 200) => new Response(JSON.stringify(v
 afterEach(() => { cleanup(); vi.restoreAllMocks(); window.location.hash = ""; });
 
 describe("PublicationWorkspace", () => {
+  it("offers separate bounded exports and a write-free portable import preview", async () => {
+    const requests: Array<{ url: string; method: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request); const method = init?.method ?? "GET"; requests.push({ url, method });
+      if (url.endsWith("/publication/readiness")) return response(readiness);
+      if (url.endsWith("/publication/builds")) return response({ items: [] });
+      if (url.endsWith("/publication/player-config")) return response(configWorkspace());
+      if (url.endsWith("/publication/twee-compatibility")) return response({ compatible: true, blockers: [], warnings: [], compatibilityFingerprint: "b".repeat(32) });
+      if (url.endsWith("/api/portable-projects/preview") && method === "POST") return response({
+        projectName: "Imported story", conflict: true,
+        manifest: { projectId: "project-native", projectFingerprint: "a".repeat(32), historyMode: "immutable-authoring-history-v1", counts: {}, exclusions: [] },
+      });
+      return response({ error: "Unexpected request" }, 404);
+    });
+    const user = userEvent.setup(); render(<PublicationWorkspace projectId="project-native" />);
+    expect(await screen.findByRole("link", { name: "Export portable" })).toHaveProperty("href", expect.stringContaining("/exports/portable"));
+    expect(screen.getByRole("link", { name: "Export static" })).toHaveProperty("href", expect.stringContaining("/exports/static"));
+    expect(screen.getByRole("link", { name: "Export standalone" })).toHaveProperty("href", expect.stringContaining("/exports/standalone"));
+    expect(screen.getByRole("link", { name: "Export Twee 3 + SugarCube" })).toHaveProperty("href", expect.stringContaining("/exports/twee"));
+    await user.click(screen.getByRole("button", { name: "Check SugarCube compatibility" }));
+    expect(await screen.findByText(new RegExp(`Compatible.*${"b".repeat(32)}`))).toBeTruthy();
+    const file = new File(["zip"], "story.cyoa-project.zip", { type: "application/zip" });
+    await user.upload(screen.getByLabelText("Portable project file"), file);
+    await user.click(screen.getByRole("button", { name: "Preview import" }));
+    expect(await screen.findByText(/Existing stable ID/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Import atomically" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(requests.filter((item) => item.url.endsWith("/api/portable-projects/import"))).toHaveLength(0);
+  });
+
   it("shows exact readiness and compiles provider-free immutable build metadata", async () => {
     const requests: Array<{ url: string; method: string }> = [];
     let compiled = false;

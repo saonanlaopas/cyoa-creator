@@ -1,7 +1,7 @@
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, NarrativeReviewRepository, openDatabase, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, ProjectRepository, RepairApplicationRepository, RepairPlanRepository, RepairProposalGenerationRepository, RepairProposalRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, NarrativeReviewRepository, openDatabase, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, PortableProjectRepository, ProjectRepository, RepairApplicationRepository, RepairPlanRepository, RepairProposalGenerationRepository, RepairProposalRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { JobRunner, type NarrativeReviewProvider, type PassageDraftingProvider, type PassagePlanningProvider, type RepairProposalProvider } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
@@ -58,6 +58,8 @@ import { RepairApplicationService } from "./services/repair-application-service.
 import { registerRepairApplicationRoutes } from "./routes/repair-applications.js";
 import { NativeCompilationService } from "./services/native-compilation-service.js";
 import { registerNativeCompilationRoutes } from "./routes/native-compilation.js";
+import { PublicationExportService } from "./services/publication-export-service.js";
+import { registerPublicationExportRoutes } from "./routes/publication-exports.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -111,6 +113,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const nativeCompilationService = new NativeCompilationService(
     projects, artifacts, workflow, passagePlans, passageDrafts,
   );
+  const publicationExportService = new PublicationExportService(new PortableProjectRepository(database), nativeCompilationService);
   const playtestService = new PlaytestService(projects, artifacts, simulationService);
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
     && process.env.E2E_FAKE_MODEL_PROVIDER === "1";
@@ -205,6 +208,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerPassageDraftingRoutes(app, passageDraftingService);
   registerSimulationRoutes(app, simulationService);
   registerNativeCompilationRoutes(app, nativeCompilationService);
+  registerPublicationExportRoutes(app, publicationExportService);
   registerPlaytestingRoutes(app, playtestService);
   registerNarrativeReviewRoutes(app, narrativeReviewService);
   registerRepairPlanningRoutes(app, repairPlanningService);

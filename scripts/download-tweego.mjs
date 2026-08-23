@@ -8,14 +8,14 @@ import { spawn } from "node:child_process";
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const manifest = JSON.parse(await readFile(resolve(scriptDirectory, "tweego-manifest.json"), "utf8"));
+const platformKey = `${process.platform}-${process.arch}`;
+const release = manifest.platforms[platformKey];
 const toolsDirectory = resolve(repositoryRoot, "tools");
 const targetDirectory = resolve(toolsDirectory, "tweego");
 const stagingDirectory = resolve(toolsDirectory, `.tweego-${process.pid}.tmp`);
 const archivePath = resolve(toolsDirectory, `.tweego-${process.pid}.zip`);
 
-if (process.platform !== "win32" || process.arch !== "x64") {
-  throw new Error("The pinned Tweego downloader currently supports Windows x64 only");
-}
+if (!release) throw new Error(`The pinned Tweego downloader does not support ${platformKey}`);
 if (existsSync(targetDirectory)) throw new Error(`Tweego already exists at ${targetDirectory}`);
 
 function run(command, args) {
@@ -36,12 +36,12 @@ function run(command, args) {
 
 await mkdir(toolsDirectory, { recursive: true });
 try {
-  const response = await fetch(manifest.url, { redirect: "follow" });
+  const response = await fetch(release.url, { redirect: "follow" });
   if (!response.ok) throw new Error(`Tweego download failed: HTTP ${response.status}`);
   const archive = Buffer.from(await response.arrayBuffer());
   const digest = createHash("sha256").update(archive).digest("hex");
-  if (digest !== manifest.sha256) {
-    throw new Error(`Tweego checksum mismatch: expected ${manifest.sha256}, received ${digest}`);
+  if (digest !== release.sha256) {
+    throw new Error(`Tweego checksum mismatch: expected ${release.sha256}, received ${digest}`);
   }
   await writeFile(archivePath, archive);
   const listing = await run("tar", ["-tf", archivePath]);
@@ -52,6 +52,7 @@ try {
   await mkdir(stagingDirectory);
   await run("tar", ["-xf", archivePath, "-C", stagingDirectory]);
   await rename(stagingDirectory, targetDirectory);
+  if (process.platform !== "win32") await run("chmod", ["755", resolve(targetDirectory, "tweego")]);
   console.log(`Tweego ${manifest.version} installed at ${targetDirectory}`);
 } finally {
   await rm(archivePath, { force: true });

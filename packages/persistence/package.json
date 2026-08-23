@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@story-to-cyoa/domain": "workspace:*",
+    "@story-to-cyoa/runtime": "workspace:*",
     "zod": "^3.25.76"
   }
 }

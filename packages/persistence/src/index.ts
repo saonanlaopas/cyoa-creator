@@ -20,3 +20,4 @@ export * from "./repair-plan-repository.js";
 export * from "./repair-proposal-repository.js";
 export * from "./repair-proposal-generation-repository.js";
 export * from "./repair-application-repository.js";
+export * from "./portable-project-repository.js";

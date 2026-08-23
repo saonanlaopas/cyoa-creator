@@ -11,6 +11,10 @@ import {
   loadNativePlayerConfig,
   loadPublicationReadiness,
   saveNativePlayerConfig,
+  publicationExportUrl,
+  previewPortableProject,
+  importPortableProject,
+  inspectTweeCompatibility,
   type NativeBuildSummary,
   type NativePlayerConfigWorkspace,
   type PublicationDiagnostic,
@@ -40,6 +44,9 @@ export function PublicationWorkspace({ projectId, playerStorage }: {
   const [configDraft, setConfigDraft] = useState<PlayerConfigDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [portableFile, setPortableFile] = useState<File | null>(null);
+  const [portablePreview, setPortablePreview] = useState<Awaited<ReturnType<typeof previewPortableProject>> | null>(null);
+  const [tweeCompatibility, setTweeCompatibility] = useState<Awaited<ReturnType<typeof inspectTweeCompatibility>> | null>(null);
 
   const refresh = async () => {
     const [nextReadiness, nextBuilds] = await Promise.all([
@@ -118,14 +125,14 @@ export function PublicationWorkspace({ projectId, playerStorage }: {
   };
 
   if (!readiness) return <section className="artifact-pane publication-workspace">
-    <header className="artifact-header"><div><p className="eyebrow">Foundation 7B</p><h1>Publication and play</h1></div></header>
+    <header className="artifact-header"><div><p className="eyebrow">Foundation 7C</p><h1>Publication and play</h1></div></header>
     <p role="status">{message ?? "Inspecting exact approved publication state…"}</p>
   </section>;
 
   return <section className="artifact-pane publication-workspace" aria-label="Native publication workspace">
     <header className="artifact-header">
       <div>
-        <p className="eyebrow">Foundation 7B</p>
+        <p className="eyebrow">Foundation 7C</p>
         <h1>Publication and play</h1>
         <p>Compile one exact approved project state, then install and play it locally in the browser.</p>
       </div>
@@ -134,6 +141,14 @@ export function PublicationWorkspace({ projectId, playerStorage }: {
         <button className="primary" disabled={busy || !readiness.ready} onClick={() => void launch(false)}>Play current build</button>
         <button disabled={busy || !readiness.ready} onClick={() => void launch(true)}>Debug current build</button>
       </div>
+      <button disabled={!readiness.ready || busy} onClick={() => void (async () => {
+        setBusy(true); setMessage(null); try { setTweeCompatibility(await inspectTweeCompatibility(projectId)); }
+        catch (error) { setMessage((error as Error).message); } finally { setBusy(false); }
+      })()}>Check SugarCube compatibility</button>
+      {tweeCompatibility && <p className={tweeCompatibility.compatible ? "status good" : "error"} role="status">
+        {tweeCompatibility.compatible ? `Compatible · ${tweeCompatibility.compatibilityFingerprint}`
+          : `${tweeCompatibility.blockers.length} compatibility blocker(s): ${tweeCompatibility.blockers.map((item) => `${item.code}: ${item.message}`).join("; ")}`}
+      </p>}
     </header>
 
     {message && <p className={message.includes("runtime-loaded") || message.includes("policy saved") ? "status good" : "error"} role="status">{message}</p>}
@@ -254,6 +269,44 @@ export function PublicationWorkspace({ projectId, playerStorage }: {
     <DiagnosticSection title="Blockers" items={readiness.blockers} empty="No hard publication blockers." />
     <DiagnosticSection title="Warnings" items={readiness.warnings} empty="No unacknowledged warnings." />
     <DiagnosticSection title="Acknowledged warnings" items={readiness.acknowledgedWarnings} empty="No acknowledged warnings." />
+
+    <section className="brief-section publication-exports" aria-label="Publication exports">
+      <h2>Exports</h2>
+      <p>Each publication captures the exact approved native bundle and current immutable player policy. Markdown is readable only; the portable project archive is the re-importable authoring format.</p>
+      <div className="artifact-actions">
+        {(["portable", "markdown", "static", "standalone", "twee"] as const).map((format) => <a
+          key={format} className="button" aria-disabled={!readiness.ready && format !== "portable"}
+          href={readiness.ready || format === "portable" ? publicationExportUrl(projectId, format) : undefined}
+          download
+        >Export {format === "twee" ? "Twee 3 + SugarCube" : format}</a>)}
+      </div>
+      <p><small>Static ZIPs run from any ordinary subdirectory. Standalone HTML is playable from <code>file://</code>; if IndexedDB is unavailable, play continues with session-only saves. SugarCube saves are separate from native-player saves.</small></p>
+    </section>
+
+    <section className="brief-section portable-import" aria-label="Portable project import">
+      <h2>Import portable authoring project</h2>
+      <p>Preview is write-free. Import is atomic, preserves the stable project/game ID, and rejects an existing-ID collision rather than overwriting it.</p>
+      <input aria-label="Portable project file" type="file" accept=".zip,.cyoa-project.zip" onChange={(event) => {
+        setPortableFile(event.target.files?.[0] ?? null); setPortablePreview(null);
+      }} />
+      <div className="artifact-actions">
+        <button disabled={!portableFile || busy} onClick={() => void (async () => {
+          if (!portableFile) return; setBusy(true); setMessage(null);
+          try { setPortablePreview(await previewPortableProject(portableFile)); } catch (error) { setMessage((error as Error).message); } finally { setBusy(false); }
+        })()}>Preview import</button>
+        <button className="primary" disabled={!portableFile || !portablePreview || portablePreview.conflict || busy} onClick={() => void (async () => {
+          if (!portableFile) return; setBusy(true); setMessage(null);
+          try { const result = await importPortableProject(portableFile); setMessage(`Imported portable project ${result.projectId}.`); }
+          catch (error) { setMessage((error as Error).message); } finally { setBusy(false); }
+        })()}>Import atomically</button>
+      </div>
+      {portablePreview && <dl className="simulation-metadata">
+        <div><dt>Project</dt><dd>{portablePreview.projectName} ({portablePreview.manifest.projectId})</dd></div>
+        <div><dt>Fingerprint</dt><dd>{portablePreview.manifest.projectFingerprint}</dd></div>
+        <div><dt>History</dt><dd>{portablePreview.manifest.historyMode}</dd></div>
+        <div><dt>Conflict</dt><dd>{portablePreview.conflict ? "Existing stable ID — import blocked" : "None"}</dd></div>
+      </dl>}
+    </section>
 
     <section className="brief-section publication-builds">
       <h2>Immutable build metadata</h2>
