@@ -28,9 +28,10 @@ Implementation checkpoints:
 - Foundation 5 is **CLOSED** at accepted head `949fe10e353c20ae05397a55d7c6e48a5fba732c`.
 - Foundation 6A is complete and externally accepted at `e8d1e9832dc90dcf6904af9448579e00e9e5a915`.
 - Foundation 6B is complete and externally accepted at `eb800c173640b231bf890d0a65e67bf6ed3f6c18`.
-- Foundation 6C is implementation-complete on `checkpoint/foundation-6c-repair-application`; external acceptance is pending.
+- Foundation 6C is complete and externally accepted at `e9826a397928decc7a259f6869fc0947213183ae`.
+- Foundation 6 is **CLOSED** at accepted head `e9826a397928decc7a259f6869fc0947213183ae`.
 
-The next objective is external review of Foundation 6C. Foundation 6 is not closed until that review passes.
+The next implementation objective is Foundation 7A: native compilation and the game-bundle contract.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 
@@ -470,6 +471,8 @@ Do not begin a checkpoint until the previous checkpoint has an externally accept
 
 ### Foundation 6: revision workflow
 
+**Implementation status:** **CLOSED** and externally accepted at `e9826a397928decc7a259f6869fc0947213183ae`.
+
 #### Goal
 
 Turn selected validation, simulation, playtest, and narrative-review findings into bounded reviewable repairs without regenerating unrelated work. Foundation 6, not Foundation 5, owns repair proposal creation and application.
@@ -531,7 +534,7 @@ Turn selected validation, simulation, playtest, and narrative-review findings in
 
 #### Checkpoint 6C: Review, application, and targeted revalidation
 
-**Implementation status:** Complete on `checkpoint/foundation-6c-repair-application`; external acceptance is pending.
+**Implementation status:** Complete and externally accepted at `e9826a397928decc7a259f6869fc0947213183ae`.
 
 **Purpose:** Review exact repair proposals, apply selected dependency-safe groups transactionally, then prove the repaired state with targeted deterministic verification. This checkpoint answers: **"Should these exact repairs be applied, and what became stale or newly valid after application?"**
 
@@ -584,30 +587,141 @@ Do not begin a checkpoint until the previous checkpoint has an externally accept
 
 Play and distribute the project without depending on Twine, ChoiceScript, or a hosted service.
 
-#### Work
+#### Shared principles
 
-1. Compile an approved project snapshot into a deterministic native game bundle.
-2. Implement a pure TypeScript state engine shared by preview, tests, and the player.
-3. Build a responsive, accessible browser player.
-4. Add autosave, manual save slots, restart, and configurable rewind.
-5. Add player-facing stat and relationship presentation.
-6. Add debug play mode with current state and route information.
-7. Export:
-   - canonical portable project bundle;
+1. Foundation 7 has one canonical runtime semantics. Compilation, preview, the native player, save restoration, static exports, standalone exports, and adapter conformance must not invent competing interpretations of choices, conditions, effects, mechanics, routes, or endings.
+2. Reuse and extend the accepted Foundation 5A pure TypeScript runtime. Foundation 7 must not create a second state engine in React, Fastify routes, export templates, or adapter-specific code.
+3. Every compilation starts from exact approved immutable input. It records exact snapshot, entity, upstream-artifact, accepted-draft, compiler-policy, and schema versions and does not fall back to mutable `latest` reads after compilation begins.
+4. Player-visible prose comes only from exact accepted, non-stale passage-draft versions with valid provenance. Candidate, rejected, stale, or drafting-note text never enters a playable build.
+5. Compiled games are independent of authoring SQLite databases, persistence repositories, Fastify APIs, React authoring state, and provider services.
+6. Game identity, source-input identity, compiled-bundle identity, runtime schema identity, and save compatibility are explicit rather than inferred from filenames or timestamps.
+7. Runtime bundles, saves, imported project bundles, and adapter inputs are untrusted data and receive strict schema, relationship, size, and compatibility validation before use.
+8. Gameplay and exported builds make no model-provider calls. No live or paid provider request is required for Foundation 7 engineering or acceptance.
+9. Static and offline exports truly run without the authoring server, Node.js, SQLite, API access, or network access.
+10. An export target must fail explicitly when it cannot preserve a required mechanic or semantic. It must not silently weaken conditions, effects, relationships, routes, endings, or state transitions.
+11. The canonical portable authoring-project bundle and the compiled native runtime bundle are different versioned contracts. One preserves authoring data for interchange; the other contains only what a player needs to run one exact approved game build.
+12. Semantic fingerprints exclude timestamps, machine paths, temporary locations, random values, and other non-semantic metadata.
+13. Stable IDs remain the identity backbone across compile, play, save, import, export, diagnostics, and conformance testing.
+14. Compile, play, save, import validation, and export must not mutate canonical authoring content.
+
+#### Checkpoint 7A: Native compilation and game-bundle contract
+
+**Purpose:** Convert one exact approved authoring state into a deterministic, immutable, player-ready native game bundle. This checkpoint answers: **"What exact game is ready to play, from which exact approved content?"** It establishes the compiler, readiness checks, identities, and runtime loading boundary; it does not build the finished browser player.
+
+1. Reuse the Foundation 5A runtime compiler and engine as the canonical condition, effect, mechanics, route, ending, and state semantics. Extend its input and compiled representation for player prose and bounded presentation metadata rather than introducing another interpreter.
+2. Capture one immutable compilation input containing:
+   - project and stable game identity;
+   - exact approved passage-plan snapshot and every referenced passage, choice, and thread version;
+   - exact approved brief, bible, route, ending, mechanics, relationship, fact, and other required upstream versions;
+   - exact accepted passage-draft version for every player-visible passage, including its lifecycle, lock state where relevant, provenance, and staleness state;
+   - exact compiler policy, runtime schema, and bundle schema versions.
+3. Once compilation begins, resolve all content from the captured immutable input. Do not substitute newly approved snapshots, current heads, restored artifacts, or newly accepted prose.
+4. Add deterministic publication-readiness validation. Hard blockers include an unapproved passage plan; missing or mismatched references or immutable versions; invalid mechanics, relationships, routes, endings, terminal state, or graph structure; unresolved Foundation 3 hard errors; missing accepted prose; stale accepted prose; invalid draft provenance; and constructs unsupported by the native runtime.
+5. Keep warnings distinct from blockers. A publishable warning may be acknowledged only explicitly with a stored rationale tied to the exact compilation input; acknowledgement never converts a hard invariant failure into a warning.
+6. Define a strict versioned native bundle containing only bounded player/runtime data:
+   - bundle, runtime, compiler, and schema identifiers;
+   - stable game/project identity, source-input fingerprint, and compiled-bundle fingerprint;
+   - start passage and validated initial runtime state;
+   - runtime passages with exact accepted prose and bounded presentation metadata;
+   - choices, typed conditions and effects, mechanics, stats, resources, relationships, facts, routes, endings, initial state, and terminal behavior;
+   - bounded debug and source-provenance metadata sufficient to identify authoring entities and exact source versions.
+7. Exclude provider credentials, API keys, raw reasoning, repair proposals, findings, simulation/playtest/review evidence, campaign traces, mutable authoring history, temporary paths, and authoring-only secrets from the compiled runtime bundle.
+8. Keep authoring and runtime models explicit. The compiled bundle and pure runtime loader must operate without SQLite, repositories, Fastify, React, filesystem paths, or network services.
+9. Define explicit identities:
+   - stable game/project ID identifies the continuing authored work;
+   - source-input fingerprint identifies the exact approved authoring versions selected for compilation;
+   - compiled-bundle fingerprint identifies the canonical semantic bundle;
+   - compiler, runtime, and schema versions define interpretation and compatibility.
+10. Require deterministic compilation: the same exact input and compiler policy produce canonically equivalent bytes/content and the same semantic fingerprint. Generated timestamps, export paths, temporary directories, and random values cannot affect semantic identity.
+11. Ensure player text is byte-for-byte the exact selected accepted prose, and compile player-facing choice labels/text from the exact passage-plan choice versions. Do not compile candidate text, stale text, drafting instructions, review notes, or fallback passage-plan summaries as prose.
+12. Bound optional debug metadata and make it separately suppressible from ordinary player presentation. Debug data cannot contain secrets or unbounded evidence payloads.
+13. Validate every emitted bundle before success: schema and size ceilings; unique stable IDs; all references; choice ownership and destinations; typed conditions/effects; mechanics and initial state; route and ending reachability obligations; terminal invariants; exact prose coverage; provenance; and supported runtime constructs. Load the emitted bundle through the pure runtime as part of compilation verification.
+14. Persist only immutable build identity/status/diagnostic metadata when authoring history benefits from it. Do not persist the full compiled bundle by default, and do not add a migration unless a durable invariant requires one.
+15. Provide a minimal authoring-side compile/readiness view showing the exact source identity, blockers, acknowledged warnings, deterministic bundle identity, passage/word totals, and validation diagnostics. This is not the finished game player.
+16. Test deterministic repeat compilation; immutable-input isolation from later authoring changes; changed accepted prose and changed mechanic/runtime content changing the bundle fingerprint; timestamps and machine paths not changing semantic identity; exact accepted-prose selection; rejection of missing, stale, candidate, or invalidly provenanced prose; invalid graph, relationship, and mechanics rejection; unsupported constructs; bounded malformed input; pure runtime loading without an authoring server or database; route and ending execution conformance with Foundation 5A; fingerprint stability; and zero canonical-authoring mutation.
+17. Compile the established approximately 300-passage large-project fixture within explicit time and memory bounds and verify complete passage/prose/reference coverage without requiring provider or network access.
+
+**Acceptance gate:** One exact approved project state compiles deterministically into a strictly validated native bundle with explicit game, source, bundle, compiler, runtime, and schema identities; every player-visible passage contains exact accepted non-stale prose; blocked projects cannot compile; the bundle loads and executes through the accepted pure runtime without authoring infrastructure; repeated compilation is semantically identical; the 300-passage fixture remains bounded; and compilation mutates no canonical authoring content.
+
+**Recommended engineering model:** Sol High.
+
+#### Checkpoint 7B: Browser player and runtime UX
+
+**Purpose:** Turn an accepted 7A native bundle into the primary accessible browser-playing experience. React renders state and sends player intent to the canonical runtime; it does not interpret game rules.
+
+1. Build the core player loop around the pure runtime: initialize a new game, render exact passage prose, list available choices, reject unavailable or forged choices, apply one atomic transition, show terminal/ending state, and continue until completion.
+2. Keep runtime authority outside React components. The UI requests evaluated choices and resulting state from the shared engine and never duplicates condition, effect, route, ending, stat, relationship, resource, flag, or fact semantics.
+3. Define a strict versioned save contract containing game/source/bundle/runtime/schema compatibility identity, validated runtime state, current passage, bounded navigation/checkpoint history, and optional non-semantic timestamps or labels.
+4. Define explicit save compatibility. Exact compatible builds load deterministically; incompatible game IDs, bundle identities, runtime/schema versions, missing content, malformed state, oversized history, and invalid references fail clearly without partially mutating the active session.
+5. Add bounded autosave, bounded named manual save slots, load, delete, overwrite confirmation where appropriate, and restart. Storage failures and quota limits remain visible and recoverable.
+6. Implement configurable rewind through deterministic runtime checkpoints, with project policy supporting disabled, previous step, bounded last-N steps, or designated checkpoints. Rewind restores validated state; it does not reverse arbitrary UI mutations or execute prose scripts.
+7. Present only author-designated visible stats, resources, and relationships. Hidden flags, facts, route gates, internal counters, and debug-only state remain hidden during ordinary play.
+8. Build responsive and accessible reading and choice UX with keyboard navigation, screen-reader labels and announcements, reliable focus after transitions and dialogs, readable typography, sufficient contrast, and reduced-motion support.
+9. Keep debug play mode explicitly separate from ordinary play. When enabled, it may show bounded current state, stable passage/choice IDs, route/ending eligibility, and transition diagnostics without changing runtime behavior.
+10. Treat imported native bundles and save data as untrusted. Sanitize/render prose through the approved safe text contract; permit no arbitrary HTML or JavaScript execution; validate size, schema, ownership, and all runtime relationships before entering play.
+11. Make no provider, authoring API, or network request during gameplay. The same accepted bundle and player assets must function offline.
+12. Test representative and adversarial paths, unavailable-choice rejection, atomic state transitions, endings and terminal-state saves, visible/hidden state, autosave/manual-slot load equivalence, compatibility failures, storage limits, restart, each rewind policy, malformed bundle/save rejection, safe prose rendering, accessibility-critical interactions, mobile viewport behavior, debug mode, authoring-server-free reload, and canonical runtime conformance.
+
+**Acceptance gate:** A player can complete representative routes in a responsive accessible browser UI using only the 7A bundle and canonical runtime; forged choices and malformed state are rejected; saves restore exactly or fail with a clear compatibility reason; autosave/manual save/restart/rewind obey bounded project policy; hidden state stays hidden; debug mode is isolated; and gameplay works offline without authoring services or provider calls.
+
+**Recommended engineering model:** Sol High.
+
+#### Checkpoint 7C: Portable and publishing exports
+
+**Purpose:** Package authored projects and accepted native games into explicit portable and publishing formats without semantic ambiguity. Each target declares what it preserves and fails visibly when it cannot preserve required behavior.
+
+1. Implement five explicit export products:
+   - canonical portable authoring-project bundle;
    - readable Markdown;
    - native static web build;
    - standalone offline HTML;
    - Twee 3 targeting SugarCube.
-8. Add export/import round-trip verification for the canonical bundle.
-9. Treat Ink as a later adapter if demanded by a concrete integration.
+2. Keep the canonical portable authoring bundle distinct from the 7A compiled runtime bundle. Its strict manifest records format/schema/version identity, stable project identity, canonical content and selected history mode, exact artifact/entity/draft versions, semantic fingerprints, checksums, and compatibility requirements.
+3. Make authoring-history inclusion deliberate: export current canonical state, full available history, or an explicitly defined intermediate mode. The UI and manifest must state the chosen preservation level and must not claim lossless history when versions, evidence, or operational records were intentionally omitted.
+4. Round-trip every field promised by the selected canonical-bundle mode using stable IDs and canonical semantic fingerprints rather than local SQLite row IDs, timestamps, or machine paths. Reject malformed, incompatible, duplicate, oversized, or internally inconsistent bundles before import and never overwrite an existing project implicitly.
+5. Treat Markdown as a readable archival/review representation, not automatically executable or lossless. Include project identity, structure, prose, choices, mechanics, routes, endings, and relevant visible metadata in deterministic order, and state any omitted authoring history explicitly.
+6. Build a native static package containing the accepted 7A bundle, accepted 7B player, local assets, and a versioned manifest. It must run from ordinary static hosting with no Node.js, Fastify, SQLite, authoring API, provider, or network dependency beyond fetching its own packaged files.
+7. Build a bounded standalone HTML export containing the player, bundle, and required local assets without a CDN or remote script. Enforce explicit size limits, preserve save behavior within documented browser restrictions, and direct authors to the static package when a project cannot fit safely.
+8. Define an explicit Twee 3/SugarCube mapping for passages and exact accepted prose, choices, conditions, effects, stats/resources, relationships, facts/flags, routes, endings, and terminal behavior. Generated SugarCube code is an adapter over the canonical runtime semantics, not a new informal rules engine.
+9. Reject any Twee export whose required construct cannot be represented with verified equivalent behavior. Do not silently omit, approximate, or weaken mechanics. Ink remains a possible later adapter only when a concrete integration justifies its contract and tests.
+10. Exercise a real offline Twee/SugarCube compile-and-test boundary. Compare representative deterministic paths, state transitions, route gates, and ending outcomes with the native runtime rather than checking text shape alone.
+11. Separate deterministic semantic artifacts from optional generated-at metadata. Repeated exports of the same exact source and policy produce identical semantic fingerprints and canonically equivalent content.
+12. Exclude API keys, credentials, machine paths, temporary files, SQLite journals/backups, raw provider reasoning, and other secrets. Defend import/extract paths against traversal, absolute paths, symlink surprises, and oversized/decompression-bomb content.
+13. Run all export products against the approximately 300-passage fixture with bounded memory, time, and artifact size. Verify every passage and required accepted draft is present exactly once unless the format explicitly requires another representation, and prevent accidental multiplication of full history across runtime/static/standalone outputs.
+14. Test canonical-project export/import round trips for every promised preservation mode; non-overwriting import; corrupted/incompatible manifest rejection; deterministic Markdown; static hosting with the authoring server stopped; standalone offline execution; native-runtime path conformance; Twee compilation and semantic path conformance; unsupported-mechanic rejection; security boundaries; and zero canonical-authoring mutation.
+
+**Acceptance gate:** The canonical authoring bundle round-trips every field promised by its declared mode without silent overwrite or semantic identity loss; Markdown is deterministic and honest about omissions; native static and bounded standalone builds play offline without authoring infrastructure; Twee compiles and matches representative native runtime behavior or fails explicitly for unsupported semantics; exports contain no secrets; the 300-passage fixture remains bounded; and no export mutates canonical authoring content.
+
+**Recommended engineering model:** Sol High or Terra High.
+
+#### Foundation 7 / Foundation 8 boundary
+
+Foundation 7 owns `approved authoring state -> deterministic compiled game -> native browser player -> save and rewind UX -> portable and publishing artifacts`.
+
+Foundation 8 remains responsible for scale, recovery, and authoring polish: backup reminders, verified restore UX, long-session ergonomics, measured large-list optimization, remaining large-project usability work, and operational hardening. Foundation 7 may enforce bounded compile/play/export safety, but it does not absorb Foundation 8's broader production-hardening program.
+
+#### Implementation sequence
+
+Implement and accept the checkpoints strictly sequentially:
+
+`7A -> commit/push/CI -> external review -> fixes if required -> accepted SHA`
+
+then `7B`, through the same commit/push/CI/review/fix/accepted-SHA gate,
+
+then `7C`, through the same gate.
+
+Do not begin a checkpoint until the previous checkpoint has an externally accepted SHA. Do not implement all of Foundation 7 in one checkpoint. Foundation 7 closes only after 7C passes external review.
 
 #### Acceptance gate
 
-- The same deterministic engine runs preview and exported native builds.
-- A native static build works without the authoring server.
-- Save data detects incompatible game builds and fails clearly.
-- Canonical project export round-trips without content loss.
-- Twee export compiles and passes representative route tests.
+- One exact approved immutable project state compiles into a deterministic, validated native game bundle using the accepted Foundation 5A runtime semantics.
+- Exact accepted non-stale prose is the only player-visible prose in compiled builds.
+- The accessible browser player, preview, saves, rewind, static build, and standalone build share one runtime interpretation and work without provider calls.
+- Save and bundle compatibility use explicit versioned identities and reject incompatible or malformed data clearly.
+- Canonical authoring-project export round-trips every field promised by its declared preservation mode without silent overwrite.
+- Native static and bounded standalone exports work offline without the authoring server.
+- Twee/SugarCube output compiles and passes representative semantic conformance paths, or fails explicitly when required semantics are unsupported.
+- Compilation, gameplay, import validation, and export do not mutate canonical authoring content.
 
 ### Foundation 8: scale, recovery, and authoring polish (formerly Production 5)
 
