@@ -75,7 +75,14 @@ async function seedLargePassagePlan(request: APIRequestContext, passageCount = 3
     condition: null,
     unavailableBehavior: "disabled",
     unavailableExplanation: "",
-    effects: [],
+    effects: index === 0 ? [{
+      id: "effect-first-choice",
+      mechanicKey: mechanics.mechanics.content.visibleStats[0].key,
+      operation: "add",
+      value: 1,
+      feedback: "The first choice changes visible state.",
+      visibility: "visible",
+    }] : [],
     sourceDecisionIds: [],
     position: 0,
   }));
@@ -995,6 +1002,9 @@ test("native publication compiles exact accepted prose deterministically and blo
   const projectId = await seedLargePassagePlan(request, 12);
   await approveCurrentPassagePlan(request, projectId);
   const plan = await acceptAllPassageProse(request, projectId);
+  const canonicalPlanBeforePlayer = await (await request.get(
+    `/api/long-form/projects/${projectId}/passage-plan`,
+  )).text();
   const browserRequests: string[] = [];
   page.on("request", (outgoing) => browserRequests.push(outgoing.url()));
   await page.addInitScript((id) => {
@@ -1023,6 +1033,92 @@ test("native publication compiles exact accepted prose deterministically and blo
   await expect(publication.getByRole("status")).toContainText(firstFingerprint!);
   await expect(publication.getByText(firstFingerprint!)).toHaveCount(3);
 
+  await publication.getByRole("button", { name: "Play current build" }).click();
+  await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
+  await expect(page.getByText("Exact browser publication prose for passage-000.")).toBeVisible();
+  await expect(page.getByText("Authorized debug state")).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Application mode" })).toHaveCount(0);
+  const visibleResolve = page.locator(".native-player-state dl > div").filter({ hasText: "Resolve" });
+  await expect(visibleResolve.locator("dd")).toHaveText("0");
+  const gameplayApiRequests = browserRequests.filter((url) => /\/api\//.test(url)).length;
+  await page.getByRole("button", { name: "Save game" }).click();
+  await page.getByLabel("Save name").fill("Opening checkpoint");
+  await page.getByRole("button", { name: "Create save" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
+  await expect(visibleResolve.locator("dd")).toHaveText("1");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("Autosave restored");
+  expect(browserRequests.filter((url) => /\/api\//.test(url)).length).toBe(gameplayApiRequests);
+  expect(await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).text())
+    .toBe(canonicalPlanBeforePlayer);
+
+  const firstDraftResponse = await request.get(`/api/long-form/projects/${projectId}/drafts/passages/${plan.passages[0].entityId}`);
+  await expect(firstDraftResponse).toBeOK();
+  const acceptedDraft = (await firstDraftResponse.json()).head.accepted;
+  const reviewedResponse = await request.post(
+    `/api/long-form/projects/${projectId}/drafts/passages/${plan.passages[0].entityId}/transition`,
+    { data: { versionId: acceptedDraft.id, status: "reviewed" } },
+  );
+  await expect(reviewedResponse).toBeOK();
+  const reviewed = (await reviewedResponse.json()).draft;
+  await expect(await request.post(
+    `/api/long-form/projects/${projectId}/drafts/passages/${plan.passages[0].entityId}/transition`,
+    { data: { versionId: reviewed.id, status: "locked" } },
+  )).toBeOK();
+
+  await page.goto("/#long-form");
+  await expect(publication.getByText("Ready to compile exact accepted prose.")).toBeVisible();
+  await publication.getByRole("button", { name: "Play current build" }).click();
+  await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("Autosave restored");
+  await page.getByRole("button", { name: "Rewind" }).click();
+  await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Load game" }).click();
+  await page.getByRole("button", { name: "Load", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Restart" }).click();
+  await page.getByRole("button", { name: "Restart game" }).click();
+  await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
+  for (let index = 0; index < 11; index += 1) await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Passage 11" })).toBeVisible();
+  await expect(page.getByText("This ending is complete.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Choices" })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Passage 11" })).toBeVisible();
+  await page.getByRole("button", { name: "Rewind" }).click();
+  await expect(page.getByRole("heading", { name: "Passage 10" })).toBeVisible();
+
+  await page.goto("/#long-form");
+  await publication.getByRole("button", { name: "Debug current build" }).click();
+  await expect(page.getByText("Authorized debug state")).toBeVisible();
+  await page.getByText("Authorized debug state").click();
+  await expect(page.locator(".native-player-debug pre")).toContainText("bundleFingerprint");
+  expect(await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).text())
+    .toBe(canonicalPlanBeforePlayer);
+
+  const replacementResponse = await request.put(
+    `/api/long-form/projects/${projectId}/drafts/passages/${plan.passages[1].entityId}`,
+    { data: { proseMarkdown: "Changed gameplay prose for incompatible-save coverage.", authorNote: "" } },
+  );
+  await expect(replacementResponse).toBeOK();
+  const replacement = (await replacementResponse.json()).draft;
+  await acceptExactCandidate(request, projectId, plan.passages[1].entityId, replacement.id);
+  await page.goto("/#long-form");
+  await publication.getByRole("button", { name: "Play current build" }).click();
+  await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
+  expect(page.url()).not.toContain(firstFingerprint!);
+  await page.getByRole("button", { name: "Load game" }).click();
+  await expect(page.getByText("Opening checkpoint")).toBeVisible();
+  await expect(page.getByText(/another gameplay build/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Load", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Close" }).click();
+
+  await page.goto("/#long-form");
+
   const firstPassage = plan.passages[0];
   const mutation = await request.put(
     `/api/long-form/projects/${projectId}/passage-plan/entities/passage/${firstPassage.entityId}`,
@@ -1035,4 +1131,38 @@ test("native publication compiles exact accepted prose deterministically and blo
   await expect(publication.getByRole("button", { name: "Compile native bundle" })).toBeDisabled();
   await expect(publication.getByText("historical source").first()).toBeVisible();
   expect(browserRequests.some((url) => /openrouter|provider/i.test(url))).toBe(false);
+});
+
+test("native browser player opens a 300-passage exact build without rendering the corpus", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const projectId = await seedLargePassagePlan(request, 300);
+  await approveCurrentPassagePlan(request, projectId);
+  await acceptAllPassageProse(request, projectId);
+  const canonicalBefore = await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).text();
+  const browserRequests: string[] = [];
+  page.on("request", (outgoing) => browserRequests.push(outgoing.url()));
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "publication");
+  }, projectId);
+  await page.goto("/#long-form");
+  const publication = page.getByLabel("Native publication workspace");
+  await expect(publication.getByText("300 / 300 passages")).toBeVisible();
+  await publication.getByRole("button", { name: "Play current build" }).click();
+  await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
+  const apiRequestsAfterBoot = browserRequests.filter((url) => /\/api\//.test(url)).length;
+  await expect(page.getByText("Exact browser publication prose for passage-000.")).toBeVisible();
+  await expect(page.getByText("Exact browser publication prose for passage-299.")).toHaveCount(0);
+  await expect(page.locator(".native-player-passage")).toHaveCount(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
+  await page.getByRole("button", { name: "Rewind" }).click();
+  await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
+  await expect(page.getByText(/route-main|decision-route-selection/)).toHaveCount(0);
+  expect(browserRequests.filter((url) => /\/api\//.test(url)).length).toBe(apiRequestsAfterBoot);
+  expect(await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).text()).toBe(canonicalBefore);
 });

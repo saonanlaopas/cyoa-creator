@@ -98,9 +98,19 @@ Choose **Apply exact preview** only after reviewing that fingerprint. The server
 
 Application history retains the selected groups, dependency closure, pre-apply and resulting version IDs, stale evidence, and finding disposition. Foundation 3 checks rerun deterministically. Relevant Foundation 5A paths are replayed with their original bounded path policy against the repaired effective state. Playtest campaigns remain immutable historical evidence and require a new bounded campaign when broader sampling is needed; qualitative narrative findings require a separate explicit re-review. A proposal can be applied successfully only once.
 
-## Planned long-form runtime and exports
+## Compile and play a long-form project
 
-Long-form projects will use the application's structured project model and native browser player as their canonical runtime. Twee 3 targeting SugarCube will be an interoperability export rather than the source of truth. Ink may be added later when a concrete integration requires it. Hosted Games is not a target under its current policy excluding AI-generated work.
+Open **Publication and play** after every passage has current accepted prose and the exact project state passes publication readiness. **Compile native bundle** records immutable build metadata. **Play current build** compiles and installs the exact current build in this browser, then opens the dedicated player. A historical build can be reopened from its build record; the application recompiles that build from its captured immutable input rather than substituting current authoring content.
+
+The native player runs the accepted Foundation 5A mechanics and choice semantics locally. Once play opens, choosing, autosaving, manually saving or loading, rewinding, restarting, reaching an ending, and reloading the page make no authoring API or model-provider requests. Ordinary play shows only the stats, relationships, and resources selected by the player configuration. Flags, facts, route gates, internal counters, authoring metadata, and debug state stay hidden.
+
+Autosaves and up to 20 named manual slots are stored in this browser's IndexedDB, not in project SQLite or OpenRouter. Clearing site data removes them. Manual saves remain available after restart and are listed even when a later gameplay bundle makes them incompatible; incompatible or malformed saves are identified and cannot partially replace the active session. Save compatibility is based on stable game identity, the semantic gameplay-bundle fingerprint, and runtime/bundle contracts. A source-provenance-only rebuild with the same gameplay fingerprint can therefore resume the existing save.
+
+The default rewind policy restores the previous validated runtime checkpoint. The versioned player configuration also supports disabled rewind, bounded last-N history, and designated passage checkpoints. Restart replaces the autosaved session with the exact initial state but does not delete manual saves. If an autosave fails because browser storage is unavailable or full, the successful gameplay transition remains visible and the player clearly warns that progress is not saved.
+
+**Debug current build** is a separate, explicit launch. It exposes a bounded diagnostic summary without changing runtime behavior. Normal play cannot reveal that panel. Passage prose is rendered as text rather than executable HTML, and the responsive player retains keyboard-accessible choices, status announcements, dialogs, and focus movement after passage changes.
+
+Portable project bundles, static web packages, standalone HTML, Markdown publishing exports, and Twee/SugarCube interoperability remain Foundation 7C work. The structured project model and native browser player remain canonical; Hosted Games is not a target under its current policy excluding AI-generated work.
 
 ## Play and export the quick result
 

@@ -1,3 +1,5 @@
+import type { NativeGameBundle, NativePlayerConfig } from "@story-to-cyoa/runtime";
+
 export interface PublicationDiagnostic {
   code: string;
   severity: "blocker" | "warning" | "info";
@@ -36,6 +38,7 @@ export interface NativeBuildSummary {
   current: boolean;
   content: {
     id: string;
+    compilationInputArtifactVersionId: string;
     sourceInputFingerprint: string;
     bundleFingerprint: string;
     runtimeFingerprint: string;
@@ -67,9 +70,9 @@ export const loadPublicationReadiness = async (projectId: string) =>
 export const listNativeBuilds = async (projectId: string) =>
   json<{ items: NativeBuildSummary[] }>(await fetch(`${root(projectId)}/builds`));
 
-export const compileNativeBuild = async (projectId: string) =>
-  json<{ build: NativeBuildSummary; bundle: { bundleFingerprint: string } }>(await fetch(`${root(projectId)}/compile`, {
+export const compileNativeBuild = async (projectId: string, inputArtifactVersionId?: string) =>
+  json<{ build: NativeBuildSummary; bundle: NativeGameBundle; playerConfig: NativePlayerConfig }>(await fetch(`${root(projectId)}/compile`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({}),
+    body: JSON.stringify(inputArtifactVersionId ? { inputArtifactVersionId } : {}),
   }));

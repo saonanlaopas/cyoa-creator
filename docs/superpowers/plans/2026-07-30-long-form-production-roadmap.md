@@ -30,8 +30,9 @@ Implementation checkpoints:
 - Foundation 6B is complete and externally accepted at `eb800c173640b231bf890d0a65e67bf6ed3f6c18`.
 - Foundation 6C is complete and externally accepted at `e9826a397928decc7a259f6869fc0947213183ae`.
 - Foundation 6 is **CLOSED** at accepted head `e9826a397928decc7a259f6869fc0947213183ae`.
+- Foundation 7A is complete and externally accepted at `51e01e0381f251c02d840f21d1aba2ee76b4f3cc`.
 
-The next implementation objective is Foundation 7A: native compilation and the game-bundle contract.
+The current implementation objective is Foundation 7B: browser player and runtime UX.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 
@@ -606,7 +607,7 @@ Play and distribute the project without depending on Twine, ChoiceScript, or a h
 
 #### Checkpoint 7A: Native compilation and game-bundle contract
 
-**Implementation status:** Checkpoint implementation candidate complete on `checkpoint/foundation-7a-native-compilation`; external review and an accepted SHA remain pending.
+**Implementation status:** **CLOSED** and externally accepted at `51e01e0381f251c02d840f21d1aba2ee76b4f3cc`.
 
 **Purpose:** Convert one exact approved authoring state into a deterministic, immutable, player-ready native game bundle. This checkpoint answers: **"What exact game is ready to play, from which exact approved content?"** It establishes the compiler, readiness checks, identities, and runtime loading boundary; it does not build the finished browser player.
 
@@ -648,6 +649,8 @@ Play and distribute the project without depending on Twine, ChoiceScript, or a h
 **Recommended engineering model:** Sol High.
 
 #### Checkpoint 7B: Browser player and runtime UX
+
+**Implementation status:** Checkpoint implementation candidate complete on `checkpoint/foundation-7b-browser-player-runtime-ux`; external review and an accepted SHA remain pending.
 
 **Purpose:** Turn an accepted 7A native bundle into the primary accessible browser-playing experience. React renders state and sends player intent to the canonical runtime; it does not interpret game rules.
 

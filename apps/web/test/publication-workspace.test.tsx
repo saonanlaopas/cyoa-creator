@@ -2,7 +2,9 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryNativePlayerStorage, createNativePlayerConfig } from "@story-to-cyoa/runtime";
 import { PublicationWorkspace } from "../src/features/workspace/PublicationWorkspace.js";
+import { playerConfigInput, playerFixture } from "../../../packages/runtime/test/native-player-fixture.js";
 
 const sourceFingerprint = "1".repeat(32);
 const bundleFingerprint = "2".repeat(32);
@@ -38,7 +40,8 @@ const build = {
   createdAt: "2026-08-23T00:00:00.000Z",
   current: true,
   content: {
-    id: "nativebuild-1", sourceInputFingerprint: sourceFingerprint, bundleFingerprint,
+    id: "nativebuild-1", compilationInputArtifactVersionId: "native-input-v1",
+    sourceInputFingerprint: sourceFingerprint, bundleFingerprint,
     runtimeFingerprint: "5".repeat(32), snapshotId: readiness.snapshotId,
     structureVersionId: readiness.structureVersionId, compilerVersion: "foundation-7a-v1",
     runtimeContractVersion: "foundation-5a-v1", bundleSchemaId: "cyoa.native-game-bundle",
@@ -53,7 +56,7 @@ const response = (value: unknown, status = 200) => new Response(JSON.stringify(v
   headers: { "content-type": "application/json" },
 });
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); window.location.hash = ""; });
 
 describe("PublicationWorkspace", () => {
   it("shows exact readiness and compiles provider-free immutable build metadata", async () => {
@@ -84,8 +87,7 @@ describe("PublicationWorkspace", () => {
 
     await user.click(screen.getByRole("button", { name: "Compile native bundle" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain(bundleFingerprint));
-    expect(screen.getByText("Build v1")).toBeTruthy();
-    expect(screen.getByText("current")).toBeTruthy();
+    expect(screen.getByText("Build v1").parentElement?.textContent).toContain("current");
     expect(screen.getByText("Loaded at passage-start")).toBeTruthy();
     expect(requests.filter((item) => item.url.endsWith("/publication/compile"))).toEqual([
       expect.objectContaining({ method: "POST" }),
@@ -115,8 +117,34 @@ describe("PublicationWorkspace", () => {
     await waitFor(() => expect(screen.getByText("1 publication blocker.")).toBeTruthy());
     expect(screen.getByText("Accepted prose is stale.")).toBeTruthy();
     expect(screen.getByText("Unavailable until blockers are resolved")).toBeTruthy();
-    expect(screen.getByText("historical source")).toBeTruthy();
+    expect(screen.getByText(/historical source/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Compile native bundle" }) as HTMLButtonElement).disabled).toBe(true);
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("installs an exact build locally and navigates to normal or authorized debug play", async () => {
+    const bundle = playerFixture(3);
+    const playerConfig = createNativePlayerConfig(playerConfigInput(bundle), bundle);
+    const storage = new MemoryNativePlayerStorage();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request);
+      if (url.endsWith("/publication/readiness")) return response(readiness);
+      if (url.endsWith("/publication/builds")) return response({ items: [] });
+      if (url.endsWith("/publication/compile") && init?.method === "POST") {
+        return response({ build, bundle, playerConfig }, 201);
+      }
+      return response({ error: "Unexpected request" }, 404);
+    });
+
+    const user = userEvent.setup();
+    render(<PublicationWorkspace projectId="project-native" playerStorage={storage} />);
+    await user.click(await screen.findByRole("button", { name: "Play current build" }));
+    await waitFor(() => expect(window.location.hash).toContain(`#player/${bundle.gameId}/${bundle.bundleFingerprint}`));
+    expect(await storage.readInstallation(bundle.gameId, bundle.bundleFingerprint)).toMatchObject({ debugAuthorized: false });
+
+    window.location.hash = "";
+    await user.click(screen.getByRole("button", { name: "Debug current build" }));
+    await waitFor(() => expect(window.location.hash).toContain("/debug"));
+    expect(await storage.readInstallation(bundle.gameId, bundle.bundleFingerprint)).toMatchObject({ debugAuthorized: true });
   });
 });

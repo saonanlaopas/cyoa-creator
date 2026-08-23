@@ -285,6 +285,19 @@ describe("Foundation 7A native compilation API", () => {
       method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
     }))).json();
     expect(second.bundle).toEqual(first.bundle);
+    expect(second.playerConfig).toEqual(first.playerConfig);
+    expect(first.playerConfig).toMatchObject({
+      gameId: first.bundle.gameId,
+      autosaveEnabled: true,
+      manualSlotLimit: 20,
+      rewindPolicy: { kind: "previous-step" },
+    });
+    expect(first.playerConfig.visibleMechanics).toEqual(expect.arrayContaining(
+      fixture.artifacts.mechanics.content.visibleStats.map((item: { key: string; label: string }) => ({
+        key: item.key, category: "stat", label: item.label,
+      })),
+    ));
+    expect(first.playerConfig.visibleMechanics.every((item: { category: string }) => item.category === "stat")).toBe(true);
     expect(second.bundle.bundleFingerprint).toBe(first.bundle.bundleFingerprint);
     expect(second.bundle.source.inputFingerprint).toBe(first.bundle.source.inputFingerprint);
     const firstPassageId = fixture.plan.structure.content.startPassageId as string;
@@ -325,6 +338,7 @@ describe("Foundation 7A native compilation API", () => {
       method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
     }))).json();
     expect(afterLock.bundle.bundleFingerprint).toBe(first.bundle.bundleFingerprint);
+    expect(afterLock.playerConfig.configFingerprint).toBe(first.playerConfig.configFingerprint);
     expect(afterLock.bundle.source.inputFingerprint).not.toBe(first.bundle.source.inputFingerprint);
     expect(afterLock.bundle.passages.find((item: { id: string }) => item.id === firstPassageId).proseMarkdown)
       .toBe(fixture.proseByPassage.get(firstPassageId));

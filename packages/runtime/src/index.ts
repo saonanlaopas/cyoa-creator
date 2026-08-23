@@ -7,3 +7,4 @@ export * from "./prng.js";
 export * from "./playtest-types.js";
 export * from "./playtest.js";
 export * from "./native-bundle.js";
+export * from "./player.js";

@@ -52,12 +52,14 @@ import {
   NATIVE_GAME_BUNDLE_SCHEMA_VERSION,
   NATIVE_RUNTIME_CONTRACT_VERSION,
   currentNativePassage,
+  createNativePlayerConfig,
   initializeNativeGame,
   listNativeGameChoices,
   loadNativeGame,
   serializedBytes,
   stableFingerprint,
   type NativeGameBundle,
+  type NativePlayerConfig,
 } from "@story-to-cyoa/runtime";
 
 export const NATIVE_COMPILATION_INPUT_ARTIFACT_ID = "native-compilation-inputs";
@@ -179,6 +181,7 @@ export class NativeCompilationService {
     input: ArtifactVersion<NativeCompilationInput>;
     build: ArtifactVersion<NativeBuildRecord>;
     bundle: NativeGameBundle;
+    playerConfig: NativePlayerConfig;
   } {
     this.requireProject(projectId);
     const inputVersion = inputArtifactVersionId
@@ -186,6 +189,21 @@ export class NativeCompilationService {
       : this.captureInput(projectId);
     const resolved = this.resolveStoredInput(projectId, inputVersion.content);
     const bundle = compileNativeGame(resolved);
+    const mechanics = resolved.upstreamArtifacts.find((item) => item.artifactId === "mechanics")
+      ?.content as LongFormMechanicsPlan | undefined;
+    if (!mechanics) throw new NativeCompilationServiceError(
+      "native_input_mechanics_missing",
+      "Native compilation input has no exact mechanics artifact",
+    );
+    const playerConfig = createNativePlayerConfig({
+      gameId: bundle.gameId,
+      rewindPolicy: { kind: "previous-step" },
+      autosaveEnabled: true,
+      manualSlotLimit: 20,
+      visibleMechanics: [
+        ...mechanics.visibleStats.map((item) => ({ key: item.key, category: "stat" as const, label: item.label })),
+      ],
+    }, bundle);
     const loaded = loadNativeGame(bundle);
     const initialState = initializeNativeGame(loaded);
     const passage = currentNativePassage(loaded, initialState);
@@ -229,7 +247,7 @@ export class NativeCompilationService {
       schemaVersion: 1,
       content: buildContent,
     });
-    return { input: inputVersion, build, bundle };
+    return { input: inputVersion, build, bundle, playerConfig };
   }
 
   listBuilds(projectId: string): Array<ArtifactVersion<NativeBuildRecord> & { current: boolean }> {

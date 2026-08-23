@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createNativePlayerInstallation, type NativePlayerStorage } from "@story-to-cyoa/runtime";
 import {
   compileNativeBuild,
   listNativeBuilds,
@@ -7,8 +8,14 @@ import {
   type PublicationDiagnostic,
   type PublicationReadiness,
 } from "../../api/publication.js";
+import { IndexedDbNativePlayerStorage } from "../player/native-player-storage.js";
+import { nativePlayerHash } from "../player/player-route.js";
 
-export function PublicationWorkspace({ projectId }: { projectId: string }) {
+export function PublicationWorkspace({ projectId, playerStorage }: {
+  projectId: string;
+  playerStorage?: NativePlayerStorage;
+}) {
+  const [storage] = useState<NativePlayerStorage>(() => playerStorage ?? new IndexedDbNativePlayerStorage());
   const [readiness, setReadiness] = useState<PublicationReadiness | null>(null);
   const [builds, setBuilds] = useState<NativeBuildSummary[]>([]);
   const [busy, setBusy] = useState(false);
@@ -42,19 +49,38 @@ export function PublicationWorkspace({ projectId }: { projectId: string }) {
     }
   };
 
+  const launch = async (debug: boolean, inputArtifactVersionId?: string) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await compileNativeBuild(projectId, inputArtifactVersionId);
+      const installation = createNativePlayerInstallation(result.bundle, result.playerConfig, debug);
+      await storage.install(installation);
+      setBusy(false);
+      window.location.hash = nativePlayerHash(installation.gameId, installation.bundleFingerprint, debug);
+    } catch (error) {
+      setMessage((error as Error).message);
+      setBusy(false);
+    }
+  };
+
   if (!readiness) return <section className="artifact-pane publication-workspace">
-    <header className="artifact-header"><div><p className="eyebrow">Foundation 7A</p><h1>Publication readiness</h1></div></header>
+    <header className="artifact-header"><div><p className="eyebrow">Foundation 7B</p><h1>Publication and play</h1></div></header>
     <p role="status">{message ?? "Inspecting exact approved publication state…"}</p>
   </section>;
 
   return <section className="artifact-pane publication-workspace" aria-label="Native publication workspace">
     <header className="artifact-header">
       <div>
-        <p className="eyebrow">Foundation 7A</p>
-        <h1>Publication readiness</h1>
-        <p>Compile one exact approved project state into a deterministic native bundle. This is compiler diagnostics, not the finished player.</p>
+        <p className="eyebrow">Foundation 7B</p>
+        <h1>Publication and play</h1>
+        <p>Compile one exact approved project state, then install and play it locally in the browser.</p>
       </div>
-      <button className="primary" disabled={busy || !readiness.ready} onClick={() => void compile()}>Compile native bundle</button>
+      <div className="artifact-actions">
+        <button disabled={busy || !readiness.ready} onClick={() => void compile()}>Compile native bundle</button>
+        <button className="primary" disabled={busy || !readiness.ready} onClick={() => void launch(false)}>Play current build</button>
+        <button disabled={busy || !readiness.ready} onClick={() => void launch(true)}>Debug current build</button>
+      </div>
     </header>
 
     {message && <p className={message.includes("runtime-loaded") ? "status good" : "error"} role="status">{message}</p>}
@@ -84,7 +110,13 @@ export function PublicationWorkspace({ projectId }: { projectId: string }) {
       <h2>Immutable build metadata</h2>
       <p>Compiled bundle bodies are returned on demand and are not stored in SQLite. These records retain exact source and bundle identities.</p>
       {builds.length === 0 ? <p>No native builds yet.</p> : builds.map((build) => <article key={build.id}>
-        <header><strong>Build v{build.version}</strong><span>{build.current ? "current" : "historical source"}</span></header>
+        <header>
+          <span><strong>Build v{build.version}</strong> · {build.current ? "current" : "historical source"}</span>
+          <span className="artifact-actions">
+            <button disabled={busy} onClick={() => void launch(false, build.content.compilationInputArtifactVersionId)}>Play</button>
+            <button disabled={busy} onClick={() => void launch(true, build.content.compilationInputArtifactVersionId)}>Debug</button>
+          </span>
+        </header>
         <dl className="simulation-metadata">
           <div><dt>Bundle fingerprint</dt><dd>{build.content.bundleFingerprint}</dd></div>
           <div><dt>Source fingerprint</dt><dd>{build.content.sourceInputFingerprint}</dd></div>

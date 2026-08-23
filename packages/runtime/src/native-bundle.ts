@@ -121,7 +121,7 @@ const EndingSchema = z.object({
   gateConditions: z.array(RuntimeConditionSchema).max(100),
 }).strict();
 
-const RuntimeStateSchema = z.object({
+export const NativeRuntimeStateSchema = z.object({
   currentPassageId: StableId,
   stats: z.record(z.number().finite()),
   relationships: z.record(z.number().finite()),
@@ -156,7 +156,7 @@ export const NativeGameBundleSchema = z.object({
     version: z.literal(NATIVE_RUNTIME_CONTRACT_VERSION),
   }).strict(),
   startPassageId: StableId,
-  initialState: RuntimeStateSchema,
+  initialState: NativeRuntimeStateSchema,
   mechanics: z.array(MechanicSchema).max(NATIVE_BUNDLE_LIMITS.maximumMechanics),
   passages: z.array(PassageSchema).max(NATIVE_BUNDLE_LIMITS.maximumPassages),
   choices: z.array(ChoiceSchema).max(NATIVE_BUNDLE_LIMITS.maximumChoices),
