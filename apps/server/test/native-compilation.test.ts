@@ -12,7 +12,13 @@ import {
 import { buildApp } from "../src/app.js";
 
 const apps: ReturnType<typeof buildApp>[] = [];
-afterEach(async () => { for (const app of apps.splice(0)) await app.close(); });
+const temporaryDirectories: string[] = [];
+afterEach(async () => {
+  for (const app of apps.splice(0)) await app.close();
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
 
 interface SeedOptions {
   databasePath?: string;
@@ -191,6 +197,58 @@ async function ok(responsePromise: ReturnType<ReturnType<typeof buildApp>["injec
   return response;
 }
 
+function temporaryDatabasePath(label: string): string {
+  const directory = mkdtempSync(join(tmpdir(), `cyoa-native-${label}-`));
+  temporaryDirectories.push(directory);
+  return join(directory, "story.sqlite");
+}
+
+function mutateArtifact(
+  databasePath: string,
+  versionId: string,
+  mutate: (content: Record<string, any>) => void,
+): void {
+  const database = openDatabase(databasePath);
+  try {
+    const row = database.prepare("SELECT content_json FROM artifact_versions WHERE id = ?").get(versionId) as {
+      content_json: string;
+    };
+    const content = JSON.parse(row.content_json) as Record<string, any>;
+    mutate(content);
+    database.prepare("UPDATE artifact_versions SET content_json = ? WHERE id = ?")
+      .run(JSON.stringify(content), versionId);
+  } finally {
+    database.close();
+  }
+}
+
+async function expectPlanningBlocker(
+  artifactId: "routes" | "endings" | "mechanics",
+  expectedCodes: string[],
+  mutate: (content: Record<string, any>) => void,
+) {
+  const databasePath = temporaryDatabasePath(artifactId);
+  const fixture = await seedApprovedProject({ databasePath });
+  mutateArtifact(databasePath, fixture.artifacts[artifactId].id, mutate);
+  const first = (await ok(fixture.app.inject({
+    method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/readiness`,
+  }))).json();
+  const second = (await ok(fixture.app.inject({
+    method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/readiness`,
+  }))).json();
+  expect(first.ready).toBe(false);
+  for (const code of expectedCodes) expect(first.blockers.map((item: { code: string }) => item.code)).toContain(code);
+  expect(second.blockers).toEqual(first.blockers);
+  expect(second.blockers.map((item: { fingerprint: string }) => item.fingerprint))
+    .toEqual(first.blockers.map((item: { fingerprint: string }) => item.fingerprint));
+  expect((await fixture.app.inject({
+    method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
+  })).statusCode).toBe(409);
+  expect((await ok(fixture.app.inject({
+    method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/builds`,
+  }))).json().items).toEqual([]);
+}
+
 describe("Foundation 7A native compilation API", () => {
   it("reports exact readiness, compiles deterministically, excludes candidates and author-only data, and preserves lifecycle-equivalent prose", async () => {
     const fixture = await seedApprovedProject();
@@ -209,6 +267,16 @@ describe("Foundation 7A native compilation API", () => {
       runtimeContract: { version: "foundation-5a-v1" },
       bundleContract: { schemaId: "cyoa.native-game-bundle", schemaVersion: 1 },
     });
+    expect(readiness.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "publication.planning.ending.readiness.placeholder",
+        severity: "warning",
+        acknowledged: false,
+      }),
+    ]));
+    expect(readiness.blockers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "publication.planning.ending.readiness.placeholder" }),
+    ]));
 
     const first = (await ok(fixture.app.inject({
       method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
@@ -423,6 +491,53 @@ describe("Foundation 7A native compilation API", () => {
       method: "POST", url: `/api/long-form/projects/${stale.projectId}/publication/compile`, payload: {},
     })).statusCode).toBe(409);
   });
+
+  it("blocks canonical route relationship and hook-ownership planning errors deterministically", async () => {
+    await expectPlanningBlocker("routes", ["publication.planning.route.relationship.unknown"], (routes) => {
+      routes.routes[0].relationshipArcs.push({
+        relationshipId: "relationship-missing",
+        trajectory: "Unknown relationship arc",
+        keyMoments: [],
+      });
+    });
+    await expectPlanningBlocker("routes", ["publication.planning.route.hook.owner-mismatch"], (routes) => {
+      const foreignHook = routes.endingHooks.find((hook: { routeId: string }) => hook.routeId !== routes.routes[0].id);
+      routes.routes[0].endingHookIds.push(foreignHook.id);
+    });
+  }, 15_000);
+
+  it("blocks canonical ending character and relationship planning errors", async () => {
+    await expectPlanningBlocker("endings", [
+      "publication.planning.ending.character.unknown",
+      "publication.planning.ending.relationship.unknown",
+    ], (endings) => {
+      endings.endings[0].characterOutcomes.push({
+        characterId: "character-missing", outcome: "Unknown",
+      });
+      endings.endings[0].relationshipOutcomes.push({
+        relationshipId: "relationship-missing", outcome: "Unknown",
+      });
+    });
+  }, 15_000);
+
+  it("blocks canonical mechanic relationship and gate-reference planning errors", async () => {
+    await expectPlanningBlocker("mechanics", [
+      "publication.planning.mechanic.relationship.unknown",
+      "publication.planning.mechanic.gate.target-unknown",
+    ], (mechanics) => {
+      mechanics.relationships.push({
+        id: "mechanic-relationship-missing", relationshipId: "relationship-missing",
+        key: "relationship_missing", label: "Missing relationship", description: "",
+        minimum: -5, maximum: 10, initial: 0, increaseSignals: [], decreaseSignals: [],
+        bands: [{ id: "missing-neutral", minimum: 0, label: "Neutral", meaning: "" }],
+      });
+      mechanics.gates.push({
+        id: "gate-missing-route", targetType: "route", targetId: "route-missing", logic: "all",
+        conditions: [{ id: "condition-resolve", mechanicKey: "resolve", operator: "at-least", value: 1 }],
+        rationale: "", fallback: "",
+      });
+    });
+  }, 15_000);
 
   it("rejects corrupted persisted exact draft provenance before a bundle or build can exist", async () => {
     const directory = mkdtempSync(join(tmpdir(), "cyoa-native-corrupt-"));

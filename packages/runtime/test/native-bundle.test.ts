@@ -36,14 +36,22 @@ function fixture(): NativeGameBundle {
   }];
   const choices: NativeGameBundle["choices"] = [{
     id: "choice-finish", sourcePassageId: "passage-start", destinationPassageId: "passage-end",
-    text: "Finish", condition: null, routeGateConditions: [], unavailableBehavior: "disabled",
+    text: "Finish",
+    condition: { kind: "visit-count", passageId: "passage-start", operator: "gte", value: 1 },
+    routeGateConditions: [{ kind: "not", item: {
+      kind: "visit-count", passageId: "passage-end", operator: "gte", value: 1,
+    } }],
+    unavailableBehavior: "disabled",
     unavailableExplanation: "", effects: [{
       id: "effect-resolve", mechanicKey: "resolve", operation: "add", value: 1,
       feedback: "Resolve rises.", visibility: "visible",
     }], sourceDecisionIds: ["decision-main"], position: 0,
     source: { choiceVersionId: "choice-version-1" },
   }];
-  const endings = [{ id: "ending-main", routeId: "route-main", gateConditions: [] }];
+  const endings = [{
+    id: "ending-main", routeId: "route-main",
+    gateConditions: [{ kind: "visit-count" as const, passageId: "passage-end", operator: "gte" as const, value: 1 }],
+  }];
   const runtime: CompiledRuntime = {
     schemaVersion: 1,
     simulationPolicyVersion: NATIVE_RUNTIME_CONTRACT_VERSION,
@@ -100,6 +108,35 @@ function fixture(): NativeGameBundle {
   return bundle;
 }
 
+function refreshFingerprints(bundle: NativeGameBundle): NativeGameBundle {
+  const runtime: CompiledRuntime = {
+    schemaVersion: 1,
+    simulationPolicyVersion: NATIVE_RUNTIME_CONTRACT_VERSION,
+    sourceSnapshotId: bundle.source.snapshotId,
+    sourceStructureVersionId: bundle.source.structureVersionId,
+    fingerprint: "0".repeat(32),
+    startPassageId: bundle.startPassageId,
+    mechanics: Object.fromEntries(bundle.mechanics.map((item) => [item.key, item])),
+    passages: Object.fromEntries(bundle.passages.map((item) => [item.id, {
+      id: item.id, choiceIds: item.choiceIds, terminal: item.terminal, endingId: item.endingId,
+      routeIds: item.routeIds, requiredFactIds: item.requiredFactIds, revealedFactIds: item.revealedFactIds,
+    }])),
+    choices: Object.fromEntries(bundle.choices.map((item) => [item.id, {
+      id: item.id, sourcePassageId: item.sourcePassageId, destinationPassageId: item.destinationPassageId,
+      condition: item.condition, routeGateConditions: item.routeGateConditions,
+      unavailableBehavior: item.unavailableBehavior, unavailableExplanation: item.unavailableExplanation,
+      effects: item.effects, sourceDecisionIds: item.sourceDecisionIds, position: item.position,
+    }])),
+    endings: Object.fromEntries(bundle.endings.map((item) => [item.id, item])),
+    routeIds: bundle.routeIds,
+    decisionIds: bundle.decisionIds,
+  };
+  runtime.fingerprint = compiledRuntimeFingerprint(runtime);
+  bundle.runtimeFingerprint = runtime.fingerprint;
+  bundle.bundleFingerprint = nativeBundleFingerprint(bundle);
+  return bundle;
+}
+
 describe("native game bundle", () => {
   it("loads and plays through only the Foundation 5A runtime dependency boundary", () => {
     const game = loadNativeGame(fixture());
@@ -128,6 +165,40 @@ describe("native game bundle", () => {
     reordered.debug = { upstreamVersions: { mechanics: "mechanics-v2" }, threadVersionIds: ["thread-v2"] };
     expect(nativeBundleFingerprint(reordered)).toBe(first.bundleFingerprint);
     expect(loadNativeGame(first).bundle.bundleFingerprint).toBe(loadNativeGame(structuredClone(first)).bundle.bundleFingerprint);
+  });
+
+  it("loads valid visit-count references from choices, route gates, and ending gates", () => {
+    const game = loadNativeGame(fixture());
+    expect(game.bundle.choices[0]!.condition).toMatchObject({ passageId: "passage-start" });
+    expect(game.bundle.choices[0]!.routeGateConditions[0]).toMatchObject({ kind: "not" });
+    expect(game.bundle.endings[0]!.gateConditions[0]).toMatchObject({ passageId: "passage-end" });
+  });
+
+  it("rejects a missing passage referenced directly by an ending gate after fingerprints are recomputed", () => {
+    const tampered = fixture();
+    tampered.endings[0]!.gateConditions = [{
+      kind: "visit-count", passageId: "missing", operator: "gte", value: 1,
+    }];
+    refreshFingerprints(tampered);
+    expect(() => loadNativeGame(tampered)).toThrow("Ending ending-main gate references unknown passage missing");
+  });
+
+  it("rejects a missing passage nested under all, any, and not in an ending gate", () => {
+    const tampered = fixture();
+    tampered.endings[0]!.gateConditions = [{
+      kind: "all",
+      items: [{
+        kind: "any",
+        items: [{
+          kind: "not",
+          item: { kind: "visit-count", passageId: "missing-nested", operator: "eq", value: 0 },
+        }],
+      }],
+    }];
+    refreshFingerprints(tampered);
+    expect(() => loadNativeGame(tampered)).toThrow(
+      "Ending ending-main gate references unknown passage missing-nested",
+    );
   });
 
   it.each([

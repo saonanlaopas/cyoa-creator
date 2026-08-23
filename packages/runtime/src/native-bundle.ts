@@ -270,14 +270,24 @@ function runtimeFromBundle(bundle: NativeGameBundle): CompiledRuntime {
   };
 }
 
-function visitPassageReferences(condition: RuntimeCondition | null, target: string[] = []): string[] {
-  if (!condition) return target;
-  if (condition.kind === "visit-count") target.push(condition.passageId);
-  else if (condition.kind === "not") visitPassageReferences(condition.item, target);
-  else if (condition.kind === "all" || condition.kind === "any") {
-    condition.items.forEach((item) => visitPassageReferences(item, target));
+function validateConditionPassageReferences(
+  condition: RuntimeCondition | null,
+  passageIds: ReadonlySet<string>,
+  add: (finding: NativeBundleFinding) => void,
+  finding: (passageId: string) => NativeBundleFinding,
+): void {
+  if (!condition) return;
+  if (condition.kind === "visit-count") {
+    if (!passageIds.has(condition.passageId)) add(finding(condition.passageId));
+    return;
   }
-  return target;
+  if (condition.kind === "not") {
+    validateConditionPassageReferences(condition.item, passageIds, add, finding);
+    return;
+  }
+  if (condition.kind === "all" || condition.kind === "any") {
+    condition.items.forEach((item) => validateConditionPassageReferences(item, passageIds, add, finding));
+  }
 }
 
 export function validateNativeGameBundle(value: unknown): NativeGameBundle {
@@ -377,13 +387,17 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
     for (const condition of choice.routeGateConditions) {
       if (!conditionCompatible(condition, mechanics)) add({ code: "native.bundle.route-gate-invalid", message: `Choice ${choice.id} route gate is invalid`, choiceId: choice.id });
     }
-    for (const passageId of visitPassageReferences(choice.condition)) {
-      if (!passageIds.has(passageId)) add({ code: "native.bundle.visit-reference-missing", message: `Choice ${choice.id} references unknown passage ${passageId}`, choiceId: choice.id });
-    }
+    validateConditionPassageReferences(choice.condition, passageIds, add, (passageId) => ({
+      code: "native.bundle.visit-reference-missing",
+      message: `Choice ${choice.id} references unknown passage ${passageId}`,
+      choiceId: choice.id,
+    }));
     for (const condition of choice.routeGateConditions) {
-      for (const passageId of visitPassageReferences(condition)) if (!passageIds.has(passageId)) add({
-        code: "native.bundle.visit-reference-missing", message: `Choice ${choice.id} gate references unknown passage ${passageId}`, choiceId: choice.id,
-      });
+      validateConditionPassageReferences(condition, passageIds, add, (passageId) => ({
+        code: "native.bundle.visit-reference-missing",
+        message: `Choice ${choice.id} gate references unknown passage ${passageId}`,
+        choiceId: choice.id,
+      }));
     }
     for (const effect of choice.effects) if (!effectCompatible(effect, mechanics[effect.mechanicKey])) add({
       code: "native.bundle.choice-effect-invalid", message: `Choice ${choice.id} effect ${effect.id} is invalid`, choiceId: choice.id, mechanicKey: effect.mechanicKey,
@@ -400,6 +414,11 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
     if (!routeIds.has(ending.routeId)) add({ code: "native.bundle.ending-route-missing", message: `Ending ${ending.id} references unknown route ${ending.routeId}`, endingId: ending.id });
     for (const condition of ending.gateConditions) {
       if (!conditionCompatible(condition, mechanics)) add({ code: "native.bundle.ending-gate-invalid", message: `Ending ${ending.id} gate is invalid`, endingId: ending.id });
+      validateConditionPassageReferences(condition, passageIds, add, (passageId) => ({
+        code: "native.bundle.visit-reference-missing",
+        message: `Ending ${ending.id} gate references unknown passage ${passageId}`,
+        endingId: ending.id,
+      }));
     }
   }
 

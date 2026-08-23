@@ -13,6 +13,7 @@ import {
   compileNativeGame,
   nativePublicationFinding,
   sourceInputFingerprint,
+  validateLongFormProject,
   validatePassagePlan,
   type ChoicePlan,
   type LongFormEndingPlan,
@@ -27,6 +28,7 @@ import {
   type NarrativeThread,
   type PassagePlan,
   type PassagePlanFinding,
+  type PlanningFinding,
   type PassageStructure,
   type PassageValidationReport,
   type ProjectBrief,
@@ -315,7 +317,28 @@ export class NativeCompilationService {
     const mechanics = upstream.mechanics ? parseExact(LongFormMechanicsPlanSchema, upstream.mechanics.content, "artifact", upstream.mechanics.id, blocker) : null;
 
     let validationFingerprint = stableFingerprint(snapshot.validation);
-    let validationWarnings: NativePublicationFinding[] = [];
+    const validationWarnings: NativePublicationFinding[] = [];
+    if (brief && bible && routes && endings && mechanics) {
+      for (const finding of validateLongFormProject({ brief, bible, routes, endings, mechanics })) {
+        const code = `planning.${finding.code}`;
+        const sourceId = finding.entityId ?? finding.artifactId;
+        if (finding.severity === "error") {
+          blocker(`publication.${code}`, finding.message, finding.artifactId, sourceId);
+          continue;
+        }
+        const normalized = planningPublicationFinding(finding);
+        validationWarnings.push(normalized);
+        const item = diagnostic(
+          `publication.${code}`,
+          finding.severity,
+          finding.message,
+          finding.artifactId,
+          sourceId,
+        );
+        if (finding.severity === "warning") warningDiagnostics.push(item);
+        else info.push(item);
+      }
+    }
     if (exactStructure && bible && routes && endings && mechanics
       && passages.length === passageVersions.length
       && choices.length === choiceVersions.length
@@ -472,15 +495,14 @@ export class NativeCompilationService {
       });
       resolved = {
         input,
-        structure: exactStructure,
+        structure: { versionId: structureVersion!.id, content: exactStructure },
         passages: passageVersions.map((item) => ({ versionId: item.id, content: item.content as PassagePlan })),
         choices: choiceVersions.map((item) => ({ versionId: item.id, content: item.content as ChoicePlan })),
         threads: threadVersions.map((item) => ({ versionId: item.id, content: item.content as NarrativeThread })),
-        brief,
-        bible,
-        routes,
-        endings,
-        mechanics,
+        upstreamArtifacts: upstreamReferences.map((reference) => ({
+          ...reference,
+          content: { brief, bible, routes, endings, mechanics }[reference.artifactId],
+        })),
         acceptedDrafts,
       };
       try {
@@ -563,17 +585,23 @@ export class NativeCompilationService {
       }
       return { selection, proseMarkdown: draft.proseMarkdown };
     });
-    const resolved: ResolvedNativeCompilationInput = {
-      input,
-      structure,
-      passages,
-      choices,
-      threads,
+    const parsedUpstream = {
       brief: ProjectBriefSchema.parse(upstream.brief),
       bible: LongFormStoryBibleSchema.parse(upstream.bible),
       routes: LongFormRoutePlanSchema.parse(upstream.routes),
       endings: LongFormEndingPlanSchema.parse(upstream.endings),
       mechanics: LongFormMechanicsPlanSchema.parse(upstream.mechanics),
+    };
+    const resolved: ResolvedNativeCompilationInput = {
+      input,
+      structure: { versionId: structureVersion.id, content: structure },
+      passages,
+      choices,
+      threads,
+      upstreamArtifacts: input.upstreamArtifacts.map((reference) => ({
+        ...reference,
+        content: parsedUpstream[reference.artifactId],
+      })),
       acceptedDrafts,
     };
     return resolved;
@@ -720,6 +748,26 @@ function publicationFinding(finding: PassagePlanFinding): NativePublicationFindi
     suggestion: finding.suggestion,
     acknowledged: finding.acknowledged,
     ...(finding.overrideRationale ? { overrideRationale: finding.overrideRationale } : {}),
+  });
+}
+
+function planningPublicationFinding(finding: PlanningFinding): NativePublicationFinding {
+  const entityType: NativePublicationFinding["entityType"] = finding.artifactId === "routes"
+    ? "route"
+    : finding.artifactId === "endings"
+      ? "ending"
+      : finding.artifactId === "mechanics"
+        ? "mechanic"
+        : "project";
+  return nativePublicationFinding({
+    code: `planning.${finding.code}`,
+    severity: finding.severity === "info" ? "info" : "warning",
+    entityType,
+    entityId: finding.entityId ?? finding.artifactId,
+    message: finding.message,
+    evidence: finding.path ? [finding.path] : [],
+    suggestion: finding.suggestion ?? "",
+    acknowledged: false,
   });
 }
 
