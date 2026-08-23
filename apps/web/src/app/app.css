@@ -277,6 +277,9 @@ textarea.source { min-height: 20rem; }
 .draft-review-queue { padding: .75rem; border: 1px solid #4c5d78; border-radius: .7rem; background: #151c28; }
 .simulation-workspace { grid-column: 2 / -1; }
 .repair-workspace { grid-column: 2 / -1; }
+.publication-workspace { grid-column: 2 / -1; }
+.publication-diagnostics article, .publication-builds article { display: grid; gap: .35rem; padding: .7rem; border: 1px solid #354055; border-radius: .55rem; background: #0e141e; }
+.publication-builds > article > header { display: flex; justify-content: space-between; gap: 1rem; }
 .repair-intake > label, .repair-scope > label { display: grid; gap: .35rem; color: #c3cad6; }
 .repair-intake select, .repair-scope select { border: 1px solid #48536a; border-radius: .55rem; padding: .7rem; background: #11151e; color: #f4efe7; }
 .repair-scope textarea { min-height: 5rem; resize: vertical; }

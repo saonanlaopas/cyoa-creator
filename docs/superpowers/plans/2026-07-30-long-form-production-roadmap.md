@@ -606,6 +606,8 @@ Play and distribute the project without depending on Twine, ChoiceScript, or a h
 
 #### Checkpoint 7A: Native compilation and game-bundle contract
 
+**Implementation status:** Checkpoint implementation candidate complete on `checkpoint/foundation-7a-native-compilation`; external review and an accepted SHA remain pending.
+
 **Purpose:** Convert one exact approved authoring state into a deterministic, immutable, player-ready native game bundle. This checkpoint answers: **"What exact game is ready to play, from which exact approved content?"** It establishes the compiler, readiness checks, identities, and runtime loading boundary; it does not build the finished browser player.
 
 1. Reuse the Foundation 5A runtime compiler and engine as the canonical condition, effect, mechanics, route, ending, and state semantics. Extend its input and compiled representation for player prose and bounded presentation metadata rather than introducing another interpreter.

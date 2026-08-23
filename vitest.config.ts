@@ -8,6 +8,6 @@ export default defineConfig({
       "packages/*/test/**/*.test.ts",
       "packages/*/test/**/*.test.tsx",
     ],
-    maxWorkers: 4,
+    maxWorkers: 2,
   },
 });

@@ -33,6 +33,7 @@ export * from "./passage-drafting-provider.js";
 export * from "./narrative-review.js";
 export * from "./repair-planning.js";
 export * from "./repair-proposal.js";
+export * from "./native-compilation.js";
 export * from "./stages/analyze-source.js";
 export * from "./stages/propose-adaptation.js";
 export * from "./stages/generate-routes.js";

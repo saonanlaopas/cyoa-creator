@@ -13,6 +13,30 @@ import type {
   RuntimeMechanicDefinition,
 } from "./types.js";
 
+export type CompiledRuntimeSemantics = Pick<
+  CompiledRuntime,
+  "schemaVersion" | "simulationPolicyVersion" | "startPassageId" | "mechanics" | "passages"
+  | "choices" | "endings" | "routeIds" | "decisionIds"
+>;
+
+export function compiledRuntimeSemantics(runtime: CompiledRuntimeSemantics): CompiledRuntimeSemantics {
+  return {
+    schemaVersion: runtime.schemaVersion,
+    simulationPolicyVersion: runtime.simulationPolicyVersion,
+    startPassageId: runtime.startPassageId,
+    mechanics: runtime.mechanics,
+    passages: runtime.passages,
+    choices: runtime.choices,
+    endings: runtime.endings,
+    routeIds: runtime.routeIds,
+    decisionIds: runtime.decisionIds,
+  };
+}
+
+export function compiledRuntimeFingerprint(runtime: CompiledRuntimeSemantics): string {
+  return stableFingerprint(compiledRuntimeSemantics(runtime));
+}
+
 export class RuntimeCompileError extends Error {
   public constructor(public readonly findings: RuntimeCompileFinding[]) {
     super(findings[0]?.message ?? "Runtime compilation failed");
@@ -151,6 +175,6 @@ export function compileRuntime(source: RuntimeCompileSource): CompiledRuntime {
     ...runtimeSemantics,
     sourceSnapshotId: source.snapshotId,
     sourceStructureVersionId: source.structureVersionId,
-    fingerprint: stableFingerprint(runtimeSemantics),
+    fingerprint: compiledRuntimeFingerprint(runtimeSemantics),
   };
 }

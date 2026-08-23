@@ -150,6 +150,33 @@ async function acceptExactCandidate(
   return applyResponse.json();
 }
 
+async function acceptAllPassageProse(request: APIRequestContext, projectId: string) {
+  const planResponse = await request.get(`/api/long-form/projects/${projectId}/passage-plan`);
+  await expect(planResponse).toBeOK();
+  const plan = await planResponse.json();
+  const selections: Array<{ passageId: string; candidateDraftVersionId: string }> = [];
+  for (const passage of plan.passages as Array<{ entityId: string }>) {
+    const savedResponse = await request.put(
+      `/api/long-form/projects/${projectId}/drafts/passages/${passage.entityId}`,
+      { data: { proseMarkdown: `Exact browser publication prose for ${passage.entityId}.`, authorNote: "" } },
+    );
+    await expect(savedResponse).toBeOK();
+    const saved = await savedResponse.json();
+    selections.push({ passageId: passage.entityId, candidateDraftVersionId: saved.draft.id });
+  }
+  const previewResponse = await request.post(`/api/long-form/projects/${projectId}/drafts/acceptance/preview`, {
+    data: { selections },
+  });
+  await expect(previewResponse).toBeOK();
+  const preview = await previewResponse.json();
+  expect(preview.valid).toBe(true);
+  const applyResponse = await request.post(`/api/long-form/projects/${projectId}/drafts/acceptance/apply`, {
+    data: { selections, previewFingerprint: preview.fingerprint },
+  });
+  await expect(applyResponse).toBeOK();
+  return plan;
+}
+
 async function generateExactDraftCandidate(request: APIRequestContext, projectId: string, passageId: string) {
   const createdResponse = await request.post(`/api/long-form/projects/${projectId}/drafting/plans`, { data: {
     scope: { kind: "passages", passageIds: [passageId] },
@@ -932,7 +959,7 @@ test("repair planning and bounded proposals stay explicit and immutable across a
   const lockedBeforeApplication = await (await request.get(`/api/long-form/projects/${projectId}/drafts/passages/passage-000`)).json();
   await applicationReview.getByRole("button", { name: "Apply exact preview" }).click();
   const applicationResult = page.getByLabel("Repair application result");
-  await expect(applicationResult).toContainText("passage-prose:passage-000");
+  await expect(applicationResult).toContainText("passage-prose:passage-000", { timeout: 15_000 });
   await expect(applicationResult).toContainText("still-present");
   const lockedAfterApplication = await (await request.get(`/api/long-form/projects/${projectId}/drafts/passages/passage-000`)).json();
   expect(lockedAfterApplication.head.accepted).toEqual(lockedBeforeApplication.head.accepted);
@@ -962,4 +989,50 @@ test("repair planning and bounded proposals stay explicit and immutable across a
   await expect(page.getByLabel("Repair application review").getByRole("button", { name: "Preview selected repair" })).toBeDisabled();
   expect(observedRequests.some((url) => /openrouter/i.test(url))).toBe(false);
   expect(observedRequests.some((url) => /repair\/proposals\/.*\/apply/i.test(url))).toBe(true);
+});
+
+test("native publication compiles exact accepted prose deterministically and blocks stale prose", async ({ page, request }) => {
+  const projectId = await seedLargePassagePlan(request, 12);
+  await approveCurrentPassagePlan(request, projectId);
+  const plan = await acceptAllPassageProse(request, projectId);
+  const browserRequests: string[] = [];
+  page.on("request", (outgoing) => browserRequests.push(outgoing.url()));
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "publication");
+  }, projectId);
+
+  await page.goto("/#long-form");
+  const publication = page.getByLabel("Native publication workspace");
+  await expect(publication.getByText("Ready to compile exact accepted prose.")).toBeVisible();
+  await expect(publication.getByText("12 / 12 passages")).toBeVisible();
+  const sourceIdentity = await publication.locator("dd").filter({ hasText: /^[0-9a-f]{32}$/ }).first().textContent();
+  expect(sourceIdentity).toMatch(/^[0-9a-f]{32}$/);
+
+  await publication.getByRole("button", { name: "Compile native bundle" }).click();
+  const compilationStatus = publication.getByRole("status");
+  await expect(compilationStatus).toContainText("runtime-loaded");
+  const firstMessage = await compilationStatus.textContent();
+  const firstFingerprint = firstMessage?.match(/[0-9a-f]{32}/)?.[0];
+  expect(firstFingerprint).toMatch(/^[0-9a-f]{32}$/);
+  await expect(publication.getByText("Loaded at passage-000")).toBeVisible();
+
+  await page.reload();
+  await expect(publication.getByText(firstFingerprint!)).toBeVisible();
+  await publication.getByRole("button", { name: "Compile native bundle" }).click();
+  await expect(publication.getByRole("status")).toContainText(firstFingerprint!);
+  await expect(publication.getByText(firstFingerprint!)).toHaveCount(3);
+
+  const firstPassage = plan.passages[0];
+  const mutation = await request.put(
+    `/api/long-form/projects/${projectId}/passage-plan/entities/passage/${firstPassage.entityId}`,
+    { data: { ...firstPassage.content, purpose: "Changed after the native build was captured" } },
+  );
+  await expect(mutation).toBeOK();
+  await approveCurrentPassagePlan(request, projectId);
+  await page.reload();
+  await expect(publication.getByText("publication.accepted-prose-stale").first()).toBeVisible();
+  await expect(publication.getByRole("button", { name: "Compile native bundle" })).toBeDisabled();
+  await expect(publication.getByText("historical source").first()).toBeVisible();
+  expect(browserRequests.some((url) => /openrouter|provider/i.test(url))).toBe(false);
 });

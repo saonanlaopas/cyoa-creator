@@ -6,3 +6,4 @@ export * from "./engine.js";
 export * from "./prng.js";
 export * from "./playtest-types.js";
 export * from "./playtest.js";
+export * from "./native-bundle.js";

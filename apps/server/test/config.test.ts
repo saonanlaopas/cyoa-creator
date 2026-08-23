@@ -9,7 +9,7 @@ describe("readRuntimeConfig", () => {
     );
   });
 
-  it("caps Vitest workers at four for the full test suite", () => {
-    expect(vitestConfig.test?.maxWorkers).toBe(4);
+  it("caps Vitest workers at two for the full test suite", () => {
+    expect(vitestConfig.test?.maxWorkers).toBe(2);
   });
 });

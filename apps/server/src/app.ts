@@ -56,6 +56,8 @@ import { OpenRouterRepairProposalProvider } from "./services/openrouter-repair-p
 import { registerRepairProposalRoutes } from "./routes/repair-proposals.js";
 import { RepairApplicationService } from "./services/repair-application-service.js";
 import { registerRepairApplicationRoutes } from "./routes/repair-applications.js";
+import { NativeCompilationService } from "./services/native-compilation-service.js";
+import { registerNativeCompilationRoutes } from "./routes/native-compilation.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -104,6 +106,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     database, projects, workflow, passagePlans, passageDrafts, passageDraftAcceptance,
   );
   const simulationService = new SimulationService(
+    projects, artifacts, workflow, passagePlans, passageDrafts,
+  );
+  const nativeCompilationService = new NativeCompilationService(
     projects, artifacts, workflow, passagePlans, passageDrafts,
   );
   const playtestService = new PlaytestService(projects, artifacts, simulationService);
@@ -199,6 +204,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerPassageDraftRoutes(app, passageDraftService);
   registerPassageDraftingRoutes(app, passageDraftingService);
   registerSimulationRoutes(app, simulationService);
+  registerNativeCompilationRoutes(app, nativeCompilationService);
   registerPlaytestingRoutes(app, playtestService);
   registerNarrativeReviewRoutes(app, narrativeReviewService);
   registerRepairPlanningRoutes(app, repairPlanningService);
