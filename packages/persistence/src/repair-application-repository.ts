@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   REPAIR_APPLICATION_POLICY_V1,
+  REPAIR_APPLICATION_ARTIFACT_DEPENDENCIES,
   RepairApplicationRecordSchema,
   RepairDraftProvenanceSchema,
   collectStableIds,
@@ -13,7 +14,10 @@ import {
 } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
+import { classifyPassageDraftStaleness } from "./draft-staleness.js";
+import { PassageDraftRepository } from "./passage-draft-repository.js";
 import { RepairProposalRepository } from "./repair-proposal-repository.js";
+import { artifactChain } from "./schema.js";
 
 export interface RepairApplicationSelection {
   explicitlySelectedGroupIds: string[];
@@ -261,10 +265,15 @@ interface CanonicalState {
   entityVersions: CanonicalRows;
   entityHeads: CanonicalRows;
   artifactVersions: CanonicalRows;
+  artifactStaleFlags: CanonicalRows;
+  artifactWorkflow: CanonicalRows;
+  artifactDependencies: CanonicalRows;
+  passagePlanState: CanonicalRows;
   draftVersions: CanonicalRows;
   draftUpstream: CanonicalRows;
   draftNeighbors: CanonicalRows;
   draftHeads: CanonicalRows;
+  draftStalenessEvents: CanonicalRows;
 }
 type CanonicalRow = Record<string, unknown>;
 type CanonicalRows = Map<string, CanonicalRow>;
@@ -318,6 +327,14 @@ function captureCanonicalState(database: StoryDatabase): CanonicalState {
       FROM passage_entity_heads ORDER BY project_id, entity_kind, entity_id`, entityHeadKey),
     artifactVersions: rowsBy(database, `SELECT id, project_id, artifact_id, artifact_type, version, schema_version,
         content_json, restored_from_version_id, created_at FROM artifact_versions ORDER BY id`, (row) => String(row.id)),
+    artifactStaleFlags: rowsBy(database, `SELECT id, project_id, artifact_id, version, stale
+      FROM artifact_versions ORDER BY id`, (row) => String(row.id)),
+    artifactWorkflow: rowsBy(database, `SELECT project_id, artifact_id, status, approved_version_id
+      FROM artifact_workflow_state ORDER BY project_id, artifact_id`, workflowKey),
+    artifactDependencies: rowsBy(database, `SELECT project_id, upstream_artifact_id, dependent_artifact_id
+      FROM artifact_dependencies ORDER BY project_id, upstream_artifact_id, dependent_artifact_id`, dependencyKey),
+    passagePlanState: rowsBy(database, `SELECT project_id, status, approved_snapshot_id
+      FROM passage_plan_state ORDER BY project_id`, (row) => String(row.project_id)),
     draftVersions: rowsBy(database, `SELECT id, project_id, passage_id, version, based_on_passage_plan_version_id,
         prose_markdown, word_count, lifecycle_status, source_kind, generation_plan_id, generation_job_id,
         generation_unit_id, author_note, restored_from_version_id, created_at FROM passage_draft_versions ORDER BY id`,
@@ -330,6 +347,9 @@ function captureCanonicalState(database: StoryDatabase): CanonicalState {
       (row) => `${String(row.draft_version_id)}:${String(row.neighbor_passage_id)}`),
     draftHeads: rowsBy(database, `SELECT project_id, passage_id, current_version_id, accepted_version_id, accepted_locked
       FROM passage_draft_heads ORDER BY project_id, passage_id`, draftHeadKey),
+    draftStalenessEvents: rowsBy(database, `SELECT id, project_id, passage_id, draft_version_id, reason_code,
+        source_entity_kind, source_entity_id, from_version_id, to_version_id, changed_fields_json, created_at
+      FROM passage_draft_staleness_events ORDER BY id`, (row) => String(row.id)),
   };
 }
 
@@ -386,6 +406,7 @@ function assertCanonicalMutationFootprint(
   assertAppendOnlyRows(before.draftUpstream, after.draftUpstream, draftUpstreamKeys, "passage draft upstream provenance");
   assertAppendOnlyRows(before.draftNeighbors, after.draftNeighbors, draftNeighborKeys, "passage draft neighbor provenance");
   assertExactRows(expectedDraftHeads, after.draftHeads, "passage draft heads");
+  assertSecondaryMutationFootprint(database, before, after, record, operations, artifactVersionIds);
 }
 
 function rowsBy(database: StoryDatabase, sql: string, key: (row: CanonicalRow) => string): CanonicalRows {
@@ -404,6 +425,275 @@ function entityHeadKey(row: CanonicalRow): string {
 
 function draftHeadKey(row: CanonicalRow): string {
   return `${String(row.project_id)}:${String(row.passage_id)}`;
+}
+
+function workflowKey(row: CanonicalRow): string {
+  return `${String(row.project_id)}:${String(row.artifact_id)}`;
+}
+
+function dependencyKey(row: CanonicalRow): string {
+  return `${String(row.project_id)}:${String(row.upstream_artifact_id)}:${String(row.dependent_artifact_id)}`;
+}
+
+function assertSecondaryMutationFootprint(
+  database: StoryDatabase,
+  before: CanonicalState,
+  after: CanonicalState,
+  record: RepairApplicationRecord,
+  operations: RepairProposalOperation[],
+  artifactVersionIds: Set<string>,
+): void {
+  const expectedWorkflow = cloneRows(before.artifactWorkflow);
+  const expectedPassagePlanState = cloneRows(before.passagePlanState);
+  const expectedDependencies = cloneRows(before.artifactDependencies);
+  const expectedStaleFlags = cloneRows(before.artifactStaleFlags);
+  const newArtifactStaleFlags = new Map<string, CanonicalRow>();
+  for (const versionId of artifactVersionIds) {
+    const row = after.artifactStaleFlags.get(versionId);
+    if (!row) throw new Error("Repair application artifact stale-state result is missing");
+    newArtifactStaleFlags.set(versionId, { ...row, stale: 0 });
+  }
+
+  const passageOperations = operations.filter((operation) => operation.kind !== "create-passage-draft-candidate"
+    && ["passage", "choice", "thread"].includes(operation.entityKind));
+  if (passageOperations.length) setPassagePlanState(expectedPassagePlanState, record.projectId, "draft");
+
+  const affectedArtifacts = [...new Set(operations.flatMap((operation) =>
+    operation.expectedBase?.kind === "artifact-entity-version" ? [operation.expectedBase.artifactId] : []))].sort();
+  for (const artifactId of affectedArtifacts) {
+    for (const [versionId, row] of newArtifactStaleFlags) {
+      if (row.artifact_id === artifactId) expectedStaleFlags.set(versionId, row);
+    }
+    for (const upstream of expectedArtifactDependencies(artifactId)) {
+      const row = { project_id: record.projectId, upstream_artifact_id: upstream, dependent_artifact_id: artifactId };
+      expectedDependencies.set(dependencyKey(row), row);
+    }
+    setWorkflowState(expectedWorkflow, record.projectId, artifactId, "draft");
+    for (const dependent of transitiveDependents(expectedDependencies, record.projectId, artifactId)) {
+      const latest = latestArtifactVersion(expectedStaleFlags, record.projectId, dependent);
+      if (latest) expectedStaleFlags.set(String(latest.id), { ...latest, stale: 1 });
+      setWorkflowState(expectedWorkflow, record.projectId, dependent, "stale");
+    }
+    setPassagePlanState(expectedPassagePlanState, record.projectId, "stale");
+  }
+
+  assertExactRows(expectedWorkflow, after.artifactWorkflow, "artifact workflow state");
+  assertExactRows(expectedPassagePlanState, after.passagePlanState, "passage-plan state");
+  assertExactRows(expectedDependencies, after.artifactDependencies, "artifact dependencies");
+  assertExactRows(expectedStaleFlags, after.artifactStaleFlags, "artifact stale flags");
+  assertDraftStalenessFootprint(database, before, after, record, passageOperations);
+}
+
+function expectedArtifactDependencies(artifactId: string): string[] {
+  const configured = REPAIR_APPLICATION_ARTIFACT_DEPENDENCIES[
+    artifactId as keyof typeof REPAIR_APPLICATION_ARTIFACT_DEPENDENCIES
+  ] ?? [];
+  const chainIndex = artifactChain.indexOf(artifactId as typeof artifactChain[number]);
+  return [...new Set([...configured, ...(chainIndex > 0 ? [artifactChain[chainIndex - 1]!] : [])])].sort();
+}
+
+function setWorkflowState(rows: CanonicalRows, projectId: string, artifactId: string, status: string): void {
+  const key = `${projectId}:${artifactId}`;
+  const previous = rows.get(key);
+  rows.set(key, {
+    project_id: projectId,
+    artifact_id: artifactId,
+    status,
+    approved_version_id: previous?.approved_version_id ?? null,
+  });
+}
+
+function setPassagePlanState(rows: CanonicalRows, projectId: string, status: string): void {
+  const previous = rows.get(projectId);
+  rows.set(projectId, {
+    project_id: projectId,
+    status,
+    approved_snapshot_id: previous?.approved_snapshot_id ?? null,
+  });
+}
+
+function transitiveDependents(rows: CanonicalRows, projectId: string, artifactId: string): string[] {
+  const stale = new Set<string>();
+  const queue = [artifactId];
+  while (queue.length) {
+    const upstream = queue.shift()!;
+    const dependents = [...rows.values()]
+      .filter((row) => row.project_id === projectId && row.upstream_artifact_id === upstream)
+      .map((row) => String(row.dependent_artifact_id)).sort();
+    for (const dependent of dependents) {
+      if (stale.has(dependent)) continue;
+      stale.add(dependent);
+      queue.push(dependent);
+    }
+  }
+  return [...stale].sort();
+}
+
+function latestArtifactVersion(rows: CanonicalRows, projectId: string, artifactId: string): CanonicalRow | undefined {
+  return [...rows.values()]
+    .filter((row) => row.project_id === projectId && row.artifact_id === artifactId)
+    .sort((left, right) => Number(right.version) - Number(left.version))[0];
+}
+
+interface ExpectedStalenessEvent {
+  project_id: string;
+  passage_id: string;
+  draft_version_id: string;
+  reason_code: string;
+  source_entity_kind: string;
+  source_entity_id: string;
+  from_version_id: string | null;
+  to_version_id: string | null;
+  changed_fields_json: string;
+}
+
+function assertDraftStalenessFootprint(
+  database: StoryDatabase,
+  before: CanonicalState,
+  after: CanonicalState,
+  record: RepairApplicationRecord,
+  operations: RepairProposalOperation[],
+): void {
+  for (const [id, row] of before.draftStalenessEvents) {
+    if (canonical(after.draftStalenessEvents.get(id)) !== canonical(row)) {
+      throw new Error("Repair application made an unauthorized canonical mutation to passage draft staleness events");
+    }
+  }
+  const expected = expectedDraftStalenessEvents(database, before, record, operations);
+  const actual = [...after.draftStalenessEvents]
+    .filter(([id]) => !before.draftStalenessEvents.has(id))
+    .map(([, row]) => stalenessSemantics(row));
+  if (canonical(actual.map(canonical).sort()) !== canonical(expected.map(canonical).sort())) {
+    throw new Error("Repair application made an unauthorized canonical mutation to passage draft staleness events");
+  }
+  const actualAudit = [...after.draftStalenessEvents]
+    .filter(([id]) => !before.draftStalenessEvents.has(id))
+    .map(([id, row]) => ({
+      id,
+      reasonCode: row.reason_code,
+      sourceEntityKind: row.source_entity_kind,
+      sourceEntityId: row.source_entity_id,
+      draftVersionId: row.draft_version_id,
+      passageId: row.passage_id,
+    }));
+  if (canonical(actualAudit.map(canonical).sort()) !== canonical(record.stalenessEvents.map(canonical).sort())) {
+    throw new Error("Repair application staleness audit does not match its exact persisted events");
+  }
+}
+
+function expectedDraftStalenessEvents(
+  database: StoryDatabase,
+  before: CanonicalState,
+  record: RepairApplicationRecord,
+  operations: RepairProposalOperation[],
+): ExpectedStalenessEvent[] {
+  const expected: ExpectedStalenessEvent[] = [];
+  const existingKeys = new Set([...before.draftStalenessEvents.values()].map(stalenessUniqueKey));
+  const resultByOperation = new Map(record.resultingVersions.map((result) => [result.operationId, result]));
+  const drafts = new PassageDraftRepository(database);
+  const add = (event: ExpectedStalenessEvent): boolean => {
+    const key = stalenessUniqueKey(event);
+    if (existingKeys.has(key)) return false;
+    existingKeys.add(key);
+    expected.push(event);
+    return true;
+  };
+  const isStale = (draftVersionId: string): boolean => [...before.draftStalenessEvents.values()]
+    .some((row) => row.draft_version_id === draftVersionId)
+    || expected.some((row) => row.draft_version_id === draftVersionId);
+
+  for (const operation of operations) {
+    const result = resultByOperation.get(operation.id);
+    if (!result) throw new Error("Repair application staleness result is missing");
+    const beforeValue = operation.kind === "add-entity" ? null : operation.before;
+    const fromVersionId = operation.kind === "add-entity" ? null
+      : operation.expectedBase.kind === "passage-entity-version" ? operation.expectedBase.versionId : null;
+    const impacts = classifyPassageDraftStaleness({
+      projectId: record.projectId,
+      kind: operation.entityKind as "passage" | "choice" | "thread",
+      entityId: operation.entityId,
+      beforeVersionId: fromVersionId,
+      afterVersionId: result.versionId,
+      before: beforeValue,
+      after: operation.after,
+    });
+    const affectedPassages = new Set<string>();
+    for (const impact of impacts) {
+      for (const row of before.draftVersions.values()) {
+        if (row.project_id !== record.projectId || row.passage_id !== impact.passageId
+          || row.based_on_passage_plan_version_id === result.versionId) continue;
+        add({
+          project_id: record.projectId,
+          passage_id: impact.passageId,
+          draft_version_id: String(row.id),
+          reason_code: impact.reasonCode,
+          source_entity_kind: operation.entityKind,
+          source_entity_id: operation.entityId,
+          from_version_id: fromVersionId,
+          to_version_id: result.versionId,
+          changed_fields_json: JSON.stringify(impact.changedFields),
+        });
+      }
+      affectedPassages.add(impact.passageId);
+    }
+    for (const passageId of [...affectedPassages].sort()) {
+      const head = before.draftHeads.get(`${record.projectId}:${passageId}`);
+      const acceptedVersionId = head?.accepted_version_id ? String(head.accepted_version_id) : null;
+      if (!acceptedVersionId || !isStale(acceptedVersionId)) continue;
+      const queue = [{ passageId, acceptedVersionId }];
+      const visited = new Set<string>();
+      while (queue.length) {
+        const source = queue.shift()!;
+        const key = `${source.passageId}:${source.acceptedVersionId}`;
+        if (visited.has(key)) continue;
+        visited.add(key);
+        for (const neighbor of [...before.draftNeighbors.values()]
+          .filter((row) => row.project_id === record.projectId && row.neighbor_passage_id === source.passageId)
+          .sort((left, right) => `${left.draft_version_id}`.localeCompare(`${right.draft_version_id}`))) {
+          if (!drafts.acceptedVersionsAreEquivalent(
+            record.projectId, String(neighbor.neighbor_draft_version_id), source.acceptedVersionId,
+          )) continue;
+          const dependent = before.draftVersions.get(String(neighbor.draft_version_id));
+          if (!dependent) continue;
+          add({
+            project_id: record.projectId,
+            passage_id: String(dependent.passage_id),
+            draft_version_id: String(dependent.id),
+            reason_code: "accepted-neighbor-draft-stale",
+            source_entity_kind: "accepted-passage-draft",
+            source_entity_id: source.passageId,
+            from_version_id: String(neighbor.neighbor_draft_version_id),
+            to_version_id: source.acceptedVersionId,
+            changed_fields_json: JSON.stringify(["stale"]),
+          });
+          const dependentHead = before.draftHeads.get(`${record.projectId}:${String(dependent.passage_id)}`);
+          if (dependentHead?.accepted_version_id === dependent.id) queue.push({
+            passageId: String(dependent.passage_id), acceptedVersionId: String(dependent.id),
+          });
+        }
+      }
+    }
+  }
+  return expected;
+}
+
+function stalenessUniqueKey(row: CanonicalRow | ExpectedStalenessEvent): string {
+  return [row.draft_version_id, row.reason_code, row.source_entity_kind, row.source_entity_id, row.to_version_id]
+    .map((value) => value === null ? "<null>" : String(value)).join(":");
+}
+
+function stalenessSemantics(row: CanonicalRow): ExpectedStalenessEvent {
+  return {
+    project_id: String(row.project_id),
+    passage_id: String(row.passage_id),
+    draft_version_id: String(row.draft_version_id),
+    reason_code: String(row.reason_code),
+    source_entity_kind: String(row.source_entity_kind),
+    source_entity_id: String(row.source_entity_id),
+    from_version_id: row.from_version_id === null ? null : String(row.from_version_id),
+    to_version_id: row.to_version_id === null ? null : String(row.to_version_id),
+    changed_fields_json: String(row.changed_fields_json),
+  };
 }
 
 function assertRowsUnchanged(before: CanonicalRows, after: CanonicalRows, label: string): void {

@@ -9,6 +9,13 @@ export const REPAIR_APPLICATION_POLICY_V1 = Object.freeze({
   maxAuditBytes: 4_000_000,
 });
 
+export const REPAIR_APPLICATION_ARTIFACT_DEPENDENCIES = Object.freeze({
+  bible: ["brief", "source"],
+  routes: ["brief", "bible"],
+  endings: ["routes"],
+  mechanics: ["bible", "routes", "endings"],
+} as const);
+
 const Id = z.string().trim().min(1).max(256);
 const Fingerprint = z.string().regex(/^[0-9a-f]{64}$/);
 const Ids = z.array(Id).max(REPAIR_APPLICATION_POLICY_V1.maxOperations);

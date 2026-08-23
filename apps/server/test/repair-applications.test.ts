@@ -242,6 +242,7 @@ function directService(databasePath: string) {
   );
   return {
     database,
+    projects,
     artifacts,
     workflow,
     drafts,
@@ -254,6 +255,16 @@ function directService(databasePath: string) {
       new RepairProposalRepository(database), new RepairApplicationRepository(database),
     ),
   };
+}
+
+function applicationBoundaryState(value: ReturnType<typeof directService>): string {
+  const tables = [
+    "passage_entity_versions", "passage_entity_heads", "artifact_versions", "artifact_workflow_state",
+    "artifact_dependencies", "passage_plan_state", "passage_draft_staleness_events", "repair_applications",
+  ];
+  return JSON.stringify(Object.fromEntries(tables.map((table) => [
+    table, value.database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
+  ])));
 }
 
 function repairBase(value: ReturnType<typeof directService>, projectId: string): RepairProposalBaseState {
@@ -629,6 +640,129 @@ describe("Foundation 6C repair application", () => {
     direct.database.close();
   }, 40_000);
 
+  it("rejects every unrelated secondary-state mutation and rolls the selected repair back", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-repair-secondary-footprint-")); temporaryDirectories.push(directory);
+    const databasePath = join(directory, "project.sqlite");
+    const value = await fixture("passage-plan", databasePath);
+    const direct = directService(databasePath);
+    const proposal = value.proposal as RepairProposalRecord;
+    const groups = proposal.groups.map((group) => group.id);
+    const target = proposal.operations.find((operation) => operation.entityKind === "passage")!;
+    const passage = direct.passagePlans.currentEntity<PassagePlan>(value.projectId, "passage", target.entityId)!;
+    const upstreamVersions = Object.fromEntries(["bible", "routes", "endings", "mechanics"].map((artifactId) => [
+      artifactId, direct.workflow.get(value.projectId, artifactId).approvedVersionId!,
+    ]));
+    const draft = direct.drafts.createVersion({
+      projectId: value.projectId, passageId: passage.entityId, basedOnPassagePlanVersionId: passage.id,
+      proseMarkdown: "A draft used to verify deterministic repair staleness.", sourceKind: "manual",
+      upstreamVersions, neighboringDraftVersions: {},
+    });
+    direct.drafts.insertStalenessInTransaction({
+      projectId: value.projectId, passageId: passage.entityId, draftVersionId: draft.id,
+      reasonCode: "fixture-historical-stale", sourceEntityKind: "fixture", sourceEntityId: "historical",
+      fromVersionId: passage.id, toVersionId: passage.id, changedFields: ["fixture"],
+    });
+    const historicalEvent = (direct.database.prepare(`SELECT id FROM passage_draft_staleness_events
+      WHERE project_id = ? AND reason_code = 'fixture-historical-stale'`).get(value.projectId) as { id: string }).id;
+    const brief = direct.artifacts.getCurrent(value.projectId, "brief")!;
+    const routes = direct.artifacts.getCurrent(value.projectId, "routes")!;
+    const dependency = direct.database.prepare(`SELECT upstream_artifact_id, dependent_artifact_id
+      FROM artifact_dependencies WHERE project_id = ? ORDER BY upstream_artifact_id, dependent_artifact_id LIMIT 1`)
+      .get(value.projectId) as { upstream_artifact_id: string; dependent_artifact_id: string };
+    const preview = direct.service.preview(value.projectId, proposal.id, groups);
+    const before = applicationBoundaryState(direct);
+    const attacks: Array<() => void> = [
+      () => { direct.workflow.markDraft(value.projectId, "brief"); },
+      () => { direct.workflow.markStale(value.projectId, "brief"); },
+      () => { direct.database.prepare(`UPDATE artifact_workflow_state SET status = 'approved', approved_version_id = ?
+        WHERE project_id = ? AND artifact_id = 'bible'`).run(routes.id, value.projectId); },
+      () => { direct.database.prepare(`UPDATE passage_plan_state SET status = 'empty', approved_snapshot_id = NULL
+        WHERE project_id = ?`).run(value.projectId); },
+      () => { direct.database.prepare("UPDATE artifact_versions SET stale = CASE stale WHEN 0 THEN 1 ELSE 0 END WHERE id = ?")
+        .run(brief.id); },
+      () => { direct.database.prepare(`INSERT INTO artifact_dependencies
+        (project_id, upstream_artifact_id, dependent_artifact_id) VALUES (?, 'unauthorized-upstream', 'unauthorized-dependent')`)
+        .run(value.projectId); },
+      () => { direct.database.prepare(`DELETE FROM artifact_dependencies WHERE project_id = ?
+        AND upstream_artifact_id = ? AND dependent_artifact_id = ?`)
+        .run(value.projectId, dependency.upstream_artifact_id, dependency.dependent_artifact_id); },
+      () => { direct.drafts.insertStalenessInTransaction({
+        projectId: value.projectId, passageId: passage.entityId, draftVersionId: draft.id,
+        reasonCode: "unauthorized-extra-stale", sourceEntityKind: "passage", sourceEntityId: "unselected-passage",
+        fromVersionId: passage.id, toVersionId: passage.id, changedFields: ["unauthorized"],
+      }); },
+      () => { direct.database.prepare("UPDATE passage_draft_staleness_events SET reason_code = 'rewritten' WHERE id = ?")
+        .run(historicalEvent); },
+      () => { direct.database.prepare("DELETE FROM passage_draft_staleness_events WHERE id = ?").run(historicalEvent); },
+    ];
+    for (const attack of attacks) {
+      expect(() => applyThroughRepository(
+        direct, value.projectId, proposal.id, groups, preview.previewFingerprint, attack,
+      )).toThrow(/unauthorized canonical mutation|staleness audit|immutable|append-only/);
+      expect(applicationBoundaryState(direct)).toBe(before);
+      expect(direct.applications.list(value.projectId)).toEqual([]);
+    }
+
+    const existingIds = new Set((direct.database.prepare("SELECT id FROM passage_draft_staleness_events").all() as Array<{ id: string }>)
+      .map((row) => row.id));
+    const applied = direct.service.apply(value.projectId, proposal.id, groups, preview.previewFingerprint);
+    const persisted = (direct.database.prepare(`SELECT id, reason_code reasonCode, source_entity_kind sourceEntityKind,
+      source_entity_id sourceEntityId, draft_version_id draftVersionId, passage_id passageId
+      FROM passage_draft_staleness_events ORDER BY id`).all() as Array<Record<string, unknown>>)
+      .filter((row) => !existingIds.has(String(row.id)));
+    expect(applied.stalenessEvents.map((event) => ({ ...event })).sort((left, right) => left.id.localeCompare(right.id)))
+      .toEqual(persisted.sort((left, right) => String(left.id).localeCompare(String(right.id))));
+    expect(applied.stalenessEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ draftVersionId: draft.id, sourceEntityKind: "passage", sourceEntityId: passage.entityId }),
+    ]));
+    direct.database.close();
+  }, 50_000);
+
+  it("rejects equivalent cross-project workflow, plan, stale, dependency, and draft-staleness writes", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-repair-secondary-cross-project-")); temporaryDirectories.push(directory);
+    const databasePath = join(directory, "project.sqlite");
+    const value = await fixture("passage-plan", databasePath);
+    const direct = directService(databasePath);
+    const proposal = value.proposal as RepairProposalRecord;
+    const groups = proposal.groups.map((group) => group.id);
+    const preview = direct.service.preview(value.projectId, proposal.id, groups);
+    const other = direct.projects.create("Unrelated project", "unrelated-project", "long-form");
+    const artifact = direct.artifacts.saveArtifact({
+      projectId: other.id, artifactId: "brief", artifactType: "brief", content: { id: "other-brief" },
+    });
+    direct.workflow.markDraft(other.id, "brief");
+    direct.passagePlans.initialize(other.id, { startPassageId: "other-passage" }, [{
+      kind: "passage", id: "other-passage", content: { id: "other-passage" },
+    }]);
+    const passage = direct.passagePlans.currentEntity(other.id, "passage", "other-passage")!;
+    const draft = direct.drafts.createVersion({
+      projectId: other.id, passageId: "other-passage", basedOnPassagePlanVersionId: passage.id,
+      proseMarkdown: "Unrelated project prose.", sourceKind: "manual",
+      upstreamVersions: { brief: artifact.id }, neighboringDraftVersions: {},
+    });
+    const before = applicationBoundaryState(direct);
+    const attacks: Array<() => void> = [
+      () => { direct.workflow.markStale(other.id, "brief"); },
+      () => { direct.passagePlans.markStale(other.id); },
+      () => { direct.database.prepare("UPDATE artifact_versions SET stale = 1 WHERE id = ?").run(artifact.id); },
+      () => { direct.database.prepare(`INSERT INTO artifact_dependencies
+        (project_id, upstream_artifact_id, dependent_artifact_id) VALUES (?, 'other-upstream', 'other-dependent')`).run(other.id); },
+      () => { direct.drafts.insertStalenessInTransaction({
+        projectId: other.id, passageId: "other-passage", draftVersionId: draft.id,
+        reasonCode: "cross-project-stale", sourceEntityKind: "passage", sourceEntityId: "other-passage",
+        fromVersionId: passage.id, toVersionId: passage.id, changedFields: ["cross-project"],
+      }); },
+    ];
+    for (const attack of attacks) {
+      expect(() => applyThroughRepository(
+        direct, value.projectId, proposal.id, groups, preview.previewFingerprint, attack,
+      )).toThrow(/unauthorized canonical mutation/);
+      expect(applicationBoundaryState(direct)).toBe(before);
+      expect(direct.applications.list(value.projectId)).toEqual([]);
+    }
+    direct.database.close();
+  }, 50_000);
+
   it("rejects extra draft and passage writes around an otherwise valid prose repair", async () => {
     const directory = mkdtempSync(join(tmpdir(), "cyoa-repair-prose-footprint-")); temporaryDirectories.push(directory);
     const databasePath = join(directory, "project.sqlite");
@@ -786,6 +920,19 @@ describe("Foundation 6C repair application", () => {
     expect((direct.database.prepare("SELECT lifecycle_status FROM passage_draft_versions WHERE id = ?")
       .get(applied.resultingVersions.find((item) => item.entityKind === "passage-prose")!.versionId) as { lifecycle_status: string }).lifecycle_status)
       .toBe("candidate");
+    expect(direct.workflow.get(value.projectId, "bible").status).toBe("draft");
+    for (const artifactId of ["routes", "endings", "mechanics"]) {
+      expect(direct.workflow.get(value.projectId, artifactId).status).toBe("stale");
+      expect(direct.artifacts.getCurrent(value.projectId, artifactId)?.stale).toBe(true);
+    }
+    expect(direct.passagePlans.state(value.projectId).status).toBe("stale");
+    const persistedStaleness = direct.database.prepare(`SELECT id, reason_code reasonCode,
+      source_entity_kind sourceEntityKind, source_entity_id sourceEntityId,
+      draft_version_id draftVersionId, passage_id passageId
+      FROM passage_draft_staleness_events WHERE project_id = ? ORDER BY id`).all(value.projectId);
+    expect(applied.stalenessEvents.map((event) => ({ ...event })).sort((left, right) => left.id.localeCompare(right.id)))
+      .toEqual((persistedStaleness as Array<Record<string, unknown>>)
+        .sort((left, right) => String(left.id).localeCompare(String(right.id))));
     expect(() => direct.database.prepare(`INSERT INTO repair_application_result_versions
       (project_id, application_id, operation_id, entity_kind, entity_id, version_id) VALUES (?, ?, ?, ?, ?, ?)`)
       .run(value.projectId, applied.id, "forged-operation", "passage", "forged-passage", applied.resultingVersions[0]!.versionId))

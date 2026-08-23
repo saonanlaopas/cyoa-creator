@@ -17,6 +17,7 @@ import {
 } from "@story-to-cyoa/pipeline";
 import {
   REPAIR_APPLICATION_POLICY_V1,
+  REPAIR_APPLICATION_ARTIFACT_DEPENDENCIES,
   collectStableIds,
   type RepairDraftProvenance,
   type RepairFindingReference,
@@ -82,10 +83,6 @@ export interface RepairApplicationPreview {
 export class RepairApplicationServiceError extends Error {
   public constructor(public readonly code: string, message: string, public readonly details?: unknown) { super(message); }
 }
-
-const artifactDependencies: Record<string, string[]> = {
-  bible: ["brief", "source"], routes: ["brief", "bible"], endings: ["routes"], mechanics: ["bible", "routes", "endings"],
-};
 
 export class RepairApplicationService {
   public constructor(
@@ -294,7 +291,7 @@ export class RepairApplicationService {
         artifactType: artifactId,
         content: item.content,
         schema: item.schema as never,
-        dependencies: artifactDependencies[artifactId],
+        dependencies: [...REPAIR_APPLICATION_ARTIFACT_DEPENDENCIES[artifactId]],
       });
       artifactResults.set(artifactId, version.id);
       this.workflow.markDraft(proposal.projectId, artifactId);
