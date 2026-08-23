@@ -4,6 +4,8 @@ import {
   NATIVE_PLAYER_LIMITS,
   NativePlayerError,
   assertNativePlayerManualSlot,
+  assertNativePlayerSession,
+  canRewindNativePlayerSession,
   chooseNativePlayerSession,
   createNativePlayerConfig,
   createNativePlayerInstallation,
@@ -33,6 +35,11 @@ function setup(passageCount = 4, policy?: NativePlayerConfig["rewindPolicy"]) {
 function reseal(save: NativePlayerSave): NativePlayerSave {
   const { saveFingerprint: _fingerprint, metadata: _metadata, ...identity } = save;
   return { ...save, saveFingerprint: stableFingerprint(identity) };
+}
+
+function resealSession(session: NativePlayerSession): NativePlayerSession {
+  const { sessionFingerprint: _fingerprint, ...identity } = session;
+  return { ...session, sessionFingerprint: stableFingerprint(identity) };
 }
 
 function errorCode(action: () => unknown): string | undefined {
@@ -116,6 +123,90 @@ describe("native player session", () => {
     expect(session.state.currentPassageId).toBe("passage-3");
     expect(session.history).toHaveLength(1);
     expect(session.history[0]!.state.currentPassageId).toBe("passage-1");
+  });
+
+  it("rejects resealed session history that is noncanonical for the current policy", () => {
+    const { bundle } = setup(5);
+    const lastThree = createNativePlayerConfig({
+      ...playerConfigInput(bundle), rewindPolicy: { kind: "bounded-last-n", steps: 3 },
+    }, bundle);
+    let source = createNativePlayerSession(bundle, lastThree);
+    source = chooseNativePlayerSession(bundle, lastThree, source, "choice-0").session;
+    source = chooseNativePlayerSession(bundle, lastThree, source, "choice-1").session;
+    source = chooseNativePlayerSession(bundle, lastThree, source, "choice-2").session;
+    expect(source.history).toHaveLength(3);
+
+    const rejectedFor = (config: NativePlayerConfig, history: NativePlayerSession["history"]) => {
+      const forged = resealSession({
+        ...source,
+        playerConfigFingerprint: config.configFingerprint,
+        history: structuredClone(history),
+      });
+      expect(errorCode(() => assertNativePlayerSession(bundle, config, forged))).toBe("player_session_invalid");
+      expect(errorCode(() => createNativePlayerSave(bundle, config, forged))).toBe("player_session_invalid");
+    };
+
+    rejectedFor(createNativePlayerConfig({
+      ...playerConfigInput(bundle), rewindPolicy: { kind: "disabled" },
+    }, bundle), source.history.slice(-1));
+    rejectedFor(createNativePlayerConfig({
+      ...playerConfigInput(bundle), rewindPolicy: { kind: "previous-step" },
+    }, bundle), source.history.slice(-2));
+    rejectedFor(createNativePlayerConfig({
+      ...playerConfigInput(bundle), rewindPolicy: { kind: "bounded-last-n", steps: 2 },
+    }, bundle), source.history);
+
+    const designated = createNativePlayerConfig({
+      ...playerConfigInput(bundle),
+      rewindPolicy: { kind: "designated-checkpoints", passageIds: ["passage-1"], maximumCheckpoints: 2 },
+    }, bundle);
+    rejectedFor(designated, source.history.slice(0, 1));
+    const wrongReason = structuredClone(source.history[1]!);
+    wrongReason.reason = "transition";
+    wrongReason.originatingChoiceId = "choice-1";
+    rejectedFor(designated, [wrongReason]);
+
+    expect(assertNativePlayerSession(bundle, lastThree, source)).toEqual(source);
+  });
+
+  it("derives rewind availability from the exact pure-session semantics", () => {
+    const bundle = playerFixture(4);
+    const disabled = createNativePlayerConfig({
+      ...playerConfigInput(bundle), rewindPolicy: { kind: "disabled" },
+    }, bundle);
+    expect(canRewindNativePlayerSession(bundle, disabled, createNativePlayerSession(bundle, disabled))).toBe(false);
+
+    const previous = createNativePlayerConfig({
+      ...playerConfigInput(bundle), rewindPolicy: { kind: "previous-step" },
+    }, bundle);
+    let previousSession = createNativePlayerSession(bundle, previous);
+    expect(canRewindNativePlayerSession(bundle, previous, previousSession)).toBe(false);
+    previousSession = chooseNativePlayerSession(bundle, previous, previousSession, "choice-0").session;
+    expect(canRewindNativePlayerSession(bundle, previous, previousSession)).toBe(true);
+
+    const designated = createNativePlayerConfig({
+      ...playerConfigInput(bundle), rewindPolicy: {
+        kind: "designated-checkpoints", passageIds: ["passage-1", "passage-2"], maximumCheckpoints: 2,
+      },
+    }, bundle);
+    let designatedSession = createNativePlayerSession(bundle, designated);
+    designatedSession = chooseNativePlayerSession(bundle, designated, designatedSession, "choice-0").session;
+    expect(designatedSession.history).toHaveLength(1);
+    expect(canRewindNativePlayerSession(bundle, designated, designatedSession)).toBe(false);
+    designatedSession = chooseNativePlayerSession(bundle, designated, designatedSession, "choice-1").session;
+    expect(canRewindNativePlayerSession(bundle, designated, designatedSession)).toBe(true);
+
+    previousSession = chooseNativePlayerSession(bundle, previous, previousSession, "choice-1").session;
+    previousSession = chooseNativePlayerSession(bundle, previous, previousSession, "choice-2").session;
+    expect(nativePlayerView(bundle, previous, previousSession).terminal.result).not.toBeNull();
+    expect(canRewindNativePlayerSession(bundle, previous, previousSession)).toBe(true);
+
+    const malformed = resealSession({ ...previousSession, history: [] });
+    malformed.history = structuredClone(previousSession.history);
+    malformed.history[0]!.stateFingerprint = "f".repeat(32);
+    const resealedMalformed = resealSession(malformed);
+    expect(errorCode(() => canRewindNativePlayerSession(bundle, previous, resealedMalformed)))
+      .toBe("player_session_invalid");
   });
 });
 
@@ -222,6 +313,7 @@ describe("native player saves", () => {
     const previousLoaded = loadNativePlayerSave(bundle, previous, save);
     expect(previousLoaded.history).toHaveLength(1);
     expect(previousLoaded.playerConfigFingerprint).toBe(previous.configFingerprint);
+    expect(assertNativePlayerSession(bundle, previous, previousLoaded)).toEqual(previousLoaded);
     const disabled = createNativePlayerConfig({ ...playerConfigInput(bundle), rewindPolicy: { kind: "disabled" } }, bundle);
     expect(loadNativePlayerSave(bundle, disabled, save).history).toEqual([]);
   });

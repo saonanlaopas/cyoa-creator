@@ -1,4 +1,9 @@
-import type { NativeGameBundle, NativePlayerConfig } from "@story-to-cyoa/runtime";
+import type {
+  NativeGameBundle,
+  NativePlayerConfig,
+  NativePlayerRewindPolicy,
+  NativePlayerVisibleMechanic,
+} from "@story-to-cyoa/runtime";
 
 export interface PublicationDiagnostic {
   code: string;
@@ -56,6 +61,27 @@ export interface NativeBuildSummary {
   };
 }
 
+export interface NativePlayerConfigWorkspace {
+  config: NativePlayerConfig;
+  version: {
+    id: string;
+    version: number;
+    createdAt: string;
+  } | null;
+  validForCurrentBundle: boolean;
+  validationError: string | null;
+  historicalBuildPolicy: "current-player-config";
+  passageOptions: Array<{ id: string; title: string }>;
+  visibleMechanicOptions: Array<NativePlayerVisibleMechanic & { selected: boolean }>;
+}
+
+export interface NativePlayerConfigUpdate {
+  rewindPolicy: NativePlayerRewindPolicy;
+  autosaveEnabled: boolean;
+  manualSlotLimit: number;
+  visibleMechanicKeys: string[];
+}
+
 async function json<T>(response: Response): Promise<T> {
   const body = await response.json() as T | { error?: string };
   if (!response.ok) throw new Error((body as { error?: string }).error ?? "Request failed");
@@ -70,8 +96,23 @@ export const loadPublicationReadiness = async (projectId: string) =>
 export const listNativeBuilds = async (projectId: string) =>
   json<{ items: NativeBuildSummary[] }>(await fetch(`${root(projectId)}/builds`));
 
+export const loadNativePlayerConfig = async (projectId: string) =>
+  json<NativePlayerConfigWorkspace>(await fetch(`${root(projectId)}/player-config`));
+
+export const saveNativePlayerConfig = async (projectId: string, input: NativePlayerConfigUpdate) =>
+  json<NativePlayerConfigWorkspace>(await fetch(`${root(projectId)}/player-config`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  }));
+
 export const compileNativeBuild = async (projectId: string, inputArtifactVersionId?: string) =>
-  json<{ build: NativeBuildSummary; bundle: NativeGameBundle; playerConfig: NativePlayerConfig }>(await fetch(`${root(projectId)}/compile`, {
+  json<{
+    build: NativeBuildSummary;
+    bundle: NativeGameBundle;
+    playerConfig: NativePlayerConfig;
+    playerConfigVersionId: string | null;
+  }>(await fetch(`${root(projectId)}/compile`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(inputArtifactVersionId ? { inputArtifactVersionId } : {}),

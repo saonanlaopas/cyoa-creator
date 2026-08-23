@@ -50,7 +50,11 @@ import {
   NATIVE_COMPILER_VERSION,
   NATIVE_GAME_BUNDLE_SCHEMA_ID,
   NATIVE_GAME_BUNDLE_SCHEMA_VERSION,
+  NATIVE_PLAYER_LIMITS,
   NATIVE_RUNTIME_CONTRACT_VERSION,
+  NativePlayerAuthorConfigInputSchema,
+  NativePlayerConfigSchema,
+  assertNativePlayerConfig,
   currentNativePassage,
   createNativePlayerConfig,
   initializeNativeGame,
@@ -60,10 +64,13 @@ import {
   stableFingerprint,
   type NativeGameBundle,
   type NativePlayerConfig,
+  type NativePlayerAuthorConfigInput,
+  type NativePlayerVisibleMechanic,
 } from "@story-to-cyoa/runtime";
 
 export const NATIVE_COMPILATION_INPUT_ARTIFACT_ID = "native-compilation-inputs";
 export const NATIVE_BUILD_ARTIFACT_ID = "native-builds";
+export const NATIVE_PLAYER_CONFIG_ARTIFACT_ID = "native-player-config";
 
 const requiredUpstreamIds = ["brief", "bible", "routes", "endings", "mechanics"] as const;
 type RequiredUpstreamId = typeof requiredUpstreamIds[number];
@@ -123,6 +130,16 @@ export interface NativeBuildRecord {
   validation: { valid: true; loaded: true; smokePassageId: string; availableChoiceCount: number };
 }
 
+export interface NativePlayerConfigWorkspace {
+  config: NativePlayerConfig;
+  version: ArtifactVersion<NativePlayerConfig> | null;
+  validForCurrentBundle: boolean;
+  validationError: string | null;
+  historicalBuildPolicy: "current-player-config";
+  passageOptions: Array<{ id: string; title: string }>;
+  visibleMechanicOptions: Array<NativePlayerVisibleMechanic & { selected: boolean }>;
+}
+
 export class NativeCompilationServiceError extends Error {
   public constructor(
     public readonly code: string,
@@ -136,6 +153,12 @@ export class NativeCompilationServiceError extends Error {
 interface Inspection {
   readiness: PublicationReadiness;
   resolved: ResolvedNativeCompilationInput | null;
+}
+
+interface PlayerConfigContext {
+  gameId: string;
+  mechanics: LongFormMechanicsPlan;
+  passageOptions: Array<{ id: string; title: string }>;
 }
 
 export class NativeCompilationService {
@@ -182,6 +205,7 @@ export class NativeCompilationService {
     build: ArtifactVersion<NativeBuildRecord>;
     bundle: NativeGameBundle;
     playerConfig: NativePlayerConfig;
+    playerConfigVersionId: string | null;
   } {
     this.requireProject(projectId);
     const inputVersion = inputArtifactVersionId
@@ -195,15 +219,8 @@ export class NativeCompilationService {
       "native_input_mechanics_missing",
       "Native compilation input has no exact mechanics artifact",
     );
-    const playerConfig = createNativePlayerConfig({
-      gameId: bundle.gameId,
-      rewindPolicy: { kind: "previous-step" },
-      autosaveEnabled: true,
-      manualSlotLimit: 20,
-      visibleMechanics: [
-        ...mechanics.visibleStats.map((item) => ({ key: item.key, category: "stat" as const, label: item.label })),
-      ],
-    }, bundle);
+    const playerConfigVersion = this.artifacts.getCurrent<NativePlayerConfig>(projectId, NATIVE_PLAYER_CONFIG_ARTIFACT_ID) ?? null;
+    const playerConfig = this.resolvePlayerConfig(bundle, mechanics, playerConfigVersion?.content);
     const loaded = loadNativeGame(bundle);
     const initialState = initializeNativeGame(loaded);
     const passage = currentNativePassage(loaded, initialState);
@@ -247,7 +264,88 @@ export class NativeCompilationService {
       schemaVersion: 1,
       content: buildContent,
     });
-    return { input: inputVersion, build, bundle, playerConfig };
+    return { input: inputVersion, build, bundle, playerConfig, playerConfigVersionId: playerConfigVersion?.id ?? null };
+  }
+
+  getPlayerConfig(projectId: string): NativePlayerConfigWorkspace {
+    this.requireProject(projectId);
+    const context = this.currentPlayerConfigContext(projectId);
+    const version = this.artifacts.getCurrent<NativePlayerConfig>(projectId, NATIVE_PLAYER_CONFIG_ARTIFACT_ID) ?? null;
+    const allowed = visiblePlayerMechanics(context.mechanics);
+    let config = version
+      ? this.parseStoredPlayerConfig(version.content)
+      : createNativePlayerConfig({
+        gameId: context.gameId,
+        rewindPolicy: { kind: "previous-step" },
+        autosaveEnabled: true,
+        manualSlotLimit: NATIVE_PLAYER_LIMITS.maximumManualSlots,
+        visibleMechanics: allowed,
+      });
+    let validForCurrentBundle = true;
+    let validationError: string | null = null;
+    try {
+      config = this.validatePlayerConfigContext(config, context);
+    } catch (error) {
+      validForCurrentBundle = false;
+      validationError = error instanceof Error ? error.message : "Player configuration is invalid";
+    }
+    return {
+      config,
+      version,
+      validForCurrentBundle,
+      validationError,
+      historicalBuildPolicy: "current-player-config",
+      passageOptions: context.passageOptions,
+      visibleMechanicOptions: allowed.map((item) => ({
+        ...item,
+        selected: config.visibleMechanics.some((selected) => selected.key === item.key),
+      })),
+    };
+  }
+
+  savePlayerConfig(projectId: string, value: unknown): NativePlayerConfigWorkspace {
+    this.requireProject(projectId);
+    let input: NativePlayerAuthorConfigInput;
+    try {
+      input = NativePlayerAuthorConfigInputSchema.parse(value);
+    } catch (error) {
+      throw new NativeCompilationServiceError("player_config_invalid", `Player configuration is invalid: ${(error as Error).message}`);
+    }
+    if (new Set(input.visibleMechanicKeys).size !== input.visibleMechanicKeys.length) {
+      throw new NativeCompilationServiceError("player_config_invalid", "Player-visible mechanic selections must be unique");
+    }
+    const context = this.currentPlayerConfigContext(projectId);
+    const options = new Map(visiblePlayerMechanics(context.mechanics).map((item) => [item.key, item]));
+    const visibleMechanics = input.visibleMechanicKeys.map((key) => {
+      const option = options.get(key);
+      if (!option) throw new NativeCompilationServiceError(
+        "player_config_invalid",
+        `Mechanic ${key} is not canonically author-visible`,
+      );
+      return option;
+    });
+    let config: NativePlayerConfig;
+    try {
+      config = createNativePlayerConfig({
+        gameId: context.gameId,
+        rewindPolicy: input.rewindPolicy,
+        autosaveEnabled: input.autosaveEnabled,
+        manualSlotLimit: input.manualSlotLimit,
+        visibleMechanics,
+      });
+      config = this.validatePlayerConfigContext(config, context);
+    } catch (error) {
+      throw new NativeCompilationServiceError("player_config_invalid", (error as Error).message);
+    }
+    this.artifacts.saveArtifact({
+      projectId,
+      artifactId: NATIVE_PLAYER_CONFIG_ARTIFACT_ID,
+      artifactType: NATIVE_PLAYER_CONFIG_ARTIFACT_ID,
+      schemaVersion: 1,
+      content: config,
+      schema: NativePlayerConfigSchema,
+    });
+    return this.getPlayerConfig(projectId);
   }
 
   listBuilds(projectId: string): Array<ArtifactVersion<NativeBuildRecord> & { current: boolean }> {
@@ -258,6 +356,88 @@ export class NativeCompilationService {
       current: Boolean(readiness.sourceInputFingerprint
         && version.content.sourceInputFingerprint === readiness.sourceInputFingerprint),
     }));
+  }
+
+  private currentPlayerConfigContext(projectId: string): PlayerConfigContext {
+    const inspected = this.inspectCurrent(projectId);
+    if (!inspected.resolved || !inspected.readiness.ready) {
+      throw new NativeCompilationServiceError(
+        "publication_not_ready",
+        "Current project must be publication-ready before configuring its player",
+        inspected.readiness,
+      );
+    }
+    const mechanics = inspected.resolved.upstreamArtifacts.find((item) => item.artifactId === "mechanics")
+      ?.content as LongFormMechanicsPlan | undefined;
+    if (!mechanics) throw new NativeCompilationServiceError(
+      "native_input_mechanics_missing",
+      "Native compilation input has no exact mechanics artifact",
+    );
+    return {
+      gameId: inspected.resolved.input.gameId,
+      mechanics,
+      passageOptions: inspected.resolved.passages.map((passage) => ({
+        id: passage.content.id,
+        title: passage.content.title,
+      })).sort((left, right) => left.id.localeCompare(right.id)),
+    };
+  }
+
+  private parseStoredPlayerConfig(value: unknown): NativePlayerConfig {
+    try {
+      return assertNativePlayerConfig(value);
+    } catch (error) {
+      throw new NativeCompilationServiceError("player_config_invalid", (error as Error).message);
+    }
+  }
+
+  private resolvePlayerConfig(
+    bundle: NativeGameBundle,
+    mechanics: LongFormMechanicsPlan,
+    storedValue: unknown,
+  ): NativePlayerConfig {
+    const context: PlayerConfigContext = {
+      gameId: bundle.gameId,
+      mechanics,
+      passageOptions: bundle.passages.map((passage) => ({ id: passage.id, title: passage.presentation.title })),
+    };
+    const config = storedValue === undefined
+      ? createNativePlayerConfig({
+        gameId: bundle.gameId,
+        rewindPolicy: { kind: "previous-step" },
+        autosaveEnabled: true,
+        manualSlotLimit: NATIVE_PLAYER_LIMITS.maximumManualSlots,
+        visibleMechanics: visiblePlayerMechanics(mechanics),
+      }, bundle)
+      : this.parseStoredPlayerConfig(storedValue);
+    this.validatePlayerConfigContext(config, context);
+    try {
+      return assertNativePlayerConfig(config, bundle);
+    } catch (error) {
+      throw new NativeCompilationServiceError("player_config_invalid", (error as Error).message);
+    }
+  }
+
+  private validatePlayerConfigContext(config: NativePlayerConfig, context: PlayerConfigContext): NativePlayerConfig {
+    if (config.gameId !== context.gameId) {
+      throw new NativeCompilationServiceError("player_config_invalid", "Player configuration belongs to another game");
+    }
+    const allowed = new Set(visiblePlayerMechanics(context.mechanics).map((item) => item.key));
+    if (config.visibleMechanics.some((item) => item.category !== "stat" || !allowed.has(item.key))) {
+      throw new NativeCompilationServiceError(
+        "player_config_invalid",
+        "Player configuration exposes mechanics without canonical visible-state authorization",
+      );
+    }
+    if (config.rewindPolicy.kind === "designated-checkpoints") {
+      const passageIds = new Set(context.passageOptions.map((item) => item.id));
+      const missing = config.rewindPolicy.passageIds.find((passageId) => !passageIds.has(passageId));
+      if (missing) throw new NativeCompilationServiceError(
+        "player_config_invalid",
+        `Checkpoint passage ${missing} does not exist`,
+      );
+    }
+    return config;
   }
 
   private inspectCurrent(projectId: string): Inspection {
@@ -699,6 +879,14 @@ export class NativeCompilationService {
     }
     return project;
   }
+}
+
+function visiblePlayerMechanics(mechanics: LongFormMechanicsPlan): NativePlayerVisibleMechanic[] {
+  return mechanics.visibleStats.map((item) => ({
+    key: item.key,
+    category: "stat" as const,
+    label: item.label,
+  })).sort((left, right) => left.key.localeCompare(right.key));
 }
 
 function readiness(

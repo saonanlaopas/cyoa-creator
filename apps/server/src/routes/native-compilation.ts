@@ -33,6 +33,10 @@ export function registerNativeCompilationRoutes(
   );
   app.get<{ Params: ProjectParams }>(`${root}/builds`, async (request, reply) =>
     respond(reply, () => ({ items: service.listBuilds(request.params.projectId) })));
+  app.get<{ Params: ProjectParams }>(`${root}/player-config`, async (request, reply) =>
+    respond(reply, () => service.getPlayerConfig(request.params.projectId)));
+  app.put<{ Params: ProjectParams; Body: unknown }>(`${root}/player-config`, async (request, reply) =>
+    respond(reply, () => service.savePlayerConfig(request.params.projectId, request.body), 201));
 }
 function respond<T>(
   reply: { code(status: number): { send(value: unknown): unknown } },

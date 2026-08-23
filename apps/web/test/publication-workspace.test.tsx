@@ -51,6 +51,20 @@ const build = {
   },
 };
 
+const configBundle = playerFixture(4);
+const defaultPlayerConfig = createNativePlayerConfig(playerConfigInput(configBundle), configBundle);
+const configWorkspace = (config = defaultPlayerConfig, version: null | { id: string; version: number; createdAt: string } = null) => ({
+  config,
+  version,
+  validForCurrentBundle: true,
+  validationError: null,
+  historicalBuildPolicy: "current-player-config" as const,
+  passageOptions: configBundle.passages.map((passage) => ({ id: passage.id, title: passage.presentation.title })),
+  visibleMechanicOptions: defaultPlayerConfig.visibleMechanics.map((mechanic) => ({
+    ...mechanic, selected: config.visibleMechanics.some((selected) => selected.key === mechanic.key),
+  })),
+});
+
 const response = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
   status,
   headers: { "content-type": "application/json" },
@@ -68,6 +82,7 @@ describe("PublicationWorkspace", () => {
       requests.push({ url, method });
       if (url.endsWith("/publication/readiness")) return response(readiness);
       if (url.endsWith("/publication/builds")) return response({ items: compiled ? [build] : [] });
+      if (url.endsWith("/publication/player-config")) return response(configWorkspace());
       if (url.endsWith("/publication/compile") && method === "POST") {
         compiled = true;
         return response({ build, bundle: { bundleFingerprint } }, 201);
@@ -130,6 +145,7 @@ describe("PublicationWorkspace", () => {
       const url = String(request);
       if (url.endsWith("/publication/readiness")) return response(readiness);
       if (url.endsWith("/publication/builds")) return response({ items: [] });
+      if (url.endsWith("/publication/player-config")) return response(configWorkspace(playerConfig));
       if (url.endsWith("/publication/compile") && init?.method === "POST") {
         return response({ build, bundle, playerConfig }, 201);
       }
@@ -146,5 +162,64 @@ describe("PublicationWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "Debug current build" }));
     await waitFor(() => expect(window.location.hash).toContain("/debug"));
     expect(await storage.readInstallation(bundle.gameId, bundle.bundleFingerprint)).toMatchObject({ debugAuthorized: true });
+  });
+
+  it("edits, persists, reopens, and launches the current immutable player policy", async () => {
+    const bundle = configBundle;
+    const storage = new MemoryNativePlayerStorage();
+    let currentConfig = defaultPlayerConfig;
+    let version: null | { id: string; version: number; createdAt: string } = null;
+    const requests: Array<{ url: string; method: string; body?: any }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request);
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      requests.push({ url, method, body });
+      if (url.endsWith("/publication/readiness")) return response(readiness);
+      if (url.endsWith("/publication/builds")) return response({ items: [] });
+      if (url.endsWith("/publication/player-config") && method === "GET") {
+        return response(configWorkspace(currentConfig, version));
+      }
+      if (url.endsWith("/publication/player-config") && method === "PUT") {
+        currentConfig = createNativePlayerConfig({
+          gameId: bundle.gameId,
+          rewindPolicy: body.rewindPolicy,
+          autosaveEnabled: body.autosaveEnabled,
+          manualSlotLimit: body.manualSlotLimit,
+          visibleMechanics: defaultPlayerConfig.visibleMechanics.filter(
+            (item) => body.visibleMechanicKeys.includes(item.key),
+          ),
+        }, bundle);
+        version = { id: "player-config-v1", version: 1, createdAt: "2026-08-24T00:00:00.000Z" };
+        return response(configWorkspace(currentConfig, version), 201);
+      }
+      if (url.endsWith("/publication/compile") && method === "POST") {
+        return response({ build, bundle, playerConfig: currentConfig, playerConfigVersionId: version?.id ?? null }, 201);
+      }
+      return response({ error: "Unexpected request" }, 404);
+    });
+
+    const user = userEvent.setup();
+    const rendered = render(<PublicationWorkspace projectId="project-native" playerStorage={storage} />);
+    await screen.findByRole("combobox", { name: "Rewind mode" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Rewind mode" }), "disabled");
+    await user.clear(screen.getByRole("spinbutton", { name: "Manual save-slot limit" }));
+    await user.type(screen.getByRole("spinbutton", { name: "Manual save-slot limit" }), "7");
+    await user.click(screen.getByRole("checkbox", { name: /Autosave after/ }));
+    await user.click(screen.getByRole("button", { name: "Save player policy" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("immutable version 1"));
+    expect(requests.find((item) => item.method === "PUT")?.body).toMatchObject({
+      rewindPolicy: { kind: "disabled" }, autosaveEnabled: false, manualSlotLimit: 7,
+    });
+
+    rendered.unmount();
+    render(<PublicationWorkspace projectId="project-native" playerStorage={storage} />);
+    expect(await screen.findByText(/Saved version 1/)).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Rewind mode" })).toHaveProperty("value", "disabled");
+    await user.click(screen.getByRole("button", { name: "Play current build" }));
+    await waitFor(() => expect(window.location.hash).toContain(`#player/${bundle.gameId}/${bundle.bundleFingerprint}`));
+    expect(await storage.readInstallation(bundle.gameId, bundle.bundleFingerprint)).toMatchObject({
+      config: { rewindPolicy: { kind: "disabled" }, autosaveEnabled: false, manualSlotLimit: 7 },
+    });
   });
 });

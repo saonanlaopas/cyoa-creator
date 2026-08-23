@@ -5,6 +5,11 @@ import { join } from "node:path";
 import { openDatabase } from "@story-to-cyoa/persistence";
 import {
   NATIVE_BUNDLE_LIMITS,
+  assertNativePlayerSession,
+  chooseNativePlayerSession,
+  createNativePlayerSave,
+  createNativePlayerSession,
+  loadNativePlayerSave,
   loadNativeGame,
   runDeterministicPath,
   serializedBytes,
@@ -343,6 +348,155 @@ describe("Foundation 7A native compilation API", () => {
     expect(afterLock.bundle.passages.find((item: { id: string }) => item.id === firstPassageId).proseMarkdown)
       .toBe(fixture.proseByPassage.get(firstPassageId));
   });
+
+  it("persists author-selected player policy independently and uses it for actual current and historical launches", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-player-config-"));
+    temporaryDirectories.push(directory);
+    const databasePath = join(directory, "story.sqlite");
+    const fixture = await seedApprovedProject({ databasePath, passageCount: 7 });
+    const planBefore = (await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/passage-plan`,
+    }))).body;
+    const captured = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/inputs`,
+    }))).json();
+    const initial = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
+    }))).json();
+    const visibleMechanicKeys = fixture.artifacts.mechanics.content.visibleStats
+      .map((item: { key: string }) => item.key);
+    const savePolicy = async (rewindPolicy: unknown, overrides: Record<string, unknown> = {}) => {
+      const response = await fixture.app.inject({
+        method: "PUT",
+        url: `/api/long-form/projects/${fixture.projectId}/publication/player-config`,
+        payload: {
+          rewindPolicy,
+          autosaveEnabled: true,
+          manualSlotLimit: 12,
+          visibleMechanicKeys,
+          ...overrides,
+        },
+      });
+      expect(response.statusCode).toBe(201);
+      return response.json();
+    };
+
+    const defaultWorkspace = (await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/player-config`,
+    }))).json();
+    expect(defaultWorkspace).toMatchObject({
+      version: null,
+      validForCurrentBundle: true,
+      historicalBuildPolicy: "current-player-config",
+      config: { rewindPolicy: { kind: "previous-step" }, autosaveEnabled: true, manualSlotLimit: 20 },
+    });
+    expect(defaultWorkspace.passageOptions).toHaveLength(7);
+    expect(defaultWorkspace.visibleMechanicOptions.every((item: { category: string }) => item.category === "stat")).toBe(true);
+
+    const disabled = await savePolicy({ kind: "disabled" }, { autosaveEnabled: false, manualSlotLimit: 7 });
+    expect((await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/builds`,
+    }))).json().items).toHaveLength(1);
+    const disabledLaunch = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
+    }))).json();
+    expect(disabledLaunch.playerConfig).toMatchObject({
+      rewindPolicy: { kind: "disabled" }, autosaveEnabled: false, manualSlotLimit: 7,
+    });
+    expect(disabledLaunch.playerConfigVersionId).toBe(disabled.version.id);
+    expect(disabledLaunch.bundle.bundleFingerprint).toBe(initial.bundle.bundleFingerprint);
+    expect(disabledLaunch.bundle.runtimeFingerprint).toBe(initial.bundle.runtimeFingerprint);
+    expect(disabledLaunch.bundle.source.inputFingerprint).toBe(initial.bundle.source.inputFingerprint);
+    let disabledSession = createNativePlayerSession(disabledLaunch.bundle, disabledLaunch.playerConfig);
+    disabledSession = chooseNativePlayerSession(
+      disabledLaunch.bundle, disabledLaunch.playerConfig, disabledSession, "choice-000",
+    ).session;
+    expect(disabledSession.history).toEqual([]);
+
+    await savePolicy({ kind: "previous-step" });
+    const previousLaunch = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
+    }))).json();
+    let previousSession = createNativePlayerSession(previousLaunch.bundle, previousLaunch.playerConfig);
+    previousSession = chooseNativePlayerSession(
+      previousLaunch.bundle, previousLaunch.playerConfig, previousSession, "choice-000",
+    ).session;
+    expect(previousSession.history).toHaveLength(1);
+    const previousSave = createNativePlayerSave(previousLaunch.bundle, previousLaunch.playerConfig, previousSession);
+
+    await savePolicy({ kind: "bounded-last-n", steps: 3 });
+    const boundedLaunch = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
+    }))).json();
+    expect(loadNativePlayerSave(boundedLaunch.bundle, boundedLaunch.playerConfig, previousSave).history).toHaveLength(1);
+    let boundedSession = createNativePlayerSession(boundedLaunch.bundle, boundedLaunch.playerConfig);
+    for (let index = 0; index < 5; index += 1) boundedSession = chooseNativePlayerSession(
+      boundedLaunch.bundle,
+      boundedLaunch.playerConfig,
+      boundedSession,
+      `choice-${String(index).padStart(3, "0")}`,
+    ).session;
+    expect(boundedSession.history).toHaveLength(3);
+    expect(assertNativePlayerSession(boundedLaunch.bundle, boundedLaunch.playerConfig, boundedSession)).toEqual(boundedSession);
+
+    const designated = await savePolicy({
+      kind: "designated-checkpoints",
+      passageIds: ["passage-001", "passage-003"],
+      maximumCheckpoints: 2,
+    });
+    const designatedLaunch = (await ok(fixture.app.inject({
+      method: "POST",
+      url: `/api/long-form/projects/${fixture.projectId}/publication/compile`,
+      payload: { inputArtifactVersionId: captured.id },
+    }))).json();
+    expect(designatedLaunch.playerConfig).toMatchObject({
+      rewindPolicy: {
+        kind: "designated-checkpoints", passageIds: ["passage-001", "passage-003"], maximumCheckpoints: 2,
+      },
+    });
+    expect(designatedLaunch.playerConfigVersionId).toBe(designated.version.id);
+    expect(designatedLaunch.bundle.bundleFingerprint).toBe(initial.bundle.bundleFingerprint);
+    let designatedSession = createNativePlayerSession(designatedLaunch.bundle, designatedLaunch.playerConfig);
+    for (let index = 0; index < 5; index += 1) designatedSession = chooseNativePlayerSession(
+      designatedLaunch.bundle,
+      designatedLaunch.playerConfig,
+      designatedSession,
+      `choice-${String(index).padStart(3, "0")}`,
+    ).session;
+    expect(designatedSession.history.map((item) => item.passageId)).toEqual(["passage-001", "passage-003"]);
+    expect(designatedSession.history.every((item) => item.reason === "designated-checkpoint")).toBe(true);
+
+    const invalid = await fixture.app.inject({
+      method: "PUT",
+      url: `/api/long-form/projects/${fixture.projectId}/publication/player-config`,
+      payload: {
+        rewindPolicy: { kind: "designated-checkpoints", passageIds: ["passage-missing"], maximumCheckpoints: 1 },
+        autosaveEnabled: true,
+        manualSlotLimit: 12,
+        visibleMechanicKeys,
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().code).toBe("player_config_invalid");
+    const versions = (await ok(fixture.app.inject({
+      method: "GET",
+      url: `/api/projects/${fixture.projectId}/artifacts/native-player-config/versions`,
+    }))).json();
+    expect(versions).toHaveLength(4);
+    expect((await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/passage-plan`,
+    }))).body).toBe(planBefore);
+
+    await fixture.app.close();
+    apps.splice(apps.indexOf(fixture.app), 1);
+    const reopened = buildApp({ databasePath });
+    apps.push(reopened);
+    const retained = (await ok(reopened.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/player-config`,
+    }))).json();
+    expect(retained.version.id).toBe(designated.version.id);
+    expect(retained.config.configFingerprint).toBe(designated.config.configFingerprint);
+  }, 30_000);
 
   it("matches Foundation 5A runtime transitions, state, routes, facts, and ending results", async () => {
     const fixture = await seedApprovedProject();

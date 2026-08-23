@@ -133,6 +133,32 @@ describe("NativePlayer", () => {
     expect(screen.queryByRole("button", { name: "Rewind" })).toBeNull();
   });
 
+  it("enables designated rewind only when the pure session layer has an earlier usable checkpoint", async () => {
+    const bundle = playerFixture(4);
+    const config = createNativePlayerConfig({
+      ...playerConfigInput(bundle),
+      rewindPolicy: {
+        kind: "designated-checkpoints",
+        passageIds: ["passage-1", "passage-2"],
+        maximumCheckpoints: 2,
+      },
+    }, bundle);
+    const storage = new MemoryNativePlayerStorage();
+    await storage.install(createNativePlayerInstallation(bundle, config));
+    const user = userEvent.setup();
+    render(<NativePlayer route={{
+      gameId: bundle.gameId, bundleFingerprint: bundle.bundleFingerprint, debug: false,
+    }} storage={storage} />);
+    await user.click(await screen.findByRole("button", { name: "Continue 1" }));
+    const rewind = screen.getByRole("button", { name: "Rewind" });
+    expect((rewind as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Continue 2" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Rewind" }) as HTMLButtonElement).disabled).toBe(false));
+    await user.click(screen.getByRole("button", { name: "Rewind" }));
+    expect(await screen.findByRole("heading", { name: "Passage 1" })).toBeTruthy();
+    expect(screen.queryByText(/player_rewind_unavailable/)).toBeNull();
+  });
+
   it("renders untrusted prose as literal text and exposes bounded debug only on an authorized debug route", async () => {
     const bundle = playerFixture(3);
     bundle.passages[0]!.proseMarkdown = '<img src=x onerror="window.__owned=true">\n\nLiteral **markdown**.';

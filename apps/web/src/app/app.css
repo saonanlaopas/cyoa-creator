@@ -278,6 +278,17 @@ textarea.source { min-height: 20rem; }
 .simulation-workspace { grid-column: 2 / -1; }
 .repair-workspace { grid-column: 2 / -1; }
 .publication-workspace { grid-column: 2 / -1; }
+.publication-player-config { display: grid; gap: .8rem; }
+.publication-player-config select { border: 1px solid #48536a; border-radius: .55rem; padding: .7rem; background: #11151e; color: #f4efe7; }
+.publication-config-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .8rem; align-items: end; }
+.publication-config-grid > label { display: grid; gap: .35rem; color: #c3cad6; }
+.publication-config-grid > label.checkbox { display: flex; align-items: center; align-self: center; }
+.publication-player-config fieldset { display: grid; gap: .55rem; min-width: 0; border: 1px solid #354055; border-radius: .55rem; }
+.publication-player-config fieldset > p { margin: 0; color: #aeb7c6; }
+.publication-config-options { display: grid; gap: .4rem; max-height: 18rem; overflow: auto; scrollbar-gutter: stable; }
+.publication-config-options label { display: flex; gap: .45rem; align-items: center; }
+.publication-config-actions { align-items: center; justify-content: space-between; }
+.publication-config-actions small { overflow-wrap: anywhere; color: #aeb7c6; }
 .publication-diagnostics article, .publication-builds article { display: grid; gap: .35rem; padding: .7rem; border: 1px solid #354055; border-radius: .55rem; background: #0e141e; }
 .publication-builds > article > header { display: flex; justify-content: space-between; gap: 1rem; }
 .native-player-shell { max-width: 78rem; min-height: 100vh; margin: 0 auto; padding: clamp(1rem, 3vw, 2.5rem); }

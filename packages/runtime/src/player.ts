@@ -47,7 +47,7 @@ export const NATIVE_PLAYER_LIMITS = Object.freeze({
 const StableId = z.string().min(1).max(200);
 const Fingerprint = z.string().regex(/^[0-9a-f]{32}$/);
 const Label = z.string().max(NATIVE_PLAYER_LIMITS.maximumSlotLabelCharacters);
-const RewindPolicySchema = z.discriminatedUnion("kind", [
+export const NativePlayerRewindPolicySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("disabled") }).strict(),
   z.object({ kind: z.literal("previous-step") }).strict(),
   z.object({
@@ -70,12 +70,18 @@ const PlayerConfigIdentitySchema = z.object({
   schemaId: z.literal(NATIVE_PLAYER_CONFIG_SCHEMA_ID),
   schemaVersion: z.literal(NATIVE_PLAYER_CONFIG_SCHEMA_VERSION),
   gameId: StableId,
-  rewindPolicy: RewindPolicySchema,
+  rewindPolicy: NativePlayerRewindPolicySchema,
   autosaveEnabled: z.boolean(),
   manualSlotLimit: z.number().int().min(1).max(NATIVE_PLAYER_LIMITS.maximumManualSlots),
   visibleMechanics: z.array(VisibleMechanicSchema).max(500),
 }).strict();
 export const NativePlayerConfigSchema = PlayerConfigIdentitySchema.extend({ configFingerprint: Fingerprint }).strict();
+export const NativePlayerAuthorConfigInputSchema = z.object({
+  rewindPolicy: NativePlayerRewindPolicySchema,
+  autosaveEnabled: z.boolean(),
+  manualSlotLimit: z.number().int().min(1).max(NATIVE_PLAYER_LIMITS.maximumManualSlots),
+  visibleMechanicKeys: z.array(StableId).max(500),
+}).strict();
 
 const CheckpointSchema = z.object({
   sequence: z.number().int().min(0).max(NATIVE_PLAYER_LIMITS.maximumTurn),
@@ -149,7 +155,8 @@ export const NativePlayerManualSlotSchema = z.object({
 }).strict();
 
 export type NativePlayerConfig = z.infer<typeof NativePlayerConfigSchema>;
-export type NativePlayerRewindPolicy = z.infer<typeof RewindPolicySchema>;
+export type NativePlayerAuthorConfigInput = z.infer<typeof NativePlayerAuthorConfigInputSchema>;
+export type NativePlayerRewindPolicy = z.infer<typeof NativePlayerRewindPolicySchema>;
 export type NativePlayerVisibleMechanic = z.infer<typeof VisibleMechanicSchema>;
 export type NativePlayerCheckpoint = z.infer<typeof CheckpointSchema>;
 export type NativePlayerSession = z.infer<typeof NativePlayerSessionSchema>;
@@ -359,9 +366,27 @@ export function assertNativePlayerSession(
   if (session.playerConfigFingerprint !== config.configFingerprint || session.sequence !== session.state.turn) {
     throw new NativePlayerError("player_session_invalid", "Player session policy or sequence identity is invalid");
   }
-  assertNativeRuntimeState(game, session.state);
-  validateHistory(game, session.history, session.sequence);
+  try {
+    assertNativeRuntimeState(game, session.state);
+    validateHistory(game, session.history, session.sequence);
+  } catch (error) {
+    throw new NativePlayerError("player_session_invalid", "Player session state or history is invalid", error);
+  }
+  if (canonical(applyCurrentHistoryPolicy(config, session.history)) !== canonical(session.history)) {
+    throw new NativePlayerError("player_session_invalid", "Player session history is not canonical for the current policy");
+  }
   return structuredClone(session);
+}
+
+export function canRewindNativePlayerSession(
+  bundleValue: unknown,
+  configValue: unknown,
+  sessionValue: unknown,
+): boolean {
+  const game = loadNativeGame(bundleValue);
+  const config = assertNativePlayerConfig(configValue, game.bundle);
+  const session = assertNativePlayerSession(game.bundle, config, sessionValue);
+  return config.rewindPolicy.kind !== "disabled" && earlierCheckpointIndex(session) >= 0;
 }
 
 export function nativePlayerView(
@@ -420,11 +445,10 @@ export function rewindNativePlayerSession(
   const game = loadNativeGame(bundleValue);
   const config = assertNativePlayerConfig(configValue, game.bundle);
   const session = assertNativePlayerSession(game.bundle, config, sessionValue);
-  if (config.rewindPolicy.kind === "disabled" || !session.history.length) {
+  if (config.rewindPolicy.kind === "disabled") {
     throw new NativePlayerError("player_rewind_unavailable", "No rewind checkpoint is available");
   }
-  let index = session.history.length - 1;
-  while (index >= 0 && session.history[index]!.stateFingerprint === stableFingerprint(session.state)) index -= 1;
+  const index = earlierCheckpointIndex(session);
   if (index < 0) throw new NativePlayerError("player_rewind_unavailable", "No earlier rewind checkpoint is available");
   const checkpoint = session.history[index]!;
   const state = assertNativeRuntimeState(game, checkpoint.state);
@@ -781,16 +805,27 @@ function validateHistory(game: LoadedNativeGame, history: NativePlayerCheckpoint
 function applyCurrentHistoryPolicy(config: NativePlayerConfig, history: NativePlayerCheckpoint[]): NativePlayerCheckpoint[] {
   let retained = [...history];
   if (config.rewindPolicy.kind === "disabled") retained = [];
-  else if (config.rewindPolicy.kind === "previous-step") retained = retained.slice(-1);
-  else if (config.rewindPolicy.kind === "bounded-last-n") retained = retained.slice(-config.rewindPolicy.steps);
+  else if (config.rewindPolicy.kind === "previous-step") {
+    retained = retained.filter((item) => item.reason === "transition").slice(-1);
+  } else if (config.rewindPolicy.kind === "bounded-last-n") {
+    retained = retained.filter((item) => item.reason === "transition").slice(-config.rewindPolicy.steps);
+  }
   else {
     const policy = config.rewindPolicy;
-    retained = retained.filter((item) => policy.passageIds.includes(item.passageId))
+    retained = retained.filter((item) => item.reason === "designated-checkpoint"
+        && policy.passageIds.includes(item.passageId))
       .slice(-policy.maximumCheckpoints);
   }
   while (retained.length
     && playerSerializedBytes(retained, "save_history_invalid") > NATIVE_PLAYER_LIMITS.maximumHistoryBytes) retained.shift();
   return retained.slice(-NATIVE_PLAYER_LIMITS.maximumHistoryEntries).map((item) => structuredClone(item));
+}
+
+function earlierCheckpointIndex(session: NativePlayerSession): number {
+  const currentStateFingerprint = stableFingerprint(session.state);
+  let index = session.history.length - 1;
+  while (index >= 0 && session.history[index]!.stateFingerprint === currentStateFingerprint) index -= 1;
+  return index;
 }
 
 function assertCompatibility(

@@ -3,6 +3,7 @@ import {
   NativePlayerError,
   assertNativePlayerInstallation,
   assertNativePlayerManualSlot,
+  canRewindNativePlayerSession,
   chooseNativePlayerSession,
   createNativePlayerManualSlot,
   createNativePlayerSave,
@@ -261,7 +262,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
   </main>;
 
   const view = nativePlayerView(installation.bundle, installation.config, session);
-  const canRewind = installation.config.rewindPolicy.kind !== "disabled" && session.history.length > 0;
+  const canRewind = canRewindNativePlayerSession(installation.bundle, installation.config, session);
 
   return <main className="native-player-shell">
     <div className="native-player-layout">
