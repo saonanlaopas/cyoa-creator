@@ -317,6 +317,7 @@ export function runDeterministicPath(
   simulationInputFingerprint: string,
   path: DeterministicPathDefinition,
 ): RuntimeTrace {
+  path = assertDeterministicPathDefinition(path);
   const policy = path.policy;
   if (policy.version !== "foundation-5a-v1" || policy.maxSteps < 1 || policy.maxSteps > 10_000
     || policy.maxVisitsPerPassage < 1 || policy.maxVisitsPerPassage > 1_000
@@ -404,4 +405,68 @@ export function runDeterministicPath(
   );
   if (serializedBytes(bounded) <= policy.maxTraceBytes) return bounded;
   return initialBoundedFailure;
+}
+
+export function assertDeterministicPathDefinition(value: unknown): DeterministicPathDefinition {
+  if (!record(value) || !exactObjectKeys(value, ["choiceIds", "policy"], ["expectedEndingId", "expectedState"])
+    || !Array.isArray(value.choiceIds) || value.choiceIds.some((item) => typeof item !== "string" || !item.length)
+    || !record(value.policy) || !exactObjectKeys(value.policy, ["version", "maxSteps", "maxVisitsPerPassage", "maxTraceBytes"])) {
+    throw new Error("Invalid deterministic simulation path");
+  }
+  const policy = value.policy;
+  if (policy.version !== "foundation-5a-v1" || !boundedInteger(policy.maxSteps, 1, 10_000)
+    || !boundedInteger(policy.maxVisitsPerPassage, 1, 1_000) || !boundedInteger(policy.maxTraceBytes, 1_000, 20_000_000)) {
+    throw new Error("Invalid deterministic simulation policy");
+  }
+  if (Object.hasOwn(value, "expectedEndingId") && value.expectedEndingId !== null
+    && (typeof value.expectedEndingId !== "string" || !value.expectedEndingId.length)) {
+    throw new Error("Invalid deterministic expected ending");
+  }
+  if (Object.hasOwn(value, "expectedState") && !validExpectedState(value.expectedState)) {
+    throw new Error("Invalid deterministic expected state");
+  }
+  return {
+    choiceIds: [...value.choiceIds] as string[],
+    policy: {
+      version: "foundation-5a-v1",
+      maxSteps: policy.maxSteps as number,
+      maxVisitsPerPassage: policy.maxVisitsPerPassage as number,
+      maxTraceBytes: policy.maxTraceBytes as number,
+    },
+    ...(Object.hasOwn(value, "expectedEndingId") ? { expectedEndingId: value.expectedEndingId as string | null } : {}),
+    ...(Object.hasOwn(value, "expectedState") ? { expectedState: structuredClone(value.expectedState) as DeterministicPathDefinition["expectedState"] } : {}),
+  };
+}
+
+function validExpectedState(value: unknown): boolean {
+  if (!record(value) || !exactObjectKeys(value, [], ["stats", "relationships", "flags", "resources", "decisions", "routes"])) return false;
+  return (!Object.hasOwn(value, "stats") || numberRecord(value.stats))
+    && (!Object.hasOwn(value, "relationships") || numberRecord(value.relationships))
+    && (!Object.hasOwn(value, "flags") || booleanRecord(value.flags))
+    && (!Object.hasOwn(value, "resources") || scalarResourceRecord(value.resources))
+    && (!Object.hasOwn(value, "decisions") || stringArray(value.decisions))
+    && (!Object.hasOwn(value, "routes") || stringArray(value.routes));
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+function exactObjectKeys(value: Record<string, unknown>, required: string[], optional: string[] = []): boolean {
+  const keys = Object.keys(value);
+  return required.every((key) => Object.hasOwn(value, key)) && keys.every((key) => required.includes(key) || optional.includes(key));
+}
+function boundedInteger(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum;
+}
+function numberRecord(value: unknown): boolean {
+  return record(value) && Object.values(value).every((item) => typeof item === "number" && Number.isFinite(item));
+}
+function booleanRecord(value: unknown): boolean {
+  return record(value) && Object.values(value).every((item) => typeof item === "boolean");
+}
+function scalarResourceRecord(value: unknown): boolean {
+  return record(value) && Object.values(value).every((item) => (typeof item === "number" && Number.isFinite(item)) || typeof item === "string");
+}
+function stringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }

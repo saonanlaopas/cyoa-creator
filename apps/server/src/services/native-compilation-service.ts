@@ -200,6 +200,15 @@ export class NativeCompilationService {
     return this.artifacts.listVersions<NativeCompilationInput>(projectId, NATIVE_COMPILATION_INPUT_ARTIFACT_ID);
   }
 
+  validateStoredInput(projectId: string, versionId: string): {
+    inputVersion: ArtifactVersion<NativeCompilationInput>;
+    resolved: ResolvedNativeCompilationInput;
+  } {
+    this.requireProject(projectId);
+    const inputVersion = this.requireInputVersion(projectId, versionId);
+    return { inputVersion, resolved: this.resolveStoredInput(projectId, inputVersion.content) };
+  }
+
   compile(projectId: string, inputArtifactVersionId?: string): {
     input: ArtifactVersion<NativeCompilationInput>;
     build: ArtifactVersion<NativeBuildRecord>;
@@ -356,6 +365,51 @@ export class NativeCompilationService {
       current: Boolean(readiness.sourceInputFingerprint
         && version.content.sourceInputFingerprint === readiness.sourceInputFingerprint),
     }));
+  }
+
+  validateBuild(projectId: string, versionId: string): ArtifactVersion<NativeBuildRecord> {
+    this.requireProject(projectId);
+    const version = this.artifacts.getVersion<NativeBuildRecord>(versionId);
+    if (!version || version.projectId !== projectId || version.artifactId !== NATIVE_BUILD_ARTIFACT_ID
+      || version.artifactType !== "native-build" || version.schemaVersion !== 1) {
+      throw new NativeCompilationServiceError("native_build_not_found", "Native build was not found");
+    }
+    const { inputVersion, resolved } = this.validateStoredInput(projectId, version.content.compilationInputArtifactVersionId);
+    const bundle = compileNativeGame(resolved);
+    const game = loadNativeGame(bundle);
+    const initialState = initializeNativeGame(game);
+    const passage = currentNativePassage(game, initialState);
+    const availableChoices = listNativeGameChoices(game, initialState);
+    const expected: NativeBuildRecord = {
+      schemaVersion: 1,
+      id: `nativebuild_${stableFingerprint({
+        inputArtifactVersionId: inputVersion.id,
+        sourceInputFingerprint: resolved.input.sourceInputFingerprint,
+        bundleFingerprint: bundle.bundleFingerprint,
+      })}`,
+      projectId,
+      compilationInputArtifactVersionId: inputVersion.id,
+      sourceInputFingerprint: resolved.input.sourceInputFingerprint,
+      bundleFingerprint: bundle.bundleFingerprint,
+      runtimeFingerprint: bundle.runtimeFingerprint,
+      snapshotId: resolved.input.snapshot.id,
+      structureVersionId: resolved.input.snapshot.structureVersionId,
+      compilerPolicyId: resolved.input.compilerPolicy.id,
+      compilerPolicyVersion: resolved.input.compilerPolicy.version,
+      compilerVersion: resolved.input.compilerPolicy.compilerVersion,
+      runtimeContractVersion: resolved.input.runtimeContract.version,
+      bundleSchemaId: resolved.input.bundleContract.schemaId,
+      bundleSchemaVersion: resolved.input.bundleContract.schemaVersion,
+      passageCount: bundle.passages.length,
+      choiceCount: bundle.choices.length,
+      acceptedWordCount: resolved.acceptedDrafts.reduce((total, item) => total + item.selection.wordCount, 0),
+      serializedBytes: serializedBytes(bundle),
+      validation: { valid: true, loaded: true, smokePassageId: passage.id, availableChoiceCount: availableChoices.length },
+    };
+    if (stableFingerprint(version.content) !== stableFingerprint(expected)) {
+      throw new NativeCompilationServiceError("native_build_invalid", "Native build metadata does not match its exact immutable compilation input");
+    }
+    return version;
   }
 
   private currentPlayerConfigContext(projectId: string): PlayerConfigContext {
@@ -866,7 +920,8 @@ export class NativeCompilationService {
 
   private requireInputVersion(projectId: string, versionId: string): ArtifactVersion<NativeCompilationInput> {
     const version = this.artifacts.getVersion<NativeCompilationInput>(versionId);
-    if (!version || version.projectId !== projectId || version.artifactId !== NATIVE_COMPILATION_INPUT_ARTIFACT_ID) {
+    if (!version || version.projectId !== projectId || version.artifactId !== NATIVE_COMPILATION_INPUT_ARTIFACT_ID
+      || version.artifactType !== "native-compilation-input" || version.schemaVersion !== NATIVE_COMPILATION_INPUT_SCHEMA_VERSION) {
       throw new NativeCompilationServiceError("native_input_not_found", "Native compilation input was not found");
     }
     return version;

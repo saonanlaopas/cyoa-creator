@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { strToU8, unzipSync, zipSync } from "fflate";
 import { openDatabase } from "@story-to-cyoa/persistence";
 import {
   NATIVE_BUNDLE_LIMITS,
@@ -13,6 +15,7 @@ import {
   loadNativeGame,
   runDeterministicPath,
   serializedBytes,
+  stableFingerprint,
 } from "@story-to-cyoa/runtime";
 import { buildApp } from "../src/app.js";
 
@@ -193,6 +196,48 @@ function exactPath(plan: {
     }
   }
   throw new Error("Fixture has no ending path");
+}
+
+type PortablePayload = {
+  schemaId: string;
+  schemaVersion: number;
+  projectFingerprint: string;
+  projectId: string;
+  tables: Record<string, Array<Record<string, string | number | null>>>;
+};
+
+function resealPortableArchive(bytes: Uint8Array, mutate: (payload: PortablePayload) => void): Uint8Array {
+  const files = unzipSync(bytes);
+  const manifest = JSON.parse(new TextDecoder().decode(files["manifest.json"]!)) as Record<string, any>;
+  const payload = JSON.parse(new TextDecoder().decode(files["project.json"]!)) as PortablePayload;
+  mutate(payload);
+  const rows = { projectId: payload.projectId, tables: payload.tables };
+  payload.projectFingerprint = stableFingerprint({
+    schemaId: payload.schemaId,
+    schemaVersion: payload.schemaVersion,
+    historyMode: manifest.historyMode,
+    rows,
+  });
+  const payloadBytes = strToU8(JSON.stringify(payload));
+  manifest.projectFingerprint = payload.projectFingerprint;
+  manifest.counts = Object.fromEntries(Object.entries(payload.tables).map(([table, tableRows]) => [table, tableRows.length]));
+  manifest.files[0].bytes = payloadBytes.byteLength;
+  manifest.files[0].sha256 = createHash("sha256").update(payloadBytes).digest("hex");
+  return zipSync({
+    "manifest.json": strToU8(JSON.stringify(manifest)),
+    "project.json": payloadBytes,
+  });
+}
+
+function portableMultipart(bytes: Uint8Array, boundary: string) {
+  return {
+    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    payload: Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="project.zip"\r\nContent-Type: application/zip\r\n\r\n`),
+      Buffer.from(bytes),
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]),
+  };
 }
 
 async function ok(responsePromise: ReturnType<ReturnType<typeof buildApp>["inject"]>) {
@@ -523,6 +568,131 @@ describe("Foundation 7A native compilation API", () => {
     });
     expect(trace).toEqual(simulationRun.content.trace);
   });
+
+  it("exhaustively rejects resealed simulation/build artifact forgeries and round-trips legitimate history", async () => {
+    const fixture = await seedApprovedProject();
+    const simulationInput = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/simulation/inputs`,
+    }))).json();
+    const path = exactPath(fixture.plan);
+    const simulationRun = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/simulation/runs`, payload: {
+        inputArtifactVersionId: simulationInput.id,
+        choiceIds: path.choiceIds,
+        expectedEndingId: path.endingId,
+      },
+    }))).json();
+    const compiled = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
+    }))).json();
+    const exported = await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/exports/portable`,
+    }));
+    const archive = new Uint8Array(exported.rawPayload);
+    const archiveFiles = unzipSync(archive);
+    const archiveManifest = JSON.parse(new TextDecoder().decode(archiveFiles["manifest.json"]!)) as Record<string, any>;
+    const archivePayload = JSON.parse(new TextDecoder().decode(archiveFiles["project.json"]!)) as PortablePayload;
+    expect(archiveManifest.projectFingerprint).toBe(archivePayload.projectFingerprint);
+    expect(stableFingerprint({ schemaId: archivePayload.schemaId, schemaVersion: archivePayload.schemaVersion,
+      historyMode: "immutable-authoring-history-v1", rows: { projectId: archivePayload.projectId, tables: archivePayload.tables } }))
+      .toBe(archivePayload.projectFingerprint);
+
+    const target = buildApp(); apps.push(target);
+    const untouched = (await ok(target.inject({
+      method: "POST", url: "/api/projects", payload: { name: "Unrelated target project", mode: "long-form" },
+    }))).json();
+    const originalPreview = await target.inject({
+      method: "POST", url: "/api/portable-projects/preview", ...portableMultipart(archive, "portable-original-preview"),
+    });
+    expect(originalPreview.statusCode, originalPreview.body).toBe(200);
+    const row = (payload: PortablePayload, artifactType: string) => {
+      const found = payload.tables.artifact_versions!.find((item) => item.artifact_type === artifactType);
+      if (!found) throw new Error(`Missing ${artifactType} fixture row`);
+      return found;
+    };
+    const content = (payload: PortablePayload, artifactType: string) => JSON.parse(String(row(payload, artifactType).content_json));
+    const replaceContent = (payload: PortablePayload, artifactType: string, value: unknown) => {
+      row(payload, artifactType).content_json = JSON.stringify(value);
+    };
+    const resealTrace = (run: Record<string, any>) => {
+      const { fingerprint: _fingerprint, ...traceIdentity } = run.trace;
+      run.trace.fingerprint = stableFingerprint(traceIdentity);
+      run.id = `simrun_${stableFingerprint({
+        inputVersionId: run.inputArtifactVersionId,
+        traceFingerprint: run.trace.fingerprint,
+      })}`;
+    };
+    const attacks: Array<[string, (payload: PortablePayload) => void]> = [
+      ["simulation run input version", (payload) => {
+        const run = content(payload, "simulation-run"); run.inputArtifactVersionId = compiled.input.id; replaceContent(payload, "simulation-run", run);
+      }],
+      ["simulation run input fingerprint", (payload) => {
+        const run = content(payload, "simulation-run"); run.inputFingerprint = "0".repeat(64); replaceContent(payload, "simulation-run", run);
+      }],
+      ["simulation run runtime fingerprint", (payload) => {
+        const run = content(payload, "simulation-run"); run.runtimeFingerprint = "1".repeat(64); replaceContent(payload, "simulation-run", run);
+      }],
+      ["simulation run path", (payload) => {
+        const run = content(payload, "simulation-run"); run.path.futureField = true; run.trace.path.futureField = true;
+        resealTrace(run); replaceContent(payload, "simulation-run", run);
+      }],
+      ["resealed simulation trace", (payload) => {
+        const run = content(payload, "simulation-run"); run.trace.finalState.turn += 1; resealTrace(run); replaceContent(payload, "simulation-run", run);
+      }],
+      ["simulation result fingerprint mismatch", (payload) => {
+        const run = content(payload, "simulation-run"); run.trace.result.kind = "blocked"; replaceContent(payload, "simulation-run", run);
+      }],
+      ["native build compilation input", (payload) => {
+        const build = content(payload, "native-build"); build.compilationInputArtifactVersionId = simulationInput.id; replaceContent(payload, "native-build", build);
+      }],
+      ["native build source fingerprint", (payload) => {
+        const build = content(payload, "native-build"); build.sourceInputFingerprint = "2".repeat(64); replaceContent(payload, "native-build", build);
+      }],
+      ["native build bundle fingerprint", (payload) => {
+        const build = content(payload, "native-build"); build.bundleFingerprint = "3".repeat(64); replaceContent(payload, "native-build", build);
+      }],
+      ["native build contract identity", (payload) => {
+        const build = content(payload, "native-build"); build.compilerVersion = "future-compiler"; build.runtimeContractVersion = "future-runtime";
+        build.bundleSchemaId = "future.bundle"; replaceContent(payload, "native-build", build);
+      }],
+      ["native build counts and validation", (payload) => {
+        const build = content(payload, "native-build"); build.passageCount += 1; build.acceptedWordCount += 10;
+        build.validation.availableChoiceCount += 1; replaceContent(payload, "native-build", build);
+      }],
+      ["known content under wrong artifact id", (payload) => { row(payload, "native-build").artifact_id = "forged-native-builds"; }],
+      ["known content under wrong artifact type", (payload) => { row(payload, "native-build").artifact_type = "simulation-run"; }],
+      ["unknown artifact type", (payload) => {
+        const forged = { ...row(payload, "native-build") };
+        forged.id = "future-artifact-version"; forged.artifact_id = "future-artifacts"; forged.artifact_type = "future-made-up-stream";
+        forged.version = 1; forged.restored_from_version_id = null;
+        payload.tables.artifact_versions!.push(forged);
+      }],
+    ];
+
+    for (const [label, attack] of attacks) {
+      const upload = portableMultipart(resealPortableArchive(archive, attack), `portable-${label.replaceAll(" ", "-")}`);
+      const rejected = await target.inject({ method: "POST", url: "/api/portable-projects/import", ...upload });
+      expect(rejected.statusCode, `${label}: ${rejected.body}`).toBe(400);
+      expect((await target.inject({ method: "GET", url: `/api/projects/${fixture.projectId}` })).statusCode, label).toBe(404);
+      expect((await target.inject({ method: "GET", url: `/api/projects/${untouched.id}` })).statusCode, label).toBe(200);
+    }
+
+    const legitimate = portableMultipart(archive, "portable-legitimate");
+    const imported = await target.inject({ method: "POST", url: "/api/portable-projects/import", ...legitimate });
+    expect(imported.statusCode, imported.body).toBe(201);
+    expect((await ok(target.inject({
+      method: "GET", url: `/api/projects/${fixture.projectId}/artifacts/simulation-runs/versions`,
+    }))).json()).toHaveLength(1);
+    expect((await ok(target.inject({
+      method: "GET", url: `/api/projects/${fixture.projectId}/artifacts/native-builds/versions`,
+    }))).json()).toHaveLength(1);
+    const roundTrip = await ok(target.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/exports/portable`,
+    }));
+    expect(roundTrip.rawPayload.equals(Buffer.from(archive))).toBe(true);
+    expect(simulationRun.content.inputArtifactVersionId).toBe(simulationInput.id);
+    expect(compiled.build.content.compilationInputArtifactVersionId).toBe(compiled.input.id);
+  }, 60_000);
 
   it("compiles captured immutable history after newer approval and gives refreshed current meaning a new source identity", async () => {
     const fixture = await seedApprovedProject();

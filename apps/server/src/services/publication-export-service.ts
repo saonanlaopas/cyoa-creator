@@ -157,7 +157,7 @@ export class PublicationExportService {
     inspectZip(bytes);
     const files = unzipSync(bytes);
     if (Object.keys(files).sort().join("\0") !== "manifest.json\0project.json") throw new Error("portable_project_entries_invalid");
-    const manifest = JSON.parse(strFromU8(files["manifest.json"]!, true)) as PortableManifest;
+    const manifest = JSON.parse(strFromU8(files["manifest.json"]!)) as PortableManifest;
     if (Object.keys(manifest).sort().join("\0") !== ["counts", "exclusions", "exportContractVersion", "files", "historyMode", "includedSections", "projectFingerprint", "projectId", "schemaId", "schemaVersion"].sort().join("\0")) throw new Error("portable_project_manifest_schema_invalid");
     if (manifest.schemaId !== SCHEMA_ID || manifest.schemaVersion !== 1 || manifest.exportContractVersion !== 1 || manifest.historyMode !== HISTORY_MODE) throw new Error("portable_project_version_unsupported");
     if (!Array.isArray(manifest.includedSections) || !Array.isArray(manifest.exclusions) || !Array.isArray(manifest.files)
@@ -167,7 +167,7 @@ export class PublicationExportService {
     const payload = files["project.json"]!;
     const declared = manifest.files.find((item) => item.path === "project.json");
     if (!declared || declared.bytes !== payload.byteLength || declared.sha256 !== sha256(payload)) throw new Error("portable_project_hash_invalid");
-    const parsed = JSON.parse(strFromU8(payload, true)) as { schemaId: string; schemaVersion: number; projectFingerprint: string } & PortableProjectRows;
+    const parsed = JSON.parse(strFromU8(payload)) as { schemaId: string; schemaVersion: number; projectFingerprint: string } & PortableProjectRows;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
       || Object.keys(parsed).sort().join("\0") !== ["projectFingerprint", "projectId", "schemaId", "schemaVersion", "tables"].join("\0")) throw new Error("portable_project_schema_invalid");
     if (parsed.schemaId !== SCHEMA_ID || parsed.schemaVersion !== 1 || parsed.projectId !== manifest.projectId) throw new Error("portable_project_manifest_mismatch");

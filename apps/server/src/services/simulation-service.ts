@@ -28,6 +28,7 @@ import type {
 import {
   DEFAULT_DETERMINISTIC_PATH_POLICY,
   RuntimeTraceLimitError,
+  assertDeterministicPathDefinition,
   compileRuntime,
   runDeterministicPath,
   serializedBytes,
@@ -251,11 +252,41 @@ export class SimulationService {
   }
 
   getRun(projectId: string, versionId: string): ArtifactVersion<SimulationRunRecord> {
+    return this.validateRun(projectId, versionId);
+  }
+
+  validateRun(projectId: string, versionId: string): ArtifactVersion<SimulationRunRecord> {
     this.requireProject(projectId);
     const version = this.artifacts.getVersion<SimulationRunRecord>(versionId);
-    if (!version || version.projectId !== projectId || version.artifactId !== SIMULATION_RUN_ARTIFACT_ID) {
+    if (!version || version.projectId !== projectId || version.artifactId !== SIMULATION_RUN_ARTIFACT_ID
+      || version.artifactType !== "simulation-run" || version.schemaVersion !== 1) {
       throw new SimulationServiceError("simulation_run_not_found", "Simulation run not found");
     }
+    const run = version.content;
+    assertExactKeys(run, [
+      "schemaVersion", "id", "projectId", "inputArtifactVersionId", "inputFingerprint",
+      "runtimeFingerprint", "path", "trace",
+    ], "Simulation run");
+    if (run.schemaVersion !== 1 || run.projectId !== projectId) {
+      throw new SimulationServiceError("simulation_run_invalid", "Simulation run identity is invalid");
+    }
+    const path = assertDeterministicPathDefinition(run.path);
+    if (stableFingerprint(path) !== stableFingerprint(run.path)) {
+      throw new SimulationServiceError("simulation_run_invalid", "Simulation run path is not canonical");
+    }
+    const resolved = this.resolveInput(projectId, run.inputArtifactVersionId);
+    if (run.inputFingerprint !== resolved.input.fingerprint || run.runtimeFingerprint !== resolved.runtime.fingerprint
+      || stableFingerprint(path.policy) !== stableFingerprint(resolved.input.policy)) {
+      throw new SimulationServiceError("simulation_run_lineage_invalid", "Simulation run input or runtime lineage is invalid");
+    }
+    let expectedTrace: RuntimeTrace;
+    try { expectedTrace = runDeterministicPath(resolved.runtime, resolved.input.fingerprint, path); }
+    catch (error) { throw new SimulationServiceError("simulation_run_invalid", `Simulation run path is invalid: ${(error as Error).message}`); }
+    if (stableFingerprint(run.trace) !== stableFingerprint(expectedTrace)) {
+      throw new SimulationServiceError("simulation_run_trace_invalid", "Simulation run trace does not match deterministic replay");
+    }
+    const expectedId = `simrun_${stableFingerprint({ inputVersionId: resolved.inputVersion.id, traceFingerprint: expectedTrace.fingerprint })}`;
+    if (run.id !== expectedId) throw new SimulationServiceError("simulation_run_invalid", "Simulation run ID is not canonical");
     return version;
   }
 
@@ -358,6 +389,13 @@ export class SimulationService {
 
   private requireProject(projectId: string): void {
     if (!this.projects.get(projectId)) throw new SimulationServiceError("project_not_found", "Project not found");
+  }
+}
+
+function assertExactKeys(value: unknown, expected: string[], label: string): asserts value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || Object.keys(value as Record<string, unknown>).sort().join("\0") !== [...expected].sort().join("\0")) {
+    throw new SimulationServiceError("simulation_run_invalid", `${label} schema is invalid`);
   }
 }
 

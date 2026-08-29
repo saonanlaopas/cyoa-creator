@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { applyEffects, isConditionMet, StoryStateSchema, type StoryState } from "./mechanics.js";
 import type { Project } from "./project.js";
 
@@ -34,6 +35,31 @@ export interface SimulationReport {
   truncated: boolean;
   truncationReasons: Array<"maxStates" | "maxPathLength" | "maxVisitsPerPassage">;
 }
+
+const NumericRangeSchema = z.object({ min: z.number(), max: z.number() }).strict();
+const SimulatedPathSchema = z.object({
+  passageIds: z.array(z.string()),
+  endingId: z.string().optional(),
+  finalState: StoryStateSchema.strict(),
+  terminatedBy: z.enum(["ending", "dead-end", "loop", "limit"]),
+}).strict();
+
+/** Strict durable contract for the legacy quick-mode simulation artifact stream. */
+export const SimulationReportSchema = z.object({
+  reachableEndingIds: z.array(z.string()),
+  unreachableEndingIds: z.array(z.string()),
+  paths: z.array(SimulatedPathSchema),
+  loops: z.array(z.object({ passageId: z.string(), passageIds: z.array(z.string()) }).strict()),
+  impossibleChoices: z.array(z.object({ passageId: z.string(), choiceId: z.string() }).strict()),
+  pathLengths: z.object({ min: z.number(), max: z.number(), average: z.number() }).strict(),
+  statRanges: z.record(z.string(), NumericRangeSchema),
+  relationshipRanges: z.record(z.string(), NumericRangeSchema),
+  exploredStates: z.number().int().nonnegative(),
+  equivalentStatesCollapsed: z.number().int().nonnegative(),
+  exhaustive: z.boolean(),
+  truncated: z.boolean(),
+  truncationReasons: z.array(z.enum(["maxStates", "maxPathLength", "maxVisitsPerPassage"])),
+}).strict();
 
 interface SearchNode {
   passageId: string;

@@ -1,16 +1,18 @@
 import {
+  AdaptationPlanSchema,
+  ChangeProposalSchema,
   ChoicePlanSchema,
+  DraftedPassagesArtifactSchema,
   LongFormEndingPlanSchema,
   LongFormMechanicsPlanSchema,
   LongFormRoutePlanSchema,
   LongFormStoryBibleSchema,
+  NarrativeReviewSchema,
   NarrativeThreadSchema,
   PassagePlanSchema,
   PassageStructureSchema,
   ProjectBriefSchema,
-  assertNativeCompilationInput,
-  assertResolvedNativeCompilationInput,
-  type NativeCompilationInput,
+  StoryBibleSchema,
 } from "@story-to-cyoa/pipeline";
 import {
   ArtifactRepository,
@@ -26,12 +28,35 @@ import {
   WorkflowRepository,
   type StoryDatabase,
 } from "@story-to-cyoa/persistence";
-import { RepairApplicationRecordSchema, RepairDraftProvenanceSchema } from "@story-to-cyoa/domain";
-import { assertNativePlayerConfig, assertPlaytestCampaignIdentity, stableFingerprint } from "@story-to-cyoa/runtime";
+import {
+  ProjectSchema,
+  RepairApplicationRecordSchema,
+  RepairDraftProvenanceSchema,
+  SimulationReportSchema,
+} from "@story-to-cyoa/domain";
+import { assertNativePlayerConfig, stableFingerprint } from "@story-to-cyoa/runtime";
+import {
+  NATIVE_BUILD_ARTIFACT_ID,
+  NATIVE_COMPILATION_INPUT_ARTIFACT_ID,
+  NATIVE_PLAYER_CONFIG_ARTIFACT_ID,
+  NativeCompilationService,
+} from "./native-compilation-service.js";
+import { PLAYTEST_CAMPAIGN_ARTIFACT_ID, PlaytestService } from "./playtest-service.js";
 import { SimulationService } from "./simulation-service.js";
 
-type JsonRow = { id: string; artifact_id: string; artifact_type: string; content_json: string };
+type JsonRow = { id: string; artifact_id: string; artifact_type: string; schema_version: number; content_json: string };
 type EntityRow = { id: string; entity_kind: "passage" | "choice" | "thread"; entity_id: string; content_json: string };
+
+/** Closed portable-project/v1 policy: every exported artifact row must be listed here. */
+export const PORTABLE_PROJECT_V1_ARTIFACT_POLICY = {
+  excluded: ["source", "source-scope"],
+  supported: [
+    "adaptation", "bible", "brief", "change-proposal", "drafts", "endings", "export", "mechanics",
+    "narrative-review", "native-build", "native-compilation-input", "native-player-config",
+    "playtest-campaign", "repair-plan", "repair-proposal", "repair-proposal-generation", "review", "routes",
+    "simulation", "simulation-input", "simulation-run",
+  ],
+} as const;
 
 /** Runs inside PortableProjectRepository's import transaction. */
 export function validatePortableAuthoringProject(database: StoryDatabase, projectId: string): void {
@@ -55,78 +80,108 @@ export function validatePortableAuthoringProject(database: StoryDatabase, projec
   validateDraftHistories(database, projectId);
   validateAcceptanceHistory(database, projectId);
   validateRepairHistory(database, projectId);
-  validateStrictArtifactStreams(database, projectId);
 }
 
 function validateArtifacts(database: StoryDatabase, projectId: string): void {
-  const schemas = {
-    brief: ProjectBriefSchema,
-    bible: LongFormStoryBibleSchema,
-    routes: LongFormRoutePlanSchema,
-    endings: LongFormEndingPlanSchema,
-    mechanics: LongFormMechanicsPlanSchema,
-  } as const;
-  const rows = database.prepare("SELECT id, artifact_id, artifact_type, content_json FROM artifact_versions WHERE project_id = ?")
+  // Aggregate repositories validate complete immutable histories, not only the latest row.
+  new NarrativeReviewRepository(database).validateProjectHistory(projectId);
+  new RepairPlanRepository(database).list(projectId);
+  new RepairProposalGenerationRepository(database).list(projectId);
+  new RepairProposalRepository(database).list(projectId);
+
+  const projects = new ProjectRepository(database);
+  const artifacts = new ArtifactRepository(database);
+  const workflow = new WorkflowRepository(database);
+  const plans = new PassagePlanRepository(database);
+  const drafts = new PassageDraftRepository(database);
+  const simulation = new SimulationService(projects, artifacts, workflow, plans, drafts);
+  const playtest = new PlaytestService(projects, artifacts, simulation);
+  const native = new NativeCompilationService(projects, artifacts, workflow, plans, drafts);
+  const rows = database.prepare("SELECT id, artifact_id, artifact_type, schema_version, content_json FROM artifact_versions WHERE project_id = ?")
     .all(projectId) as JsonRow[];
   for (const row of rows) {
-    const content = JSON.parse(row.content_json) as unknown;
-    if (row.artifact_id in schemas) {
-      if (row.artifact_type !== row.artifact_id) fail(`planning artifact type ${row.artifact_id}`);
-      parse(() => schemas[row.artifact_id as keyof typeof schemas].parse(content), `artifact ${row.artifact_id}`);
-    }
-    if (row.artifact_id === "native-player-config" || row.artifact_type === "native-player-config") {
-      if (row.artifact_id !== "native-player-config" || row.artifact_type !== "native-player-config") fail("native player config identity");
-      parse(() => assertNativePlayerConfig(content), `native player config ${row.id}`);
-    }
-    if (row.artifact_type === "native-compilation-input") {
-      if (row.artifact_id !== "native-compilation-inputs") fail("native compilation input identity");
-      const input = parse(() => assertNativeCompilationInput(content), `native compilation input ${row.id}`);
-      validateNativeCompilationInput(database, projectId, input, row.id);
+    try {
+      validateArtifactRow({ row, projectId, content: parse(() => JSON.parse(row.content_json), `artifact JSON ${row.id}`), simulation, playtest, native });
+    } catch (error) {
+      if ((error as Error).message.startsWith("portable_project_")) throw error;
+      throw new Error(`portable_project_domain_invalid: artifact ${row.id}: ${(error as Error).message}`);
     }
   }
 }
 
-function validateNativeCompilationInput(database: StoryDatabase, projectId: string, input: NativeCompilationInput, versionId: string): void {
-  if (input.projectId !== projectId) fail(`native compilation input project ${versionId}`);
-  const snapshot = database.prepare("SELECT version, structure_version_id, upstream_versions_json, validation_json FROM passage_plan_snapshots WHERE id = ? AND project_id = ?")
-    .get(input.snapshot.id, projectId) as { version: number; structure_version_id: string; upstream_versions_json: string; validation_json: string } | undefined;
-  if (!snapshot || snapshot.version !== input.snapshot.version || snapshot.structure_version_id !== input.snapshot.structureVersionId) {
-    fail(`native compilation snapshot ${versionId}`);
+function validateArtifactRow(input: {
+  row: JsonRow;
+  projectId: string;
+  content: unknown;
+  simulation: SimulationService;
+  playtest: PlaytestService;
+  native: NativeCompilationService;
+}): void {
+  const { row, projectId, content, simulation, playtest, native } = input;
+  if ((PORTABLE_PROJECT_V1_ARTIFACT_POLICY.excluded as readonly string[]).includes(row.artifact_type)
+    || (PORTABLE_PROJECT_V1_ARTIFACT_POLICY.excluded as readonly string[]).includes(row.artifact_id)) {
+    throw new Error(`portable_project_artifact_type_excluded: ${row.artifact_type}`);
   }
-  if (stableFingerprint(JSON.parse(snapshot.upstream_versions_json)) !== stableFingerprint(input.snapshot.upstreamVersions)
-    || stableFingerprint(JSON.parse(snapshot.validation_json)) !== input.snapshot.validationFingerprint) {
-    fail(`native compilation snapshot metadata ${versionId}`);
+  if (!(PORTABLE_PROJECT_V1_ARTIFACT_POLICY.supported as readonly string[]).includes(row.artifact_type)) {
+    throw new Error(`portable_project_artifact_type_unsupported: ${row.artifact_type}`);
   }
-  const structure = database.prepare("SELECT content_json FROM passage_structure_versions WHERE id = ? AND project_id = ?")
-    .get(input.structure.versionId, projectId) as { content_json: string } | undefined;
-  if (!structure) fail(`native compilation structure ${versionId}`);
-  const entities = (kind: "passage" | "choice" | "thread", references: NativeCompilationInput["passages"]) => references.map((reference) => {
-    const row = database.prepare(`SELECT content_json FROM passage_entity_versions
-      WHERE id = ? AND project_id = ? AND entity_kind = ? AND entity_id = ?`).get(reference.versionId, projectId, kind, reference.entityId) as { content_json: string } | undefined;
-    if (!row) fail(`native compilation ${kind} ${reference.entityId}`);
-    return { versionId: reference.versionId, content: JSON.parse(row.content_json) };
-  });
-  const upstreamArtifacts = input.upstreamArtifacts.map((reference) => {
-    const row = database.prepare(`SELECT schema_version, content_json FROM artifact_versions
-      WHERE id = ? AND project_id = ? AND artifact_id = ?`).get(reference.versionId, projectId, reference.artifactId) as { schema_version: number; content_json: string } | undefined;
-    if (!row || row.schema_version !== reference.schemaVersion) fail(`native compilation upstream ${reference.artifactId}`);
-    return { artifactId: reference.artifactId, versionId: reference.versionId, schemaVersion: row.schema_version, content: JSON.parse(row.content_json) };
-  });
-  const draftRepository = new PassageDraftRepository(database);
-  const acceptedDrafts = input.acceptedDrafts.map((selection) => {
-    const draft = draftRepository.getVersion(projectId, selection.versionId);
-    if (!draft || draft.passageId !== selection.passageId) fail(`native compilation accepted draft ${selection.passageId}`);
-    return { selection, proseMarkdown: draft.proseMarkdown };
-  });
-  parse(() => assertResolvedNativeCompilationInput({
-    input,
-    structure: { versionId: input.structure.versionId, content: JSON.parse(structure.content_json) },
-    passages: entities("passage", input.passages),
-    choices: entities("choice", input.choices),
-    threads: entities("thread", input.threads),
-    upstreamArtifacts,
-    acceptedDrafts,
-  }), `native compilation resolved input ${versionId}`);
+  switch (row.artifact_type) {
+    case "brief":
+      exactIdentity(row, "brief", [1]); canonical(ProjectBriefSchema.parse(content), content, row); return;
+    case "bible":
+      exactIdentity(row, "bible", [1]); canonicalOne(content, row, [LongFormStoryBibleSchema, StoryBibleSchema]); return;
+    case "routes":
+      exactIdentity(row, "routes", [1]); canonicalOne(content, row, [LongFormRoutePlanSchema, ProjectSchema]); return;
+    case "endings":
+      exactIdentity(row, "endings", [1]); canonical(LongFormEndingPlanSchema.parse(content), content, row); return;
+    case "mechanics":
+      exactIdentity(row, "mechanics", [1]); canonical(LongFormMechanicsPlanSchema.parse(content), content, row); return;
+    case "adaptation":
+      exactIdentity(row, "adaptation", [1]); canonical(AdaptationPlanSchema.parse(content), content, row); return;
+    case "drafts":
+      exactIdentity(row, "drafts", [1]); canonical(DraftedPassagesArtifactSchema.parse(content), content, row); return;
+    case "review":
+      exactIdentity(row, "review", [1]); canonical(NarrativeReviewSchema.parse(content), content, row); return;
+    case "simulation":
+      exactIdentity(row, "simulation", [1]); canonical(SimulationReportSchema.parse(content), content, row); return;
+    case "change-proposal": {
+      exactSchema(row, [1]); const proposal = canonical(ChangeProposalSchema.parse(content), content, row);
+      if (row.artifact_id !== `proposal:${proposal.id}`) fail(`artifact identity ${row.id}`); return;
+    }
+    case "export":
+      exactIdentity(row, "export", [1]); validateLegacyExport(content, row); return;
+    case "native-player-config":
+      exactIdentity(row, NATIVE_PLAYER_CONFIG_ARTIFACT_ID, [1]); canonical(assertNativePlayerConfig(content), content, row); return;
+    case "native-compilation-input":
+      exactIdentity(row, NATIVE_COMPILATION_INPUT_ARTIFACT_ID, [1]); parse(() => native.validateStoredInput(projectId, row.id), `native input ${row.id}`); return;
+    case "native-build":
+      exactIdentity(row, NATIVE_BUILD_ARTIFACT_ID, [1]); parse(() => native.validateBuild(projectId, row.id), `native build ${row.id}`); return;
+    case "simulation-input":
+      exactIdentity(row, "simulation-inputs", [1]); parse(() => simulation.resolveInput(projectId, row.id), `simulation input ${row.id}`); return;
+    case "simulation-run":
+      exactIdentity(row, "simulation-runs", [1]); parse(() => simulation.validateRun(projectId, row.id), `simulation run ${row.id}`); return;
+    case "playtest-campaign": {
+      exactIdentity(row, PLAYTEST_CAMPAIGN_ARTIFACT_ID, [1, 2]);
+      const campaign = parse(() => playtest.getCampaign(projectId, row.id).content, `playtest campaign ${row.id}`);
+      const resolved = parse(() => simulation.resolveInput(projectId, campaign.simulationInputArtifactVersionId), `playtest input ${row.id}`);
+      if (campaign.projectId !== projectId || campaign.simulationInputFingerprint !== resolved.input.fingerprint
+        || campaign.compiledRuntimeFingerprint !== resolved.runtime.fingerprint || campaign.snapshotId !== resolved.input.snapshotId) {
+        fail(`playtest campaign lineage ${row.id}`);
+      }
+      for (const sample of campaign.samples) parse(() => playtest.replay(projectId, row.id, sample.id), `playtest sample ${sample.id}`);
+      return;
+    }
+    case "narrative-review":
+      exactPrefix(row, "narrative-review:", [1]); return;
+    case "repair-plan":
+      exactPrefix(row, "repair-plan:", [1]); return;
+    case "repair-proposal-generation":
+      exactPrefix(row, "repair-proposal-generation:", [1]); return;
+    case "repair-proposal":
+      exactPrefix(row, "repair-proposal:", [1]); return;
+    default:
+      throw new Error(`portable_project_artifact_type_unsupported: ${row.artifact_type}`);
+  }
 }
 
 function validateSnapshotMetadata(database: StoryDatabase, projectId: string): void {
@@ -135,7 +190,7 @@ function validateSnapshotMetadata(database: StoryDatabase, projectId: string): v
   for (const snapshot of snapshots) {
     const upstream = JSON.parse(snapshot.upstream_versions_json) as unknown;
     const validation = JSON.parse(snapshot.validation_json) as unknown;
-    if (!recordOfStrings(upstream) || !Array.isArray(validation)) fail(`snapshot metadata ${snapshot.id}`);
+    if (!recordOfStrings(upstream) || !passageValidationReport(validation)) fail(`snapshot metadata ${snapshot.id}`);
     for (const [artifactId, versionId] of Object.entries(upstream)) {
       const exact = database.prepare("SELECT 1 FROM artifact_versions WHERE id = ? AND project_id = ? AND artifact_id = ?")
         .get(versionId, projectId, artifactId);
@@ -226,20 +281,63 @@ function validateRepairHistory(database: StoryDatabase, projectId: string): void
   }
 }
 
-function validateStrictArtifactStreams(database: StoryDatabase, projectId: string): void {
-  new NarrativeReviewRepository(database).validateProjectHistory(projectId);
-  const projects = new ProjectRepository(database);
-  const artifacts = new ArtifactRepository(database);
-  const workflow = new WorkflowRepository(database);
-  const plans = new PassagePlanRepository(database);
-  const drafts = new PassageDraftRepository(database);
-  const simulation = new SimulationService(projects, artifacts, workflow, plans, drafts);
-  const rows = database.prepare("SELECT id, artifact_type, content_json FROM artifact_versions WHERE project_id = ?")
-    .all(projectId) as Array<{ id: string; artifact_type: string; content_json: string }>;
-  for (const row of rows) {
-    if (row.artifact_type === "simulation-input") parse(() => simulation.resolveInput(projectId, row.id), `simulation input ${row.id}`);
-    if (row.artifact_type === "playtest-campaign") parse(() => assertPlaytestCampaignIdentity(JSON.parse(row.content_json)), `playtest campaign ${row.id}`);
+function exactIdentity(row: JsonRow, artifactId: string, schemaVersions: number[]): void {
+  exactSchema(row, schemaVersions);
+  if (row.artifact_id !== artifactId) fail(`artifact identity ${row.id}`);
+}
+
+function exactPrefix(row: JsonRow, prefix: string, schemaVersions: number[]): void {
+  exactSchema(row, schemaVersions);
+  if (!row.artifact_id.startsWith(prefix) || row.artifact_id.length === prefix.length) fail(`artifact identity ${row.id}`);
+}
+
+function exactSchema(row: JsonRow, schemaVersions: number[]): void {
+  if (!schemaVersions.includes(row.schema_version)) fail(`artifact schema ${row.id}`);
+}
+
+function canonical<T>(parsed: T, original: unknown, row: JsonRow): T {
+  if (stableFingerprint(parsed) !== stableFingerprint(original)) fail(`artifact canonical content ${row.id}`);
+  return parsed;
+}
+
+function canonicalOne(
+  content: unknown,
+  row: JsonRow,
+  schemas: Array<{ parse(value: unknown): unknown }>,
+): void {
+  for (const schema of schemas) {
+    try {
+      canonical(schema.parse(content), content, row);
+      return;
+    } catch {
+      // Try the next accepted historical contract for this shared artifact type.
+    }
   }
+  fail(`artifact canonical content ${row.id}`);
+}
+
+function validateLegacyExport(content: unknown, row: JsonRow): void {
+  if (!content || typeof content !== "object" || Array.isArray(content)) fail(`export artifact ${row.id}`);
+  const value = content as Record<string, unknown>;
+  const expected = value.format === "html" ? ["compiler", "format", "generatedAt"] : ["format", "generatedAt"];
+  if (!exactKeys(value, expected) || !["html", "twee"].includes(value.format as string)
+    || typeof value.generatedAt !== "string" || !Number.isFinite(Date.parse(value.generatedAt))
+    || (value.format === "html" && !["tweego", "fallback"].includes(value.compiler as string))) {
+    fail(`export artifact ${row.id}`);
+  }
+}
+
+function exactKeys(value: Record<string, unknown>, expected: string[]): boolean {
+  return Object.keys(value).sort().join("\0") === [...expected].sort().join("\0");
+}
+
+function passageValidationReport(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const report = value as Record<string, unknown>;
+  return exactKeys(report, ["findings", "budgets", "coverage"])
+    && Array.isArray(report.findings)
+    && Boolean(report.budgets && typeof report.budgets === "object" && !Array.isArray(report.budgets))
+    && Boolean(report.coverage && typeof report.coverage === "object" && !Array.isArray(report.coverage));
 }
 
 function recordOfStrings(value: unknown): value is Record<string, string> {
