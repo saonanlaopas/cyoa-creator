@@ -31,8 +31,11 @@ Implementation checkpoints:
 - Foundation 6C is complete and externally accepted at `e9826a397928decc7a259f6869fc0947213183ae`.
 - Foundation 6 is **CLOSED** at accepted head `e9826a397928decc7a259f6869fc0947213183ae`.
 - Foundation 7A is complete and externally accepted at `51e01e0381f251c02d840f21d1aba2ee76b4f3cc`.
+- Foundation 7B is complete and externally accepted at `f91b39bd032ca1efb008e685c3eedd4734fa5533`.
+- Foundation 7C is complete and externally accepted at `225a04dd958c36bc4773edddcbef854725d7c73c`.
+- Foundation 7 is **CLOSED** at accepted head `225a04dd958c36bc4773edddcbef854725d7c73c`.
 
-The current implementation objective is Foundation 7B: browser player and runtime UX.
+The current implementation objective is Foundation 8A: backup, restore, and compatibility. Foundation 8 implementation has not begun.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 
@@ -584,6 +587,8 @@ Do not begin a checkpoint until the previous checkpoint has an externally accept
 
 ### Foundation 7: native player and publishing exports (formerly Production 4)
 
+**Foundation status:** **CLOSED** and externally accepted at `225a04dd958c36bc4773edddcbef854725d7c73c`.
+
 #### Goal
 
 Play and distribute the project without depending on Twine, ChoiceScript, or a hosted service.
@@ -650,7 +655,7 @@ Play and distribute the project without depending on Twine, ChoiceScript, or a h
 
 #### Checkpoint 7B: Browser player and runtime UX
 
-**Implementation status:** Checkpoint implementation candidate complete on `checkpoint/foundation-7b-browser-player-runtime-ux`; external review and an accepted SHA remain pending.
+**Implementation status:** **CLOSED** and externally accepted at `f91b39bd032ca1efb008e685c3eedd4734fa5533`.
 
 **Purpose:** Turn an accepted 7A native bundle into the primary accessible browser-playing experience. React renders state and sends player intent to the canonical runtime; it does not interpret game rules.
 
@@ -672,6 +677,8 @@ Play and distribute the project without depending on Twine, ChoiceScript, or a h
 **Recommended engineering model:** Sol High.
 
 #### Checkpoint 7C: Portable and publishing exports
+
+**Implementation status:** **CLOSED** and externally accepted at `225a04dd958c36bc4773edddcbef854725d7c73c`.
 
 **Purpose:** Package authored projects and accepted native games into explicit portable and publishing formats without semantic ambiguity. Each target declares what it preserves and fails visibly when it cannot preserve required behavior.
 
@@ -730,25 +737,159 @@ Do not begin a checkpoint until the previous checkpoint has an externally accept
 
 ### Foundation 8: scale, recovery, and authoring polish (formerly Production 5)
 
+**Implementation status:** Planned as three sequential checkpoints. Implementation has not begun.
+
 #### Goal
 
-Make long sessions and large projects comfortable and recoverable.
+Finish production hardening so long sessions and 150,000-200,000-word projects are recoverable, measurable, accessible, and comfortable to author without weakening the accepted data, runtime, or provider boundaries.
 
-#### Work
+#### Shared principles
 
-1. Add backup reminders and verified restore.
-2. Add project health and storage diagnostics.
-3. Add keyboard navigation, accessibility review, and responsive polish.
-4. Add large-list virtualization where measured performance requires it.
-5. Add conversation summarization and pinned decision management.
-6. Add usage and cost reporting by project, stage, job, and model.
-7. Add schema migrations and compatibility tests for portable bundles and saves.
-8. Add performance budgets and large-fixture regression tests.
+1. Measure before optimizing. Add representative evidence and explicit budgets before introducing pagination, virtualization, indexing, caching, or code splitting.
+2. A restore is verified only after hostile-input validation, isolated reconstruction, and semantic comparison succeed; attempting a restore is not success.
+3. Treat backups, portable bundles, database copies, browser saves, and imported recovery metadata as untrusted input.
+4. Reuse the accepted `portable-project/v1` contract and immutable history instead of creating a competing project interchange model.
+5. Performance work must preserve stable IDs, exact lineage, transactional application, immutable versions, approvals, locks, history, comparison, restore, and bounded evidence.
+6. Preserve existing evidence by default. Any retention or compaction policy must be explicit, bounded, accepted, and honest about what was omitted.
+7. Unknown historical or provider cost remains unknown. Never manufacture exactness or apply current prices retroactively.
+8. Conversation summaries and pinned decisions are bounded authoring aids. Structured project artifacts and immutable versions remain canonical truth.
+9. Accessibility and keyboard correctness are acceptance requirements, including after virtualization, filtering, dialogs, focus changes, and responsive layout changes.
+10. Large workspaces default to metadata-first views and fetch heavy prose, traces, evidence, or history only when requested.
+11. Provider availability is optional for every non-AI authoring, recovery, validation, play, import, and export path.
+12. Foundation 8 adds no new unbounded provider workflow and does not relax the existing reasoning-privacy policy.
+13. The approximately 300-passage fixture remains the large-project baseline and is joined by a history-heavy fixture that exercises immutable versions, jobs, evidence, and drafts.
+14. Foundation 8 is final hardening, not a new authoring architecture or a reopening of accepted Foundation 7 semantics.
+
+#### Checkpoint 8A: Backup, restore, and compatibility
+
+**Purpose:** Establish trustworthy recovery and compatibility boundaries before performance or long-session polish. This checkpoint answers: **"Can the author recover the exact work they intended without overwriting good data or mistaking a partial copy for a verified backup?"**
+
+1. Define three distinct products and label them honestly throughout the API, UI, guide, and diagnostics:
+   - a portable authoring export using the accepted `portable-project/v1` interchange contract and its declared history mode;
+   - a verified project backup intended for recovery, with exact scope, exclusions, identity, source schema, application version, creation metadata, checksums, semantic fingerprint, and verification result;
+   - an operational SQLite database copy for whole-installation recovery, with documented journal/locking rules and no claim of cross-version portability until validated.
+2. Reuse `portable-project/v1` as the canonical project payload instead of inventing another project schema. A backup envelope may add bounded recovery metadata, but it must preserve the portable payload byte-for-byte and must not silently broaden or narrow its declared content.
+3. State exact backup scope and exclusions. In particular, distinguish canonical authoring data and selected immutable history from browser-local native-player saves, provider credentials, raw reasoning, temporary files, SQLite journals, local paths, caches, and operational records excluded by the selected portable history mode.
+4. Verify every created backup through a hostile parse, checksum and manifest validation, strict size/path/schema/relationship checks, isolated restore into a temporary database, exhaustive project validation, and canonical semantic-fingerprint comparison with the source selection. Record bounded verification identity and result; do not mark an unverified file as a successful backup.
+5. Implement deliberate restore-as-new behavior: parse and inspect first, show identity/scope/exclusions/history mode/compatibility and conflicts in a preview, require explicit confirmation, assign a non-conflicting local project identity where required, never overwrite an existing project implicitly, and publish the restored project only after one atomic transaction succeeds.
+6. Keep restore failure non-destructive. A malformed archive, incompatible schema, identity collision, validation error, interrupted import, storage failure, or database error leaves canonical projects and history unchanged and leaves no partially visible restored project.
+7. Add pre-destructive recovery prompts for operations that can replace, delete, migrate, or materially discard project data. The prompt reports the most recent verified backup identity and age and offers a bounded backup action or explicit cancellation; it does not claim safety from an attempted or failed backup.
+8. Add deterministic backup reminders based on the latest verified backup plus meaningful semantic changes, schema/application upgrades, and an explicit bounded reminder policy. Wall-clock age may contribute, but timestamps alone do not prove whether work changed. Reminder dismissal and snooze behavior must be explicit and bounded.
+9. Define bounded backup identity metadata sufficient to distinguish source project ID, restored local project ID, payload fingerprint, history mode, source schema/application version, backup format version, verification time/result, and parent backup where useful. Do not include credentials, raw reasoning, machine paths, or unbounded diagnostic output.
+10. Respect the browser download boundary: the web app may prepare and download a backup, but cannot promise that the browser retained it, moved it to durable storage, synchronized it to cloud storage, or can later reopen it. Foundation 8 adds no cloud backup, hosted storage, or provider dependency.
+11. Add explicit database-open and recovery behavior for a missing database, corrupt database, failed migration, future unsupported schema, locked/unavailable storage, and disk-full/write failure. Never replace a non-empty unreadable database with a new empty database silently. Preserve the original bytes where practical and present actionable recovery choices.
+12. Inventory every supported SQLite schema version and migration path. Maintain frozen fixtures, migrate only temporary copies in tests, preserve fixture bytes, validate preconditions before installing the next version, run migrations transactionally, reject corrupt lineage, and prove rollback leaves the previous schema and data intact with no partial triggers, tables, or version rows.
+13. Preserve and test `portable-project/v1` compatibility. Current valid v1 archives remain importable and semantically stable; malformed, contradictory, oversized, and unknown future portable versions fail clearly without mutation. A future format must be introduced as a new explicit version rather than silently changing v1.
+14. Preserve and test `native-player-save/v1` compatibility and its game/bundle/runtime identity checks. Historical valid saves remain readable under their documented compatibility rules; malformed and unknown future saves remain stored but are not loaded or rewritten implicitly.
+15. Keep recovery operations bounded and resumable where interruption is possible. Persist only the minimum job/checkpoint metadata needed to explain status and retry safely; never persist archive contents, secrets, or unbounded validation detail merely for convenience.
+16. Document which artifacts are recovery-capable, portable, player-only, or diagnostic, and give the author a concrete restore drill that can be completed offline.
+
+**Required acceptance regressions:**
+
+1. Create, verify, restore-as-new, and semantically compare a representative project backup.
+2. Repeat the verified round trip for the Unicode-heavy approximately 300-passage fixture, preserving prose and stable IDs byte-for-byte where promised.
+3. Verify every declared portable history mode and its exclusions rather than claiming full history for a reduced mode.
+4. Reject hostile archive paths, absolute paths, symlinks, decompression bombs, oversized entries, duplicate records, and malformed JSON before publication.
+5. Reject checksum, manifest, count, fingerprint, ownership, lineage, and exact-version mismatches without canonical mutation.
+6. Preview an identity collision and prove restore never overwrites the existing project implicitly.
+7. Force a restore transaction failure and prove no partial project, history, job, or recovery metadata survives.
+8. Prove a pre-destructive operation can be cancelled and that a failed backup is never reported as protection.
+9. Prove reminder state derives from the latest verified backup and subsequent semantic changes or upgrades, with deterministic dismissal/snooze behavior.
+10. Distinguish portable export, verified backup, and operational database copy in APIs and user-visible language, including exact exclusions.
+11. Open a missing database only through the explicit new-installation path and never use that path for a non-empty unreadable database.
+12. Detect a corrupt database and preserve it for recovery without silently creating an empty replacement.
+13. Roll back a failed migration transactionally and retain the preceding schema version and original data.
+14. Reject a future unsupported SQLite schema without rewriting it.
+15. Surface disk-full, locked-storage, and interrupted-write failures without claiming a completed backup or restore.
+16. Migrate every supported frozen schema fixture losslessly, keep fixture hashes unchanged, and reject representative corrupt lineage without partial migration artifacts.
+17. Load representative valid historical `portable-project/v1` archives and `native-player-save/v1` saves, reject unknown future versions, and prove compatibility checks do not rewrite historical artifacts.
+
+**Acceptance gate:** A verified backup of the Unicode-heavy approximately 300-passage project survives hostile validation, isolated restore, exhaustive project checks, and semantic comparison; restore is explicit, non-overwriting, atomic, and offline; database-open and migration failures never silently replace or partially mutate data; every supported frozen schema, portable v1 archive, and native save v1 compatibility path has deterministic coverage; reminders refer only to verified protection; and no provider call is required.
+
+**Recommended engineering model:** Sol High.
+
+#### Checkpoint 8B: Performance, health, and large-project scale
+
+**Purpose:** Measure the real large-project workflows, establish structural and wall-clock budgets, and optimize only demonstrated bottlenecks while preserving correctness and accessibility.
+
+1. Establish two deterministic offline fixtures:
+   - the approximately 300-passage Unicode-heavy project used across planning, drafting, review, play, export, and restore;
+   - a history-heavy variant with representative artifact versions, passage/draft history, snapshots, jobs, attempts, findings, traces, proposals, exports, backups, and usage records.
+2. Measure cold open, project selection, passage search/filter/stable-ID jump, passage edit/save, validation, history/comparison/restore, draft review, simulation/playtest review, narrative findings, repair review, compile, play launch, portable export/import preview, verified backup/restore, and health/usage views.
+3. Define documented budgets for bounded result counts, query counts, rows and bytes loaded, serialized payload sizes, React-rendered item counts, memory-sensitive artifact sizes, and wall-clock targets. Keep deterministic structural budgets as the primary CI contract; use appropriately tolerant wall-clock checks so ordinary runner variance does not create false failures.
+4. Preserve metadata-first behavior. Initial large-list requests return compact identities, statuses, counts, warnings, and bounded snippets; full prose, traces, evidence, candidates, histories, and diffs load on explicit selection.
+5. Add pagination, windowing, or virtualization only where measurements exceed the budget. Any virtualized list must retain accessible list semantics, keyboard traversal, reliable focus, stable-ID jump, filtered selection, scroll restoration, and deterministic test hooks.
+6. Inspect query plans for measured hot paths and add indexes or query rewrites only with evidence. New indexes must preserve migration, cascade, lineage, and write behavior and must have representative before/after query-plan or bounded-query tests.
+7. Add one bounded project-health view that reuses authoritative validators and repository facts instead of inventing a second rules engine. Report approval/staleness blockers, missing or invalid exact dependencies, unfinished/failed/stale jobs, unresolved findings and repair state, compile/publication blockers, backup verification/reminder state, and storage warnings with links to the responsible workspace.
+8. Report storage with understandable totals and bounded category breakdowns for the database, immutable artifact/entity/draft history, operational jobs/attempts, evidence/traces/findings, exports/backups where known, and browser-local saves where the browser API can report them. Explain that browser and filesystem quota/free-space values may be unavailable or approximate.
+9. Track growth using persisted facts and bounded snapshots or samples, not background telemetry. Internal diagnostics may include query timing, counts, payload sizes, render counts, and job duration, but remain local, bounded, opt-in where appropriate, and free of prose, secrets, credentials, provider responses, and raw reasoning.
+10. Inventory and normalize persisted provider usage across passage planning, passage drafting and repair, narrative review, repair proposals, scoped project chat, and any other accepted AI-assisted job. Report by project, stage, job, unit/attempt where available, provider, and model without changing immutable historical records.
+11. Preserve exact recorded token and cost facts. Distinguish provider-reported, locally estimated, and unavailable values; show unknown as unknown; do not infer omitted historical usage or reprice old calls using current model prices. Totals with unknown components must say they are partial rather than exact.
+12. Keep usage reporting independent of provider availability and credentials. Reading existing records, health checks, performance measurements, backup/restore, and every non-AI workflow remain offline.
+13. Inspect the current Vite large-chunk warning and production-load behavior. Introduce route/workspace code splitting only when measurements demonstrate a useful startup or memory improvement, and keep offline static/standalone export contracts and deterministic asset loading intact.
+14. Exercise complete 300-passage and history-heavy journeys through open, search, edit, validate, draft review, simulate/playtest, repair review, compile/play, export, backup, and restore. Prevent accidental loading or duplication of complete prose/history/evidence corpora in metadata-only screens.
+15. Document measurement method, fixture shape, machine/CI caveats, budgets, observed bottlenecks, optimizations chosen or rejected, and any remaining known scale ceiling.
+
+**Acceptance gate:** Both deterministic large fixtures complete the measured authoring, review, play, export, backup, and restore workflows within documented structural budgets and defensible wall-clock targets; metadata-first screens do not load unbounded corpora; any virtualization, query/index, or code-splitting work has measured benefit and preserves stable-ID navigation, accessibility, lineage, and offline behavior; health and storage reports use authoritative bounded facts; and usage/cost reports remain exact about what is known and unknown without provider access.
+
+**Recommended engineering model:** Terra High by default; use Sol High when migration, query-plan, or transactional invariants form a substantial part of the checkpoint.
+
+#### Checkpoint 8C: Long-session UX, accessibility, and operational closure
+
+**Purpose:** Make extended authoring sessions navigable and understandable, finish accessibility and responsive behavior, and close the production roadmap with one offline data-loss and provider-independence review.
+
+1. Replace purely mechanical conversation compaction with a deterministic bounded summary lifecycle. Record summary identity, scope, source message range, generation method/version, creation status, and supersession; retain recent scoped messages separately; and regenerate or invalidate summaries deterministically when their covered conversation changes.
+2. Treat summaries as non-canonical aids. They may help assemble bounded chat context, but they cannot approve artifacts, satisfy exact-version preconditions, override structured data, or serve as the sole evidence for a mutation.
+3. Add durable scoped pinned decisions with stable IDs, explicit project/artifact/entity scope, concise bounded content, status such as active/superseded/withdrawn, provenance to the deciding message or accepted structured change, timestamps, and immutable history where edits matter.
+4. Integrate only relevant active pinned decisions and summaries into bounded provider context. Show what scope will be sent, enforce item/token/byte limits, omit unrelated decisions, and preserve the policy that reasoning activity may be shown while raw reasoning text is not persisted or displayed.
+5. Improve long-session navigation across stages and large workspaces with persistent current project/stage/entity identity, breadcrumbs where hierarchy warrants them, stable-ID copy/jump, search/filter state, clear back-to-result behavior, and reliable focus and scroll restoration after save, accept, restore, dialog, or route changes.
+6. Complete a systematic accessibility pass over authoring and player-critical workflows using automated checks plus manual keyboard and screen-reader-oriented review. Cover landmarks and headings, names/descriptions, dialogs and focus traps/return, live status/error announcements, table/list semantics, keyboard order, contrast, reduced motion, zoom/reflow, virtualization, and destructive confirmations.
+7. Keep desktop as the primary large-project authoring surface while making practical tablet/narrow-window workflows usable. Prevent clipped controls and hidden status, allow bounded panels to resize/collapse sensibly, and keep prose reading, chat, review queues, dialogs, and navigation operable without horizontal-page scrolling where practical.
+8. Make persistent state legible everywhere: distinguish saved from unsaved local edits; current from stale; draft/candidate from approved/accepted/locked; idle/queued/running/cancelling/failed/completed jobs; verified from attempted backup; and exact from partial/unknown usage totals.
+9. Add a bounded resume-work view using authoritative persisted facts. It may show the last active project/stage, unsaved-local warning, running/interrupted jobs, stale work, pending candidate/acceptance/review counts, unresolved blockers, backup status, and direct links, but it must not create a second workflow state machine.
+10. Make recovery UX actionable for unavailable/corrupt/future-schema databases, failed migrations, interrupted jobs, stale plans/drafts/proposals, storage/quota failures, incompatible imports/saves, and failed verification. Preserve original data, explain what did and did not change, and offer only safe bounded next actions.
+11. Present usage and cost with project/stage/job/model filters, exact/estimated/unknown labels, partial-total warnings, and links to relevant jobs without requiring provider access or exposing request content, credentials, or raw reasoning.
+12. Update the user guide to describe final backup and restore behavior, artifact distinctions and exclusions, compatibility, project health, scale limits, usage/cost semantics, summaries and pinned decisions, long-session navigation, accessibility behavior, recovery paths, and the optional-provider boundary.
+13. Run one final offline journey from premise and structured planning through approved passage plan, bounded drafting/review, simulation/playtesting/narrative review, repair, compilation, browser play/save, portable and publishing export, verified backup, restore-as-new, health inspection, and resumed authoring.
+14. Perform one final focused data-loss review of database open/migration, destructive actions, backup verification, restore/import, acceptance/locking, repair application, history/restore, save compatibility, job interruption, and disk/quota failure. Resolve concrete failures without opening a new architecture milestone.
+15. Prove provider independence for project open/edit/history/restore, validation, simulation/playtesting, compile/play/save, import/export, backup/restore, health, usage inspection, and recovery. AI actions remain explicit, bounded, cancellable, and offline-testable; no final acceptance test requires live or paid provider calls.
+
+**Acceptance gate:** A long authoring session on the 300-passage history-heavy fixture remains navigable with bounded context, durable scoped decisions, reliable focus, clear persistence and lifecycle state, practical responsive behavior, and no accessibility-critical automated or manual blockers; recovery and resume views direct the author without mutating canonical truth; the user guide matches tested behavior; the complete offline journey, compatibility suite, and final data-loss review pass; and every non-AI authoring, playing, publishing, inspection, and recovery path works without a provider.
+
+**Recommended engineering model:** Terra High or Sol High.
+
+#### Foundation 7 / Foundation 8 boundary
+
+Foundation 7 is closed and owns `approved authoring state -> deterministic compiled game -> native browser player -> saves and rewind -> portable and publishing exports`.
+
+Foundation 8 owns recovery confidence, backup reminders, migration and format compatibility, project health, measured performance budgets and evidence-based optimization, bounded session summaries and decisions, usage reporting, authoring accessibility and responsive behavior, and final operational hardening. Do not reopen Foundation 7 unless Foundation 8 exposes a concrete defect in an accepted Foundation 7 contract.
+
+#### Implementation sequence
+
+Implement and accept the checkpoints strictly sequentially:
+
+`8A -> commit/push/CI -> external review -> fixes if required -> accepted SHA`
+
+then `8B`, through the same commit/push/CI/review/fix/accepted-SHA gate,
+
+then `8C`, through the same gate.
+
+Do not begin a checkpoint until the previous checkpoint has an externally accepted SHA. Do not implement all of Foundation 8 in one checkpoint. The planning update makes 8A the next objective but does not start it. Foundation 8 closes only after 8C passes external review.
 
 #### Acceptance gate
 
-- The representative large fixture opens, searches, edits, validates, plays, exports, and restores within documented performance budgets.
-- No authoring or publishing path depends on provider availability.
+- Verified backup and atomic restore protect the representative Unicode-heavy approximately 300-passage project and preserve every declared identity, version, history mode, and semantic fingerprint.
+- Every supported SQLite schema, portable-project format, and native-player save version has deterministic compatibility, migration, corruption, rollback, and unknown-future-version coverage.
+- The approximately 300-passage and history-heavy fixtures open, search, edit, validate, review, play, export, back up, and restore within documented structural budgets and defensible wall-clock targets.
+- Health, storage, usage, and cost reporting is bounded, local, actionable, and explicit about partial or unknown data.
+- Conversation summaries and pinned decisions improve bounded session context without becoming canonical truth or weakening exact-version mutation checks.
+- Authoring-critical workflows meet the final keyboard, focus, screen-reader, contrast, reduced-motion, zoom/reflow, and practical responsive acceptance pass.
+- No non-AI authoring, playing, publishing, inspection, or recovery path depends on provider availability.
+- The final offline journey and focused data-loss review pass without weakening immutable history, stable-ID lineage, transactional changes, privacy, or runtime/export semantics.
+
+#### Production roadmap closure
+
+Foundation 8 is the final planned foundation. There is no Foundation 9. After 8C receives an externally accepted SHA and the Foundation 8 acceptance gate passes, the long-form production roadmap is **CLOSED**. Later work must be justified as a concrete defect, compatibility update, measured maintenance need, or separately approved product expansion rather than an implied continuation of this roadmap.
 
 ## Verification strategy
 
