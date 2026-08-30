@@ -15,7 +15,9 @@ export const PUBLICATION_EXPORT_LIMITS = Object.freeze({ staticArchiveBytes: 128
 const SCHEMA_ID = "cyoa.portable-project" as const;
 const HISTORY_MODE = "immutable-authoring-history-v1" as const;
 const PORTABLE_EXCLUSIONS = ["credentials", "environment", "machine paths", "browser saves", "chat and source bodies", "passage-planning jobs/candidates", "provider raw responses"] as const;
-const fixedDate = new Date("1980-01-01T00:00:00.000Z");
+// ZIP stores local DOS calendar fields without a timezone. Construct the epoch in
+// local time so those encoded fields are identical on every host.
+const fixedDate = new Date(1980, 0, 1, 0, 0, 0, 0);
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)
   ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);

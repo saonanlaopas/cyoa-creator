@@ -39,7 +39,9 @@ export const PROJECT_BACKUP_LIMITS = Object.freeze({
 
 const BACKUP_ENTRY = "backup-record.json";
 const PORTABLE_ENTRY = "portable-project.cyoa.zip";
-const fixedDate = new Date("1980-01-01T00:00:00.000Z");
+// ZIP stores local DOS calendar fields without a timezone. Construct the epoch in
+// local time so those encoded fields are identical on every host.
+const fixedDate = new Date(1980, 0, 1, 0, 0, 0, 0);
 
 export interface RecoveryStatus {
   projectId: string;

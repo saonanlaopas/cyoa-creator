@@ -27,7 +27,7 @@ describe("Foundation 7C publication exports", () => {
     const path = fileURLToPath(new URL("./fixtures/portable-project-v1.cyoa.zip", import.meta.url));
     const bytes = new Uint8Array(readFileSync(path));
     expect(createHash("sha256").update(bytes).digest("hex"))
-      .toBe("1ab76c345956d5fa028657de2697bb7b3a4f7159f0a2a779b944bb8a9672bc99");
+      .toBe("b35b40c9f7c9f85d6f8791e696b2411c726925190539b37a7742718ce3bc050f");
     const target = service();
     try {
       expect(target.service.previewPortable(bytes)).toMatchObject({
