@@ -17,6 +17,17 @@ import { stableFingerprint } from "@story-to-cyoa/runtime";
 import { PublicationExportService } from "../src/services/publication-export-service.js";
 import { RecoveryOperationError, RecoveryService, parseBackup } from "../src/services/recovery-service.js";
 
+function backupWithPortable(originalBackup: Uint8Array, portableBytes: Uint8Array): Uint8Array {
+  const outer = unzipSync(originalBackup);
+  const record = JSON.parse(new TextDecoder().decode(outer["backup-record.json"]!));
+  record.portableArchiveSha256 = createHash("sha256").update(portableBytes).digest("hex");
+  record.portableArchiveByteCount = portableBytes.byteLength;
+  return zipSync({
+    "backup-record.json": strToU8(JSON.stringify(record)),
+    "portable-project.cyoa.zip": [portableBytes, { level: 0 }],
+  });
+}
+
 function context(database: StoryDatabase = openDatabase(), options: ConstructorParameters<typeof RecoveryService>[3] = {}) {
   const portable = new PortableProjectRepository(database);
   const publication = new PublicationExportService(portable, undefined);
@@ -66,6 +77,61 @@ describe("Foundation 8A verified project recovery", () => {
       expect(source.publication.exportPortable("exact-project").manifest.projectFingerprint).toBe(portableBefore.manifest.projectFingerprint);
       expect(new RecoveryRepository(source.database).listBackups("exact-project")).toHaveLength(1);
       expect(new RecoveryRepository(source.database).listRestores("exact-project")).toHaveLength(1);
+    } finally { source.database.close(); }
+  });
+
+  it.each([
+    { label: "different harmless ZIP mtimes", mtime: new Date(2024, 4, 6, 7, 8, 10), level: 9 },
+    { label: "different compression level", mtime: new Date(1980, 0, 1, 0, 0, 0), level: 0 },
+  ])("accepts semantically identical portable bytes with $label when metadata binds those exact bytes", async ({ mtime, level }) => {
+    const source = context();
+    try {
+      source.projects.create("Container variance", "container-variance", "long-form");
+      const created = await source.recovery.createVerifiedBackup("container-variance");
+      const originalPortable = parseBackup(created.bytes).portableBytes;
+      const entries = unzipSync(originalPortable);
+      const alternativePortable = zipSync({
+        "manifest.json": [entries["manifest.json"]!, { mtime, level }],
+        "project.json": [entries["project.json"]!, { mtime, level }],
+      });
+      expect(createHash("sha256").update(alternativePortable).digest("hex"))
+        .not.toBe(createHash("sha256").update(originalPortable).digest("hex"));
+      const alternativeBackup = backupWithPortable(created.bytes, alternativePortable);
+
+      const preview = await source.recovery.previewBackup(alternativeBackup);
+      expect(preview).toMatchObject({
+        record: {
+          portableArchiveSha256: createHash("sha256").update(alternativePortable).digest("hex"),
+          portableArchiveByteCount: alternativePortable.byteLength,
+        },
+        manifest: { projectId: "container-variance" },
+        verification: { verified: true },
+      });
+      expect(parseBackup(alternativeBackup).portableBytes).toEqual(alternativePortable);
+    } finally { source.database.close(); }
+  });
+
+  it("still rejects project payload or manifest hash tampering despite ZIP-container independence", async () => {
+    const source = context();
+    try {
+      source.projects.create("Tamper boundaries", "tamper-boundaries", "long-form");
+      const created = await source.recovery.createVerifiedBackup("tamper-boundaries");
+      const portable = unzipSync(parseBackup(created.bytes).portableBytes);
+
+      const alteredProject = { ...portable, "project.json": portable["project.json"]!.slice() };
+      alteredProject["project.json"]![20] ^= 1;
+      const alteredProjectBytes = zipSync(alteredProject);
+      await expect(source.recovery.previewBackup(backupWithPortable(created.bytes, alteredProjectBytes)))
+        .rejects.toThrow(/portable_project_hash_invalid/);
+
+      const manifest = JSON.parse(new TextDecoder().decode(portable["manifest.json"]!));
+      manifest.files[0].sha256 = "0".repeat(64);
+      const alteredManifestBytes = zipSync({
+        "manifest.json": strToU8(JSON.stringify(manifest)),
+        "project.json": portable["project.json"]!,
+      });
+      await expect(source.recovery.previewBackup(backupWithPortable(created.bytes, alteredManifestBytes)))
+        .rejects.toThrow(/portable_project_hash_invalid/);
     } finally { source.database.close(); }
   });
 

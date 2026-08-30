@@ -1563,6 +1563,34 @@ WHEN NOT EXISTS (
 BEGIN SELECT RAISE(ABORT, 'Repair draft provenance exact lineage mismatch'); END;
 `;
 
+export const recoveryMetadataIntegrityTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS project_backup_records_immutable_delete
+BEFORE DELETE ON project_backup_records
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN
+  SELECT RAISE(ABORT, 'project backup records are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS project_restore_records_immutable_delete
+BEFORE DELETE ON project_restore_records
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN
+  SELECT RAISE(ABORT, 'project restore records are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS project_restore_records_exact_backup_insert
+BEFORE INSERT ON project_restore_records
+WHEN NOT EXISTS (
+  SELECT 1 FROM project_backup_records backups
+  WHERE backups.id = NEW.backup_id
+    AND backups.project_id = NEW.project_id
+    AND backups.portable_project_fingerprint = NEW.portable_project_fingerprint
+)
+BEGIN
+  SELECT RAISE(ABORT, 'project restore record exact backup lineage mismatch');
+END;
+`;
+
 export const recoveryMetadataMigrationSql = `
 CREATE TABLE project_backup_records (
   id TEXT PRIMARY KEY,
@@ -1635,4 +1663,6 @@ BEFORE UPDATE ON project_restore_records
 BEGIN
   SELECT RAISE(ABORT, 'project restore records are immutable');
 END;
+
+${recoveryMetadataIntegrityTriggerSql}
 `;

@@ -182,10 +182,12 @@ export class RecoveryService {
         this.recovery.insertVerifiedBackup(parsed.record);
         this.recovery.insertRestore(restore);
         const restored = this.publication.exportPortable(parsed.record.projectId);
-        if (restored.manifest.projectFingerprint !== parsed.record.portableProjectFingerprint
-          || sha256(restored.bytes) !== parsed.record.portableArchiveSha256) {
-          throw new RecoveryOperationError("restore_semantic_mismatch", "The published project differs from the verified backup.");
-        }
+        const restoredPortable = this.publication.parsePortableArchive(restored.bytes);
+        assertPortableSemanticEquivalence(
+          { manifest: verification.manifest, rows: verification.rows },
+          restoredPortable,
+          "restore_semantic_mismatch",
+        );
       });
     } catch (error) {
       throw normalizeRecoveryError(error, "restore_failed");
@@ -272,10 +274,11 @@ export class RecoveryService {
       const integrity = runDatabaseIntegrityCheck(isolated);
       if (!integrity.ok) throw new RecoveryOperationError("isolated_integrity_failed", "The isolated reconstructed database did not pass SQLite quick_check.");
       const restored = isolatedPublication.exportPortable(source.rows.projectId);
-      if (restored.manifest.projectFingerprint !== source.manifest.projectFingerprint
-        || sha256(restored.bytes) !== sha256(portableBytes)) {
-        throw new RecoveryOperationError("backup_semantic_mismatch", "Canonical re-export differs from the supplied portable project.");
-      }
+      assertPortableSemanticEquivalence(
+        source,
+        isolatedPublication.parsePortableArchive(restored.bytes),
+        "backup_semantic_mismatch",
+      );
       return {
         manifest: source.manifest,
         rows: source.rows,
@@ -287,6 +290,18 @@ export class RecoveryService {
       if (this.options.removeTemporaryDirectory) await this.options.removeTemporaryDirectory(directory);
       else await rm(directory, { recursive: true, force: true });
     }
+  }
+}
+
+function assertPortableSemanticEquivalence(
+  expected: ReturnType<PublicationExportService["parsePortableArchive"]>,
+  actual: ReturnType<PublicationExportService["parsePortableArchive"]>,
+  code: "backup_semantic_mismatch" | "restore_semantic_mismatch",
+): void {
+  const manifestMeaning = ({ files: _files, ...meaning }: PortableManifest) => meaning;
+  if (canonical(manifestMeaning(expected.manifest)) !== canonical(manifestMeaning(actual.manifest))
+    || canonical(expected.rows) !== canonical(actual.rows)) {
+    throw new RecoveryOperationError(code, "The reconstructed portable project differs semantically from the verified source.");
   }
 }
 

@@ -14,6 +14,7 @@ import {
   passageDraftAcceptanceMigrationSql,
   repairApplicationMigrationSql,
   repairDraftProvenanceLineageMigrationSql,
+  recoveryMetadataIntegrityTriggerSql,
   recoveryMetadataMigrationSql,
   passageDraftGenerationMigrationSql,
   passageDraftProvenanceMigrationSql,
@@ -42,6 +43,18 @@ export const SCHEMA_VERSION_HISTORY = Object.freeze([
 
 export function migrate(database: StoryDatabase): void {
   assertSupportedDatabaseVersion(database);
+  database.exec("PRAGMA foreign_keys = ON; BEGIN IMMEDIATE");
+  try {
+    migrateWithinTransaction(database);
+    database.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
+    database.exec("COMMIT");
+  } catch (error) {
+    try { database.exec("ROLLBACK"); } catch { /* Preserve the migration failure. */ }
+    throw error;
+  }
+}
+
+function migrateWithinTransaction(database: StoryDatabase): void {
   database.exec(schemaSql);
   addColumn(database, "projects", "mode", "TEXT NOT NULL DEFAULT 'quick'");
   addColumn(database, "conversations", "title", "TEXT NOT NULL DEFAULT 'Project discussion'");
@@ -70,137 +83,96 @@ export function migrate(database: StoryDatabase): void {
     "SELECT version FROM schema_migrations WHERE version = 5",
   ).get();
   if (!generationKernelApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v5", () => {
       database.exec(generationKernelMigrationSql);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (5, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
   const generationLineageApplied = database.prepare(
     "SELECT version FROM schema_migrations WHERE version = 6",
   ).get();
   if (!generationLineageApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v6", () => {
       assertValidGenerationJobUnitLineage(database);
       database.exec(generationLineageMigrationSql);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (6, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   } else if (!hasTrigger(database, "generation_jobs_lineage_update")) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v6_parent_lineage_patch", () => {
       assertValidGenerationJobUnitLineage(database);
       database.exec(generationJobParentLineageTriggerSql);
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
   const passagePlanningCandidatesApplied = database.prepare(
     "SELECT version FROM schema_migrations WHERE version = 7",
   ).get();
   if (!passagePlanningCandidatesApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v7", () => {
       database.exec(passagePlanningCandidatesMigrationSql);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (7, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
   const generationCandidateLineageApplied = database.prepare(
     "SELECT version FROM schema_migrations WHERE version = 8",
   ).get();
   if (!generationCandidateLineageApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v8", () => {
       assertValidGenerationCandidateLineage(database);
       database.exec(generationCandidateLineageMigrationSql);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (8, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
   const passageProposalApplied = database.prepare(
     "SELECT version FROM schema_migrations WHERE version = 9",
   ).get();
   if (!passageProposalApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v9", () => {
       assertValidGenerationCandidateLineage(database);
       database.exec(passageProposalMigrationSql);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (9, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
   const passageDraftArchitectureApplied = database.prepare(
     "SELECT version FROM schema_migrations WHERE version = 10",
   ).get();
   if (!passageDraftArchitectureApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v10", () => {
       if (hasTable(database, "passage_draft_versions")) assertValidPassageDraftLineage(database);
       database.exec(passageDraftArchitectureMigrationSql);
       assertValidPassageDraftLineage(database);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (10, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
   const passageDraftProvenanceApplied = database.prepare(
     "SELECT version FROM schema_migrations WHERE version = 11",
   ).get();
   if (!passageDraftProvenanceApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v11", () => {
       assertValidGeneratedDraftProvenance(database);
       database.exec(passageDraftProvenanceMigrationSql);
       assertValidGeneratedDraftProvenance(database);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (11, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
   const passageDraftGenerationApplied = database.prepare(
     "SELECT version FROM schema_migrations WHERE version = 12",
   ).get();
   if (!passageDraftGenerationApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v12", () => {
       assertValidPassageDraftLineage(database);
       assertValidGeneratedDraftProvenance(database);
       database.exec(passageDraftGenerationMigrationSql);
@@ -208,18 +180,13 @@ export function migrate(database: StoryDatabase): void {
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (12, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
   const passageDraftAcceptanceApplied = database.prepare(
     "SELECT version FROM schema_migrations WHERE version = 13",
   ).get();
   if (!passageDraftAcceptanceApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v13", () => {
       assertValidPassageDraftLineage(database);
       assertValidDraftingGenerationLineage(database);
       database.exec(passageDraftAcceptanceMigrationSql);
@@ -227,68 +194,72 @@ export function migrate(database: StoryDatabase): void {
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (13, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
   const repairApplicationApplied = database.prepare(
     "SELECT version FROM schema_migrations WHERE version = 14",
   ).get();
   if (!repairApplicationApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v14", () => {
       assertValidRepairApplicationLineage(database);
       database.exec(repairApplicationMigrationSql);
       assertValidRepairApplicationLineage(database);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (14, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
   const repairDraftProvenanceApplied = database.prepare(
     "SELECT version FROM schema_migrations WHERE version = 15",
   ).get();
   if (!repairDraftProvenanceApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v15", () => {
       assertValidRepairDraftProvenance(database);
       database.exec(repairDraftProvenanceLineageMigrationSql);
       assertValidRepairDraftProvenance(database);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (15, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
   const recoveryMetadataApplied = database.prepare(
     "SELECT version FROM schema_migrations WHERE version = 16",
   ).get();
   if (!recoveryMetadataApplied) {
-    database.exec("BEGIN IMMEDIATE");
-    try {
+    runMigrationStep(database, "migration_v16", () => {
       database.exec(recoveryMetadataMigrationSql);
       assertValidRecoveryMetadata(database);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (16, ?)",
       ).run(new Date().toISOString());
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
+    });
   } else {
     assertValidRecoveryMetadata(database);
+    if (!hasTrigger(database, "project_backup_records_immutable_delete")
+      || !hasTrigger(database, "project_restore_records_immutable_delete")
+      || !hasTrigger(database, "project_restore_records_exact_backup_insert")) {
+      runMigrationStep(database, "migration_v16_integrity_patch", () => {
+        database.exec(recoveryMetadataIntegrityTriggerSql);
+        assertValidRecoveryMetadata(database);
+      });
+    }
   }
-  database.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
+}
+
+function runMigrationStep(database: StoryDatabase, name: string, operation: () => void): void {
+  database.exec(`SAVEPOINT ${name}`);
+  try {
+    operation();
+    database.exec(`RELEASE SAVEPOINT ${name}`);
+  } catch (error) {
+    try {
+      database.exec(`ROLLBACK TO SAVEPOINT ${name}`);
+      database.exec(`RELEASE SAVEPOINT ${name}`);
+    } catch {
+      // Preserve the original migration failure for the outer transaction.
+    }
+    throw error;
+  }
 }
 
 export function databaseSchemaVersion(database: StoryDatabase): number {
@@ -394,6 +365,7 @@ function assertValidRecoveryMetadata(database: StoryDatabase): void {
       ON backups.id = restores.backup_id AND backups.project_id = restores.project_id
     WHERE projects.id IS NULL OR backups.id IS NULL
       OR restores.source_project_id != restores.project_id
+      OR restores.portable_project_fingerprint != backups.portable_project_fingerprint
       OR restores.portable_project_fingerprint != restores.restored_semantic_fingerprint
       OR json_valid(restores.diagnostics_json) = 0
       OR json_type(restores.diagnostics_json) != 'array'

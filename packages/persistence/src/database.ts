@@ -5,6 +5,13 @@ import { CURRENT_SCHEMA_VERSION, databaseSchemaVersion, migrate } from "./migrat
 
 export type StoryDatabase = DatabaseSync;
 
+export interface DatabaseOpenOperations {
+  exists(path: string): boolean;
+  stat(path: string): { size: number };
+  mkdir(path: string): void;
+  open(path: string): StoryDatabase;
+}
+
 export type DatabaseRecoveryErrorCode =
   | "database_corrupt"
   | "database_incompatible"
@@ -32,14 +39,22 @@ export class DatabaseRecoveryError extends Error {
   }
 }
 
-export function openDatabase(path = ":memory:"): StoryDatabase {
-  const existing = path !== ":memory:" && existsSync(path);
-  const existingBytes = existing ? statSync(path).size : 0;
-  if (path !== ":memory:" && !existing) mkdirSync(dirname(path), { recursive: true });
+export function openDatabase(path = ":memory:", operations: Partial<DatabaseOpenOperations> = {}): StoryDatabase {
+  const filesystem: DatabaseOpenOperations = {
+    exists: operations.exists ?? existsSync,
+    stat: operations.stat ?? statSync,
+    mkdir: operations.mkdir ?? ((directory) => { mkdirSync(directory, { recursive: true }); }),
+    open: operations.open ?? ((databasePath) => new DatabaseSync(databasePath)),
+  };
+  let existing = false;
+  let existingBytes = 0;
   let database: StoryDatabase | undefined;
   let startingSchemaVersion: number | null = null;
   try {
-    database = new DatabaseSync(path);
+    existing = path !== ":memory:" && filesystem.exists(path);
+    existingBytes = existing ? filesystem.stat(path).size : 0;
+    if (path !== ":memory:" && !existing) filesystem.mkdir(dirname(path));
+    database = filesystem.open(path);
     // A lightweight schema read detects malformed/non-SQLite input before migration writes.
     database.prepare("SELECT name FROM sqlite_master LIMIT 1").get();
     startingSchemaVersion = databaseSchemaVersion(database);
@@ -131,16 +146,19 @@ function normalizeDatabaseError(error: unknown, context: {
   } else if (codeText.includes("not a database") || codeText.includes("malformed") || codeText.includes("corrupt")) {
     code = "database_corrupt";
     recommendation = "Keep the unreadable file unchanged and restore a verified project backup into a separate database.";
-  } else if (codeText.includes("readonly") || codeText.includes("read-only")) {
+  } else if (codeText.includes("erofs") || codeText.includes("readonly") || codeText.includes("read-only")) {
     code = "database_read_only";
     recommendation = "Restore write access or copy the database using a consistency-safe SQLite tool before retrying.";
-  } else if (codeText.includes("full") || codeText.includes("disk") && codeText.includes("write")) {
+  } else if (codeText.includes("enospc") || codeText.includes("edquot")
+    || codeText.includes("full") || codeText.includes("disk") && codeText.includes("write")) {
     code = "database_write_failed";
     recommendation = "Free storage or choose writable storage, then retry without deleting the source database.";
-  } else if (codeText.includes("permission") || codeText.includes("access") && codeText.includes("denied")) {
+  } else if (codeText.includes("eacces") || codeText.includes("eperm")
+    || codeText.includes("permission") || codeText.includes("access") && codeText.includes("denied")) {
     code = "database_permission_denied";
     recommendation = "Restore filesystem permission or choose an accessible database location; the source file was not replaced.";
-  } else if (codeText.includes("cantopen") || codeText.includes("cannot open") || codeText.includes("unable to open")) {
+  } else if (codeText.includes("enoent") || codeText.includes("enotdir") || codeText.includes("cantopen")
+    || codeText.includes("cannot open") || codeText.includes("unable to open")) {
     code = "database_unavailable";
     recommendation = "Check that the configured storage location exists and is accessible, then retry.";
   } else {

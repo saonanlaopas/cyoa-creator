@@ -35,6 +35,17 @@ const temporaryDirectories: string[] = [];
 afterEach(() => temporaryDirectories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
 const digest = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
+function logicalDatabaseState(database: DatabaseSync): string {
+  const schema = database.prepare(`SELECT type, name, tbl_name, sql FROM sqlite_master
+    WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name`).all();
+  const tables = (database.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'
+    AND name NOT LIKE 'sqlite_%' ORDER BY name`).all() as Array<{ name: string }>).map(({ name }) => ({
+      name,
+      rows: database.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all(),
+    }));
+  return JSON.stringify({ schema, tables });
+}
+
 describe("generation kernel migration", () => {
   it.each(supportedFixtures.map((path, index) => ({ sourceVersion: index + 4, path })))(
     "migrates frozen schema v$sourceVersion through normal open, quick_check, and domain reads without touching the fixture",
@@ -835,5 +846,70 @@ describe("generation kernel migration", () => {
     expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'project_backup_records_immutable_update'").get()).toBeUndefined();
     database.close();
     expect(digest(v15FixturePath)).toBe(originalHash);
+  });
+
+  it.each([
+    { version: 4, fixture: v4FixturePath },
+    { version: 5, fixture: v5FixturePath },
+    { version: 10, fixture: v10FixturePath },
+    { version: 15, fixture: v15FixturePath },
+  ])("keeps a schema-v$version upgrade logically exact when a later v16 conflict fails", ({ version, fixture }) => {
+    const directory = mkdtempSync(join(tmpdir(), `cyoa-whole-upgrade-v${version}-`));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, `schema-v${version}-conflict.sqlite`);
+    copyFileSync(fixture, copyPath);
+    const raw = new DatabaseSync(copyPath);
+    raw.exec("CREATE TABLE project_backup_records (conflict TEXT)");
+    raw.prepare("INSERT INTO project_backup_records VALUES (?)").run("preserve conflict exactly");
+    const before = logicalDatabaseState(raw);
+    const userVersion = (raw.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+    raw.close();
+
+    expect(() => openDatabase(copyPath)).toThrow();
+    const rejected = new DatabaseSync(copyPath);
+    expect(logicalDatabaseState(rejected)).toBe(before);
+    expect((rejected.prepare("SELECT MAX(version) version FROM schema_migrations").get() as { version: number }).version).toBe(version);
+    expect((rejected.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(userVersion);
+    const laterObject = rejected.prepare("SELECT name FROM sqlite_master WHERE name = 'passage_draft_acceptance_applications'").get();
+    if (version >= 13) expect(laterObject).toBeDefined();
+    else expect(laterObject).toBeUndefined();
+    rejected.exec("DROP TABLE project_backup_records");
+    rejected.close();
+
+    const retried = openDatabase(copyPath);
+    expect((retried.prepare("SELECT MAX(version) version FROM schema_migrations").get() as { version: number }).version).toBe(16);
+    expect((retried.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(16);
+    retried.close();
+  });
+
+  it("rolls back all earlier upgrade work when invalid repair lineage is discovered several versions later", () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-late-corruption-"));
+    temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v4-late-corruption.sqlite");
+    copyFileSync(v4FixturePath, copyPath);
+    const raw = new DatabaseSync(copyPath);
+    raw.exec(`CREATE TABLE repair_applications (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, proposal_artifact_version_id TEXT NOT NULL,
+      repair_plan_artifact_version_id TEXT NOT NULL, proposal_id TEXT NOT NULL, content_json TEXT NOT NULL
+    )`);
+    raw.prepare("INSERT INTO repair_applications VALUES (?, ?, ?, ?, ?, ?)").run(
+      "invalid-application", "fixture-project", "missing-proposal", "missing-plan", "missing", "{}",
+    );
+    const before = logicalDatabaseState(raw);
+    const userVersion = (raw.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+    raw.close();
+
+    expect(() => openDatabase(copyPath)).toThrow();
+    const rejected = new DatabaseSync(copyPath);
+    expect(logicalDatabaseState(rejected)).toBe(before);
+    expect((rejected.prepare("SELECT MAX(version) version FROM schema_migrations").get() as { version: number }).version).toBe(4);
+    expect((rejected.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(userVersion);
+    expect(rejected.prepare("SELECT name FROM sqlite_master WHERE name = 'repair_application_draft_links'").get()).toBeUndefined();
+    rejected.exec("DROP TABLE repair_applications");
+    rejected.close();
+
+    const retried = openDatabase(copyPath);
+    expect((retried.prepare("SELECT MAX(version) version FROM schema_migrations").get() as { version: number }).version).toBe(16);
+    retried.close();
   });
 });

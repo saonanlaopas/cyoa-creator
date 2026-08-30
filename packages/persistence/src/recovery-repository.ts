@@ -68,6 +68,15 @@ export class RecoveryRepository {
 
   insertRestore(value: ProjectRestoreRecord): ProjectRestoreRecord {
     const record = ProjectRestoreRecordSchema.parse(value);
+    const backup = this.database.prepare(`SELECT project_id, portable_project_fingerprint
+      FROM project_backup_records WHERE id = ?`).get(record.backupId) as {
+        project_id: string;
+        portable_project_fingerprint: string;
+      } | undefined;
+    if (!backup || backup.project_id !== record.projectId
+      || backup.portable_project_fingerprint !== record.portableProjectFingerprint) {
+      throw new Error("Restore metadata does not match its exact verified backup");
+    }
     this.database.prepare(`INSERT INTO project_restore_records (
       id, project_id, backup_id, schema_id, schema_version, source_project_id,
       portable_project_fingerprint, restored_semantic_fingerprint, restored_at, outcome, diagnostics_json
