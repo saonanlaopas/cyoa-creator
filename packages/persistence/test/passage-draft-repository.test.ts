@@ -104,6 +104,23 @@ function createDraft(
 }
 
 describe("passage draft repository", () => {
+  it("loads accepted heads for a bounded passage set without traversing unrelated draft history", () => {
+    const fixture = setup();
+    const first = createDraft(fixture, "First accepted draft", "passage-1");
+    const second = createDraft(fixture, "Second accepted draft", "passage-2");
+    const acceptedFirst = fixture.drafts.transition(fixture.project.id, "passage-1", first.id, "accepted");
+    const acceptedSecond = fixture.drafts.transition(fixture.project.id, "passage-2", second.id, "accepted");
+    const historical = createDraft(fixture, "Later unaccepted history", "passage-1");
+
+    const heads = fixture.drafts.listAcceptedHeadsForPassages(fixture.project.id, ["passage-2", "passage-1", "missing", "passage-1"]);
+
+    expect(heads.map((head) => [head.passageId, head.accepted.id])).toEqual([
+      ["passage-1", acceptedFirst.id], ["passage-2", acceptedSecond.id],
+    ]);
+    expect(heads.flatMap((head) => head.accepted.proseMarkdown)).not.toContain(historical.proseMarkdown);
+    fixture.database.close();
+  });
+
   it("creates immutable per-passage versions with exact provenance and deterministic Unicode word counts", () => {
     const fixture = setup();
     const first = createDraft(fixture, "“Fanawë Eterúna” walks—quietly. 東京");

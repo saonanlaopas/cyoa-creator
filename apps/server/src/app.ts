@@ -62,6 +62,8 @@ import { PublicationExportService } from "./services/publication-export-service.
 import { registerPublicationExportRoutes } from "./routes/publication-exports.js";
 import { RecoveryService } from "./services/recovery-service.js";
 import { registerRecoveryRoutes } from "./routes/recovery.js";
+import { registerProjectHealthRoutes } from "./routes/project-health.js";
+import { ProjectHealthService } from "./services/project-health-service.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -122,6 +124,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const recoveryService = new RecoveryService(database, portableProjects, publicationExportService, {
     applicationVersion: process.env.npm_package_version ?? null,
   });
+  const projectHealthService = new ProjectHealthService(database, projects, options.databasePath ?? ":memory:");
   const playtestService = new PlaytestService(projects, artifacts, simulationService);
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
     && process.env.E2E_FAKE_MODEL_PROVIDER === "1";
@@ -218,6 +221,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerNativeCompilationRoutes(app, nativeCompilationService);
   registerPublicationExportRoutes(app, publicationExportService, options.maxPortableProjectBytes);
   registerRecoveryRoutes(app, recoveryService, options.maxProjectBackupBytes);
+  registerProjectHealthRoutes(app, projectHealthService);
   registerPlaytestingRoutes(app, playtestService);
   registerNarrativeReviewRoutes(app, narrativeReviewService);
   registerRepairPlanningRoutes(app, repairPlanningService);

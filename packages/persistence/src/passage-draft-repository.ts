@@ -63,6 +63,13 @@ export interface PassageDraftHeadRecord {
   updatedAt: string;
 }
 
+/** A bounded bulk projection for compile/simulation paths; it never loads every draft history. */
+export interface AcceptedPassageDraftHead {
+  passageId: string;
+  accepted: PassageDraftVersionRecord;
+  acceptedLocked: boolean;
+}
+
 export interface DraftReviewQueueItem {
   passageId: string;
   title: string;
@@ -248,6 +255,25 @@ export class PassageDraftRepository {
     return (this.database.prepare(`SELECT passage_id FROM passage_draft_heads
       WHERE project_id = ? ORDER BY passage_id`).all(projectId) as Array<{ passage_id: string }>)
       .map((row) => this.getHead(projectId, row.passage_id)!);
+  }
+
+  listAcceptedHeadsForPassages(projectId: string, passageIds: string[]): AcceptedPassageDraftHead[] {
+    const ids = [...new Set(passageIds)].sort();
+    if (!ids.length) return [];
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = this.database.prepare(`SELECT versions.*,
+        heads.accepted_locked
+      FROM passage_draft_heads heads
+      JOIN passage_draft_versions versions
+        ON versions.project_id = heads.project_id AND versions.id = heads.accepted_version_id
+      WHERE heads.project_id = ? AND heads.passage_id IN (${placeholders})
+      ORDER BY heads.passage_id`).all(projectId, ...ids) as Array<DraftRow & { accepted_locked: number }>;
+    const drafts = this.mapDraftRows(rows);
+    return rows.map((row) => ({
+      passageId: row.passage_id,
+      accepted: drafts.get(row.id)!,
+      acceptedLocked: Boolean(row.accepted_locked),
+    }));
   }
 
   listAllVersions(projectId: string): PassageDraftVersionRecord[] {
@@ -992,6 +1018,70 @@ export class PassageDraftRepository {
       createdAt: row.created_at,
     };
   }
+
+  private mapDraftRows(rows: DraftRow[]): Map<string, PassageDraftVersionRecord> {
+    if (!rows.length) return new Map();
+    const ids = rows.map((row) => row.id);
+    const placeholders = ids.map(() => "?").join(", ");
+    const projectId = rows[0]!.project_id;
+    const upstream = this.database.prepare(`SELECT draft_version_id, artifact_id, artifact_version_id
+      FROM passage_draft_upstream_artifacts WHERE project_id = ? AND draft_version_id IN (${placeholders})
+      ORDER BY draft_version_id, artifact_id`).all(projectId, ...ids) as Array<{
+        draft_version_id: string; artifact_id: string; artifact_version_id: string;
+      }>;
+    const neighbors = this.database.prepare(`SELECT draft_version_id, neighbor_passage_id, neighbor_draft_version_id
+      FROM passage_draft_neighbor_versions WHERE project_id = ? AND draft_version_id IN (${placeholders})
+      ORDER BY draft_version_id, neighbor_passage_id`).all(projectId, ...ids) as Array<{
+        draft_version_id: string; neighbor_passage_id: string; neighbor_draft_version_id: string;
+      }>;
+    const stale = this.database.prepare(`SELECT id, draft_version_id, reason_code, source_entity_kind, source_entity_id,
+        from_version_id, to_version_id, changed_fields_json, created_at
+      FROM passage_draft_staleness_events WHERE project_id = ? AND draft_version_id IN (${placeholders})
+      ORDER BY draft_version_id, created_at, id`).all(projectId, ...ids) as Array<StaleRow & { draft_version_id: string }>;
+    const generated = this.database.prepare(`SELECT provenance.draft_version_id, provenance.output_id, provenance.attempt_id,
+        outputs.input_fingerprint, outputs.context_fingerprint, outputs.provider_id, outputs.model_id,
+        outputs.execution_policy_id, outputs.output_schema_id, outputs.output_schema_version,
+        outputs.usage_json, outputs.repair_json
+      FROM passage_draft_generation_provenance provenance
+      JOIN drafting_unit_outputs outputs
+        ON outputs.project_id = provenance.project_id AND outputs.id = provenance.output_id
+      WHERE provenance.project_id = ? AND provenance.draft_version_id IN (${placeholders})`).all(projectId, ...ids) as Array<{
+        draft_version_id: string; output_id: string; attempt_id: string; input_fingerprint: string;
+        context_fingerprint: string; provider_id: string; model_id: string; execution_policy_id: string;
+        output_schema_id: string; output_schema_version: number; usage_json: string | null; repair_json: string;
+      }>;
+    const upstreamByDraft = group(upstream, (row) => row.draft_version_id);
+    const neighborsByDraft = group(neighbors, (row) => row.draft_version_id);
+    const staleByDraft = group(stale, (row) => row.draft_version_id);
+    const generationByDraft = new Map(generated.map((row) => [row.draft_version_id, row]));
+    return new Map(rows.map((row) => {
+      const reasons = (staleByDraft.get(row.id) ?? []).map((item) => ({
+        id: item.id, reasonCode: item.reason_code, sourceEntityKind: item.source_entity_kind,
+        sourceEntityId: item.source_entity_id, fromVersionId: item.from_version_id,
+        toVersionId: item.to_version_id, changedFields: JSON.parse(item.changed_fields_json) as string[], createdAt: item.created_at,
+      }));
+      const provenance = generationByDraft.get(row.id);
+      const mapped: PassageDraftVersionRecord = {
+        id: row.id, projectId: row.project_id, passageId: row.passage_id, version: row.version,
+        basedOnPassagePlanVersionId: row.based_on_passage_plan_version_id, proseMarkdown: row.prose_markdown,
+        wordCount: row.word_count, lifecycleStatus: row.lifecycle_status,
+        status: reasons.length ? "stale" : row.lifecycle_status, sourceKind: row.source_kind,
+        generationPlanId: row.generation_plan_id, generationJobId: row.generation_job_id, generationUnitId: row.generation_unit_id,
+        generationProvenance: provenance ? {
+          outputId: provenance.output_id, attemptId: provenance.attempt_id, inputFingerprint: provenance.input_fingerprint,
+          contextFingerprint: provenance.context_fingerprint, providerId: provenance.provider_id, modelId: provenance.model_id,
+          executionPolicyId: provenance.execution_policy_id, outputSchemaId: provenance.output_schema_id,
+          outputSchemaVersion: provenance.output_schema_version,
+          usage: provenance.usage_json ? JSON.parse(provenance.usage_json) : null, repair: JSON.parse(provenance.repair_json),
+        } : null,
+        authorNote: row.author_note,
+        upstreamVersions: Object.fromEntries((upstreamByDraft.get(row.id) ?? []).map((item) => [item.artifact_id, item.artifact_version_id])),
+        neighboringDraftVersions: Object.fromEntries((neighborsByDraft.get(row.id) ?? []).map((item) => [item.neighbor_passage_id, item.neighbor_draft_version_id])),
+        restoredFromVersionId: row.restored_from_version_id, stale: reasons.length > 0, staleReasons: reasons, createdAt: row.created_at,
+      };
+      return [row.id, mapped];
+    }));
+  }
 }
 
 interface UpstreamPassageContext {
@@ -1011,6 +1101,12 @@ function record(value: unknown): Record<string, unknown> {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function group<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
+  const result = new Map<string, T[]>();
+  for (const item of items) result.set(key(item), [...(result.get(key(item)) ?? []), item]);
+  return result;
 }
 
 function acceptedLifecycle(status: PassageDraftLifecycle): boolean {

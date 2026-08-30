@@ -132,6 +132,14 @@ A verified project backup contains the same authoring scope and exclusions decla
 
 Database startup distinguishes a missing/new database from corrupt bytes, an unsupported future schema, migration failure, permission or read-only failure, and write/storage failure. It refuses to replace a non-empty unreadable or future database with an empty one. **Run database quick_check** is an explicit bounded storage-integrity diagnostic; it complements, but does not replace, application-domain validation. Supported frozen schemas v4 through v15 migrate transactionally to v16. A raw operational SQLite copy is intentionally not offered yet because copying only an active `.sqlite` file can omit WAL state; use the verified portable recovery flow instead of making an unsafe live file copy.
 
+### Project health, storage, and recorded usage
+
+Open **Project health** for compact, read-only operational facts: passage/choice/thread scale, draft and word totals, staleness, passage-plan validation counts, recent simulation/playtest/build metadata, repair history, verified-backup metadata, and links to the responsible workflow. It does not load passage prose, author notes, prompts, provider responses, credentials, or raw reasoning. It also deliberately does not rerun publication readiness or current backup freshness; open **Publication and play** or **Backup & recovery** when you want those authoritative, potentially heavier checks.
+
+Storage diagnostics show SQLite and WAL byte sizes only when the local filesystem can report them, plus immutable record counts by category. An in-memory database or unavailable filesystem is labeled as such. The app does not guess free space or browser quota, expose paths, collect third-party analytics, or automatically delete history.
+
+Recorded AI usage is read from persisted attempts and immutable aggregate review/proposal records without contacting a provider. It reports request and token totals by workflow/provider/model where stored, excluding rollups and candidate mirrors so totals are not double-counted. A recorded cost is shown only when the historical record contains one. Missing cost remains **unknown**; a total with both known and unknown components is labeled **partial**. The app never silently estimates old costs or reprices old usage with current model prices.
+
 ## Play and export the quick result
 
 Play the result directly below the generator. The preview tracks visible stats and relationship labels. Download editable Twee source or a standalone playable HTML file. If Tweego is not installed, the app uses its built-in standalone HTML compiler.

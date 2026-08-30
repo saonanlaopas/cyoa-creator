@@ -634,9 +634,13 @@ export class NativeCompilationService {
 
     const acceptedDrafts: Array<{ selection: NativeAcceptedDraftSelection; proseMarkdown: string }> = [];
     const passageReferenceById = new Map(passageVersions.map((item) => [item.entityId, item]));
+    const acceptedHeads = new Map(this.passageDrafts.listAcceptedHeadsForPassages(
+      projectId,
+      passages.map((passage) => passage.id),
+    ).map((head) => [head.passageId, head]));
     for (const passage of passages) {
       const passageVersion = passageReferenceById.get(passage.id)!;
-      const head = this.passageDrafts.getHead(projectId, passage.id);
+      const head = acceptedHeads.get(passage.id);
       const draft = head?.accepted;
       if (!draft) {
         blocker("publication.accepted-prose-missing", `Passage ${passage.id} has no accepted prose`, "passage", passage.id);

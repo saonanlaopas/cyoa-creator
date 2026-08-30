@@ -35,7 +35,7 @@ Implementation checkpoints:
 - Foundation 7C is complete and externally accepted at `225a04dd958c36bc4773edddcbef854725d7c73c`.
 - Foundation 7 is **CLOSED** at accepted head `225a04dd958c36bc4773edddcbef854725d7c73c`.
 
-Foundation 8A is implemented and pending external review. Do not begin Foundation 8B until 8A has an externally accepted SHA.
+Foundation 8A is externally accepted at `968febd6e16082176e13171e2b6f57067a2b21ce`. Foundation 8B is implemented and pending external acceptance. Do not begin Foundation 8C until 8B has an externally accepted SHA.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 
@@ -737,7 +737,7 @@ Do not begin a checkpoint until the previous checkpoint has an externally accept
 
 ### Foundation 8: scale, recovery, and authoring polish (formerly Production 5)
 
-**Implementation status:** Checkpoint 8A is implemented and pending external review; checkpoints 8B and 8C have not begun.
+**Implementation status:** Checkpoint 8A is externally accepted at `968febd6e16082176e13171e2b6f57067a2b21ce`; checkpoint 8B is implemented and pending external acceptance; checkpoint 8C has not begun.
 
 #### Goal
 
@@ -762,7 +762,7 @@ Finish production hardening so long sessions and 150,000-200,000-word projects a
 
 #### Checkpoint 8A: Backup, restore, and compatibility
 
-**Implementation status:** Implemented on `checkpoint/foundation-8a-backup-restore-compatibility`, pending external review.
+**Implementation status:** Externally accepted at `968febd6e16082176e13171e2b6f57067a2b21ce` on `checkpoint/foundation-8a-backup-restore-compatibility`.
 
 **Purpose:** Establish trustworthy recovery and compatibility boundaries before performance or long-session polish. This checkpoint answers: **"Can the author recover the exact work they intended without overwriting good data or mistaking a partial copy for a verified backup?"**
 
@@ -811,6 +811,8 @@ Finish production hardening so long sessions and 150,000-200,000-word projects a
 **Recommended engineering model:** Sol High, because backup, restore, migration, and compatibility work is data-loss-sensitive. This model choice does not authorize a provider call.
 
 #### Checkpoint 8B: Performance, health, and large-project scale
+
+**Implementation status:** Implemented on `checkpoint/foundation-8b-performance-health-scale`, pending external acceptance.
 
 **Purpose:** Measure the real large-project workflows, establish structural and wall-clock budgets, and optimize only demonstrated bottlenecks while preserving correctness and accessibility.
 

@@ -947,6 +947,23 @@ describe("Foundation 7A native compilation API", () => {
 
   it("compiles and loads the 300-passage accepted corpus deterministically within explicit bounds", async () => {
     const fixture = await seedApprovedProject({ passageCount: 300 });
+    const healthResponse = await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/health`,
+    }));
+    const health = healthResponse.json();
+    expect(health.schemaId).toBe("cyoa.project-health");
+    expect(health.scale).toMatchObject({ passages: 300, choices: 299, acceptedDrafts: 300 });
+    expect(healthResponse.body.length).toBeLessThanOrEqual(96_000);
+    expect(healthResponse.body).not.toContain("Exact accepted prose");
+    expect(healthResponse.body).not.toContain("AUTHOR_ONLY");
+    const planResponse = await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/passage-plan`,
+    }));
+    expect(planResponse.body).not.toContain("proseMarkdown");
+    const queryPlans = (await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/health/query-plans`,
+    }))).json().items;
+    expect(queryPlans).toEqual(expect.arrayContaining([expect.objectContaining({ operation: "passage-review-queue" })]));
     const first = (await ok(fixture.app.inject({
       method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
     }))).json();

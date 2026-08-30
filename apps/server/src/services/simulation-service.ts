@@ -125,8 +125,12 @@ export class SimulationService {
     const passageVersions = references(this.passagePlans.snapshotEntities(snapshot.id, "passage"));
     const choiceVersions = references(this.passagePlans.snapshotEntities(snapshot.id, "choice"));
     const threadVersions = references(this.passagePlans.snapshotEntities(snapshot.id, "thread"));
+    const acceptedHeads = new Map(this.passageDrafts.listAcceptedHeadsForPassages(
+      projectId,
+      passageVersions.map((reference) => reference.entityId),
+    ).map((head) => [head.passageId, head]));
     const acceptedDraftVersions = passageVersions.flatMap(({ entityId }) => {
-      const accepted = this.passageDrafts.getHead(projectId, entityId)?.accepted;
+      const accepted = acceptedHeads.get(entityId)?.accepted;
       return accepted ? [{ entityId, versionId: accepted.id }] : [];
     }).sort(compareReference);
     const identity = {

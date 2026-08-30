@@ -279,6 +279,7 @@ textarea.source { min-height: 20rem; }
 .repair-workspace { grid-column: 2 / -1; }
 .publication-workspace { grid-column: 2 / -1; }
 .recovery-workspace { grid-column: 2 / -1; display: grid; gap: 1rem; }
+.project-health-workspace { grid-column: 2 / -1; display: grid; gap: 1rem; min-width: 0; }
 .recovery-import, .recovery-status, .recovery-history, .danger-zone { display: grid; gap: .7rem; }
 .recovery-import.compact { padding: 0; }
 .recovery-import > p, .recovery-status > p, .danger-zone > p { margin: 0; }

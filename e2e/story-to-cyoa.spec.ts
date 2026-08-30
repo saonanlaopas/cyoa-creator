@@ -372,6 +372,26 @@ test("long-form passage workspace renders, filters, and jumps within a 300-passa
   await expect(page.locator(".passage-editor input").first()).toHaveValue("Passage 299");
 });
 
+test("project health stays compact and provider-free for a 300-passage fixture", async ({ page, request }) => {
+  test.setTimeout(60_000);
+  const projectId = await seedLargePassagePlan(request);
+  const observedRequests: string[] = [];
+  page.on("request", (entry) => observedRequests.push(entry.url()));
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "health");
+  }, projectId);
+  await page.goto("/#long-form");
+
+  await expect(page.getByRole("heading", { name: "Project health" })).toBeVisible();
+  await expect(page.getByText(/300 \/ 299 \/ 0/)).toBeVisible();
+  await expect(page.getByText(/Current readiness is not evaluated here/)).toBeVisible();
+  await expect(page.getByText(/In-memory database; on-disk size is not available/)).toBeVisible();
+  await expect(page.getByText(/Recorded AI usage/)).toBeVisible();
+  expect(await page.locator(".project-health-workspace").textContent()).not.toContain("private marker stays in draft storage only");
+  expect(observedRequests.some((url) => /openrouter|\/start$/i.test(url))).toBe(false);
+});
+
 test("manual passage drafts persist, stale selectively, and stay separate in a 300-passage workspace", async ({ page, request }) => {
   test.setTimeout(90_000);
   const projectId = await seedLargePassagePlan(request);
