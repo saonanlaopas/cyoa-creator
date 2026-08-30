@@ -60,11 +60,14 @@ import { NativeCompilationService } from "./services/native-compilation-service.
 import { registerNativeCompilationRoutes } from "./routes/native-compilation.js";
 import { PublicationExportService } from "./services/publication-export-service.js";
 import { registerPublicationExportRoutes } from "./routes/publication-exports.js";
+import { RecoveryService } from "./services/recovery-service.js";
+import { registerRecoveryRoutes } from "./routes/recovery.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
   maxImportBytes?: number;
   maxPortableProjectBytes?: number;
+  maxProjectBackupBytes?: number;
   credentials?: CredentialStore;
   openRouterClient?: OpenRouterClient;
   passagePlanningProvider?: PassagePlanningProvider;
@@ -114,7 +117,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const nativeCompilationService = new NativeCompilationService(
     projects, artifacts, workflow, passagePlans, passageDrafts,
   );
-  const publicationExportService = new PublicationExportService(new PortableProjectRepository(database), nativeCompilationService);
+  const portableProjects = new PortableProjectRepository(database);
+  const publicationExportService = new PublicationExportService(portableProjects, nativeCompilationService);
+  const recoveryService = new RecoveryService(database, portableProjects, publicationExportService, {
+    applicationVersion: process.env.npm_package_version ?? null,
+  });
   const playtestService = new PlaytestService(projects, artifacts, simulationService);
   const useOfflineE2EProvider = process.env.NODE_ENV === "test"
     && process.env.E2E_FAKE_MODEL_PROVIDER === "1";
@@ -210,6 +217,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerSimulationRoutes(app, simulationService);
   registerNativeCompilationRoutes(app, nativeCompilationService);
   registerPublicationExportRoutes(app, publicationExportService, options.maxPortableProjectBytes);
+  registerRecoveryRoutes(app, recoveryService, options.maxProjectBackupBytes);
   registerPlaytestingRoutes(app, playtestService);
   registerNarrativeReviewRoutes(app, narrativeReviewService);
   registerRepairPlanningRoutes(app, repairPlanningService);

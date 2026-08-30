@@ -974,4 +974,102 @@ describe("Foundation 7A native compilation API", () => {
     expect(serialized).not.toContain("repair-proposal");
     expect(serialized).not.toContain("narrative-review");
   }, 30_000);
+
+  it("verifies, restores, recompiles, and plays the exact 300-passage Unicode corpus with history intact", async () => {
+    const fixture = await seedApprovedProject({ passageCount: 300 });
+    const firstPassageId = fixture.plan.structure.content.startPassageId as string;
+    const unicodeProse = "  \u039A\u03B1\u03BB\u03B7\u03BC\u03AD\u03C1\u03B1 \u00B7 \u3053\u3093\u306B\u3061\u306F \u00B7 \u0645\u0631\u062D\u0628\u0627 \u00B7 \u0E2A\u0E27\u0E31\u0E2A\u0E14\u0E35 \u00B7 \u041F\u0440\u0438\u0432\u0435\u0442 \u00B7 \uD83C\uDF0A\r\n\nExact spacing, punctuation\u2014and emoji\u2014must survive.  ";
+    const candidate = (await ok(fixture.app.inject({
+      method: "PUT",
+      url: `/api/long-form/projects/${fixture.projectId}/drafts/passages/${firstPassageId}`,
+      payload: { proseMarkdown: unicodeProse, authorNote: "Unicode recovery fixture" },
+    }))).json().draft;
+    const acceptancePreview = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/drafts/acceptance/preview`,
+      payload: { selections: [{ passageId: firstPassageId, candidateDraftVersionId: candidate.id }] },
+    }))).json();
+    const accepted = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/drafts/acceptance/apply`,
+      payload: { selections: acceptancePreview.selections, previewFingerprint: acceptancePreview.fingerprint },
+    }))).json().application;
+    const reviewed = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/drafts/passages/${firstPassageId}/transition`,
+      payload: { versionId: accepted.resultingAcceptedVersions[firstPassageId], status: "reviewed" },
+    }))).json().draft;
+    await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/drafts/passages/${firstPassageId}/transition`,
+      payload: { versionId: reviewed.id, status: "locked" },
+    }));
+
+    const input = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/simulation/inputs`,
+    }))).json();
+    const path = exactPath(fixture.plan);
+    await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/simulation/runs`, payload: {
+        inputArtifactVersionId: input.id, choiceIds: path.choiceIds, expectedEndingId: path.endingId,
+      },
+    }));
+    const sourceBuild = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
+    }))).json();
+    expect(sourceBuild.bundle.passages.find((passage: { id: string }) => passage.id === firstPassageId).proseMarkdown)
+      .toBe(unicodeProse);
+
+    const portableBefore = await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/exports/portable`,
+    }));
+    const backup = await ok(fixture.app.inject({
+      method: "POST", url: `/api/projects/${fixture.projectId}/recovery/backups`,
+    }));
+    expect(backup.headers["x-cyoa-backup-verification"]).toBe("verified");
+    const portableAfter = await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/exports/portable`,
+    }));
+    expect(portableAfter.rawPayload.equals(portableBefore.rawPayload)).toBe(true);
+
+    const target = buildApp(); apps.push(target);
+    const upload = portableMultipart(new Uint8Array(backup.rawPayload), "recovery-300-unicode");
+    const preview = await target.inject({ method: "POST", url: "/api/recovery/backups/preview", ...upload });
+    expect(preview.statusCode, preview.body).toBe(200);
+    expect(preview.json()).toMatchObject({ conflict: false, verification: { verified: true } });
+    expect((await target.inject({ method: "GET", url: "/api/projects" })).json()).toEqual([]);
+    const restored = await target.inject({ method: "POST", url: "/api/recovery/backups/restore", ...upload });
+    expect(restored.statusCode, restored.body).toBe(201);
+    expect(restored.json().projectId).toBe(fixture.projectId);
+
+    const portableRestored = await ok(target.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/exports/portable`,
+    }));
+    expect(portableRestored.rawPayload.equals(portableBefore.rawPayload)).toBe(true);
+    const restoredDraft = (await ok(target.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/drafts/passages/${firstPassageId}`,
+    }))).json();
+    expect(restoredDraft.head).toMatchObject({
+      acceptedLocked: true,
+      accepted: { lifecycleStatus: "locked", proseMarkdown: unicodeProse, staleReasons: [] },
+    });
+    expect(restoredDraft.history.length).toBeGreaterThanOrEqual(4);
+    expect((await ok(target.inject({
+      method: "GET", url: `/api/projects/${fixture.projectId}/artifacts/simulation-runs/versions`,
+    }))).json()).toHaveLength(1);
+    expect((await ok(target.inject({
+      method: "GET", url: `/api/projects/${fixture.projectId}/artifacts/native-builds/versions`,
+    }))).json()).toHaveLength(1);
+
+    const rebuilt = (await ok(target.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
+    }))).json();
+    expect(rebuilt.bundle.passages).toHaveLength(300);
+    expect(rebuilt.bundle.choices).toHaveLength(299);
+    expect(rebuilt.bundle.passages.find((passage: { id: string }) => passage.id === firstPassageId).proseMarkdown)
+      .toBe(unicodeProse);
+    const loaded = loadNativeGame(rebuilt.bundle);
+    const trace = runDeterministicPath(loaded.runtime, rebuilt.bundle.source.inputFingerprint, {
+      choiceIds: path.choiceIds,
+      expectedEndingId: path.endingId,
+      policy: { version: "foundation-5a-v1", maxSteps: 500, maxVisitsPerPassage: 10, maxTraceBytes: 20_000_000 },
+    });
+    expect(trace.visitedPassageIds).toHaveLength(300);
+  }, 360_000);
 });

@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "playwright/test";
+import { readFile } from "node:fs/promises";
 
 const source = "Mara returns to the flooded station before dawn, carrying the brass key her father hid years ago. She knows the town will blame her if the archive burns, but the last train still waits beyond the broken platform.";
 
@@ -1165,4 +1166,73 @@ test("native browser player opens a 300-passage exact build without rendering th
   await expect(page.getByText(/route-main|decision-route-selection/)).toHaveCount(0);
   expect(browserRequests.filter((url) => /\/api\//.test(url)).length).toBe(apiRequestsAfterBoot);
   expect(await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).text()).toBe(canonicalBefore);
+});
+
+test("verified recovery downloads, detects change, previews without writes, rejects collision, restores, and recompiles", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const projectId = await seedLargePassagePlan(request, 12);
+  await approveCurrentPassagePlan(request, projectId);
+  await acceptAllPassageProse(request, projectId);
+  const providerRequests: string[] = [];
+  page.on("request", (outgoing) => {
+    if (/openrouter|provider/i.test(outgoing.url())) providerRequests.push(outgoing.url());
+  });
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "recovery");
+  }, projectId);
+  await page.goto("/#long-form");
+  const recovery = page.getByLabel("Backup and recovery");
+  await expect(recovery.getByText("No verified backup is recorded for this project.").first()).toBeVisible();
+
+  const downloadPromise = page.waitForEvent("download");
+  await recovery.getByRole("button", { name: "Create, verify & download backup" }).click();
+  const download = await downloadPromise;
+  const downloadedPath = await download.path();
+  expect(downloadedPath).not.toBeNull();
+  const backupBytes = await readFile(downloadedPath!);
+  expect(backupBytes.byteLength).toBeGreaterThan(0);
+  await expect(recovery.getByText("The latest verified backup matches the current semantic project and application/schema identity.").first()).toBeVisible();
+  await expect(recovery.getByText(/browser download was initiated/)).toBeVisible();
+
+  const plan = await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).json();
+  const firstPassage = plan.passages[0];
+  const changed = await request.put(
+    `/api/long-form/projects/${projectId}/passage-plan/entities/passage/${firstPassage.entityId}`,
+    { data: { ...firstPassage.content, purpose: "Changed only after the verified recovery point" } },
+  );
+  await expect(changed).toBeOK();
+  await approveCurrentPassagePlan(request, projectId);
+  await recovery.getByRole("button", { name: "Refresh status" }).click();
+  await expect(recovery.getByText("The project has meaningful changes since its latest verified backup.").first()).toBeVisible();
+
+  const recoveryFile = { name: "browser-flow.cyoa-backup.zip", mimeType: "application/zip", buffer: backupBytes };
+  await recovery.getByLabel("Project backup file").setInputFiles(recoveryFile);
+  await recovery.getByRole("button", { name: "Verify & preview" }).click();
+  await expect(recovery.getByText(/Existing stable ID .* restore blocked/)).toBeVisible();
+  await expect(recovery.getByRole("button", { name: "Restore as project" })).toBeDisabled();
+  expect((await request.get(`/api/projects/${projectId}`)).ok()).toBe(true);
+
+  await recovery.getByRole("button", { name: "Review permanent deletion" }).click();
+  await recovery.getByLabel("Permanent deletion confirmation").fill(projectId);
+  await recovery.getByRole("button", { name: "Permanently delete project" }).click();
+  await expect(page.getByRole("heading", { name: "Restore a verified project backup" })).toBeVisible();
+  expect((await request.get(`/api/projects/${projectId}`)).status()).toBe(404);
+
+  const globalRestore = page.getByLabel("Restore project backup");
+  await globalRestore.getByLabel("Project backup file").setInputFiles(recoveryFile);
+  await globalRestore.getByRole("button", { name: "Verify & preview" }).click();
+  await expect(globalRestore.getByText("None", { exact: true })).toBeVisible();
+  expect((await request.get(`/api/projects/${projectId}`)).status()).toBe(404);
+  await globalRestore.getByLabel("I reviewed the identity, scope, exclusions, and collision state.").check();
+  await globalRestore.getByRole("button", { name: "Restore as project" }).click();
+  await expect(page.getByLabel("Backup and recovery")).toBeVisible();
+  expect((await request.get(`/api/projects/${projectId}`)).ok()).toBe(true);
+
+  const compiled = await request.post(`/api/long-form/projects/${projectId}/publication/compile`, { data: {} });
+  await expect(compiled).toBeOK();
+  const bundle = (await compiled.json()).bundle;
+  expect(bundle.passages).toHaveLength(12);
+  expect(bundle.passages[0].proseMarkdown).toBe("Exact browser publication prose for passage-000.");
+  expect(providerRequests).toEqual([]);
 });

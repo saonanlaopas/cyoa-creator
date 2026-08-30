@@ -1562,3 +1562,77 @@ WHEN NOT EXISTS (
 )
 BEGIN SELECT RAISE(ABORT, 'Repair draft provenance exact lineage mismatch'); END;
 `;
+
+export const recoveryMetadataMigrationSql = `
+CREATE TABLE project_backup_records (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  schema_id TEXT NOT NULL CHECK(schema_id = 'cyoa.project-backup-record'),
+  schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+  game_id TEXT NOT NULL,
+  portable_schema_id TEXT NOT NULL CHECK(portable_schema_id = 'cyoa.portable-project'),
+  portable_schema_version INTEGER NOT NULL CHECK(portable_schema_version = 1),
+  portable_project_fingerprint TEXT NOT NULL CHECK(length(portable_project_fingerprint) = 32),
+  portable_archive_sha256 TEXT NOT NULL CHECK(length(portable_archive_sha256) = 64),
+  portable_archive_byte_count INTEGER NOT NULL CHECK(portable_archive_byte_count > 0 AND portable_archive_byte_count <= 128000000),
+  source_sqlite_schema_version INTEGER NOT NULL CHECK(source_sqlite_schema_version >= 4),
+  application_version TEXT,
+  created_at TEXT NOT NULL,
+  verification_status TEXT NOT NULL CHECK(verification_status = 'verified'),
+  verified_at TEXT NOT NULL,
+  verification_method TEXT NOT NULL CHECK(verification_method = 'isolated-portable-restore'),
+  verification_method_version INTEGER NOT NULL CHECK(verification_method_version = 1),
+  restored_semantic_fingerprint TEXT NOT NULL CHECK(length(restored_semantic_fingerprint) = 32),
+  verification_diagnostics_json TEXT NOT NULL,
+  source_change_fingerprint TEXT NOT NULL CHECK(length(source_change_fingerprint) = 32),
+  UNIQUE(project_id, id),
+  CHECK(game_id = project_id),
+  CHECK(portable_project_fingerprint = restored_semantic_fingerprint),
+  CHECK(portable_project_fingerprint = source_change_fingerprint)
+);
+
+CREATE INDEX project_backup_records_history
+  ON project_backup_records(project_id, verified_at DESC, id DESC);
+
+CREATE TABLE project_restore_records (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  backup_id TEXT NOT NULL REFERENCES project_backup_records(id) ON DELETE CASCADE,
+  schema_id TEXT NOT NULL CHECK(schema_id = 'cyoa.project-restore-record'),
+  schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+  source_project_id TEXT NOT NULL,
+  portable_project_fingerprint TEXT NOT NULL CHECK(length(portable_project_fingerprint) = 32),
+  restored_semantic_fingerprint TEXT NOT NULL CHECK(length(restored_semantic_fingerprint) = 32),
+  restored_at TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK(outcome = 'restored'),
+  diagnostics_json TEXT NOT NULL,
+  UNIQUE(project_id, id),
+  CHECK(project_id = source_project_id),
+  CHECK(portable_project_fingerprint = restored_semantic_fingerprint)
+);
+
+CREATE INDEX project_restore_records_history
+  ON project_restore_records(project_id, restored_at DESC, id DESC);
+
+CREATE TABLE project_recovery_state (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  reminder_dismissed_for_fingerprint TEXT CHECK(reminder_dismissed_for_fingerprint IS NULL OR length(reminder_dismissed_for_fingerprint) = 32),
+  reminder_snoozed_until TEXT,
+  last_verification_failure_at TEXT,
+  last_verification_failure_fingerprint TEXT CHECK(last_verification_failure_fingerprint IS NULL OR length(last_verification_failure_fingerprint) = 32),
+  last_verification_failure_code TEXT CHECK(last_verification_failure_code IS NULL OR length(last_verification_failure_code) <= 120),
+  updated_at TEXT NOT NULL
+);
+
+CREATE TRIGGER project_backup_records_immutable_update
+BEFORE UPDATE ON project_backup_records
+BEGIN
+  SELECT RAISE(ABORT, 'project backup records are immutable');
+END;
+
+CREATE TRIGGER project_restore_records_immutable_update
+BEFORE UPDATE ON project_restore_records
+BEGIN
+  SELECT RAISE(ABORT, 'project restore records are immutable');
+END;
+`;

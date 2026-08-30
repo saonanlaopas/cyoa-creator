@@ -278,6 +278,19 @@ textarea.source { min-height: 20rem; }
 .simulation-workspace { grid-column: 2 / -1; }
 .repair-workspace { grid-column: 2 / -1; }
 .publication-workspace { grid-column: 2 / -1; }
+.recovery-workspace { grid-column: 2 / -1; display: grid; gap: 1rem; }
+.recovery-import, .recovery-status, .recovery-history, .danger-zone { display: grid; gap: .7rem; }
+.recovery-import.compact { padding: 0; }
+.recovery-import > p, .recovery-status > p, .danger-zone > p { margin: 0; }
+.recovery-history article { display: grid; gap: .3rem; padding: .65rem; border: 1px solid #354055; border-radius: .5rem; background: #11151e; }
+.recovery-history code, .recovery-import dd { overflow-wrap: anywhere; }
+.danger-zone { border-color: #a85e55; background: #301e20; }
+.danger-zone label { display: grid; gap: .35rem; }
+.danger-zone input { border: 1px solid #8f5e5e; border-radius: .45rem; padding: .7rem; background: #11151e; color: #f4efe7; }
+.danger-zone button { width: fit-content; border-color: #c66b64; color: #ffd9d5; }
+.recovery-deletion-dialog { position: fixed; inset: 50% auto auto 50%; z-index: 30; width: min(34rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; transform: translate(-50%, -50%); color: #f4efe7; border-color: #c66b64; background: #301e20; box-shadow: 0 25px 80px rgba(0, 0, 0, .65); }
+.recovery-deletion-dialog::backdrop { background: rgba(4, 7, 12, .76); }
+.global-restore { margin-top: 1rem; }
 .publication-player-config { display: grid; gap: .8rem; }
 .publication-player-config select { border: 1px solid #48536a; border-radius: .55rem; padding: .7rem; background: #11151e; color: #f4efe7; }
 .publication-config-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .8rem; align-items: end; }

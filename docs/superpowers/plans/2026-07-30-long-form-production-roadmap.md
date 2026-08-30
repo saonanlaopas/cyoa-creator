@@ -35,7 +35,7 @@ Implementation checkpoints:
 - Foundation 7C is complete and externally accepted at `225a04dd958c36bc4773edddcbef854725d7c73c`.
 - Foundation 7 is **CLOSED** at accepted head `225a04dd958c36bc4773edddcbef854725d7c73c`.
 
-The current implementation objective is Foundation 8A: backup, restore, and compatibility. Foundation 8 implementation has not begun.
+Foundation 8A is implemented and pending external review. Do not begin Foundation 8B until 8A has an externally accepted SHA.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 
@@ -737,7 +737,7 @@ Do not begin a checkpoint until the previous checkpoint has an externally accept
 
 ### Foundation 8: scale, recovery, and authoring polish (formerly Production 5)
 
-**Implementation status:** Planned as three sequential checkpoints. Implementation has not begun.
+**Implementation status:** Checkpoint 8A is implemented and pending external review; checkpoints 8B and 8C have not begun.
 
 #### Goal
 
@@ -761,6 +761,8 @@ Finish production hardening so long sessions and 150,000-200,000-word projects a
 14. Foundation 8 is final hardening, not a new authoring architecture or a reopening of accepted Foundation 7 semantics.
 
 #### Checkpoint 8A: Backup, restore, and compatibility
+
+**Implementation status:** Implemented on `checkpoint/foundation-8a-backup-restore-compatibility`, pending external review.
 
 **Purpose:** Establish trustworthy recovery and compatibility boundaries before performance or long-session polish. This checkpoint answers: **"Can the author recover the exact work they intended without overwriting good data or mistaking a partial copy for a verified backup?"**
 

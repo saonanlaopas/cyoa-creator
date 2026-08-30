@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   MemoryNativePlayerStorage,
   NATIVE_PLAYER_LIMITS,
@@ -211,6 +214,38 @@ describe("native player session", () => {
 });
 
 describe("native player saves", () => {
+  it("keeps the frozen native-player-save/v1 compatibility contract explicit", () => {
+    const path = fileURLToPath(new URL("./fixtures/native-player-save-v1.json", import.meta.url));
+    const bytes = readFileSync(path);
+    expect(createHash("sha256").update(bytes).digest("hex"))
+      .toBe("c66befc7c66f51d90b6b30d419b6ac0a62ec9ce54b6f0130cfec4f4d4bb757d4");
+    const fixture = JSON.parse(bytes.toString("utf8")) as {
+      bundle: NativeGameBundle; config: NativePlayerConfig; save: NativePlayerSave;
+    };
+    const loaded = loadNativePlayerSave(fixture.bundle, fixture.config, fixture.save);
+    expect(loaded.state).toEqual(fixture.save.state);
+    const provenanceOnly = structuredClone(fixture.bundle);
+    provenanceOnly.source.inputFingerprint = "c".repeat(32);
+    expect(loadNativePlayerSave(provenanceOnly, fixture.config, fixture.save).state).toEqual(fixture.save.state);
+
+    const activeBefore = structuredClone(loaded);
+    for (const [mutate, code] of [
+      [(value: any) => { value.schemaVersion = 2; }, "save_schema_unsupported"],
+      [(value: any) => { value.gameId = "wrong-game"; }, "save_game_mismatch"],
+      [(value: any) => { value.bundleFingerprint = "d".repeat(32); }, "save_bundle_incompatible"],
+      [(value: any) => { value.runtimeContract.version = "future-runtime"; }, "save_runtime_incompatible"],
+      [(value: any) => { value.state.currentPassageId = "missing"; }, "save_state_invalid"],
+      [(value: any) => { value.history[0].stateFingerprint = "f".repeat(32); }, "save_history_invalid"],
+    ] as const) {
+      let hostile = structuredClone(fixture.save);
+      mutate(hostile);
+      if (!code.includes("schema_unsupported") && !code.includes("history") && !code.includes("state")) hostile = reseal(hostile);
+      if (code === "save_state_invalid" || code === "save_history_invalid") hostile = reseal(hostile);
+      expect(errorCode(() => loadNativePlayerSave(fixture.bundle, fixture.config, hostile))).toBe(code);
+      expect(loaded).toEqual(activeBefore);
+    }
+  });
+
   it("treats gameplay fingerprint as compatibility identity and source fingerprint as provenance", () => {
     const { bundle, config, session } = setup();
     const progressed = chooseNativePlayerSession(bundle, config, session, "choice-0").session;

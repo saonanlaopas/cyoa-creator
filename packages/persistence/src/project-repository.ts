@@ -62,6 +62,11 @@ export class ProjectRepository {
     return this.get(id)!;
   }
 
+  remove(id: string): void {
+    const result = this.database.prepare("DELETE FROM projects WHERE id = ?").run(id);
+    if (!result.changes) throw new Error("Project not found");
+  }
+
   duplicate(id: string, name?: string): ProjectRecord {
     const source = this.get(id);
     if (!source) throw new Error("Project not found");

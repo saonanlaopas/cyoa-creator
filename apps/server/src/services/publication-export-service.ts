@@ -20,7 +20,7 @@ const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest(
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)
   ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
 
-interface PortableManifest {
+export interface PortableManifest {
   schemaId: typeof SCHEMA_ID; schemaVersion: 1; exportContractVersion: 1; projectId: string;
   projectFingerprint: string; historyMode: typeof HISTORY_MODE; includedSections: string[];
   exclusions: string[]; counts: Record<string, number>; files: Array<{ path: string; sha256: string; bytes: number }>;
@@ -29,7 +29,7 @@ interface PortableManifest {
 export class PublicationExportService {
   public constructor(
     private readonly portable: PortableProjectRepository,
-    private readonly nativeCompilation: NativeCompilationService,
+    private readonly nativeCompilation: NativeCompilationService | undefined,
     private readonly tweeCompiler: typeof compileSugarCube = compileSugarCube,
     private readonly temporaryDirectoryRoot: string = tmpdir(),
   ) {}
@@ -57,7 +57,7 @@ export class PublicationExportService {
   }
 
   previewPortable(bytes: Uint8Array): { manifest: PortableManifest; projectName: string; conflict: boolean } {
-    const parsed = this.parsePortable(bytes);
+    const parsed = this.parsePortableArchive(bytes);
     let conflict = false;
     try { this.portable.exportRows(parsed.rows.projectId); conflict = true; } catch { /* absent */ }
     const project = parsed.rows.tables.projects[0];
@@ -65,13 +65,13 @@ export class PublicationExportService {
   }
 
   importPortable(bytes: Uint8Array): { projectId: string; projectFingerprint: string } {
-    const parsed = this.parsePortable(bytes);
+    const parsed = this.parsePortableArchive(bytes);
     this.portable.importRows(parsed.rows, validatePortableAuthoringProject);
     return { projectId: parsed.rows.projectId, projectFingerprint: parsed.manifest.projectFingerprint };
   }
 
   exportMarkdown(projectId: string, inputArtifactVersionId?: string): { text: string; fingerprint: string; bundleFingerprint: string } {
-    const source = this.nativeCompilation.compile(projectId, inputArtifactVersionId); const { bundle } = source;
+    const source = this.requireNativeCompilation().compile(projectId, inputArtifactVersionId); const { bundle } = source;
     const choices = new Map(bundle.choices.map((choice) => [choice.id, choice]));
     const sections = [[`# ${this.projectTitle(projectId, bundle)}`, "",
       `> Native bundle: \`${bundle.bundleFingerprint}\`  `, `> Source input: \`${bundle.source.inputFingerprint}\`  `,
@@ -96,7 +96,7 @@ export class PublicationExportService {
   }
 
   async exportStatic(projectId: string, inputArtifactVersionId?: string): Promise<{ bytes: Uint8Array; fingerprint: string }> {
-    const source = this.nativeCompilation.compile(projectId, inputArtifactVersionId);
+    const source = this.requireNativeCompilation().compile(projectId, inputArtifactVersionId);
     const assets = await playerAssets();
     const game = strToU8(canonical(source.bundle)); const config = strToU8(canonical(source.playerConfig));
     const title = this.projectTitle(projectId, source.bundle); const meaning = publicationMeaning("native-static", source, title); const fingerprint = stableFingerprint(meaning);
@@ -116,7 +116,7 @@ export class PublicationExportService {
   }
 
   async exportStandalone(projectId: string, inputArtifactVersionId?: string): Promise<{ html: string; fingerprint: string }> {
-    const source = this.nativeCompilation.compile(projectId, inputArtifactVersionId);
+    const source = this.requireNativeCompilation().compile(projectId, inputArtifactVersionId);
     const assets = await playerAssets();
     const title = this.projectTitle(projectId, source.bundle); const meaning = publicationMeaning("standalone-html", source, title); const fingerprint = stableFingerprint(meaning);
     const payload = Buffer.from(canonical({ bundle: source.bundle, config: source.playerConfig, publication: { ...meaning, publicationFingerprint: fingerprint } }), "utf8").toString("base64");
@@ -128,7 +128,7 @@ export class PublicationExportService {
   }
 
   async exportTwee(projectId: string, inputArtifactVersionId?: string): Promise<{ twee: string; html: Uint8Array; ifid: string; bundleFingerprint: string; fingerprint: string; manifest: unknown }> {
-    const source = this.nativeCompilation.compile(projectId, inputArtifactVersionId);
+    const source = this.requireNativeCompilation().compile(projectId, inputArtifactVersionId);
     const title = this.projectTitle(projectId, source.bundle); const rendered = renderNativeTwee(source.bundle, source.playerConfig, title);
     if (!rendered.compatible || !rendered.twee) throw new Error(`twee_incompatible: ${rendered.diagnostics.map((item) => item.message).join("; ")}`);
     const directory = await mkdtemp(resolve(this.temporaryDirectoryRoot, "cyoa-twee-")); const output = resolve(directory, "story.html");
@@ -145,14 +145,14 @@ export class PublicationExportService {
   }
 
   inspectTwee(projectId: string, inputArtifactVersionId?: string) {
-    const source = this.nativeCompilation.compile(projectId, inputArtifactVersionId);
+    const source = this.requireNativeCompilation().compile(projectId, inputArtifactVersionId);
     const result = renderNativeTwee(source.bundle, source.playerConfig, this.projectTitle(projectId, source.bundle));
     return { compatible: result.compatible, blockers: result.diagnostics, warnings: result.warnings,
       referencedEntityIds: result.referencedEntityIds, compatibilityFingerprint: result.compatibilityFingerprint,
       bundleFingerprint: source.bundle.bundleFingerprint, playerConfigFingerprint: source.playerConfig.configFingerprint };
   }
 
-  private parsePortable(bytes: Uint8Array): { manifest: PortableManifest; rows: PortableProjectRows } {
+  parsePortableArchive(bytes: Uint8Array): { manifest: PortableManifest; rows: PortableProjectRows } {
     if (bytes.byteLength > PORTABLE_PROJECT_LIMITS.archiveBytes) throw new Error("portable_project_too_large");
     inspectZip(bytes);
     const files = unzipSync(bytes);
@@ -191,6 +191,11 @@ export class PublicationExportService {
     const expected = stableFingerprint({ schemaId: SCHEMA_ID, schemaVersion: 1, historyMode: HISTORY_MODE, rows });
     if (expected !== parsed.projectFingerprint || expected !== manifest.projectFingerprint) throw new Error("portable_project_fingerprint_invalid");
     return { manifest, rows };
+  }
+
+  private requireNativeCompilation(): NativeCompilationService {
+    if (!this.nativeCompilation) throw new Error("native_compilation_unavailable");
+    return this.nativeCompilation;
   }
 
   private projectTitle(projectId: string, bundle: NativeGameBundle): string {

@@ -52,44 +52,46 @@ export class PortableProjectRepository {
   }
 
   importRows(bundle: PortableProjectRows, validateProject: PortableProjectValidator): void {
+    transaction(this.database, () => this.importRowsInTransaction(bundle, validateProject));
+  }
+
+  importRowsInTransaction(bundle: PortableProjectRows, validateProject: PortableProjectValidator): void {
     if (this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(bundle.projectId)) {
       throw new Error("portable_project_conflict: a project with this stable ID already exists");
     }
-    transaction(this.database, () => {
-      this.database.exec("PRAGMA defer_foreign_keys = ON");
-      const deferredStatuses: Array<{ table: string; keys: PortableRow; status: PortableSqlValue }> = [];
-      for (const table of PORTABLE_PROJECT_TABLES) {
-        const expected = this.columns(table);
-        for (const row of bundle.tables[table]) {
-          const keys = Object.keys(row).sort();
-          if (keys.join("\0") !== [...expected].sort().join("\0")) throw new Error(`portable_project_schema_invalid: ${table} columns differ`);
-          if (table === "projects") {
-            if (row.id !== bundle.projectId) throw new Error("portable_project_lineage_invalid: project identity differs");
-          } else if (table !== "passage_plan_snapshot_items" && row.project_id !== bundle.projectId) {
-            throw new Error(`portable_project_lineage_invalid: ${table} belongs to another project`);
-          }
-          const insertRow = { ...row };
-          if (["drafting_jobs", "drafting_job_units", "drafting_unit_attempts"].includes(table) && row.status !== "running") {
-            deferredStatuses.push({ table, keys: table === "drafting_jobs" ? { id: row.id } : table === "drafting_job_units"
-              ? { job_id: row.job_id, unit_id: row.unit_id } : { id: row.id }, status: row.status });
-            insertRow.status = "running";
-          }
-          const placeholders = expected.map(() => "?").join(",");
-          this.database.prepare(`INSERT INTO ${table} (${expected.join(",")}) VALUES (${placeholders})`)
-            .run(...expected.map((key) => insertRow[key]));
+    this.database.exec("PRAGMA defer_foreign_keys = ON");
+    const deferredStatuses: Array<{ table: string; keys: PortableRow; status: PortableSqlValue }> = [];
+    for (const table of PORTABLE_PROJECT_TABLES) {
+      const expected = this.columns(table);
+      for (const row of bundle.tables[table]) {
+        const keys = Object.keys(row).sort();
+        if (keys.join("\0") !== [...expected].sort().join("\0")) throw new Error(`portable_project_schema_invalid: ${table} columns differ`);
+        if (table === "projects") {
+          if (row.id !== bundle.projectId) throw new Error("portable_project_lineage_invalid: project identity differs");
+        } else if (table !== "passage_plan_snapshot_items" && row.project_id !== bundle.projectId) {
+          throw new Error(`portable_project_lineage_invalid: ${table} belongs to another project`);
         }
+        const insertRow = { ...row };
+        if (["drafting_jobs", "drafting_job_units", "drafting_unit_attempts"].includes(table) && row.status !== "running") {
+          deferredStatuses.push({ table, keys: table === "drafting_jobs" ? { id: row.id } : table === "drafting_job_units"
+            ? { job_id: row.job_id, unit_id: row.unit_id } : { id: row.id }, status: row.status });
+          insertRow.status = "running";
+        }
+        const placeholders = expected.map(() => "?").join(",");
+        this.database.prepare(`INSERT INTO ${table} (${expected.join(",")}) VALUES (${placeholders})`)
+          .run(...expected.map((key) => insertRow[key]));
       }
-      for (const pending of deferredStatuses) {
-        const keys = Object.keys(pending.keys);
-        this.database.prepare(`UPDATE ${pending.table} SET status = ? WHERE ${keys.map((key) => `${key} = ?`).join(" AND ")}`)
-          .run(pending.status, ...keys.map((key) => pending.keys[key]));
-      }
-      const violations = this.database.prepare("PRAGMA foreign_key_check").all() as unknown[];
-      if (violations.length) throw new Error("portable_project_lineage_invalid: foreign-key validation failed");
-      this.validateJsonFields(bundle);
-      this.validateExactLineage(bundle.projectId);
-      validateProject(this.database, bundle.projectId);
-    });
+    }
+    for (const pending of deferredStatuses) {
+      const keys = Object.keys(pending.keys);
+      this.database.prepare(`UPDATE ${pending.table} SET status = ? WHERE ${keys.map((key) => `${key} = ?`).join(" AND ")}`)
+        .run(pending.status, ...keys.map((key) => pending.keys[key]));
+    }
+    const violations = this.database.prepare("PRAGMA foreign_key_check").all() as unknown[];
+    if (violations.length) throw new Error("portable_project_lineage_invalid: foreign-key validation failed");
+    this.validateJsonFields(bundle);
+    this.validateExactLineage(bundle.projectId);
+    validateProject(this.database, bundle.projectId);
   }
 
   private validateJsonFields(bundle: PortableProjectRows): void {

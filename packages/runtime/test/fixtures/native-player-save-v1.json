@@ -1,0 +1,585 @@
+{
+  "bundle": {
+    "schemaId": "cyoa.native-game-bundle",
+    "schemaVersion": 1,
+    "gameId": "game-player",
+    "projectId": "project-player",
+    "source": {
+      "inputFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "snapshotId": "snapshot-1",
+      "structureVersionId": "structure-1"
+    },
+    "bundleFingerprint": "6062e2db40a2aa19c07e526edf4cc676",
+    "runtimeFingerprint": "5470c242dbb65b1ab41feda60995aab7",
+    "compiler": {
+      "policyId": "foundation-7a-native-compiler",
+      "policyVersion": 1,
+      "version": "foundation-7a-v1"
+    },
+    "runtimeContract": {
+      "schemaVersion": 1,
+      "version": "foundation-5a-v1"
+    },
+    "startPassageId": "passage-0",
+    "initialState": {
+      "currentPassageId": "passage-0",
+      "stats": {
+        "resolve": 0
+      },
+      "relationships": {
+        "trust": 0
+      },
+      "flags": {
+        "secret": false
+      },
+      "resources": {
+        "supplies": 5
+      },
+      "decisions": [],
+      "routes": [
+        "route-main"
+      ],
+      "knownFacts": [],
+      "visitCounts": {
+        "passage-0": 1
+      },
+      "turn": 0
+    },
+    "mechanics": [
+      {
+        "key": "resolve",
+        "category": "stat",
+        "valueType": "number",
+        "initial": 0,
+        "minimum": 0,
+        "maximum": 5
+      },
+      {
+        "key": "trust",
+        "category": "relationship",
+        "valueType": "number",
+        "initial": 0,
+        "minimum": 0,
+        "maximum": 5,
+        "bands": [
+          {
+            "minimum": 0,
+            "label": "Wary"
+          },
+          {
+            "minimum": 2,
+            "label": "Trusted"
+          }
+        ]
+      },
+      {
+        "key": "supplies",
+        "category": "resource",
+        "valueType": "number",
+        "initial": 5,
+        "minimum": 0,
+        "maximum": 5
+      },
+      {
+        "key": "secret",
+        "category": "flag",
+        "valueType": "boolean",
+        "initial": false
+      }
+    ],
+    "passages": [
+      {
+        "id": "passage-0",
+        "proseMarkdown": "Exact prose 0.",
+        "choiceIds": [
+          "choice-0",
+          "choice-blocked"
+        ],
+        "terminal": false,
+        "endingId": null,
+        "routeIds": [
+          "route-main"
+        ],
+        "requiredFactIds": [],
+        "revealedFactIds": [],
+        "presentation": {
+          "title": "Passage 0"
+        },
+        "source": {
+          "passageVersionId": "passage-version-0",
+          "acceptedDraftVersionId": "draft-version-0"
+        }
+      },
+      {
+        "id": "passage-1",
+        "proseMarkdown": "Exact prose 1.",
+        "choiceIds": [
+          "choice-1",
+          "choice-alternate"
+        ],
+        "terminal": false,
+        "endingId": null,
+        "routeIds": [
+          "route-main"
+        ],
+        "requiredFactIds": [],
+        "revealedFactIds": [],
+        "presentation": {
+          "title": "Passage 1"
+        },
+        "source": {
+          "passageVersionId": "passage-version-1",
+          "acceptedDraftVersionId": "draft-version-1"
+        }
+      },
+      {
+        "id": "passage-2",
+        "proseMarkdown": "Exact prose 2.",
+        "choiceIds": [
+          "choice-2"
+        ],
+        "terminal": false,
+        "endingId": null,
+        "routeIds": [
+          "route-main"
+        ],
+        "requiredFactIds": [],
+        "revealedFactIds": [],
+        "presentation": {
+          "title": "Passage 2"
+        },
+        "source": {
+          "passageVersionId": "passage-version-2",
+          "acceptedDraftVersionId": "draft-version-2"
+        }
+      },
+      {
+        "id": "passage-3",
+        "proseMarkdown": "Exact prose 3.",
+        "choiceIds": [
+          "choice-3"
+        ],
+        "terminal": false,
+        "endingId": null,
+        "routeIds": [
+          "route-main"
+        ],
+        "requiredFactIds": [],
+        "revealedFactIds": [],
+        "presentation": {
+          "title": "Passage 3"
+        },
+        "source": {
+          "passageVersionId": "passage-version-3",
+          "acceptedDraftVersionId": "draft-version-3"
+        }
+      },
+      {
+        "id": "passage-4",
+        "proseMarkdown": "Exact final prose.\n\nThe end.",
+        "choiceIds": [],
+        "terminal": true,
+        "endingId": "ending-main",
+        "routeIds": [
+          "route-main"
+        ],
+        "requiredFactIds": [],
+        "revealedFactIds": [],
+        "presentation": {
+          "title": "Ending"
+        },
+        "source": {
+          "passageVersionId": "passage-version-4",
+          "acceptedDraftVersionId": "draft-version-4"
+        }
+      }
+    ],
+    "choices": [
+      {
+        "id": "choice-0",
+        "sourcePassageId": "passage-0",
+        "destinationPassageId": "passage-1",
+        "text": "Continue 1",
+        "condition": null,
+        "routeGateConditions": [],
+        "unavailableBehavior": "disabled",
+        "unavailableExplanation": "",
+        "effects": [
+          {
+            "id": "resolve-0",
+            "mechanicKey": "resolve",
+            "operation": "add",
+            "value": 1,
+            "feedback": "Resolve rises.",
+            "visibility": "visible"
+          },
+          {
+            "id": "trust-0",
+            "mechanicKey": "trust",
+            "operation": "add",
+            "value": 1,
+            "feedback": "Trust rises.",
+            "visibility": "visible"
+          },
+          {
+            "id": "supplies-0",
+            "mechanicKey": "supplies",
+            "operation": "subtract",
+            "value": 1,
+            "feedback": "A supply is used.",
+            "visibility": "visible"
+          },
+          {
+            "id": "secret-0",
+            "mechanicKey": "secret",
+            "operation": "set",
+            "value": true,
+            "feedback": "",
+            "visibility": "hidden"
+          }
+        ],
+        "sourceDecisionIds": [
+          "decision-0"
+        ],
+        "position": 0,
+        "source": {
+          "choiceVersionId": "choice-version-0"
+        }
+      },
+      {
+        "id": "choice-1",
+        "sourcePassageId": "passage-1",
+        "destinationPassageId": "passage-2",
+        "text": "Continue 2",
+        "condition": null,
+        "routeGateConditions": [],
+        "unavailableBehavior": "disabled",
+        "unavailableExplanation": "",
+        "effects": [
+          {
+            "id": "resolve-1",
+            "mechanicKey": "resolve",
+            "operation": "add",
+            "value": 1,
+            "feedback": "Resolve rises.",
+            "visibility": "visible"
+          },
+          {
+            "id": "trust-1",
+            "mechanicKey": "trust",
+            "operation": "add",
+            "value": 1,
+            "feedback": "Trust rises.",
+            "visibility": "visible"
+          },
+          {
+            "id": "supplies-1",
+            "mechanicKey": "supplies",
+            "operation": "subtract",
+            "value": 1,
+            "feedback": "A supply is used.",
+            "visibility": "visible"
+          },
+          {
+            "id": "secret-1",
+            "mechanicKey": "secret",
+            "operation": "set",
+            "value": true,
+            "feedback": "",
+            "visibility": "hidden"
+          }
+        ],
+        "sourceDecisionIds": [
+          "decision-1"
+        ],
+        "position": 0,
+        "source": {
+          "choiceVersionId": "choice-version-1"
+        }
+      },
+      {
+        "id": "choice-2",
+        "sourcePassageId": "passage-2",
+        "destinationPassageId": "passage-3",
+        "text": "Continue 3",
+        "condition": null,
+        "routeGateConditions": [],
+        "unavailableBehavior": "disabled",
+        "unavailableExplanation": "",
+        "effects": [
+          {
+            "id": "resolve-2",
+            "mechanicKey": "resolve",
+            "operation": "add",
+            "value": 1,
+            "feedback": "Resolve rises.",
+            "visibility": "visible"
+          },
+          {
+            "id": "trust-2",
+            "mechanicKey": "trust",
+            "operation": "add",
+            "value": 1,
+            "feedback": "Trust rises.",
+            "visibility": "visible"
+          },
+          {
+            "id": "supplies-2",
+            "mechanicKey": "supplies",
+            "operation": "subtract",
+            "value": 1,
+            "feedback": "A supply is used.",
+            "visibility": "visible"
+          },
+          {
+            "id": "secret-2",
+            "mechanicKey": "secret",
+            "operation": "set",
+            "value": true,
+            "feedback": "",
+            "visibility": "hidden"
+          }
+        ],
+        "sourceDecisionIds": [
+          "decision-2"
+        ],
+        "position": 0,
+        "source": {
+          "choiceVersionId": "choice-version-2"
+        }
+      },
+      {
+        "id": "choice-3",
+        "sourcePassageId": "passage-3",
+        "destinationPassageId": "passage-4",
+        "text": "Continue 4",
+        "condition": null,
+        "routeGateConditions": [],
+        "unavailableBehavior": "disabled",
+        "unavailableExplanation": "",
+        "effects": [
+          {
+            "id": "resolve-3",
+            "mechanicKey": "resolve",
+            "operation": "add",
+            "value": 1,
+            "feedback": "Resolve rises.",
+            "visibility": "visible"
+          },
+          {
+            "id": "trust-3",
+            "mechanicKey": "trust",
+            "operation": "add",
+            "value": 1,
+            "feedback": "Trust rises.",
+            "visibility": "visible"
+          },
+          {
+            "id": "supplies-3",
+            "mechanicKey": "supplies",
+            "operation": "subtract",
+            "value": 1,
+            "feedback": "A supply is used.",
+            "visibility": "visible"
+          },
+          {
+            "id": "secret-3",
+            "mechanicKey": "secret",
+            "operation": "set",
+            "value": true,
+            "feedback": "",
+            "visibility": "hidden"
+          }
+        ],
+        "sourceDecisionIds": [
+          "decision-3"
+        ],
+        "position": 0,
+        "source": {
+          "choiceVersionId": "choice-version-3"
+        }
+      },
+      {
+        "id": "choice-blocked",
+        "sourcePassageId": "passage-0",
+        "destinationPassageId": "passage-2",
+        "text": "Unavailable shortcut",
+        "condition": {
+          "kind": "visit-count",
+          "passageId": "passage-2",
+          "operator": "gte",
+          "value": 1
+        },
+        "routeGateConditions": [],
+        "unavailableBehavior": "hidden",
+        "unavailableExplanation": "Not yet available.",
+        "effects": [],
+        "sourceDecisionIds": [
+          "decision-blocked"
+        ],
+        "position": 1,
+        "source": {
+          "choiceVersionId": "choice-version-blocked"
+        }
+      },
+      {
+        "id": "choice-alternate",
+        "sourcePassageId": "passage-1",
+        "destinationPassageId": "passage-4",
+        "text": "Take the alternate ending",
+        "condition": null,
+        "routeGateConditions": [],
+        "unavailableBehavior": "disabled",
+        "unavailableExplanation": "",
+        "effects": [],
+        "sourceDecisionIds": [
+          "decision-alternate"
+        ],
+        "position": 1,
+        "source": {
+          "choiceVersionId": "choice-version-alternate"
+        }
+      }
+    ],
+    "endings": [
+      {
+        "id": "ending-main",
+        "routeId": "route-main",
+        "gateConditions": []
+      }
+    ],
+    "routeIds": [
+      "route-main"
+    ],
+    "decisionIds": [
+      "decision-0",
+      "decision-1",
+      "decision-2",
+      "decision-3",
+      "decision-blocked",
+      "decision-alternate"
+    ],
+    "factIds": [],
+    "debug": {
+      "upstreamVersions": {
+        "brief": "brief-v1"
+      },
+      "threadVersionIds": []
+    }
+  },
+  "config": {
+    "schemaId": "cyoa.native-player-config",
+    "schemaVersion": 1,
+    "gameId": "game-player",
+    "rewindPolicy": {
+      "kind": "previous-step"
+    },
+    "autosaveEnabled": true,
+    "manualSlotLimit": 20,
+    "visibleMechanics": [
+      {
+        "key": "resolve",
+        "category": "stat",
+        "label": "Resolve"
+      },
+      {
+        "key": "supplies",
+        "category": "resource",
+        "label": "Supplies"
+      },
+      {
+        "key": "trust",
+        "category": "relationship",
+        "label": "Trust"
+      }
+    ],
+    "configFingerprint": "bbaddf8459097fd359b37b597ac6c3ae"
+  },
+  "save": {
+    "schemaId": "cyoa.native-player-save",
+    "schemaVersion": 1,
+    "gameId": "game-player",
+    "bundleFingerprint": "6062e2db40a2aa19c07e526edf4cc676",
+    "sourceInputFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtimeContract": {
+      "schemaVersion": 1,
+      "version": "foundation-5a-v1"
+    },
+    "bundleContract": {
+      "schemaId": "cyoa.native-game-bundle",
+      "schemaVersion": 1
+    },
+    "playerConfigFingerprint": "bbaddf8459097fd359b37b597ac6c3ae",
+    "sequence": 2,
+    "state": {
+      "currentPassageId": "passage-2",
+      "stats": {
+        "resolve": 2
+      },
+      "relationships": {
+        "trust": 2
+      },
+      "flags": {
+        "secret": true
+      },
+      "resources": {
+        "supplies": 3
+      },
+      "decisions": [
+        "decision-0",
+        "decision-1"
+      ],
+      "routes": [
+        "route-main"
+      ],
+      "knownFacts": [],
+      "visitCounts": {
+        "passage-0": 1,
+        "passage-1": 1,
+        "passage-2": 1
+      },
+      "turn": 2
+    },
+    "history": [
+      {
+        "sequence": 1,
+        "passageId": "passage-1",
+        "reason": "transition",
+        "originatingChoiceId": "choice-1",
+        "state": {
+          "currentPassageId": "passage-1",
+          "stats": {
+            "resolve": 1
+          },
+          "relationships": {
+            "trust": 1
+          },
+          "flags": {
+            "secret": true
+          },
+          "resources": {
+            "supplies": 4
+          },
+          "decisions": [
+            "decision-0"
+          ],
+          "routes": [
+            "route-main"
+          ],
+          "knownFacts": [],
+          "visitCounts": {
+            "passage-0": 1,
+            "passage-1": 1
+          },
+          "turn": 1
+        },
+        "stateFingerprint": "c0b64e2f2174cfc3aba4747082afd06c"
+      }
+    ],
+    "saveFingerprint": "f249025b7d924303b08ce96fe2baa9e6",
+    "metadata": {
+      "label": "Frozen v1 checkpoint",
+      "savedAt": "2026-08-30T00:00:00.000Z"
+    }
+  }
+}

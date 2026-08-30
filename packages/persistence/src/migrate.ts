@@ -14,13 +14,34 @@ import {
   passageDraftAcceptanceMigrationSql,
   repairApplicationMigrationSql,
   repairDraftProvenanceLineageMigrationSql,
+  recoveryMetadataMigrationSql,
   passageDraftGenerationMigrationSql,
   passageDraftProvenanceMigrationSql,
   passageProposalMigrationSql,
   schemaSql,
 } from "./schema.js";
 
+export const EARLIEST_SUPPORTED_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 16;
+
+export const SCHEMA_VERSION_HISTORY = Object.freeze([
+  { version: 4, introducedBy: "Foundations 1-3 baseline", frozenFixture: "schema-v4.sqlite" },
+  { version: 5, introducedBy: "Foundation 4A generation kernel", frozenFixture: "schema-v5.sqlite" },
+  { version: 6, introducedBy: "Foundation 4A job-unit lineage", frozenFixture: "schema-v6.sqlite" },
+  { version: 7, introducedBy: "Foundation 4A generation candidates", frozenFixture: "schema-v7.sqlite" },
+  { version: 8, introducedBy: "Foundation 4A candidate lineage", frozenFixture: "schema-v8.sqlite" },
+  { version: 9, introducedBy: "Foundation 4A proposal application", frozenFixture: "schema-v9.sqlite" },
+  { version: 10, introducedBy: "Foundation 4B draft architecture", frozenFixture: "schema-v10.sqlite" },
+  { version: 11, introducedBy: "Foundation 4B draft provenance", frozenFixture: "schema-v11.sqlite" },
+  { version: 12, introducedBy: "Foundation 4B generated draft outputs", frozenFixture: "schema-v12.sqlite" },
+  { version: 13, introducedBy: "Foundation 4B draft acceptance", frozenFixture: "schema-v13.sqlite" },
+  { version: 14, introducedBy: "Foundation 6 repair applications", frozenFixture: "schema-v14.sqlite" },
+  { version: 15, introducedBy: "Foundation 6 repair-draft provenance", frozenFixture: "schema-v15.sqlite" },
+  { version: 16, introducedBy: "Foundation 8A recovery metadata", frozenFixture: null },
+] as const);
+
 export function migrate(database: StoryDatabase): void {
+  assertSupportedDatabaseVersion(database);
   database.exec(schemaSql);
   addColumn(database, "projects", "mode", "TEXT NOT NULL DEFAULT 'quick'");
   addColumn(database, "conversations", "title", "TEXT NOT NULL DEFAULT 'Project discussion'");
@@ -248,6 +269,61 @@ export function migrate(database: StoryDatabase): void {
       throw error;
     }
   }
+  const recoveryMetadataApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 16",
+  ).get();
+  if (!recoveryMetadataApplied) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(recoveryMetadataMigrationSql);
+      assertValidRecoveryMetadata(database);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (16, ?)",
+      ).run(new Date().toISOString());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  } else {
+    assertValidRecoveryMetadata(database);
+  }
+  database.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
+}
+
+export function databaseSchemaVersion(database: StoryDatabase): number {
+  if (!hasTable(database, "schema_migrations")) return 0;
+  const row = database.prepare("SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations").get() as { version: number };
+  return row.version;
+}
+
+function assertSupportedDatabaseVersion(database: StoryDatabase): void {
+  const userVersion = (database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+  const migrationVersion = databaseSchemaVersion(database);
+  if (userVersion > CURRENT_SCHEMA_VERSION || migrationVersion > CURRENT_SCHEMA_VERSION) {
+    throw new Error(`unsupported_future_schema: database schema ${Math.max(userVersion, migrationVersion)} is newer than supported ${CURRENT_SCHEMA_VERSION}`);
+  }
+  const userTables = database.prepare(`SELECT COUNT(*) AS count FROM sqlite_master
+    WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).get() as { count: number };
+  if (userTables.count > 0 && migrationVersion > 0 && migrationVersion < EARLIEST_SUPPORTED_SCHEMA_VERSION) {
+    throw new Error(`unsupported_historical_schema: database schema ${migrationVersion} is older than supported ${EARLIEST_SUPPORTED_SCHEMA_VERSION}`);
+  }
+  if (userTables.count > 0 && migrationVersion === 0 && !isRecognizedLegacyBootstrap(database)) {
+    throw new Error("database_incompatible: existing SQLite file is not a supported CYOA Creator database");
+  }
+}
+
+function isRecognizedLegacyBootstrap(database: StoryDatabase): boolean {
+  const requiredColumns: Record<string, string[]> = {
+    projects: ["id", "name", "archived", "created_at", "updated_at"],
+    conversations: ["id", "project_id", "created_at"],
+    messages: ["id", "conversation_id", "role", "content", "created_at"],
+  };
+  return Object.entries(requiredColumns).every(([table, required]) => {
+    if (!hasTable(database, table)) return false;
+    const columns = new Set((database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((item) => item.name));
+    return required.every((column) => columns.has(column));
+  });
 }
 
 function assertValidGenerationJobUnitLineage(database: StoryDatabase): void {
@@ -293,6 +369,44 @@ function hasTable(database: StoryDatabase, name: string): boolean {
   return Boolean(database.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
   ).get(name));
+}
+
+function assertValidRecoveryMetadata(database: StoryDatabase): void {
+  if (!hasTable(database, "project_backup_records") || !hasTable(database, "project_restore_records")
+    || !hasTable(database, "project_recovery_state")) {
+    throw new Error("Recovery metadata schema is incomplete");
+  }
+  const invalidBackup = database.prepare(`SELECT backups.id
+    FROM project_backup_records backups
+    LEFT JOIN projects ON projects.id = backups.project_id
+    WHERE projects.id IS NULL
+      OR backups.game_id != backups.project_id
+      OR backups.portable_project_fingerprint != backups.restored_semantic_fingerprint
+      OR backups.portable_project_fingerprint != backups.source_change_fingerprint
+      OR json_valid(backups.verification_diagnostics_json) = 0
+      OR json_type(backups.verification_diagnostics_json) != 'array'
+    LIMIT 1`).get();
+  if (invalidBackup) throw new Error("Cannot migrate recovery data with invalid backup metadata");
+  const invalidRestore = database.prepare(`SELECT restores.id
+    FROM project_restore_records restores
+    LEFT JOIN projects ON projects.id = restores.project_id
+    LEFT JOIN project_backup_records backups
+      ON backups.id = restores.backup_id AND backups.project_id = restores.project_id
+    WHERE projects.id IS NULL OR backups.id IS NULL
+      OR restores.source_project_id != restores.project_id
+      OR restores.portable_project_fingerprint != restores.restored_semantic_fingerprint
+      OR json_valid(restores.diagnostics_json) = 0
+      OR json_type(restores.diagnostics_json) != 'array'
+    LIMIT 1`).get();
+  if (invalidRestore) throw new Error("Cannot migrate recovery data with invalid restore metadata");
+  const invalidState = database.prepare(`SELECT states.project_id
+    FROM project_recovery_state states
+    LEFT JOIN projects ON projects.id = states.project_id
+    WHERE projects.id IS NULL
+      OR (states.reminder_dismissed_for_fingerprint IS NOT NULL AND length(states.reminder_dismissed_for_fingerprint) != 32)
+      OR (states.last_verification_failure_fingerprint IS NOT NULL AND length(states.last_verification_failure_fingerprint) != 32)
+    LIMIT 1`).get();
+  if (invalidState) throw new Error("Cannot migrate recovery data with invalid reminder metadata");
 }
 
 function assertValidPassageDraftLineage(database: StoryDatabase): void {

@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { createNativePlayerConfig, nativeBundleFingerprint } from "@story-to-cyoa/runtime";
@@ -21,6 +23,23 @@ function service(database = openDatabase(), passageCount = 4, hostile = false) {
 }
 
 describe("Foundation 7C publication exports", () => {
+  it("imports the frozen Unicode portable-project/v1 fixture without format guessing", () => {
+    const path = fileURLToPath(new URL("./fixtures/portable-project-v1.cyoa.zip", import.meta.url));
+    const bytes = new Uint8Array(readFileSync(path));
+    expect(createHash("sha256").update(bytes).digest("hex"))
+      .toBe("1ab76c345956d5fa028657de2697bb7b3a4f7159f0a2a779b944bb8a9672bc99");
+    const target = service();
+    try {
+      expect(target.service.previewPortable(bytes)).toMatchObject({
+        projectName: "Cerita 日本語 émoji 🧭", conflict: false,
+        manifest: { schemaId: "cyoa.portable-project", schemaVersion: 1, projectId: "portable-v1-fixture" },
+      });
+      target.service.importPortable(bytes);
+      expect(new ProjectRepository(target.database).get("portable-v1-fixture")?.name).toBe("Cerita 日本語 émoji 🧭");
+      expect(Buffer.from(target.service.exportPortable("portable-v1-fixture").bytes).equals(Buffer.from(bytes))).toBe(true);
+    } finally { target.database.close(); }
+  });
+
   it("exports deterministic, hashed portable archives and previews without writes", () => {
     const source = service(); const target = service();
     try {
