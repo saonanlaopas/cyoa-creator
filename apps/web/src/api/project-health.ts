@@ -2,8 +2,11 @@ export interface ProjectUsageGroup {
   workflow: string;
   providerId: string | null;
   modelId: string | null;
-  statuses: Record<string, number>;
-  requestCount: number;
+  attemptStatuses: Record<string, number>;
+  attemptCount: number;
+  providerRequestCount: number | null;
+  providerRequestCountStatus: "known" | "partial" | "unknown";
+  unknownProviderRequestAttemptCount: number;
   tokenKnownRequestCount: number;
   legacyUnknownRequestCount: number;
   inputTokens: number;
@@ -19,7 +22,13 @@ export interface ProjectHealth {
   schemaVersion: 1;
   project: { id: string; mode: "quick" | "long-form"; schemaVersion: number };
   scale: Record<string, number>;
-  validation: { passagePlanStatus: string | null; approvedSnapshotId: string | null; blockers: number; warnings: number };
+  validation: {
+    passagePlanStatus: string | null;
+    approvedSnapshotId: string | null;
+    freshness: "current" | "historical-approved" | "not-evaluated" | "invalid";
+    blockers: number | null;
+    warnings: number | null;
+  };
   evidence: { latest: Array<{ kind: string; versionId: string; createdAt: string; status: string | null; fingerprint: string | null }>; freshness: "historical-evidence" };
   repair: { latest: Array<{ kind: string; versionId: string; createdAt: string; status: string | null; fingerprint: string | null }> };
   publication: { currentReadiness: "not-evaluated"; nativeBuildCount: number; latestBuildAt: string | null };

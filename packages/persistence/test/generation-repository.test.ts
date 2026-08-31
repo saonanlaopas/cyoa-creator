@@ -7,6 +7,7 @@ import {
   GenerationRepository,
   openDatabase,
   PassagePlanRepository,
+  ProjectHealthRepository,
   ProjectRepository,
 } from "../src/index.js";
 
@@ -319,6 +320,14 @@ describe("GenerationRepository", () => {
       executionPolicyId: "policy-v1",
       outputSchemaVersion: 1,
       content: { exact: true },
+    });
+    expect(new ProjectHealthRepository(fixture.database).usage(fixture.project.id)
+      .find((row) => row.workflow === "passage-planning")).toMatchObject({
+      attemptCount: 1,
+      knownProviderRequestCount: 2,
+      unknownProviderRequestAttemptCount: 0,
+      inputTokens: 10,
+      outputTokens: 20,
     });
     expect(() => fixture.database.prepare("UPDATE generation_unit_candidates SET model_id = 'changed' WHERE id = 'candidate-fixed'").run())
       .toThrow("immutable");

@@ -7,8 +7,12 @@ existing approximately 300-passage linear Unicode fixture, which has 299
 choices, approved planning dependencies, 300 accepted immutable drafts, and
 the normal publication path. The broader native-compilation recovery fixture
 adds a revised Unicode draft, immutable history, an export, backup, restore,
-and replay; focused repository tests add representative narrative-review and
-repair usage history. These are test fixtures, not background telemetry.
+and replay. A second, deliberately small history-heavy fixture keeps passage
+and draft versions, accepted/reviewed/locked and stale state, jobs and
+attempts, simulation, playtest, narrative review, repair
+plan/proposal/application, native publication, verified backup/restore, and
+usage evidence together in one restored project. It executes no provider.
+These are test fixtures, not background telemetry.
 
 Wall-clock observations are diagnostic only because the fixture setup and
 SQLite/CI machine variance dominate short operations. The 300-passage health
@@ -35,6 +39,13 @@ fragile time threshold.
 - No index or schema migration was added. SQLite's existing primary/foreign-key
   access paths cover the measured bulk lookup; the health endpoint exposes an
   `EXPLAIN QUERY PLAN` diagnostic for its compact passage metadata query.
+- The history-heavy fixture measured these serialized metadata responses on
+  the local offline runner: passage plan 38,579 bytes; draft queue 9,718;
+  simulation list 521; playtest list 759; narrative list 21,229; repair plans
+  690; repair proposals 13,440; repair applications 4,198; publication builds
+  1,174; recovery status 4,004; Project Health 3,447; usage report 1,464. Its
+  prose, simulation steps/findings, playtest samples, and other heavy bodies
+  remained available only through detail endpoints.
 
 ## Enforced structural budgets
 
@@ -46,8 +57,8 @@ fragile time threshold.
 | Accepted draft lookup | One bounded passage-ID query plus four set-based related-row queries; it never walks unrelated draft history. |
 | Publication and simulation | Reuse the bulk accepted-head projection for every passage in the exact snapshot rather than one `getHead` call per passage. |
 | Storage diagnostics | Counts and file/WAL sizes only. No automatic cleanup, deletion, quota guess, raw filesystem path, or browser-local-save claim. |
-| Freshness/readiness | Health marks current publication readiness and backup freshness as `not-evaluated`; those potentially heavy authoritative checks remain explicit in their own workspaces. |
-| Usage/cost | Read persisted attempts and latest immutable aggregate records only. Unit rollups and candidate mirrors are excluded. Missing historical cost remains unknown; no estimates or repricing occur. |
+| Freshness/readiness | Passage-plan validation is `current`, `historical-approved`, `not-evaluated`, or `invalid`; malformed or absent evidence never becomes zero findings. Health marks publication readiness and backup freshness as `not-evaluated`; those potentially heavy authoritative checks remain explicit in their own workspaces. |
+| Usage/cost | Attempts and provider requests are distinct. Exact repair evidence counts generation plus repair requests; incomplete historical request evidence is `partial` or `unknown`. Unit rollups and candidate mirrors are excluded. Missing historical cost remains unknown; no estimates or repricing occur. |
 
 ## Remaining ceiling and follow-up
 

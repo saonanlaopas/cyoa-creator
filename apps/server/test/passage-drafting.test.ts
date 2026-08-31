@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "@story-to-cyoa/persistence";
 import type { PassageDraftingProviderRequest } from "@story-to-cyoa/pipeline";
+import { stableFingerprint } from "@story-to-cyoa/runtime";
 import { buildApp } from "../src/app.js";
 import { DeterministicPassagePlanningProvider } from "../src/services/passage-planning-provider.js";
 import { DeterministicPassageDraftingProvider } from "../src/services/passage-drafting-provider.js";
@@ -404,6 +405,42 @@ describe("Foundation 4B-1 draft architecture API", () => {
       outputSchemaId: "cyoa.passage-drafting-unit-output",
       outputSchemaVersion: 1,
     });
+    const selections = await Promise.all(passageIds.map(async (passageId: string) => ({
+      passageId,
+      candidateDraftVersionId: (await app.inject({
+        method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}`,
+      })).json().head.current.id as string,
+    })));
+    const acceptancePreview = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafts/acceptance/preview`, payload: { selections },
+    })).json();
+    const application = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafts/acceptance/apply`,
+      payload: { selections, previewFingerprint: acceptancePreview.fingerprint },
+    })).json().application;
+    let lifecycleVersionId = application.resultingAcceptedVersions[passageIds[0]!] as string;
+    for (const status of ["reviewed", "locked"] as const) {
+      lifecycleVersionId = (await app.inject({
+        method: "POST", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageIds[0]}/transition`,
+        payload: { versionId: lifecycleVersionId, status },
+      })).json().draft.id;
+    }
+    const locked = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageIds[0]}`,
+    })).json().head.accepted;
+    const readiness = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/publication/readiness`,
+    })).json();
+    expect(readiness.ready).toBe(true);
+    expect(readiness.inputPreview.acceptedDrafts.find(
+      (item: { passageId: string }) => item.passageId === passageIds[0],
+    )).toMatchObject({
+      versionId: lifecycleVersionId,
+      generationProvenanceFingerprint: stableFingerprint(locked.generationProvenance),
+    });
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/publication/compile`, payload: {},
+    })).statusCode).toBe(201);
     await app.close();
   });
 

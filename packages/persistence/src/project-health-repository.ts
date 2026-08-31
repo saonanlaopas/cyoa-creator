@@ -53,7 +53,9 @@ export interface ProjectUsageAggregateRow {
   providerId: string | null;
   modelId: string | null;
   status: string | null;
-  requestCount: number;
+  attemptCount: number;
+  knownProviderRequestCount: number;
+  unknownProviderRequestAttemptCount: number;
   tokenKnownRequestCount: number;
   legacyUnknownRequestCount: number;
   inputTokens: number;
@@ -107,54 +109,97 @@ export class ProjectHealthRepository {
       .get(...Array.from({ length: 26 }, () => projectId)) as unknown as ProjectHealthCounts;
   }
 
-  planning(projectId: string): { status: string | null; approvedSnapshotId: string | null; blockers: number; warnings: number } {
-    const state = this.database.prepare(`SELECT state.status, state.approved_snapshot_id, snapshots.validation_json
+  planning(projectId: string): {
+    status: string | null;
+    approvedSnapshotId: string | null;
+    validationFreshness: "current" | "historical-approved" | "not-evaluated" | "invalid";
+    blockers: number | null;
+    warnings: number | null;
+  } {
+    const state = this.database.prepare(`SELECT state.status, state.approved_snapshot_id,
+        snapshots.status AS snapshot_status, snapshots.validation_json
       FROM passage_plan_state state
-      LEFT JOIN passage_plan_snapshots snapshots ON snapshots.id = state.approved_snapshot_id
+      LEFT JOIN passage_plan_snapshots snapshots
+        ON snapshots.project_id = state.project_id AND snapshots.id = state.approved_snapshot_id
       WHERE state.project_id = ?`).get(projectId) as {
-        status: string; approved_snapshot_id: string | null; validation_json: string | null;
+        status: string; approved_snapshot_id: string | null; snapshot_status: string | null; validation_json: string | null;
       } | undefined;
-    if (!state) return { status: null, approvedSnapshotId: null, blockers: 0, warnings: 0 };
-    let blockers = 0; let warnings = 0;
+    if (!state) return {
+      status: null, approvedSnapshotId: null, validationFreshness: "not-evaluated", blockers: null, warnings: null,
+    };
+    if (!state.approved_snapshot_id) return {
+      status: state.status, approvedSnapshotId: null,
+      validationFreshness: state.status === "approved" ? "invalid" : "not-evaluated",
+      blockers: null, warnings: null,
+    };
+    if (state.snapshot_status !== "approved" || state.validation_json === null) return {
+      status: state.status, approvedSnapshotId: state.approved_snapshot_id,
+      validationFreshness: "invalid", blockers: null, warnings: null,
+    };
     try {
-      const findings = JSON.parse(state.validation_json ?? "{}").findings;
-      if (Array.isArray(findings)) {
-        blockers = findings.filter((item) => item?.severity === "error").length;
-        warnings = findings.filter((item) => item?.severity === "warning").length;
-      }
-    } catch { /* The authoritative validation reader will surface corruption elsewhere. */ }
-    return { status: state.status, approvedSnapshotId: state.approved_snapshot_id, blockers, warnings };
+      const findings = JSON.parse(state.validation_json).findings;
+      if (!Array.isArray(findings)) throw new Error("invalid findings");
+      return {
+        status: state.status,
+        approvedSnapshotId: state.approved_snapshot_id,
+        validationFreshness: state.status === "approved" ? "current" : "historical-approved",
+        blockers: findings.filter((item) => item?.severity === "error").length,
+        warnings: findings.filter((item) => item?.severity === "warning").length,
+      };
+    } catch {
+      return {
+        status: state.status, approvedSnapshotId: state.approved_snapshot_id,
+        validationFreshness: "invalid", blockers: null, warnings: null,
+      };
+    }
   }
 
   latest(projectId: string): ProjectHealthLatestRecord[] {
-    const rows = this.database.prepare(`WITH latest AS (
-      SELECT artifact_id, MAX(version) AS version FROM artifact_versions
-      WHERE project_id = ? AND artifact_id IN (
-        'simulation-runs', 'playtest-campaigns', 'native-builds'
-      ) GROUP BY artifact_id
-    ) SELECT versions.artifact_id, versions.id, versions.created_at, versions.content_json
-      FROM artifact_versions versions JOIN latest
-        ON latest.artifact_id = versions.artifact_id AND latest.version = versions.version
-      WHERE versions.project_id = ? ORDER BY versions.created_at DESC`).all(projectId, projectId) as Array<{
-        artifact_id: string; id: string; created_at: string; content_json: string;
+    const rows = this.database.prepare(`WITH candidates AS (
+      SELECT versions.artifact_id, versions.artifact_type, versions.id, versions.version, versions.created_at,
+        CASE
+          WHEN versions.artifact_id = 'simulation-runs' THEN 'simulation'
+          WHEN versions.artifact_id = 'playtest-campaigns' THEN 'playtest'
+          WHEN versions.artifact_id = 'native-builds' THEN 'native-build'
+          WHEN versions.artifact_type = 'narrative-review' THEN 'narrative-review'
+        END AS kind,
+        CASE
+          WHEN versions.artifact_id = 'simulation-runs' THEN COALESCE(
+            json_extract(versions.content_json, '$.status'), json_extract(versions.content_json, '$.trace.result.kind'))
+          WHEN versions.artifact_id = 'playtest-campaigns' THEN json_extract(versions.content_json, '$.status')
+          WHEN versions.artifact_id = 'native-builds' THEN CASE
+            WHEN json_extract(versions.content_json, '$.validation.valid') = 1 THEN 'valid'
+            WHEN json_extract(versions.content_json, '$.validation.valid') = 0 THEN 'invalid'
+          END
+          WHEN versions.artifact_type = 'narrative-review' THEN json_extract(versions.content_json, '$.job.status')
+        END AS status,
+        CASE
+          WHEN versions.artifact_id = 'simulation-runs' THEN COALESCE(
+            json_extract(versions.content_json, '$.fingerprint'), json_extract(versions.content_json, '$.trace.fingerprint'))
+          WHEN versions.artifact_id = 'playtest-campaigns' THEN json_extract(versions.content_json, '$.fingerprint')
+          WHEN versions.artifact_id = 'native-builds' THEN json_extract(versions.content_json, '$.bundleFingerprint')
+          WHEN versions.artifact_type = 'narrative-review' THEN COALESCE(
+            json_extract(versions.content_json, '$.fingerprint'), json_extract(versions.content_json, '$.plan.fingerprint'))
+        END AS fingerprint
+      FROM artifact_versions versions
+      WHERE versions.project_id = ? AND (
+        versions.artifact_id IN ('simulation-runs', 'playtest-campaigns', 'native-builds')
+        OR versions.artifact_type = 'narrative-review'
+      )
+    ), ranked AS (
+      SELECT candidates.*, ROW_NUMBER() OVER (
+        PARTITION BY kind ORDER BY created_at DESC, version DESC, id DESC
+      ) AS rank
+      FROM candidates WHERE kind IS NOT NULL
+    ) SELECT kind, id, created_at, status, fingerprint
+      FROM ranked WHERE rank = 1 ORDER BY created_at DESC, kind
+      LIMIT ?`).all(projectId, PROJECT_HEALTH_BUDGETS.maximumHistoryMetadataItems) as Array<{
+        kind: string; id: string; created_at: string; status: string | null; fingerprint: string | null;
       }>;
-    const artifactKinds: Record<string, string> = {
-      "simulation-runs": "simulation", "playtest-campaigns": "playtest",
-      "native-builds": "native-build",
-    };
-    return rows.map((row) => {
-      const value = JSON.parse(row.content_json) as Record<string, unknown>;
-      return {
-        kind: artifactKinds[row.artifact_id] ?? row.artifact_id,
-        versionId: row.id,
-        createdAt: row.created_at,
-        status: typeof value.status === "string" ? value.status
-          : typeof (value.job as Record<string, unknown> | undefined)?.status === "string"
-            ? String((value.job as Record<string, unknown>).status) : null,
-        fingerprint: typeof value.fingerprint === "string" ? value.fingerprint
-          : typeof value.bundleFingerprint === "string" ? value.bundleFingerprint : null,
-      };
-    });
+    return rows.map((row) => ({
+      kind: row.kind, versionId: row.id, createdAt: row.created_at,
+      status: row.status, fingerprint: row.fingerprint,
+    }));
   }
 
   latestRepair(projectId: string): ProjectHealthLatestRecord[] {
@@ -181,7 +226,11 @@ export class ProjectHealthRepository {
 
   usage(projectId: string): ProjectUsageAggregateRow[] {
     const relational = this.database.prepare(`SELECT workflow, provider_id, model_id, status,
-        COUNT(*) AS request_count,
+        COUNT(*) AS attempt_count,
+        COALESCE(SUM(CASE WHEN json_type(repair_json, '$.repairsPerformed') = 'integer'
+          THEN 1 + CAST(json_extract(repair_json, '$.repairsPerformed') AS INTEGER) ELSE 0 END), 0) AS known_provider_request_count,
+        SUM(CASE WHEN json_type(repair_json, '$.repairsPerformed') = 'integer' THEN 0 ELSE 1 END)
+          AS unknown_provider_request_attempt_count,
         SUM(CASE WHEN usage_json IS NOT NULL THEN 1 ELSE 0 END) AS token_known_request_count,
         SUM(CASE WHEN usage_json IS NULL AND status IN ('completed', 'failed', 'cancelled') THEN 1 ELSE 0 END) AS legacy_unknown_request_count,
         COALESCE(SUM(CAST(json_extract(usage_json, '$.inputTokens') AS INTEGER)), 0) AS input_tokens,
@@ -192,21 +241,29 @@ export class ProjectHealthRepository {
         MIN(created_at) AS first_recorded_at, MAX(COALESCE(finished_at, updated_at, created_at)) AS last_recorded_at
       FROM (
         SELECT 'passage-planning' AS workflow, plans.provider_id, plans.model_id, attempts.status, attempts.usage_json,
+          candidates.repair_json,
           attempts.created_at, attempts.finished_at, attempts.updated_at
         FROM generation_unit_attempts attempts
         JOIN generation_jobs jobs ON jobs.project_id = attempts.project_id AND jobs.id = attempts.job_id
         JOIN generation_plans plans ON plans.project_id = jobs.project_id AND plans.id = jobs.plan_id
+        LEFT JOIN generation_unit_candidates candidates
+          ON candidates.project_id = attempts.project_id AND candidates.attempt_id = attempts.id
         WHERE attempts.project_id = ?
         UNION ALL
         SELECT 'passage-drafting' AS workflow, plans.provider_id, plans.model_id, attempts.status, attempts.usage_json,
+          outputs.repair_json,
           attempts.created_at, attempts.finished_at, attempts.updated_at
         FROM drafting_unit_attempts attempts
         JOIN drafting_jobs jobs ON jobs.project_id = attempts.project_id AND jobs.id = attempts.job_id
         JOIN drafting_plans plans ON plans.project_id = jobs.project_id AND plans.id = jobs.plan_id
+        LEFT JOIN drafting_unit_outputs outputs
+          ON outputs.project_id = attempts.project_id AND outputs.attempt_id = attempts.id
         WHERE attempts.project_id = ?
       ) GROUP BY workflow, provider_id, model_id, status`).all(projectId, projectId) as unknown as RawUsageRow[];
     const generic = this.database.prepare(`SELECT jobs.kind AS workflow, NULL AS provider_id, NULL AS model_id,
-        jobs.status, COUNT(*) AS request_count, COUNT(*) AS token_known_request_count, 0 AS legacy_unknown_request_count,
+        jobs.status, 0 AS attempt_count, COUNT(*) AS known_provider_request_count,
+        0 AS unknown_provider_request_attempt_count,
+        COUNT(*) AS token_known_request_count, 0 AS legacy_unknown_request_count,
         COALESCE(SUM(records.prompt_tokens), 0) AS input_tokens, COALESCE(SUM(records.completion_tokens), 0) AS output_tokens,
         COUNT(*) AS recorded_cost_request_count, 0 AS unknown_cost_request_count, COALESCE(SUM(records.cost), 0) AS recorded_cost,
         MIN(records.created_at) AS first_recorded_at, MAX(records.created_at) AS last_recorded_at
@@ -222,12 +279,17 @@ export class ProjectHealthRepository {
         CASE versions.artifact_type WHEN 'narrative-review' THEN json_extract(versions.content_json, '$.plan.modelId')
           ELSE json_extract(versions.content_json, '$.generation.modelId') END AS model_id,
         json_extract(attempt.value, '$.status') AS status, json_extract(attempt.value, '$.usage') AS usage_json,
+        json_extract(attempt.value, '$.repair.performed') AS repair_performed,
         json_extract(attempt.value, '$.startedAt') AS created_at, json_extract(attempt.value, '$.finishedAt') AS finished_at
       FROM artifact_versions versions JOIN latest ON latest.artifact_id = versions.artifact_id AND latest.version = versions.version
       JOIN json_each(versions.content_json, '$.job.units') unit
       JOIN json_each(unit.value, '$.attempts') attempt
       WHERE versions.project_id = ?
-    ) SELECT workflow, provider_id, model_id, status, COUNT(*) AS request_count,
+    ) SELECT workflow, provider_id, model_id, status, COUNT(*) AS attempt_count,
+      COALESCE(SUM(CASE WHEN status IN ('completed', 'failed') AND repair_performed IS NOT NULL
+        THEN 1 + CAST(repair_performed AS INTEGER) ELSE 0 END), 0) AS known_provider_request_count,
+      SUM(CASE WHEN status NOT IN ('completed', 'failed') OR repair_performed IS NULL THEN 1 ELSE 0 END)
+        AS unknown_provider_request_attempt_count,
       SUM(CASE WHEN usage_json IS NOT NULL THEN 1 ELSE 0 END) AS token_known_request_count,
       SUM(CASE WHEN usage_json IS NULL AND status IN ('completed', 'failed', 'cancelled') THEN 1 ELSE 0 END) AS legacy_unknown_request_count,
       COALESCE(SUM(CAST(json_extract(usage_json, '$.inputTokens') AS INTEGER)), 0) AS input_tokens,
@@ -251,7 +313,8 @@ export class ProjectHealthRepository {
 
 interface RawUsageRow {
   workflow: string; provider_id: string | null; model_id: string | null; status: string | null;
-  request_count: number; token_known_request_count: number; legacy_unknown_request_count: number;
+  attempt_count: number; known_provider_request_count: number; unknown_provider_request_attempt_count: number;
+  token_known_request_count: number; legacy_unknown_request_count: number;
   input_tokens: number; output_tokens: number; recorded_cost_request_count: number;
   unknown_cost_request_count: number; recorded_cost: number; first_recorded_at: string | null; last_recorded_at: string | null;
 }
@@ -262,7 +325,9 @@ function mapUsageRow(row: RawUsageRow): ProjectUsageAggregateRow {
     providerId: row.provider_id,
     modelId: row.model_id,
     status: row.status,
-    requestCount: Number(row.request_count ?? 0),
+    attemptCount: Number(row.attempt_count ?? 0),
+    knownProviderRequestCount: Number(row.known_provider_request_count ?? 0),
+    unknownProviderRequestAttemptCount: Number(row.unknown_provider_request_attempt_count ?? 0),
     tokenKnownRequestCount: Number(row.token_known_request_count ?? 0),
     legacyUnknownRequestCount: Number(row.legacy_unknown_request_count ?? 0),
     inputTokens: Number(row.input_tokens ?? 0),

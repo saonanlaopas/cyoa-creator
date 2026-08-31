@@ -12,13 +12,17 @@ export const PROJECT_HEALTH_SCHEMA_ID = "cyoa.project-health" as const;
 export const PROJECT_HEALTH_SCHEMA_VERSION = 1 as const;
 
 type CostStatus = "recorded" | "partial" | "unknown";
+type ProviderRequestCountStatus = "known" | "partial" | "unknown";
 
 export interface ProjectUsageGroup {
   workflow: string;
   providerId: string | null;
   modelId: string | null;
-  statuses: Record<string, number>;
-  requestCount: number;
+  attemptStatuses: Record<string, number>;
+  attemptCount: number;
+  providerRequestCount: number | null;
+  providerRequestCountStatus: ProviderRequestCountStatus;
+  unknownProviderRequestAttemptCount: number;
   tokenKnownRequestCount: number;
   legacyUnknownRequestCount: number;
   inputTokens: number;
@@ -49,7 +53,13 @@ export interface ProjectHealth {
   schemaVersion: typeof PROJECT_HEALTH_SCHEMA_VERSION;
   project: { id: string; mode: "quick" | "long-form"; schemaVersion: number };
   scale: ReturnType<ProjectHealthRepository["counts"]>;
-  validation: { passagePlanStatus: string | null; approvedSnapshotId: string | null; blockers: number; warnings: number };
+  validation: {
+    passagePlanStatus: string | null;
+    approvedSnapshotId: string | null;
+    freshness: "current" | "historical-approved" | "not-evaluated" | "invalid";
+    blockers: number | null;
+    warnings: number | null;
+  };
   evidence: { latest: ReturnType<ProjectHealthRepository["latest"]>; freshness: "historical-evidence" };
   repair: { latest: ReturnType<ProjectHealthRepository["latestRepair"]> };
   publication: { currentReadiness: "not-evaluated"; nativeBuildCount: number; latestBuildAt: string | null };
@@ -99,6 +109,7 @@ export class ProjectHealthService {
       validation: {
         passagePlanStatus: planning.status,
         approvedSnapshotId: planning.approvedSnapshotId,
+        freshness: planning.validationFreshness,
         blockers: planning.blockers,
         warnings: planning.warnings,
       },
@@ -130,13 +141,17 @@ export class ProjectHealthService {
         workflow: row.workflow,
         providerId: row.providerId,
         modelId: row.modelId,
-        statuses: {}, requestCount: 0, tokenKnownRequestCount: 0, legacyUnknownRequestCount: 0,
+        attemptStatuses: {}, attemptCount: 0, providerRequestCount: 0,
+        providerRequestCountStatus: "known" as const, unknownProviderRequestAttemptCount: 0,
+        tokenKnownRequestCount: 0, legacyUnknownRequestCount: 0,
         inputTokens: 0, outputTokens: 0, totalTokens: 0,
         cost: { status: "recorded", recorded: 0, recordedRequestCount: 0, unknownRequestCount: 0 },
         firstRecordedAt: null, lastRecordedAt: null,
       };
-      group.statuses[row.status ?? "unknown"] = (group.statuses[row.status ?? "unknown"] ?? 0) + row.requestCount;
-      group.requestCount += row.requestCount;
+      group.attemptStatuses[row.status ?? "unknown"] = (group.attemptStatuses[row.status ?? "unknown"] ?? 0) + row.attemptCount;
+      group.attemptCount += row.attemptCount;
+      group.providerRequestCount = (group.providerRequestCount ?? 0) + row.knownProviderRequestCount;
+      group.unknownProviderRequestAttemptCount += row.unknownProviderRequestAttemptCount;
       group.tokenKnownRequestCount += row.tokenKnownRequestCount;
       group.legacyUnknownRequestCount += row.legacyUnknownRequestCount;
       group.inputTokens += row.inputTokens;
@@ -149,13 +164,14 @@ export class ProjectHealthService {
       group.lastRecordedAt = latest(group.lastRecordedAt, row.lastRecordedAt);
       grouped.set(key, group);
     }
-    const all = [...grouped.values()].map(finalizeUsage).sort((left, right) =>
-      (right.lastRecordedAt ?? "").localeCompare(left.lastRecordedAt ?? ""),
-    );
-    const totals = finalizeUsage(all.reduce<ProjectUsageGroup>((total, group) => ({
+    const rawGroups = [...grouped.values()];
+    const totals = finalizeUsage(rawGroups.reduce<ProjectUsageGroup>((total, group) => ({
       workflow: "all", providerId: null, modelId: null,
-      statuses: mergeStatuses(total.statuses, group.statuses),
-      requestCount: total.requestCount + group.requestCount,
+      attemptStatuses: mergeStatuses(total.attemptStatuses, group.attemptStatuses),
+      attemptCount: total.attemptCount + group.attemptCount,
+      providerRequestCount: (total.providerRequestCount ?? 0) + (group.providerRequestCount ?? 0),
+      providerRequestCountStatus: "known",
+      unknownProviderRequestAttemptCount: total.unknownProviderRequestAttemptCount + group.unknownProviderRequestAttemptCount,
       tokenKnownRequestCount: total.tokenKnownRequestCount + group.tokenKnownRequestCount,
       legacyUnknownRequestCount: total.legacyUnknownRequestCount + group.legacyUnknownRequestCount,
       inputTokens: total.inputTokens + group.inputTokens,
@@ -170,10 +186,15 @@ export class ProjectHealthService {
       firstRecordedAt: earliest(total.firstRecordedAt, group.firstRecordedAt),
       lastRecordedAt: latest(total.lastRecordedAt, group.lastRecordedAt),
     }), {
-      workflow: "all", providerId: null, modelId: null, statuses: {}, requestCount: 0, tokenKnownRequestCount: 0,
-      legacyUnknownRequestCount: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0,
-      cost: { status: "recorded", recorded: 0, recordedRequestCount: 0, unknownRequestCount: 0 }, firstRecordedAt: null, lastRecordedAt: null,
+      workflow: "all", providerId: null, modelId: null, attemptStatuses: {}, attemptCount: 0,
+      providerRequestCount: 0, providerRequestCountStatus: "known", unknownProviderRequestAttemptCount: 0,
+      tokenKnownRequestCount: 0, legacyUnknownRequestCount: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0,
+      cost: { status: "recorded", recorded: 0, recordedRequestCount: 0, unknownRequestCount: 0 },
+      firstRecordedAt: null, lastRecordedAt: null,
     }));
+    const all = rawGroups.map(finalizeUsage).sort((left, right) =>
+      (right.lastRecordedAt ?? "").localeCompare(left.lastRecordedAt ?? ""),
+    );
     return {
       schemaId: "cyoa.project-usage", schemaVersion: 1, projectId,
       authority: {
@@ -239,6 +260,10 @@ export class ProjectHealthService {
 }
 
 function finalizeUsage(group: ProjectUsageGroup): ProjectUsageGroup {
+  const knownProviderRequests = group.providerRequestCount ?? 0;
+  group.providerRequestCountStatus = group.unknownProviderRequestAttemptCount === 0
+    ? "known" : knownProviderRequests > 0 ? "partial" : "unknown";
+  if (group.providerRequestCountStatus === "unknown") group.providerRequestCount = null;
   const unknown = group.cost.unknownRequestCount;
   group.cost.status = unknown === 0 ? "recorded" : group.cost.recordedRequestCount > 0 ? "partial" : "unknown";
   if (group.cost.status === "unknown") group.cost.recorded = null;

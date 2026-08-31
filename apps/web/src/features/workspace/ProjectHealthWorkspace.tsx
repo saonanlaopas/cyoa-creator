@@ -27,7 +27,7 @@ export function ProjectHealthWorkspace({ projectId, onNavigate }: {
     {!health || !usage ? <p>Loading project health…</p> : <>
       <section className="brief-section"><h2>Planning and draft health</h2>
         <dl className="simulation-metadata">
-          <div><dt>Passage plan</dt><dd>{health.validation.passagePlanStatus ?? "Not started"} · {health.validation.blockers} blocker(s), {health.validation.warnings} warning(s)</dd></div>
+          <div><dt>Passage plan</dt><dd>{planningValidationText(health.validation)}</dd></div>
           <div><dt>Passages / choices / threads</dt><dd>{health.scale.passages.toLocaleString()} / {health.scale.choices.toLocaleString()} / {health.scale.threads.toLocaleString()}</dd></div>
           <div><dt>Accepted prose</dt><dd>{health.scale.acceptedDrafts.toLocaleString()} accepted · {health.scale.acceptedWords.toLocaleString()} words · {health.scale.staleAcceptedDrafts.toLocaleString()} stale</dd></div>
           <div><dt>Draft history</dt><dd>{health.scale.draftVersions.toLocaleString()} immutable versions · {health.scale.staleCurrentDrafts.toLocaleString()} current stale</dd></div>
@@ -48,8 +48,8 @@ export function ProjectHealthWorkspace({ projectId, onNavigate }: {
         <dl className="simulation-metadata"><div><dt>Immutable records</dt><dd>{Object.values(health.storage.immutableHistory).reduce((total, count) => total + count, 0).toLocaleString()}</dd></div><div><dt>Artifact versions</dt><dd>{health.storage.immutableHistory.artifactVersions.toLocaleString()}</dd></div><div><dt>Passage versions</dt><dd>{health.storage.immutableHistory.passageEntityVersions.toLocaleString()}</dd></div></dl>
       </section>
       <section className="brief-section"><h2>Recorded AI usage</h2>
-        <p>{usage.totals.requestCount.toLocaleString()} recorded attempt(s) · {usage.totals.inputTokens.toLocaleString()} input tokens · {usage.totals.outputTokens.toLocaleString()} output tokens · {costText(usage.totals.cost)}. Costs are never estimated or repriced.</p>
-        {usage.groups.length > 0 && <div className="compact-table" role="table" aria-label="Recorded AI usage by workflow"><div role="row"><strong role="columnheader">Workflow</strong><strong role="columnheader">Tokens</strong><strong role="columnheader">Cost</strong></div>{usage.groups.map((group) => <div role="row" key={`${group.workflow}-${group.providerId}-${group.modelId}`}><span role="cell">{group.workflow} · {group.providerId ?? "historical"} / {group.modelId ?? "unknown model"}</span><span role="cell">{group.totalTokens.toLocaleString()} ({group.requestCount} attempt(s))</span><span role="cell">{costText(group.cost)}</span></div>)}</div>}
+        <p>{usage.totals.attemptCount.toLocaleString()} recorded attempt(s) · {providerRequestText(usage.totals)} · {usage.totals.inputTokens.toLocaleString()} input tokens · {usage.totals.outputTokens.toLocaleString()} output tokens · {costText(usage.totals.cost)}. Costs are never estimated or repriced.</p>
+        {usage.groups.length > 0 && <div className="compact-table" role="table" aria-label="Recorded AI usage by workflow"><div role="row"><strong role="columnheader">Workflow</strong><strong role="columnheader">Tokens</strong><strong role="columnheader">Cost</strong></div>{usage.groups.map((group) => <div role="row" key={`${group.workflow}-${group.providerId}-${group.modelId}`}><span role="cell">{group.workflow} · {group.providerId ?? "historical"} / {group.modelId ?? "unknown model"}</span><span role="cell">{group.totalTokens.toLocaleString()} ({group.attemptCount} attempt(s); {providerRequestText(group)})</span><span role="cell">{costText(group.cost)}</span></div>)}</div>}
         {usage.groupsTruncated && <p>Only the first {health.budgets.maximumUsageGroups} usage groups are displayed.</p>}
       </section>
     </>}
@@ -60,6 +60,20 @@ function costText(cost: { status: "recorded" | "partial" | "unknown"; recorded: 
   if (cost.status === "unknown") return "Cost unknown";
   const recorded = cost.recorded === null ? "" : `$${cost.recorded.toFixed(4)}`;
   return cost.status === "partial" ? `${recorded} recorded; some historical costs unknown` : `${recorded} recorded`;
+}
+function providerRequestText(usage: { providerRequestCount: number | null; providerRequestCountStatus: "known" | "partial" | "unknown" }): string {
+  if (usage.providerRequestCountStatus === "unknown") return "provider request count unknown";
+  const count = usage.providerRequestCount?.toLocaleString() ?? "0";
+  return usage.providerRequestCountStatus === "partial"
+    ? `${count}+ known provider request(s); some attempt request counts unknown`
+    : `${count} provider request(s)`;
+}
+function planningValidationText(validation: ProjectHealth["validation"]): string {
+  const status = validation.passagePlanStatus ?? "Not started";
+  if (validation.freshness === "not-evaluated") return `${status} · validation not evaluated`;
+  if (validation.freshness === "invalid") return `${status} · validation metadata invalid`;
+  const counts = `${validation.blockers ?? 0} blocker(s), ${validation.warnings ?? 0} warning(s)`;
+  return validation.freshness === "current" ? `${status} · ${counts}` : `${status} · historical approved validation · ${counts}`;
 }
 function storageText(health: ProjectHealth): string {
   if (health.storage.database.status === "available") return `${health.storage.database.sqliteBytes?.toLocaleString() ?? "Unknown"} SQLite bytes${health.storage.database.walBytes ? ` + ${health.storage.database.walBytes.toLocaleString()} WAL bytes` : ""}.`;

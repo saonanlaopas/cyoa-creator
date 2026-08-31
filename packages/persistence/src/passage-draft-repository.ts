@@ -1038,15 +1038,29 @@ export class PassageDraftRepository {
         from_version_id, to_version_id, changed_fields_json, created_at
       FROM passage_draft_staleness_events WHERE project_id = ? AND draft_version_id IN (${placeholders})
       ORDER BY draft_version_id, created_at, id`).all(projectId, ...ids) as Array<StaleRow & { draft_version_id: string }>;
-    const generated = this.database.prepare(`SELECT provenance.draft_version_id, provenance.output_id, provenance.attempt_id,
+    const generated = this.database.prepare(`SELECT provenance.draft_version_id, provenance.plan_id, provenance.job_id,
+        provenance.unit_id, provenance.passage_id, provenance.passage_plan_version_id,
+        provenance.output_id, provenance.attempt_id,
         outputs.input_fingerprint, outputs.context_fingerprint, outputs.provider_id, outputs.model_id,
         outputs.execution_policy_id, outputs.output_schema_id, outputs.output_schema_version,
         outputs.usage_json, outputs.repair_json
       FROM passage_draft_generation_provenance provenance
       JOIN drafting_unit_outputs outputs
         ON outputs.project_id = provenance.project_id AND outputs.id = provenance.output_id
-      WHERE provenance.project_id = ? AND provenance.draft_version_id IN (${placeholders})`).all(projectId, ...ids) as Array<{
-        draft_version_id: string; output_id: string; attempt_id: string; input_fingerprint: string;
+      WHERE provenance.project_id = ? AND (
+        provenance.draft_version_id IN (${placeholders}) OR EXISTS (
+          SELECT 1 FROM passage_draft_versions target
+          WHERE target.project_id = provenance.project_id AND target.id IN (${placeholders})
+            AND target.source_kind = 'lifecycle'
+            AND target.generation_plan_id = provenance.plan_id
+            AND target.generation_job_id = provenance.job_id
+            AND target.generation_unit_id = provenance.unit_id
+            AND target.passage_id = provenance.passage_id
+            AND target.based_on_passage_plan_version_id = provenance.passage_plan_version_id
+        )
+      )`).all(projectId, ...ids, ...ids) as Array<{
+        draft_version_id: string; plan_id: string; job_id: string; unit_id: string; passage_id: string;
+        passage_plan_version_id: string; output_id: string; attempt_id: string; input_fingerprint: string;
         context_fingerprint: string; provider_id: string; model_id: string; execution_policy_id: string;
         output_schema_id: string; output_schema_version: number; usage_json: string | null; repair_json: string;
       }>;
@@ -1054,13 +1068,15 @@ export class PassageDraftRepository {
     const neighborsByDraft = group(neighbors, (row) => row.draft_version_id);
     const staleByDraft = group(stale, (row) => row.draft_version_id);
     const generationByDraft = new Map(generated.map((row) => [row.draft_version_id, row]));
+    const generationByLineage = new Map(generated.map((row) => [generationLineageKey(row), row]));
     return new Map(rows.map((row) => {
       const reasons = (staleByDraft.get(row.id) ?? []).map((item) => ({
         id: item.id, reasonCode: item.reason_code, sourceEntityKind: item.source_entity_kind,
         sourceEntityId: item.source_entity_id, fromVersionId: item.from_version_id,
         toVersionId: item.to_version_id, changedFields: JSON.parse(item.changed_fields_json) as string[], createdAt: item.created_at,
       }));
-      const provenance = generationByDraft.get(row.id);
+      const provenance = generationByDraft.get(row.id)
+        ?? (row.source_kind === "lifecycle" ? generationByLineage.get(generationLineageKey(row)) : undefined);
       const mapped: PassageDraftVersionRecord = {
         id: row.id, projectId: row.project_id, passageId: row.passage_id, version: row.version,
         basedOnPassagePlanVersionId: row.based_on_passage_plan_version_id, proseMarkdown: row.prose_markdown,
@@ -1107,6 +1123,21 @@ function group<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
   const result = new Map<string, T[]>();
   for (const item of items) result.set(key(item), [...(result.get(key(item)) ?? []), item]);
   return result;
+}
+
+function generationLineageKey(value: {
+  plan_id?: string | null; generation_plan_id?: string | null;
+  job_id?: string | null; generation_job_id?: string | null;
+  unit_id?: string | null; generation_unit_id?: string | null;
+  passage_id: string; passage_plan_version_id?: string | null; based_on_passage_plan_version_id?: string | null;
+}): string {
+  return [
+    value.plan_id ?? value.generation_plan_id,
+    value.job_id ?? value.generation_job_id,
+    value.unit_id ?? value.generation_unit_id,
+    value.passage_id,
+    value.passage_plan_version_id ?? value.based_on_passage_plan_version_id,
+  ].join("\u0000");
 }
 
 function acceptedLifecycle(status: PassageDraftLifecycle): boolean {

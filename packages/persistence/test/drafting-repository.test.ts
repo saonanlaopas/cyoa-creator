@@ -9,6 +9,7 @@ import {
   PassageDraftRepository,
   PassagePlanRepository,
   ProjectRepository,
+  ProjectHealthRepository,
 } from "../src/index.js";
 
 const directories: string[] = [];
@@ -381,6 +382,90 @@ describe("drafting repository", () => {
     expect(completed.drafts).toHaveLength(2);
     expect(completed.drafts.every((draft) => draft.generationProvenance?.attemptId === attemptId)).toBe(true);
     expect(completed.output).toMatchObject({ attemptId, contextFingerprint, providerId: input.providerId });
+    fixture.database.close();
+  });
+
+  it("maps generated provenance identically for lifecycle heads in single and bounded bulk reads", () => {
+    const fixture = setup(":memory:", 2);
+    const contextFingerprint = "p".repeat(64);
+    const input = {
+      ...fixture.input,
+      scope: { kind: "passages", passageIds: ["passage-1"] },
+      units: [{
+        ...fixture.input.units[0]!,
+        context: { schemaId: "cyoa.passage-drafting-context", schemaVersion: 1 },
+        contextFingerprint,
+        contextDiagnostics: { status: "built", contextFingerprint },
+      }],
+    };
+    const plan = fixture.drafting.createPlan(input);
+    fixture.drafting.authorize(fixture.project.id, plan.id, plan.fingerprint);
+    fixture.drafting.startJob(fixture.project.id, plan.jobId);
+    const { attemptId } = fixture.drafting.startUnit(fixture.project.id, plan.jobId, "unit-1");
+    const drafts = new PassageDraftRepository(fixture.database);
+    const completion = fixture.drafting.completeUnitWithCandidates(
+      fixture.project.id, plan.jobId, "unit-1", attemptId, drafts, {
+        contextFingerprint,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        outputSchemaId: "cyoa.passage-drafting-unit-output",
+        outputSchemaVersion: 1,
+        content: { passages: ["passage-1"] },
+        validation: { valid: true },
+        usage: { inputTokens: 111, outputTokens: 222, cost: 0.003 },
+        repair: { maximumRepairs: 1, repairsPerformed: 1 },
+        upstreamVersions: fixture.snapshot.upstreamVersions,
+        neighboringDraftVersions: {},
+        passages: [{
+          passageId: "passage-1",
+          passagePlanVersionId: fixture.passageVersions[0]!.id,
+          proseMarkdown: "Generated provenance survives every lifecycle copy.",
+        }],
+      },
+    );
+    const accepted = drafts.transition(fixture.project.id, "passage-1", completion.drafts[0]!.id, "accepted");
+    const reviewed = drafts.transition(fixture.project.id, "passage-1", accepted.id, "reviewed");
+    const locked = drafts.transition(fixture.project.id, "passage-1", reviewed.id, "locked");
+    const unrelated = drafts.createVersion({
+      projectId: fixture.project.id,
+      passageId: "passage-2",
+      basedOnPassagePlanVersionId: fixture.passageVersions[1]!.id,
+      proseMarkdown: "Unrelated history must not be traversed.",
+      sourceKind: "manual",
+      upstreamVersions: fixture.snapshot.upstreamVersions,
+    });
+
+    const singleVersion = drafts.getVersion(fixture.project.id, locked.id)!;
+    const singleHead = drafts.getHead(fixture.project.id, "passage-1")!.accepted!;
+    const bulk = drafts.listAcceptedHeadsForPassages(
+      fixture.project.id, ["passage-1", "missing", "passage-1"],
+    )[0]!.accepted;
+
+    expect(singleVersion.generationProvenance).toEqual(completion.drafts[0]!.generationProvenance);
+    expect(singleHead.generationProvenance).toEqual(singleVersion.generationProvenance);
+    expect(bulk.generationProvenance).toEqual(singleVersion.generationProvenance);
+    expect(bulk.generationProvenance).toMatchObject({
+      outputId: completion.output.id,
+      attemptId,
+      inputFingerprint: input.units[0]!.inputFingerprint,
+      contextFingerprint,
+      providerId: input.providerId,
+      modelId: input.modelId,
+      executionPolicyId: input.executionPolicyId,
+      outputSchemaId: "cyoa.passage-drafting-unit-output",
+      outputSchemaVersion: 1,
+      usage: { inputTokens: 111, outputTokens: 222, cost: 0.003 },
+      repair: { maximumRepairs: 1, repairsPerformed: 1 },
+    });
+    expect(new ProjectHealthRepository(fixture.database).usage(fixture.project.id)
+      .find((row) => row.workflow === "passage-drafting")).toMatchObject({
+      attemptCount: 1,
+      knownProviderRequestCount: 2,
+      unknownProviderRequestAttemptCount: 0,
+      inputTokens: 111,
+      outputTokens: 222,
+    });
+    expect(bulk.proseMarkdown).not.toBe(unrelated.proseMarkdown);
     fixture.database.close();
   });
 
