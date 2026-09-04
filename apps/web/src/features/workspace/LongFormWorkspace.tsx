@@ -29,10 +29,21 @@ import { RepairWorkspace } from "./RepairWorkspace.js";
 import { PublicationWorkspace } from "./PublicationWorkspace.js";
 import { GlobalRestorePanel, RecoveryWorkspace } from "./RecoveryWorkspace.js";
 import { ProjectHealthWorkspace } from "./ProjectHealthWorkspace.js";
+import { ResumeWorkWorkspace } from "./ResumeWorkWorkspace.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
-const stages = ["Project brief", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Repair planning", "Publication", "Project health", "Backup & recovery"];
+const navigationKey = (projectId: string) => `story-to-cyoa.navigation.${projectId}`;
+type LongFormStage = "brief" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
+const stageIds: LongFormStage[] = ["brief", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
+const isLongFormStage = (value: unknown): value is LongFormStage => typeof value === "string" && stageIds.includes(value as LongFormStage);
+const stages = ["Project brief", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Repair planning", "Publication", "Resume work", "Project health", "Backup & recovery"];
+type NavigationHint = { stage: LongFormStage; entityId: string | null };
+const stageLabels: Record<LongFormStage, string> = {
+  brief: "Project brief", bible: "Story bible", routes: "Routes", endings: "Endings", mechanics: "Mechanics",
+  "passage-plan": "Passage plan", simulation: "Playtest & analysis", repair: "Repair planning",
+  publication: "Publication", resume: "Resume work", health: "Project health", recovery: "Backup & recovery",
+};
 
 export function LongFormWorkspace() {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
@@ -48,14 +59,18 @@ export function LongFormWorkspace() {
   const [mechanics, setMechanics] = useState<ArtifactVersion<LongFormMechanicsPlan> | null>(null);
   const [mechanicsWorkflow, setMechanicsWorkflow] = useState<WorkflowState | null>(null);
   const storedStage = localStorage.getItem(activeStageKey);
-  const [activeStage, setActiveStage] = useState<"brief" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "health" | "recovery">(
-    storedStage === "bible" || storedStage === "routes" || storedStage === "endings" || storedStage === "mechanics" || storedStage === "passage-plan" || storedStage === "simulation" || storedStage === "repair" || storedStage === "publication" || storedStage === "health" || storedStage === "recovery" ? storedStage : "brief",
+  const [activeStage, setActiveStage] = useState<LongFormStage>(
+    isLongFormStage(storedStage) ? storedStage : "brief",
   );
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [validation, setValidation] = useState<PlanningFinding[]>([]);
   const [passagePlanJump, setPassagePlanJump] = useState("");
+  const [currentStableId, setCurrentStableId] = useState("");
+  const [stableIdInput, setStableIdInput] = useState("");
+  const [navigationHistory, setNavigationHistory] = useState<LongFormStage[]>([]);
+  const [lastWorkspaceHint, setLastWorkspaceHint] = useState<NavigationHint | null>(null);
 
   const openProject = async (projectId: string) => {
     const state = await loadLongFormProject(projectId);
@@ -72,7 +87,43 @@ export function LongFormWorkspace() {
     setMechanicsWorkflow(state.workflow.mechanics);
     setValidation(state.validation);
     localStorage.setItem(activeProjectKey, projectId);
+    try {
+      const saved = JSON.parse(localStorage.getItem(navigationKey(projectId)) ?? "null") as { stage?: LongFormStage; entityId?: string; scrollY?: number; previous?: NavigationHint } | null;
+      if (isLongFormStage(saved?.stage)) setActiveStage(saved.stage);
+      if (typeof saved?.entityId === "string" && saved.entityId.length <= 240) {
+        setPassagePlanJump(saved.entityId); setCurrentStableId(saved.entityId); setStableIdInput(saved.entityId);
+      }
+      if (saved?.previous && isLongFormStage(saved.previous.stage)
+        && (saved.previous.entityId === null || (typeof saved.previous.entityId === "string" && saved.previous.entityId.length <= 240))) {
+        setLastWorkspaceHint(saved.previous);
+      }
+      if (typeof saved?.scrollY === "number" && Number.isFinite(saved.scrollY) && saved.scrollY >= 0) {
+        requestAnimationFrame(() => window.scrollTo({ top: saved.scrollY }));
+      }
+    } catch { /* Browser-local navigation hints are disposable and non-canonical. */ }
   };
+
+  const navigate = (stage: LongFormStage, entityId?: string | null) => {
+    if (stage !== activeStage) setNavigationHistory((items) => [...items.slice(-19), activeStage]);
+    if (stage === "resume" && activeStage !== "resume") setLastWorkspaceHint({ stage: activeStage, entityId: currentStableId || null });
+    setActiveStage(stage);
+    if (entityId !== undefined) { setPassagePlanJump(entityId ?? ""); setCurrentStableId(entityId ?? ""); setStableIdInput(entityId ?? ""); }
+    localStorage.setItem(activeStageKey, stage);
+    if (project) localStorage.setItem(navigationKey(project.id), JSON.stringify({
+      stage, entityId: (entityId ?? currentStableId) || undefined, scrollY: 0,
+      previous: stage === "resume" && activeStage !== "resume" ? { stage: activeStage, entityId: currentStableId || null } : lastWorkspaceHint ?? undefined,
+    }));
+    setMessage(null);
+  };
+
+  useEffect(() => {
+    if (!project) return;
+    const save = () => localStorage.setItem(navigationKey(project.id), JSON.stringify({
+      stage: activeStage, entityId: currentStableId || undefined, scrollY: window.scrollY, previous: lastWorkspaceHint ?? undefined,
+    }));
+    window.addEventListener("pagehide", save);
+    return () => { window.removeEventListener("pagehide", save); };
+  }, [project?.id, activeStage, currentStableId, lastWorkspaceHint]);
 
   useEffect(() => {
     void listLongFormProjects().then(async (items) => {
@@ -131,7 +182,7 @@ export function LongFormWorkspace() {
   };
 
   if (!project || !brief || !briefWorkflow || !bibleWorkflow || !routesWorkflow || !endingsWorkflow || !mechanicsWorkflow) {
-    return <main className="long-form-home">
+    return <main id="main-content" className="long-form-home" tabIndex={-1}>
       <header>
         <p className="eyebrow">Long-form workspace</p>
         <h1>Design before drafting</h1>
@@ -154,7 +205,7 @@ export function LongFormWorkspace() {
     </main>;
   }
 
-  return <main className="long-form-workspace">
+  return <main id="main-content" className="long-form-workspace" tabIndex={-1}>
     <nav className="workflow-nav" aria-label="Long-form workflow">
       <p className="eyebrow">Long-form project</p>
       <h2>{project.name}</h2>
@@ -199,9 +250,11 @@ export function LongFormWorkspace() {
                           : index === 9
                             ? "publication"
                             : index === 10
-                              ? "health"
+                              ? "resume"
                               : index === 11
-                                ? "recovery"
+                                ? "health"
+                                : index === 12
+                                  ? "recovery"
                   : null;
           const enabled = stageId === "brief"
             || (stageId === "bible" && (briefWorkflow.status === "approved" || Boolean(bible)))
@@ -209,7 +262,7 @@ export function LongFormWorkspace() {
           const available = enabled
             || (stageId === "endings" && (routesWorkflow.status === "approved" || Boolean(endings)))
             || (stageId === "mechanics" && (endingsWorkflow.status === "approved" || Boolean(mechanics)))
-            || stageId === "recovery" || stageId === "health"
+            || stageId === "recovery" || stageId === "health" || stageId === "resume"
             || ((stageId === "passage-plan" || stageId === "simulation" || stageId === "repair" || stageId === "publication") && mechanicsWorkflow.status === "approved");
           const status = stageId === "brief"
             ? briefWorkflow.status
@@ -229,17 +282,17 @@ export function LongFormWorkspace() {
                           ? mechanicsWorkflow.status === "approved" ? "Available" : "Not started"
                           : stageId === "publication"
                             ? mechanicsWorkflow.status === "approved" ? "Available" : "Not started"
-                            : stageId === "health"
+                            : stageId === "resume"
+                              ? "Available"
+                              : stageId === "health"
                               ? "Available"
                               : stageId === "recovery"
                               ? "Available"
               : "Not started";
           return <li key={stage} className={stageId === activeStage ? "current" : ""}>
-          <button disabled={!available} onClick={() => {
+          <button aria-current={stageId === activeStage ? "step" : undefined} disabled={!available} onClick={() => {
             if (stageId) {
-              setActiveStage(stageId);
-              localStorage.setItem(activeStageKey, stageId);
-              setMessage(null);
+              navigate(stageId);
             }
           }}>
             <span>{stage}</span>
@@ -248,9 +301,33 @@ export function LongFormWorkspace() {
         </li>;
         })}
       </ol>
+      <section className="navigation-memory" aria-labelledby="navigation-memory-heading">
+        <h3 id="navigation-memory-heading">Session navigation</h3>
+        <p aria-live="polite">{project.name} / {stageLabels[activeStage]}{currentStableId ? ` / ${currentStableId}` : ""}</p>
+        <button disabled={navigationHistory.length === 0} onClick={() => {
+          const previous = navigationHistory.at(-1); if (!previous) return;
+          setNavigationHistory((items) => items.slice(0, -1)); setActiveStage(previous); localStorage.setItem(activeStageKey, previous);
+          if (project) localStorage.setItem(navigationKey(project.id), JSON.stringify({ stage: previous, entityId: currentStableId || undefined, scrollY: 0, previous: lastWorkspaceHint ?? undefined }));
+        }}>Back to previous workspace</button>
+        <label>Stable ID jump
+          <input value={stableIdInput} onChange={(event) => setStableIdInput(event.target.value)} placeholder="passage or entity ID" />
+        </label>
+        <div className="artifact-actions">
+          <button disabled={!stableIdInput.trim()} onClick={() => navigate("passage-plan", stableIdInput.trim())}>Jump</button>
+          <button disabled={!stableIdInput.trim()} onClick={() => {
+            if (!navigator.clipboard?.writeText) {
+              setMessage("The stable ID could not be copied. Select the text and copy it manually."); return;
+            }
+            void navigator.clipboard.writeText(stableIdInput.trim())
+              .then(() => setMessage(`Copied stable ID ${stableIdInput.trim()}.`))
+              .catch(() => setMessage("The stable ID could not be copied. Select the text and copy it manually."));
+          }}>Copy ID</button>
+        </div>
+        <small>Stored only in this browser; never treated as project workflow state.</small>
+      </section>
     </nav>
 
-    {activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
+    {activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
       <ArtifactHistory
         projectId={project.id}
         artifactId={activeStage}
@@ -354,13 +431,18 @@ export function LongFormWorkspace() {
       onRequestedJumpHandled={() => setPassagePlanJump("")}
     /> : activeStage === "simulation" ? <SimulationWorkspace projectId={project.id} onNavigateStableId={(stableId) => {
       setPassagePlanJump(stableId);
-      setActiveStage("passage-plan");
-      localStorage.setItem(activeStageKey, "passage-plan");
+      navigate("passage-plan", stableId);
       setMessage(`Navigated from playtest evidence to ${stableId}.`);
     }} /> : activeStage === "repair" ? <RepairWorkspace projectId={project.id} /> : activeStage === "publication"
       ? <PublicationWorkspace projectId={project.id} />
+      : activeStage === "resume" ? <ResumeWorkWorkspace projectId={project.id}
+        localHint={lastWorkspaceHint}
+        onNavigate={(stage, stableId) => {
+          if (stableId) setPassagePlanJump(stableId);
+          navigate(stage, stableId);
+        }} />
       : activeStage === "health" ? <ProjectHealthWorkspace projectId={project.id} onNavigate={(stage) => {
-        setActiveStage(stage); localStorage.setItem(activeStageKey, stage);
+        navigate(stage);
       }} /> : <RecoveryWorkspace projectId={project.id} onProjectDeleted={async () => {
         const items = await listLongFormProjects(); setProjects(items);
         setProject(null); setBrief(null); setBriefWorkflow(null); setBible(null); setBibleWorkflow(null);
@@ -371,7 +453,7 @@ export function LongFormWorkspace() {
         await openProject(restoredProjectId);
       }} />}
 
-    {activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
+    {activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
       key={project.id}
       project={project}
       brief={brief}

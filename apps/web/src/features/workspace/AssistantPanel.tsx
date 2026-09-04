@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   applyProposal,
+  createPinnedDecision,
   createConversation,
   listAssistantSections,
   listConversations,
+  loadAuthorMemoryContext,
   loadConversation,
   rejectProposal,
   sendConversationMessage,
+  updatePinnedDecision,
   updateConversationScope,
   type ArtifactVersion,
+  type AuthorMemoryContext,
   type ChangeSetRecord,
   type ConversationRecord,
   type LongFormStoryBible,
@@ -42,6 +46,10 @@ export function AssistantPanel(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState<string[]>([]);
+  const [memory, setMemory] = useState<AuthorMemoryContext | null>(null);
+  const [decisionContent, setDecisionContent] = useState("");
+  const [visibleMessageCount, setVisibleMessageCount] = useState(80);
+  const [historyNotice, setHistoryNotice] = useState<string | null>(null);
   const [sections, setSections] = useState<Array<{ id: string; label: string }>>([]);
   const [collapsed, setCollapsed] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
@@ -53,6 +61,10 @@ export function AssistantPanel(props: {
     setConversation(state.conversation);
     setMessages(state.messages);
     setProposals(state.proposals);
+    setHistoryNotice(state.messagesTruncated || state.proposalsTruncated
+      ? `Showing the newest ${state.messages.length} of ${state.messageCount ?? state.messages.length} messages and ${state.proposals.length} of ${state.proposalCount ?? state.proposals.length} proposals.`
+      : null);
+    setMemory(await loadAuthorMemoryContext(props.project.id, conversationId, state.conversation.scope));
   };
 
   useEffect(() => {
@@ -140,6 +152,13 @@ export function AssistantPanel(props: {
     busy,
   ]);
 
+  useEffect(() => {
+    if (!conversation) return;
+    void loadAuthorMemoryContext(props.project.id, conversation.id, conversation.scope)
+      .then(setMemory).catch((reason: Error) => setError(reason.message));
+  }, [props.project.id, conversation?.id, conversation?.scope.kind, conversation?.scope.artifactId,
+    conversation?.scope.versionId, conversation?.scope.sectionId]);
+
   const currentArtifact = artifactFor(props.activeArtifact);
   const artifactLabel = props.activeArtifact === "mechanics"
     ? "mechanics plan"
@@ -176,6 +195,7 @@ export function AssistantPanel(props: {
         `${result.usage.totalTokens.toLocaleString()} tokens`,
         result.cost ? `$${result.cost.total.toFixed(4)}` : "Cost unavailable",
       ]);
+      setMemory(await loadAuthorMemoryContext(props.project.id, conversation.id, conversation.scope));
     } catch (reason) {
       setError((reason as Error).message);
       await refresh(conversation.id);
@@ -252,14 +272,58 @@ export function AssistantPanel(props: {
       <p className="scope-version">Project: {props.project.name} · Base: {currentArtifact ? `${props.activeArtifact} v${currentArtifact.version}` : "project only"}</p>
     </header>
 
+    <details className="author-memory-preview">
+      <summary>Context preview</summary>
+      <p className="field-note">Non-canonical author memory. Structured project versions remain authoritative.</p>
+      <dl>
+        <div><dt>Summary</dt><dd>{memory?.summary ? `v${memory.summary.version} · ${memory.summary.sourceRange.messageCount} covered messages` : memory?.diagnostics.summaryStatus === "stale" ? "Stale summary omitted" : "None"}</dd></div>
+        <div><dt>Pinned decisions</dt><dd>{memory?.decisions.length ?? 0} included{memory?.diagnostics.omittedDecisionCount ? ` · ${memory.diagnostics.omittedDecisionCount} omitted by bounds` : ""}</dd></div>
+        <div><dt>Recent messages</dt><dd>{memory?.recentMessages.length ?? 0} retained separately</dd></div>
+      </dl>
+      {memory?.summary && <p>{memory.summary.content}</p>}
+      {memory?.decisions.map((decision) => <article className="pinned-decision" key={decision.stableId}>
+        <strong>{decision.content}</strong>
+        <small>{decision.scope.kind} scope · v{decision.version} · active</small>
+        <button type="button" disabled={busy} onClick={async () => {
+          await updatePinnedDecision(props.project.id, decision.stableId, { status: "withdrawn" });
+          if (conversation) setMemory(await loadAuthorMemoryContext(props.project.id, conversation.id, conversation.scope));
+        }}>Withdraw</button>
+      </article>)}
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        if (!conversation || !decisionContent.trim()) return;
+        void (async () => {
+          setBusy(true); setError(null);
+          try {
+            const scope = conversation.scope.kind === "artifact"
+              ? { kind: "artifact" as const, artifactId: conversation.scope.artifactId! }
+              : { kind: "project" as const };
+            await createPinnedDecision(props.project.id, { scope, content: decisionContent,
+              provenance: messages.at(-1) ? { messageId: messages.at(-1)!.id } : { note: "Pinned by author" } });
+            setDecisionContent("");
+            setMemory(await loadAuthorMemoryContext(props.project.id, conversation.id, conversation.scope));
+          } catch (reason) { setError((reason as Error).message); }
+          finally { setBusy(false); }
+        })();
+      }}>
+        <label>Pin a decision<textarea value={decisionContent} maxLength={2000}
+          onChange={(event) => setDecisionContent(event.target.value)} /></label>
+        <button disabled={busy || !decisionContent.trim()}>Pin for this scope</button>
+      </form>
+    </details>
+
     <div className="assistant-history" ref={historyRef}>
+      {historyNotice && <p className="field-note" role="status">{historyNotice} Older immutable history remains stored.</p>}
       {messages.length === 0 && <p className="field-note">Ask questions freely, or choose “Propose change” when you want a reviewable edit to the {artifactLabel}.</p>}
-      {messages.map((message) => <article className={`chat-message ${message.role}`} key={message.id}>
+      {messages.length > visibleMessageCount && <button type="button" onClick={() => setVisibleMessageCount((count) => count + 80)}>
+        Show 80 older messages ({messages.length - visibleMessageCount} hidden)
+      </button>}
+      {messages.slice(-visibleMessageCount).map((message) => <article className={`chat-message ${message.role}`} key={message.id}>
         <strong>{message.role === "user" ? "You" : "Assistant"}</strong>
         <p>{message.content}</p>
         <small>{message.intent} · {String(message.metadata.artifactId ?? "artifact")} v{String(message.metadata.artifactVersion ?? "?")}</small>
       </article>)}
-      {proposals.map((proposal) => <ProposalCard
+      {proposals.slice(-50).map((proposal) => <ProposalCard
         key={proposal.id}
         proposal={proposal}
         currentVersionId={proposal.artifactId === "mechanics"

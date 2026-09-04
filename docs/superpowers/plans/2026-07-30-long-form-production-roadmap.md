@@ -35,7 +35,7 @@ Implementation checkpoints:
 - Foundation 7C is complete and externally accepted at `225a04dd958c36bc4773edddcbef854725d7c73c`.
 - Foundation 7 is **CLOSED** at accepted head `225a04dd958c36bc4773edddcbef854725d7c73c`.
 
-Foundation 8A is externally accepted at `968febd6e16082176e13171e2b6f57067a2b21ce`. Foundation 8B is implemented and pending external acceptance. Do not begin Foundation 8C until 8B has an externally accepted SHA.
+Foundation 8A is externally accepted at `968febd6e16082176e13171e2b6f57067a2b21ce`. Foundation 8B is externally accepted at `7ab7a8da79f59835323082174c23bcdbe3c77779`. Foundation 8C is implemented on `checkpoint/foundation-8c-long-session-ux-accessibility` and pending external acceptance. Do not mark Foundation 8 or this roadmap closed before that acceptance.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 
@@ -737,7 +737,7 @@ Do not begin a checkpoint until the previous checkpoint has an externally accept
 
 ### Foundation 8: scale, recovery, and authoring polish (formerly Production 5)
 
-**Implementation status:** Checkpoint 8A is externally accepted at `968febd6e16082176e13171e2b6f57067a2b21ce`; checkpoint 8B is implemented and pending external acceptance; checkpoint 8C has not begun.
+**Implementation status:** Checkpoint 8A is externally accepted at `968febd6e16082176e13171e2b6f57067a2b21ce`; checkpoint 8B is externally accepted at `7ab7a8da79f59835323082174c23bcdbe3c77779`; checkpoint 8C is implemented on `checkpoint/foundation-8c-long-session-ux-accessibility` and pending external acceptance. Foundation 8 and the roadmap remain open until that review passes.
 
 #### Goal
 

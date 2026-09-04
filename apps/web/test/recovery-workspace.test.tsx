@@ -7,7 +7,7 @@ import { GlobalRestorePanel, RecoveryWorkspace } from "../src/features/workspace
 const fingerprint = "a".repeat(32);
 const status = {
   projectId: "project-recovery", currentProjectFingerprint: fingerprint,
-  currentSchemaVersion: 16, supportedSchemaVersion: 16, freshness: "never-backed-up",
+  currentSchemaVersion: 17, supportedSchemaVersion: 17, freshness: "never-backed-up",
   latestVerifiedBackup: null,
   reminder: { visible: true, dismissedForCurrentVersion: false, snoozedUntil: null },
   lastVerificationFailure: null, backups: [], restores: [],
@@ -16,7 +16,7 @@ const record = {
   schemaId: "cyoa.project-backup-record", schemaVersion: 1, backupId: "11111111-1111-4111-8111-111111111111",
   projectId: "project-recovery", gameId: "project-recovery", portableSchemaId: "cyoa.portable-project", portableSchemaVersion: 1,
   portableProjectFingerprint: fingerprint, portableArchiveSha256: "b".repeat(64), portableArchiveByteCount: 1024,
-  sourceSqliteSchemaVersion: 16, applicationVersion: "0.1.0", createdAt: "2026-08-30T00:00:00.000Z",
+  sourceSqliteSchemaVersion: 17, applicationVersion: "0.1.0", createdAt: "2026-08-30T00:00:00.000Z",
   verificationStatus: "verified", verifiedAt: "2026-08-30T00:00:01.000Z", verificationMethod: "isolated-portable-restore",
   verificationMethodVersion: 1, restoredSemanticFingerprint: fingerprint, verificationDiagnostics: [], sourceChangeFingerprint: fingerprint,
 };
@@ -99,5 +99,20 @@ describe("Foundation 8A recovery workspace", () => {
     await user.click(button);
     await waitFor(() => expect(deleted).toHaveBeenCalled());
     expect(requests.find((item) => item.url.endsWith("/permanent-delete"))?.body).toContain(fingerprint);
+  });
+
+  it("turns incompatible import failures into non-overwriting recovery guidance", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request);
+      if (url.endsWith("/preview") && init?.method === "POST") return response({ error: "Incompatible future backup schema" }, 400);
+      return response({ error: `Unexpected ${url}` }, 500);
+    });
+    const user = userEvent.setup(); render(<GlobalRestorePanel onRestored={() => undefined} />);
+    await user.upload(screen.getByLabelText("Project backup file"), new File(["zip"], "future.cyoa-backup.zip", { type: "application/zip" }));
+    await user.click(screen.getByRole("button", { name: "Verify & preview" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("original data remains unchanged");
+    expect(alert.textContent).toContain("compatible app version");
+    expect((screen.getByRole("button", { name: "Restore as project" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

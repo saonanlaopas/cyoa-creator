@@ -46,6 +46,28 @@ export interface ProjectUsageReport {
   totals: Omit<ProjectUsageGroup, "workflow" | "providerId" | "modelId">;
   groups: ProjectUsageGroup[];
   groupsTruncated: boolean;
+  filters: ProjectUsageFilters;
+  available: { workflows: string[]; providers: string[]; models: string[] };
+}
+
+export interface ProjectUsageFilters {
+  workflow?: string;
+  providerId?: string;
+  modelId?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface ProjectResumeReport {
+  schemaId: "cyoa.project-resume";
+  schemaVersion: 1;
+  projectId: string;
+  authority: "persisted-facts-only";
+  generatedAt: string;
+  facts: ReturnType<ProjectHealthRepository["resume"]>;
+  backup: { latestVerifiedAt: string | null; latestVerifiedBackupId: string | null; freshness: "not-evaluated" };
+  actions: Array<{ id: string; stage: "passage-plan" | "repair" | "publication" | "recovery" | "health"; label: string; count: number; stableId: string | null }>;
+  truncated: false;
 }
 
 export interface ProjectHealth {
@@ -132,10 +154,17 @@ export class ProjectHealthService {
     };
   }
 
-  usage(projectId: string): ProjectUsageReport {
+  usage(projectId: string, filters: ProjectUsageFilters = {}): ProjectUsageReport {
     this.requireProject(projectId);
+    const normalized = normalizeUsageFilters(filters);
+    const allRows = this.facts.usage(projectId);
+    const available = {
+      workflows: unique(allRows.map((row) => row.workflow)),
+      providers: unique(allRows.flatMap((row) => row.providerId ? [row.providerId] : [])),
+      models: unique(allRows.flatMap((row) => row.modelId ? [row.modelId] : [])),
+    };
     const grouped = new Map<string, ProjectUsageGroup>();
-    for (const row of this.facts.usage(projectId)) {
+    for (const row of allRows.filter((row) => usageRowMatches(row, normalized))) {
       const key = [row.workflow, row.providerId ?? "unknown", row.modelId ?? "unknown"].join("\u0000");
       const group = grouped.get(key) ?? {
         workflow: row.workflow,
@@ -206,7 +235,30 @@ export class ProjectHealthService {
       totals,
       groups: all.slice(0, PROJECT_HEALTH_BUDGETS.maximumUsageGroups),
       groupsTruncated: all.length > PROJECT_HEALTH_BUDGETS.maximumUsageGroups,
+      filters: normalized,
+      available,
     };
+  }
+
+  resume(projectId: string): ProjectResumeReport {
+    this.requireProject(projectId);
+    const facts = this.facts.resume(projectId);
+    const backup = this.recovery.latestVerifiedBackup(projectId);
+    const actions: ProjectResumeReport["actions"] = [];
+    const add = (id: string, stage: ProjectResumeReport["actions"][number]["stage"], label: string, count: number, stableId: string | null = null) => {
+      if (count > 0) actions.push({ id, stage, label, count, stableId });
+    };
+    add("passage-plan-stale", "passage-plan", "Review stale passage plan", facts.stalePassagePlan);
+    add("drafts-stale", "passage-plan", "Review stale draft heads", facts.staleCurrentDrafts, facts.latestPendingPassageId);
+    add("draft-candidates", "passage-plan", "Review pending prose candidates", facts.pendingDraftCandidates, facts.latestPendingPassageId);
+    add("accepted-review", "passage-plan", "Review accepted prose", facts.acceptedAwaitingReview, facts.latestPendingPassageId);
+    add("planning-jobs", "passage-plan", "Resume or inspect passage-planning jobs", facts.runningGenerationJobs + facts.failedGenerationJobs);
+    add("drafting-jobs", "passage-plan", "Resume or inspect drafting jobs", facts.runningDraftingJobs + facts.failedDraftingJobs);
+    add("proposals", "repair", "Review unapplied proposals", facts.proposedChangeSets);
+    if (!backup) actions.push({ id: "backup", stage: "recovery", label: "Create and verify a project backup", count: 1, stableId: null });
+    return { schemaId: "cyoa.project-resume", schemaVersion: 1, projectId, authority: "persisted-facts-only",
+      generatedAt: new Date().toISOString(), facts, backup: { latestVerifiedAt: backup?.verifiedAt ?? null,
+        latestVerifiedBackupId: backup?.backupId ?? null, freshness: "not-evaluated" }, actions: actions.slice(0, 20), truncated: false };
   }
 
   storageDiagnostics(projectId: string): ProjectStorageDiagnostics {
@@ -279,3 +331,28 @@ function latest(left: string | null, right: string | null): string | null {
 function mergeStatuses(left: Record<string, number>, right: Record<string, number>): Record<string, number> {
   const merged = { ...left }; for (const [key, value] of Object.entries(right)) merged[key] = (merged[key] ?? 0) + value; return merged;
 }
+
+function normalizeUsageFilters(filters: ProjectUsageFilters): ProjectUsageFilters {
+  const normalized: ProjectUsageFilters = {};
+  for (const key of ["workflow", "providerId", "modelId"] as const) {
+    const value = filters[key]?.trim(); if (value) normalized[key] = value.slice(0, 240);
+  }
+  for (const key of ["from", "to"] as const) {
+    const value = filters[key]?.trim();
+    if (value) {
+      const date = new Date(value); if (Number.isNaN(date.getTime())) throw new Error(`Invalid usage ${key} date`);
+      normalized[key] = date.toISOString();
+    }
+  }
+  if (normalized.from && normalized.to && normalized.from > normalized.to) throw new Error("Usage start date must not be after end date");
+  return normalized;
+}
+function usageRowMatches(row: ReturnType<ProjectHealthRepository["usage"]>[number], filters: ProjectUsageFilters): boolean {
+  if (filters.workflow && row.workflow !== filters.workflow) return false;
+  if (filters.providerId && row.providerId !== filters.providerId) return false;
+  if (filters.modelId && row.modelId !== filters.modelId) return false;
+  if (filters.from && (!row.lastRecordedAt || row.lastRecordedAt < filters.from)) return false;
+  if (filters.to && (!row.firstRecordedAt || row.firstRecordedAt > filters.to)) return false;
+  return true;
+}
+function unique(values: string[]): string[] { return [...new Set(values)].sort().slice(0, 100); }

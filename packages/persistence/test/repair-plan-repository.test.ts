@@ -8,7 +8,7 @@ import {
   type RepairPlanRecord,
 } from "@story-to-cyoa/domain";
 import { describe, expect, it } from "vitest";
-import { openDatabase, ProjectRepository, RepairPlanRepository } from "../src/index.js";
+import { CURRENT_SCHEMA_VERSION, openDatabase, ProjectRepository, RepairPlanRepository } from "../src/index.js";
 
 function repairFingerprint(value: unknown): string {
   const canonical = (item: unknown): string => {
@@ -77,7 +77,7 @@ describe("RepairPlanRepository", () => {
     const projects = new ProjectRepository(database);
     const repository = new RepairPlanRepository(database);
     const project = projects.create("Repair persistence", undefined, "long-form");
-    expect((database.prepare("SELECT MAX(version) version FROM schema_migrations").get() as { version: number }).version).toBe(16);
+    expect((database.prepare("SELECT MAX(version) version FROM schema_migrations").get() as { version: number }).version).toBe(CURRENT_SCHEMA_VERSION);
     const plan = record("repair-1", validDefinition(project.id));
     const created = repository.create(project.id, plan);
     expect(created.version).toBe(1);

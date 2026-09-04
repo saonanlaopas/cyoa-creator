@@ -122,6 +122,19 @@ export class ChangeSetRepository {
     `).all(conversationId) as ChangeSetRow[]).map(mapChangeSet<T>);
   }
 
+  listRecent<T = unknown>(conversationId: string, limit = 100): ChangeSetRecord<T>[] {
+    const bounded = Math.max(1, Math.min(100, Math.trunc(limit)));
+    return (this.database.prepare(`SELECT * FROM (
+      SELECT *, rowid AS change_order FROM change_sets WHERE conversation_id = ?
+      ORDER BY created_at DESC, rowid DESC LIMIT ?
+    ) recent ORDER BY created_at, change_order`).all(conversationId, bounded) as ChangeSetRow[]).map(mapChangeSet<T>);
+  }
+
+  count(conversationId: string): number {
+    return (this.database.prepare("SELECT COUNT(*) count FROM change_sets WHERE conversation_id = ?")
+      .get(conversationId) as { count: number }).count;
+  }
+
   reject(id: string): ChangeSetRecord {
     const current = this.get(id);
     if (!current) throw new Error("Proposal not found");

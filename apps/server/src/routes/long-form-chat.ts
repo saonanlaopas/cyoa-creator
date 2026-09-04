@@ -21,6 +21,7 @@ import {
 import type {
   ArtifactRepository,
   AssistantScope,
+  AuthorMemoryRepository,
   ChangeSetRepository,
   ConversationRepository,
   ProjectRepository,
@@ -72,6 +73,8 @@ function assistantPrompt(input: {
   summaries: Record<string, unknown>;
   references: unknown[];
   conversationSummary: string;
+  pinnedDecisions: Array<{ stableId: string; scope: unknown; content: string; relatedIds: string[] }>;
+  contextDiagnostics: unknown;
   recentMessages: Array<{ role: "user" | "assistant"; content: string }>;
   message: string;
 }): string {
@@ -103,6 +106,12 @@ ${JSON.stringify(input.references)}
 Maintained earlier-conversation summary:
 ${input.conversationSummary || "(none)"}
 
+Active scoped pinned decisions (non-canonical author memory):
+${JSON.stringify(input.pinnedDecisions)}
+
+Author-memory bounds and omissions:
+${JSON.stringify(input.contextDiagnostics)}
+
 Recent scoped discussion:
 ${input.recentMessages.map((item) => `${item.role}: ${item.content}`).join("\n") || "(none)"}
 
@@ -113,23 +122,13 @@ Return one JSON object with "message" and "proposal". For discuss intent, propos
 For propose intent, proposal contains summary, rationale, and one or more operation groups.`;
 }
 
-function updateConversationSummary(conversations: ConversationRepository, conversationId: string): void {
-  const conversation = conversations.get(conversationId);
-  if (!conversation) return;
-  const messages = conversations.listMessages(conversationId);
-  if (messages.length <= 10) return;
-  const older = messages.slice(0, -8);
-  const compact = older.map((message) =>
-    `${message.role}: ${message.content.replace(/\s+/g, " ").slice(0, 500)}`).join("\n");
-  conversations.updateSummary(conversationId, compact.slice(-10_000));
-}
-
 export function registerLongFormChatRoutes(
   app: FastifyInstance,
   client: OpenRouterClient,
   projects: ProjectRepository,
   artifacts: ArtifactRepository,
   conversations: ConversationRepository,
+  authorMemory: AuthorMemoryRepository,
   changeSets: ChangeSetRepository,
   longFormProjects: LongFormProjectService,
 ): void {
@@ -181,10 +180,16 @@ export function registerLongFormChatRoutes(
     async (request, reply) => {
       const conversation = ownedConversation(request.params.projectId, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const messageCount = conversations.countMessages(conversation.id);
+      const proposalCount = changeSets.count(conversation.id);
       return {
         conversation,
-        messages: conversations.listMessages(conversation.id),
-        proposals: changeSets.list(conversation.id),
+        messages: conversations.listRecentMessages(conversation.id),
+        messageCount,
+        messagesTruncated: messageCount > 200,
+        proposals: changeSets.listRecent(conversation.id),
+        proposalCount,
+        proposalsTruncated: proposalCount > 100,
       };
     },
   );
@@ -260,7 +265,9 @@ export function registerLongFormChatRoutes(
       context: contextVersions,
       metadata: { artifactId, artifactVersion: selectedArtifact.version, sectionId: sectionId ?? "root" },
     });
-    const recentMessages = conversations.listMessages(conversation.id).slice(-9, -1);
+    authorMemory.ensureSummary(request.params.projectId, conversation.id);
+    const memoryContext = authorMemory.buildContext(request.params.projectId, conversation.id, scope);
+    const recentMessages = memoryContext.recentMessages.filter((message) => message.id !== userMessage.id);
     const selected = planningSection(selectedArtifact.content, sectionId).content;
     const summaries = Object.fromEntries(planningArtifactIds.map((id) =>
       [id, summarizePlanningArtifact(id, snapshot[id])]));
@@ -279,7 +286,10 @@ export function registerLongFormChatRoutes(
             selected,
             summaries,
             references,
-            conversationSummary: conversation.summary,
+            conversationSummary: memoryContext.summary?.content ?? "",
+            pinnedDecisions: memoryContext.decisions.map(({ stableId, scope: decisionScope, content: decisionContent, relatedIds }) =>
+              ({ stableId, scope: decisionScope, content: decisionContent, relatedIds })),
+            contextDiagnostics: memoryContext.diagnostics,
             recentMessages,
             message: content,
           }) },
@@ -330,7 +340,7 @@ export function registerLongFormChatRoutes(
           invalidations: [],
         });
       }
-      updateConversationSummary(conversations, conversation.id);
+      authorMemory.ensureSummary(request.params.projectId, conversation.id);
       return reply.code(201).send({
         userMessage, assistantMessage, proposal, activity,
         contextDiagnostics: {

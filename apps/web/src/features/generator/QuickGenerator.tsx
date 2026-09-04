@@ -199,7 +199,7 @@ export function QuickGenerator() {
     setBusy(false);
   };
 
-  return <main className="generator">
+  return <main id="main-content" className="generator" tabIndex={-1}>
     <header>
       <p className="eyebrow">Private story adaptation studio</p>
       <h1>Story → CYOA</h1>

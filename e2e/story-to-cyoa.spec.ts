@@ -352,12 +352,20 @@ test("long-form workspace persists and approves a project brief", async ({ page 
 test("long-form passage workspace renders, filters, and jumps within a 300-passage fixture", async ({ page, request }) => {
   test.setTimeout(60_000);
   const projectId = await seedLargePassagePlan(request);
+  const observedRequests: string[] = [];
+  page.on("request", (entry) => observedRequests.push(entry.url()));
+  await page.setViewportSize({ width: 640, height: 900 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript((id) => {
     localStorage.setItem("story-to-cyoa.long-form-project-id", id);
     localStorage.setItem("story-to-cyoa.long-form-stage", "passage-plan");
   }, projectId);
   await page.goto("/#long-form");
 
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Skip to main content" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#main-content")).toBeFocused();
   await expect(page.getByRole("heading", { name: "Passage plan" })).toBeVisible();
   await expect(page.getByText("300 of 300 passages shown", { exact: true })).toBeVisible();
   await expect(page.getByText("Draft review queue")).toBeVisible();
@@ -367,9 +375,48 @@ test("long-form passage workspace renders, filters, and jumps within a 300-passa
   await page.getByLabel("Find passage").fill("");
   await page.getByPlaceholder("Search titles, IDs, summaries, and tags").fill("passage-299");
   await expect(page.getByText("1 of 300 passages shown", { exact: true })).toBeVisible({ timeout: 5_000 });
-  await page.getByPlaceholder("Jump to stable ID").fill("passage-299");
-  await page.getByRole("button", { name: "Jump" }).click();
+  const passageJump = page.locator(".jump-control");
+  await passageJump.getByPlaceholder("Jump to stable ID").fill("passage-299");
+  await passageJump.getByRole("button", { name: "Jump" }).click();
   await expect(page.locator(".passage-editor input").first()).toHaveValue("Passage 299");
+
+  const sessionNavigation = page.getByLabel("Long-form workflow").getByRole("region", { name: "Session navigation" });
+  await sessionNavigation.getByLabel("Stable ID jump").fill("passage-042");
+  await sessionNavigation.getByRole("button", { name: "Jump", exact: true }).click();
+  await expect(page.locator(".passage-editor input").first()).toHaveValue("Passage 42");
+  await expect(sessionNavigation.getByText(/passage-042/)).toBeVisible();
+
+  await page.getByLabel("Long-form workflow").getByRole("button", { name: /Resume work/ }).click();
+  await expect(page.getByRole("heading", { name: "Resume work" })).toBeFocused();
+  await expect(page.getByLabel("Browser-local navigation hint")).toContainText("passage-plan");
+  await expect(page.getByLabel("Browser-local navigation hint")).toContainText("passage-042");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Resume work" })).toBeVisible();
+  await expect(page.getByLabel("Browser-local navigation hint")).toContainText("passage-042");
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+  expect(observedRequests.some((url) => /openrouter|provider|\/start$/i.test(url))).toBe(false);
+});
+
+test("recovery deletion dialog traps keyboard focus and returns it without changing data", async ({ page, request }) => {
+  const projectId = await seedLargePassagePlan(request, 10);
+  await page.addInitScript((id) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", id);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "recovery");
+  }, projectId);
+  await page.goto("/#long-form");
+  const recovery = page.getByLabel("Backup and recovery");
+  const opener = recovery.getByRole("button", { name: "Review permanent deletion" });
+  await opener.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Permanently delete this project?" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Permanent deletion confirmation")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
+  expect((await request.get(`/api/projects/${projectId}`)).ok()).toBe(true);
 });
 
 test("project health stays compact and provider-free for a 300-passage fixture", async ({ page, request }) => {
@@ -452,8 +499,9 @@ test("manual passage drafts persist, stale selectively, and stay separate in a 3
 
   await page.getByPlaceholder("Search titles, IDs, summaries, and tags").fill("passage-299");
   await expect(page.getByText("1 of 300 passages shown", { exact: true })).toBeVisible();
-  await page.getByPlaceholder("Jump to stable ID").fill("passage-299");
-  await page.getByRole("button", { name: "Jump" }).click();
+  const passageJump = page.locator(".jump-control");
+  await passageJump.getByPlaceholder("Jump to stable ID").fill("passage-299");
+  await passageJump.getByRole("button", { name: "Jump" }).click();
   await expect(page.locator(".passage-editor input").first()).toHaveValue("Passage 299");
   expect(observedRequests.some((url) => /openrouter|passage-generation\/jobs\/.*\/start/i.test(url))).toBe(false);
 });

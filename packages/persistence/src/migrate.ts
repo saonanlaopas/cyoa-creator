@@ -5,6 +5,7 @@ import {
   RepairProposalRecordSchema,
 } from "@story-to-cyoa/domain";
 import {
+  authorMemoryMigrationSql,
   generationCandidateLineageMigrationSql,
   generationJobParentLineageTriggerSql,
   generationKernelMigrationSql,
@@ -23,7 +24,7 @@ import {
 } from "./schema.js";
 
 export const EARLIEST_SUPPORTED_SCHEMA_VERSION = 4;
-export const CURRENT_SCHEMA_VERSION = 16;
+export const CURRENT_SCHEMA_VERSION = 17;
 
 export const SCHEMA_VERSION_HISTORY = Object.freeze([
   { version: 4, introducedBy: "Foundations 1-3 baseline", frozenFixture: "schema-v4.sqlite" },
@@ -38,7 +39,8 @@ export const SCHEMA_VERSION_HISTORY = Object.freeze([
   { version: 13, introducedBy: "Foundation 4B draft acceptance", frozenFixture: "schema-v13.sqlite" },
   { version: 14, introducedBy: "Foundation 6 repair applications", frozenFixture: "schema-v14.sqlite" },
   { version: 15, introducedBy: "Foundation 6 repair-draft provenance", frozenFixture: "schema-v15.sqlite" },
-  { version: 16, introducedBy: "Foundation 8A recovery metadata", frozenFixture: null },
+  { version: 16, introducedBy: "Foundation 8A recovery metadata", frozenFixture: "schema-v16.sqlite" },
+  { version: 17, introducedBy: "Foundation 8C author memory", frozenFixture: null },
 ] as const);
 
 export function migrate(database: StoryDatabase): void {
@@ -244,6 +246,20 @@ function migrateWithinTransaction(database: StoryDatabase): void {
       });
     }
   }
+  const authorMemoryApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 17",
+  ).get();
+  if (!authorMemoryApplied) {
+    runMigrationStep(database, "migration_v17", () => {
+      database.exec(authorMemoryMigrationSql);
+      assertValidAuthorMemory(database);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (17, ?)",
+      ).run(new Date().toISOString());
+    });
+  } else {
+    assertValidAuthorMemory(database);
+  }
 }
 
 function runMigrationStep(database: StoryDatabase, name: string, operation: () => void): void {
@@ -379,6 +395,30 @@ function assertValidRecoveryMetadata(database: StoryDatabase): void {
       OR (states.last_verification_failure_fingerprint IS NOT NULL AND length(states.last_verification_failure_fingerprint) != 32)
     LIMIT 1`).get();
   if (invalidState) throw new Error("Cannot migrate recovery data with invalid reminder metadata");
+}
+
+function assertValidAuthorMemory(database: StoryDatabase): void {
+  for (const table of [
+    "conversation_summary_series", "conversation_summary_versions", "conversation_summary_heads",
+    "pinned_decisions", "pinned_decision_versions", "pinned_decision_heads",
+  ]) {
+    if (!hasTable(database, table)) throw new Error("Author-memory schema is incomplete");
+  }
+  const invalidSummary = database.prepare(`SELECT versions.id
+    FROM conversation_summary_versions versions
+    LEFT JOIN conversation_summary_series series
+      ON series.id = versions.series_id AND series.project_id = versions.project_id
+        AND series.conversation_id = versions.conversation_id
+    LEFT JOIN conversations conversations
+      ON conversations.id = versions.conversation_id AND conversations.project_id = versions.project_id
+    WHERE series.id IS NULL OR conversations.id IS NULL LIMIT 1`).get();
+  if (invalidSummary) throw new Error("Cannot migrate author memory with invalid summary lineage");
+  const invalidDecision = database.prepare(`SELECT versions.id
+    FROM pinned_decision_versions versions
+    LEFT JOIN pinned_decisions decisions
+      ON decisions.id = versions.decision_id AND decisions.project_id = versions.project_id
+    WHERE decisions.id IS NULL LIMIT 1`).get();
+  if (invalidDecision) throw new Error("Cannot migrate author memory with invalid decision lineage");
 }
 
 function assertValidPassageDraftLineage(database: StoryDatabase): void {

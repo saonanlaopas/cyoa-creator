@@ -24,12 +24,21 @@ export function RecoveryWorkspace({ projectId, onProjectDeleted, onProjectRestor
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const deleteOpener = useRef<HTMLButtonElement>(null);
   const deleteInput = useRef<HTMLInputElement>(null);
+  const deleteDialog = useRef<HTMLDialogElement>(null);
 
   const refresh = async () => setStatus(await loadRecoveryStatus(projectId));
   useEffect(() => {
     setMessage(null); setDeleteConfirmation("");
     void refresh().catch((error: Error) => setMessage(error.message));
   }, [projectId]);
+  useEffect(() => {
+    const element = deleteDialog.current;
+    if (!deleteDialogOpen || !element) return;
+    if (typeof element.showModal === "function" && !element.open) element.showModal();
+    else element.setAttribute("open", "");
+    window.setTimeout(() => deleteInput.current?.focus(), 0);
+    return () => { if (element.open && typeof element.close === "function") element.close(); };
+  }, [deleteDialogOpen]);
 
   const perform = async (operation: () => Promise<void>) => {
     setBusy(true); setMessage(null);
@@ -46,7 +55,7 @@ export function RecoveryWorkspace({ projectId, onProjectDeleted, onProjectRestor
       </div>
       <button disabled={busy} onClick={() => void refresh().catch((error: Error) => setMessage(error.message))}>Refresh status</button>
     </header>
-    {message && <p role="status" className={busy || message.includes("verified") || message.includes("passed") ? "status good" : "error"}>{message}</p>}
+    {message && <RecoveryMessage message={message} busy={busy} />}
 
     <section className="brief-section recovery-status">
       <h2>Current protection</h2>
@@ -107,9 +116,22 @@ export function RecoveryWorkspace({ projectId, onProjectDeleted, onProjectRestor
       <p>{freshnessText(status)}</p>
       <button ref={deleteOpener} onClick={() => {
         setDeleteDialogOpen(true);
-        window.setTimeout(() => deleteInput.current?.focus(), 0);
       }}>Review permanent deletion</button>
-      {deleteDialogOpen && <dialog className="recovery-deletion-dialog" open aria-modal="true" aria-labelledby="permanent-deletion-title">
+      {deleteDialogOpen && <dialog ref={deleteDialog} className="recovery-deletion-dialog" aria-modal="true" aria-labelledby="permanent-deletion-title"
+        onKeyDown={(event) => {
+          if (event.key !== "Tab") return;
+          const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>(
+            "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]",
+          )];
+          const first = focusable[0]; const last = focusable.at(-1);
+          if (!first || !last) return;
+          if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) {
+            event.preventDefault(); last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault(); first.focus();
+          }
+        }}
+        onCancel={(event) => { event.preventDefault(); setDeleteDialogOpen(false); setDeleteConfirmation(""); window.setTimeout(() => deleteOpener.current?.focus(), 0); }}>
         <h3 id="permanent-deletion-title">Permanently delete this project?</h3>
         <p>{freshnessText(status)}</p>
         <p>This action is destructive and does not create a backup automatically.</p>
@@ -137,7 +159,7 @@ export function GlobalRestorePanel({ onRestored }: { onRestored: (projectId: str
   return <section className="panel global-restore" aria-label="Restore project backup">
     <h2>Restore a verified project backup</h2>
     <p>Available even when no project is open. Preview is write-free; restore preserves the stable ID and never overwrites a collision.</p>
-    {message && <p role="status" className={busy ? "status good" : "error"}>{message}</p>}
+    {message && <RecoveryMessage message={message} busy={busy} />}
     <BackupRestorePanel busy={busy} setBusy={setBusy} setMessage={setMessage} onRestored={onRestored} compact />
   </section>;
 }
@@ -187,6 +209,21 @@ function BackupRestorePanel({ busy, setBusy, setMessage, onRestored, compact = f
       <label className="checkbox"><input type="checkbox" checked={confirmed} disabled={preview.conflict} onChange={(event) => setConfirmed(event.target.checked)} /> I reviewed the identity, scope, exclusions, and collision state.</label>
     </>}
   </section>;
+}
+
+function RecoveryMessage({ message, busy }: { message: string; busy: boolean }) {
+  const success = busy || /verified|passed|restored|preview/i.test(message);
+  if (success) return <p role="status" className="status good">{message}</p>;
+  const lower = message.toLowerCase();
+  const next = lower.includes("future") || lower.includes("incompatible")
+    ? "Keep the original file and open it with a compatible app version. Do not overwrite it."
+    : lower.includes("storage") || lower.includes("quota") || lower.includes("disk")
+      ? "Free storage or choose writable storage, then retry."
+      : lower.includes("database") || lower.includes("migration") || lower.includes("corrupt")
+        ? "Stop editing this database; preserve it and restore a verified backup into a separate project."
+        : "Check the selected file or storage, then retry the same bounded action.";
+  return <div role="alert" className="recovery-message error"><strong>The recovery action did not complete.</strong>
+    <p>{message}</p><p>No project was overwritten and the original data remains unchanged. {next}</p></div>;
 }
 
 function freshnessText(status: RecoveryStatus): string {

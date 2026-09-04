@@ -117,6 +117,34 @@ describe("persistent scoped conversations and change sets", () => {
     database.close();
   });
 
+  it("returns a bounded recent-message window with exact chronology and count", () => {
+    const database = openDatabase();
+    const project = new ProjectRepository(database).create("Long discussion", undefined, "long-form");
+    const brief = new ArtifactRepository(database).saveArtifact({ projectId: project.id, artifactId: "brief",
+      content: { title: "Long", routes: 5 }, schema: BriefSchema });
+    const conversations = new ConversationRepository(database);
+    const changes = new ChangeSetRepository(database);
+    const scope = { kind: "project" as const, projectId: project.id };
+    const conversation = conversations.create(project.id, scope);
+    for (let index = 0; index < 230; index += 1) conversations.addMessage({
+      conversationId: conversation.id, role: index % 2 ? "assistant" : "user", content: `Message ${index}`,
+      intent: "discuss", scope, context: {}, metadata: {},
+    });
+    expect(conversations.countMessages(conversation.id)).toBe(230);
+    expect(conversations.listRecentMessages(conversation.id)).toHaveLength(200);
+    expect(conversations.listRecentMessages(conversation.id).map((item) => item.content).slice(0, 2))
+      .toEqual(["Message 30", "Message 31"]);
+    expect(conversations.listRecentMessages(conversation.id, 3).map((item) => item.content))
+      .toEqual(["Message 227", "Message 228", "Message 229"]);
+    for (let index = 0; index < 120; index += 1) changes.create({ projectId: project.id,
+      conversationId: conversation.id, artifactId: "brief", baseVersionId: brief.id,
+      summary: `Proposal ${index}`, rationale: "Bounded history", candidate: { title: "Long", routes: index + 5 } });
+    expect(changes.count(conversation.id)).toBe(120);
+    expect(changes.listRecent(conversation.id)).toHaveLength(100);
+    expect(changes.listRecent(conversation.id)[0]?.summary).toBe("Proposal 20");
+    database.close();
+  });
+
   it("stales downstream artifacts when a proposal changes their base artifact", () => {
     const database = openDatabase();
     const projects = new ProjectRepository(database);

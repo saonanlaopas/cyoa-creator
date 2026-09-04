@@ -136,6 +136,18 @@ export class ConversationRepository {
     `).all(conversationId) as MessageRow[]).map(mapMessage);
   }
 
+  listRecentMessages(conversationId: string, limit = 200): MessageRecord[] {
+    const bounded = Math.max(1, Math.min(200, Math.trunc(limit)));
+    return (this.database.prepare(`SELECT * FROM (
+      SELECT *, rowid AS message_order FROM messages WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?
+    ) recent ORDER BY created_at, message_order`).all(conversationId, bounded) as MessageRow[]).map(mapMessage);
+  }
+
+  countMessages(conversationId: string): number {
+    return (this.database.prepare("SELECT COUNT(*) count FROM messages WHERE conversation_id = ?")
+      .get(conversationId) as { count: number }).count;
+  }
+
   private getMessage(id: string): MessageRecord | undefined {
     const row = this.database.prepare("SELECT * FROM messages WHERE id = ?").get(id) as MessageRow | undefined;
     return row ? mapMessage(row) : undefined;

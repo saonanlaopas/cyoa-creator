@@ -253,7 +253,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
     }
   };
 
-  if (!installation || !session) return <main className="native-player-shell">
+  if (!installation || !session) return <main id="main-content" className="native-player-shell" tabIndex={-1}>
     <section className="native-player-card" aria-label="Native game player">
       <h1>Native game player</h1>
       {error ? <p className="error" role="alert">{error}</p> : <p role="status">{message}</p>}
@@ -264,7 +264,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
   const view = nativePlayerView(installation.bundle, installation.config, session);
   const canRewind = canRewindNativePlayerSession(installation.bundle, installation.config, session);
 
-  return <main className="native-player-shell">
+  return <main id="main-content" className="native-player-shell" tabIndex={-1}>
     <div className="native-player-layout">
       <article className="native-player-card native-player-passage">
         <header>

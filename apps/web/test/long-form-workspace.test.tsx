@@ -96,6 +96,11 @@ describe("LongFormWorkspace", () => {
       if (path === `/api/long-form/projects/${project.id}/conversations/${conversation.id}`) {
         return response({ conversation, messages: [], proposals: [] });
       }
+      if (path.startsWith(`/api/long-form/projects/${project.id}/conversations/${conversation.id}/author-memory/context`)) {
+        return response({ authority: "non-canonical-author-memory", summary: null, decisions: [], recentMessages: [],
+          diagnostics: { summaryStatus: "none", staleSummaryReasons: [], omittedDecisionCount: 0, omittedDecisionBytes: 0,
+            limits: { recentMessageCount: 8 } } });
+      }
       if (path === `/api/long-form/projects/${project.id}/brief` && init?.method === "PUT") {
         const content = JSON.parse(String(init.body));
         return response({

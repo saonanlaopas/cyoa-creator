@@ -67,6 +67,21 @@ export interface ProjectUsageAggregateRow {
   lastRecordedAt: string | null;
 }
 
+export interface ProjectResumeFacts {
+  runningGenerationJobs: number;
+  runningDraftingJobs: number;
+  failedGenerationJobs: number;
+  failedDraftingJobs: number;
+  proposedChangeSets: number;
+  pendingDraftCandidates: number;
+  acceptedAwaitingReview: number;
+  staleCurrentDrafts: number;
+  stalePassagePlan: number;
+  latestGenerationJobId: string | null;
+  latestDraftingJobId: string | null;
+  latestPendingPassageId: string | null;
+}
+
 /**
  * Read-only aggregate queries for the project health surface. It deliberately
  * does not deserialize prose, contexts, traces, candidates, or artifact
@@ -152,6 +167,31 @@ export class ProjectHealthRepository {
         validationFreshness: "invalid", blockers: null, warnings: null,
       };
     }
+  }
+
+  resume(projectId: string): ProjectResumeFacts {
+    return this.database.prepare(`SELECT
+      (SELECT COUNT(*) FROM generation_jobs WHERE project_id = ? AND status IN ('queued', 'running', 'cancelling')) AS runningGenerationJobs,
+      (SELECT COUNT(*) FROM drafting_jobs WHERE project_id = ? AND status IN ('queued', 'running', 'cancelling')) AS runningDraftingJobs,
+      (SELECT COUNT(*) FROM generation_jobs WHERE project_id = ? AND status = 'failed') AS failedGenerationJobs,
+      (SELECT COUNT(*) FROM drafting_jobs WHERE project_id = ? AND status = 'failed') AS failedDraftingJobs,
+      (SELECT COUNT(*) FROM change_sets WHERE project_id = ? AND status = 'proposed') AS proposedChangeSets,
+      (SELECT COUNT(*) FROM passage_draft_heads heads JOIN passage_draft_versions versions
+        ON versions.project_id = heads.project_id AND versions.id = heads.current_version_id
+        WHERE heads.project_id = ? AND versions.lifecycle_status = 'candidate') AS pendingDraftCandidates,
+      (SELECT COUNT(*) FROM passage_draft_heads heads JOIN passage_draft_versions versions
+        ON versions.project_id = heads.project_id AND versions.id = heads.accepted_version_id
+        WHERE heads.project_id = ? AND versions.lifecycle_status = 'accepted') AS acceptedAwaitingReview,
+      (SELECT COUNT(DISTINCT heads.current_version_id) FROM passage_draft_heads heads JOIN passage_draft_staleness_events stale
+        ON stale.project_id = heads.project_id AND stale.draft_version_id = heads.current_version_id WHERE heads.project_id = ?) AS staleCurrentDrafts,
+      (SELECT COUNT(*) FROM passage_plan_state WHERE project_id = ? AND status = 'stale') AS stalePassagePlan,
+      (SELECT id FROM generation_jobs WHERE project_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1) AS latestGenerationJobId,
+      (SELECT id FROM drafting_jobs WHERE project_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1) AS latestDraftingJobId,
+      (SELECT heads.passage_id FROM passage_draft_heads heads JOIN passage_draft_versions versions
+        ON versions.project_id = heads.project_id AND versions.id = heads.current_version_id
+        WHERE heads.project_id = ? AND versions.lifecycle_status = 'candidate'
+        ORDER BY versions.created_at DESC, heads.passage_id LIMIT 1) AS latestPendingPassageId`)
+      .get(...Array.from({ length: 12 }, () => projectId)) as unknown as ProjectResumeFacts;
   }
 
   latest(projectId: string): ProjectHealthLatestRecord[] {

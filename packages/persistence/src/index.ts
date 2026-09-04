@@ -22,4 +22,5 @@ export * from "./repair-proposal-generation-repository.js";
 export * from "./repair-application-repository.js";
 export * from "./recovery-repository.js";
 export * from "./project-health-repository.js";
+export * from "./author-memory-repository.js";
 export * from "./portable-project-repository.js";

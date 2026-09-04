@@ -7,6 +7,8 @@ import {
   ProjectRepository,
   PROJECT_HEALTH_BUDGETS,
   type StoryDatabase,
+  ChangeSetRepository,
+  ConversationRepository,
 } from "@story-to-cyoa/persistence";
 import { ProjectHealthService } from "../src/services/project-health-service.js";
 
@@ -156,5 +158,41 @@ describe("Foundation 8B project health", () => {
     expect(health.storage.policy).toBe("diagnostic-only-no-automatic-cleanup");
     expect(health.publication.currentReadiness).toBe("not-evaluated");
     expect(health.recovery.currentFreshness).toBe("not-evaluated");
+  });
+
+  it("filters recorded usage without changing truth semantics and builds a bounded provider-free resume view", () => {
+    const database = openDatabase(); databases.push(database);
+    const projects = new ProjectRepository(database);
+    const artifacts = new ArtifactRepository(database);
+    const project = projects.create("Resume fixture", undefined, "long-form");
+    const brief = artifacts.saveArtifact({ projectId: project.id, artifactId: "brief", artifactType: "brief",
+      content: { title: "Resume" } });
+    artifacts.saveArtifact({ projectId: project.id, artifactId: "review", artifactType: "narrative-review",
+      content: { plan: { providerId: "offline", modelId: "model-a" }, job: { units: [{ attempts: [
+        { status: "completed", repair: { performed: 0 }, usage: { inputTokens: 8, outputTokens: 4, cost: 0 },
+          startedAt: "2026-03-01T00:00:00.000Z", finishedAt: "2026-03-01T00:01:00.000Z" },
+      ] }] } } });
+    artifacts.saveArtifact({ projectId: project.id, artifactId: "repair", artifactType: "repair-proposal-generation",
+      content: { generation: { providerId: "offline", modelId: "model-b" }, job: { units: [{ attempts: [
+        { status: "completed", repair: { performed: 1 }, usage: { inputTokens: 3, outputTokens: 2 },
+          startedAt: "2026-04-01T00:00:00.000Z", finishedAt: "2026-04-01T00:01:00.000Z" },
+      ] }] } } });
+    const conversation = new ConversationRepository(database).create(project.id,
+      { kind: "artifact", projectId: project.id, stage: "brief", artifactId: "brief", versionId: brief.id });
+    new ChangeSetRepository(database).create({ projectId: project.id, conversationId: conversation.id,
+      artifactId: "brief", baseVersionId: brief.id, summary: "Pending", rationale: "Pending review", candidate: { title: "Changed" } });
+    const service = new ProjectHealthService(database, projects);
+    const filtered = service.usage(project.id, { workflow: "narrative-review", providerId: "offline", modelId: "model-a",
+      from: "2026-02-01", to: "2026-03-31" });
+    expect(filtered.groups).toHaveLength(1);
+    expect(filtered.totals).toMatchObject({ attemptCount: 1, providerRequestCount: 1, inputTokens: 8, outputTokens: 4,
+      cost: { status: "recorded", recorded: 0 } });
+    expect(filtered.available).toEqual({ workflows: ["narrative-review", "repair-proposal"], providers: ["offline"],
+      models: ["model-a", "model-b"] });
+    expect(() => service.usage(project.id, { from: "2026-05-01", to: "2026-01-01" })).toThrow("must not be after");
+    const resume = service.resume(project.id);
+    expect(resume).toMatchObject({ authority: "persisted-facts-only", truncated: false,
+      facts: { proposedChangeSets: 1 }, backup: { latestVerifiedAt: null, freshness: "not-evaluated" } });
+    expect(resume.actions.map((item) => item.id)).toEqual(["proposals", "backup"]);
   });
 });

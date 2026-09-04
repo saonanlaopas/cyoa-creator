@@ -1666,3 +1666,191 @@ END;
 
 ${recoveryMetadataIntegrityTriggerSql}
 `;
+
+export const authorMemoryMigrationSql = `
+CREATE TABLE conversation_summary_series (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  method TEXT NOT NULL CHECK(method = 'deterministic-extractive'),
+  method_version INTEGER NOT NULL CHECK(method_version = 1),
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, conversation_id),
+  UNIQUE(project_id, id)
+);
+
+CREATE TABLE conversation_summary_versions (
+  id TEXT PRIMARY KEY,
+  series_id TEXT NOT NULL REFERENCES conversation_summary_series(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL CHECK(version > 0),
+  scope_json TEXT NOT NULL CHECK(json_valid(scope_json)),
+  first_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE RESTRICT,
+  last_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE RESTRICT,
+  covered_message_count INTEGER NOT NULL CHECK(covered_message_count > 0),
+  source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint) = 64),
+  dependencies_json TEXT NOT NULL CHECK(json_valid(dependencies_json) AND json_type(dependencies_json) = 'object'),
+  content TEXT NOT NULL CHECK(length(content) > 0 AND length(CAST(content AS BLOB)) <= 12000),
+  creation_state TEXT NOT NULL CHECK(creation_state = 'created'),
+  supersedes_version_id TEXT REFERENCES conversation_summary_versions(id) ON DELETE RESTRICT,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, id),
+  UNIQUE(series_id, version)
+);
+
+CREATE INDEX conversation_summary_versions_history
+  ON conversation_summary_versions(project_id, conversation_id, version DESC);
+
+CREATE TABLE conversation_summary_heads (
+  series_id TEXT PRIMARY KEY REFERENCES conversation_summary_series(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  current_version_id TEXT NOT NULL REFERENCES conversation_summary_versions(id) ON DELETE RESTRICT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE pinned_decisions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, id)
+);
+
+CREATE TABLE pinned_decision_versions (
+  id TEXT PRIMARY KEY,
+  decision_id TEXT NOT NULL REFERENCES pinned_decisions(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL CHECK(version > 0),
+  scope_kind TEXT NOT NULL CHECK(scope_kind IN ('project', 'artifact', 'entity')),
+  artifact_id TEXT,
+  entity_kind TEXT,
+  entity_id TEXT,
+  related_ids_json TEXT NOT NULL CHECK(json_valid(related_ids_json) AND json_type(related_ids_json) = 'array'
+    AND json_array_length(related_ids_json) <= 40),
+  content TEXT NOT NULL CHECK(length(content) > 0 AND length(CAST(content AS BLOB)) <= 2000),
+  status TEXT NOT NULL CHECK(status IN ('active', 'superseded', 'withdrawn')),
+  provenance_json TEXT NOT NULL CHECK(json_valid(provenance_json) AND json_type(provenance_json) = 'object'
+    AND (json_extract(provenance_json, '$.messageId') IS NOT NULL
+      OR json_extract(provenance_json, '$.changeSetId') IS NOT NULL
+      OR json_extract(provenance_json, '$.note') IS NOT NULL)),
+  supersedes_version_id TEXT REFERENCES pinned_decision_versions(id) ON DELETE RESTRICT,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, id),
+  UNIQUE(decision_id, version),
+  CHECK(
+    (scope_kind = 'project' AND artifact_id IS NULL AND entity_kind IS NULL AND entity_id IS NULL)
+    OR (scope_kind = 'artifact' AND artifact_id IS NOT NULL AND entity_kind IS NULL AND entity_id IS NULL)
+    OR (scope_kind = 'entity' AND artifact_id IS NOT NULL AND entity_kind IS NOT NULL AND entity_id IS NOT NULL)
+  )
+);
+
+CREATE INDEX pinned_decision_versions_history
+  ON pinned_decision_versions(project_id, decision_id, version DESC);
+
+CREATE TABLE pinned_decision_heads (
+  decision_id TEXT PRIMARY KEY REFERENCES pinned_decisions(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  current_version_id TEXT NOT NULL REFERENCES pinned_decision_versions(id) ON DELETE RESTRICT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TRIGGER conversation_summary_versions_exact_lineage_insert
+BEFORE INSERT ON conversation_summary_versions
+WHEN NOT EXISTS (
+  SELECT 1 FROM conversation_summary_series series
+  JOIN conversations conversations ON conversations.id = NEW.conversation_id
+  WHERE series.id = NEW.series_id AND series.project_id = NEW.project_id
+    AND series.conversation_id = NEW.conversation_id
+    AND conversations.project_id = NEW.project_id AND conversations.scope_json = NEW.scope_json
+) OR NOT EXISTS (
+  SELECT 1 FROM messages first_message, messages last_message
+  WHERE first_message.id = NEW.first_message_id AND first_message.conversation_id = NEW.conversation_id
+    AND first_message.scope_json = NEW.scope_json
+    AND last_message.id = NEW.last_message_id AND last_message.conversation_id = NEW.conversation_id
+    AND last_message.scope_json = NEW.scope_json
+    AND first_message.rowid <= last_message.rowid
+    AND NEW.covered_message_count = (
+      SELECT COUNT(*) FROM messages covered WHERE covered.conversation_id = NEW.conversation_id
+        AND covered.scope_json = NEW.scope_json AND covered.rowid BETWEEN first_message.rowid AND last_message.rowid
+    )
+) OR (NEW.version = 1 AND NEW.supersedes_version_id IS NOT NULL)
+  OR (NEW.version > 1 AND NOT EXISTS (
+  SELECT 1 FROM conversation_summary_versions previous
+  WHERE previous.id = NEW.supersedes_version_id AND previous.series_id = NEW.series_id
+    AND previous.project_id = NEW.project_id AND previous.version = NEW.version - 1
+))
+BEGIN SELECT RAISE(ABORT, 'conversation summary exact lineage mismatch'); END;
+
+CREATE TRIGGER conversation_summary_heads_exact_lineage_insert
+BEFORE INSERT ON conversation_summary_heads
+WHEN NOT EXISTS (
+  SELECT 1 FROM conversation_summary_versions versions
+  WHERE versions.id = NEW.current_version_id AND versions.series_id = NEW.series_id
+    AND versions.project_id = NEW.project_id
+)
+BEGIN SELECT RAISE(ABORT, 'conversation summary head lineage mismatch'); END;
+
+CREATE TRIGGER conversation_summary_heads_exact_lineage_update
+BEFORE UPDATE ON conversation_summary_heads
+WHEN NOT EXISTS (
+  SELECT 1 FROM conversation_summary_versions versions
+  WHERE versions.id = NEW.current_version_id AND versions.series_id = NEW.series_id
+    AND versions.project_id = NEW.project_id
+)
+BEGIN SELECT RAISE(ABORT, 'conversation summary head lineage mismatch'); END;
+
+CREATE TRIGGER pinned_decision_versions_exact_lineage_insert
+BEFORE INSERT ON pinned_decision_versions
+WHEN NOT EXISTS (
+  SELECT 1 FROM pinned_decisions decisions
+  WHERE decisions.id = NEW.decision_id AND decisions.project_id = NEW.project_id
+) OR (NEW.version = 1 AND NEW.supersedes_version_id IS NOT NULL)
+  OR (NEW.version > 1 AND NEW.supersedes_version_id IS NULL)
+  OR (NEW.supersedes_version_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM pinned_decision_versions previous
+  WHERE previous.id = NEW.supersedes_version_id AND previous.decision_id = NEW.decision_id
+    AND previous.project_id = NEW.project_id AND previous.version = NEW.version - 1
+)) OR (json_extract(NEW.provenance_json, '$.messageId') IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM messages messages JOIN conversations conversations ON conversations.id = messages.conversation_id
+  WHERE messages.id = json_extract(NEW.provenance_json, '$.messageId') AND conversations.project_id = NEW.project_id
+)) OR (json_extract(NEW.provenance_json, '$.changeSetId') IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM change_sets changes WHERE changes.id = json_extract(NEW.provenance_json, '$.changeSetId')
+    AND changes.project_id = NEW.project_id AND changes.status = 'applied'
+))
+BEGIN SELECT RAISE(ABORT, 'pinned decision exact lineage mismatch'); END;
+
+CREATE TRIGGER pinned_decision_heads_exact_lineage_insert
+BEFORE INSERT ON pinned_decision_heads
+WHEN NOT EXISTS (
+  SELECT 1 FROM pinned_decision_versions versions
+  WHERE versions.id = NEW.current_version_id AND versions.decision_id = NEW.decision_id
+    AND versions.project_id = NEW.project_id
+)
+BEGIN SELECT RAISE(ABORT, 'pinned decision head lineage mismatch'); END;
+
+CREATE TRIGGER pinned_decision_heads_exact_lineage_update
+BEFORE UPDATE ON pinned_decision_heads
+WHEN NOT EXISTS (
+  SELECT 1 FROM pinned_decision_versions versions
+  WHERE versions.id = NEW.current_version_id AND versions.decision_id = NEW.decision_id
+    AND versions.project_id = NEW.project_id
+)
+BEGIN SELECT RAISE(ABORT, 'pinned decision head lineage mismatch'); END;
+
+CREATE TRIGGER conversation_summary_versions_immutable_update
+BEFORE UPDATE ON conversation_summary_versions
+BEGIN SELECT RAISE(ABORT, 'conversation summary versions are immutable'); END;
+
+CREATE TRIGGER pinned_decision_versions_immutable_update
+BEFORE UPDATE ON pinned_decision_versions
+BEGIN SELECT RAISE(ABORT, 'pinned decision versions are immutable'); END;
+
+CREATE TRIGGER messages_author_memory_immutable_update
+BEFORE UPDATE ON messages
+BEGIN SELECT RAISE(ABORT, 'conversation source messages are immutable'); END;
+
+CREATE TRIGGER messages_author_memory_immutable_delete
+BEFORE DELETE ON messages
+WHEN EXISTS (SELECT 1 FROM conversations WHERE id = OLD.conversation_id)
+BEGIN SELECT RAISE(ABORT, 'conversation source messages are append-only'); END;
+`;

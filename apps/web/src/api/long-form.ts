@@ -246,6 +246,37 @@ export interface MessageRecord {
   createdAt: string;
 }
 
+export interface ConversationSummaryVersion {
+  id: string; stableId: string; projectId: string; conversationId: string; version: number;
+  scope: AssistantScope;
+  sourceRange: { firstMessageId: string; lastMessageId: string; messageCount: number; fingerprint: string };
+  method: "deterministic-extractive"; methodVersion: 1; creationState: "created";
+  status: "current" | "superseded" | "stale"; staleReasons: string[];
+  supersedesVersionId: string | null; canonicalDependencies: Record<string, string>;
+  content: string; createdAt: string;
+}
+export interface DecisionScope {
+  kind: "project" | "artifact" | "entity";
+  artifactId?: string; entityKind?: string; entityId?: string;
+}
+export interface PinnedDecisionVersion {
+  id: string; stableId: string; projectId: string; version: number; scope: DecisionScope;
+  relatedIds: string[]; content: string; status: "active" | "superseded" | "withdrawn";
+  provenance: { messageId?: string; changeSetId?: string; note?: string };
+  supersedesVersionId: string | null; createdAt: string; updatedAt: string;
+}
+export interface AuthorMemoryContext {
+  authority: "non-canonical-author-memory";
+  summary: ConversationSummaryVersion | null;
+  decisions: PinnedDecisionVersion[];
+  recentMessages: MessageRecord[];
+  diagnostics: {
+    summaryStatus: "none" | "current" | "superseded" | "stale";
+    staleSummaryReasons: string[]; omittedDecisionCount: number; omittedDecisionBytes: number;
+    limits: Record<string, number>;
+  };
+}
+
 export interface ChangeSetRecord {
   id: string;
   projectId: string;
@@ -500,7 +531,11 @@ export async function createConversation(projectId: string): Promise<Conversatio
 export async function loadConversation(projectId: string, conversationId: string): Promise<{
   conversation: ConversationRecord;
   messages: MessageRecord[];
+  messageCount?: number;
+  messagesTruncated?: boolean;
   proposals: ChangeSetRecord[];
+  proposalCount?: number;
+  proposalsTruncated?: boolean;
 }> {
   return json(await fetch(`${conversationBase(projectId)}/${encodeURIComponent(conversationId)}`));
 }
@@ -542,6 +577,33 @@ export async function sendConversationMessage(input: {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ content: input.content, intent: input.intent, model: input.model }),
+  }));
+}
+
+export async function loadAuthorMemoryContext(
+  projectId: string, conversationId: string, scope: AssistantScope,
+): Promise<AuthorMemoryContext> {
+  const query = new URLSearchParams({ scope: JSON.stringify(scope) });
+  return json(await fetch(`${conversationBase(projectId)}/${encodeURIComponent(conversationId)}/author-memory/context?${query}`));
+}
+
+export async function listPinnedDecisions(projectId: string, history = false): Promise<PinnedDecisionVersion[]> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/pinned-decisions?history=${history}`));
+}
+
+export async function createPinnedDecision(projectId: string, input: {
+  scope: DecisionScope; content: string; relatedIds?: string[]; provenance?: PinnedDecisionVersion["provenance"];
+}): Promise<PinnedDecisionVersion> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/pinned-decisions`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input),
+  }));
+}
+
+export async function updatePinnedDecision(projectId: string, decisionId: string, input: {
+  content?: string; status?: PinnedDecisionVersion["status"];
+}): Promise<PinnedDecisionVersion> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/pinned-decisions/${encodeURIComponent(decisionId)}`, {
+    method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(input),
   }));
 }
 

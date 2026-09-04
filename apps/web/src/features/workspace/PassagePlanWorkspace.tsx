@@ -166,7 +166,8 @@ export function PassagePlanWorkspace(props: {
     const frame = requestAnimationFrame(() => {
       const target = document.getElementById(entityElementId(focusEntity.type, focusEntity.id));
       if (typeof target?.scrollIntoView === "function") {
-        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+        target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
       }
       setFocusEntity(null);
     });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { loadProjectHealth, loadProjectUsage, type ProjectHealth, type ProjectUsageReport } from "../../api/project-health.js";
+import { loadProjectHealth, loadProjectUsage, type ProjectHealth, type ProjectUsageFilters, type ProjectUsageReport } from "../../api/project-health.js";
 
 export function ProjectHealthWorkspace({ projectId, onNavigate }: {
   projectId: string;
@@ -8,8 +8,9 @@ export function ProjectHealthWorkspace({ projectId, onNavigate }: {
   const [health, setHealth] = useState<ProjectHealth | null>(null);
   const [usage, setUsage] = useState<ProjectUsageReport | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [filters, setFilters] = useState<ProjectUsageFilters>({});
   const refresh = async () => {
-    const [nextHealth, nextUsage] = await Promise.all([loadProjectHealth(projectId), loadProjectUsage(projectId)]);
+    const [nextHealth, nextUsage] = await Promise.all([loadProjectHealth(projectId), loadProjectUsage(projectId, filters)]);
     setHealth(nextHealth); setUsage(nextUsage);
   };
   useEffect(() => {
@@ -48,6 +49,28 @@ export function ProjectHealthWorkspace({ projectId, onNavigate }: {
         <dl className="simulation-metadata"><div><dt>Immutable records</dt><dd>{Object.values(health.storage.immutableHistory).reduce((total, count) => total + count, 0).toLocaleString()}</dd></div><div><dt>Artifact versions</dt><dd>{health.storage.immutableHistory.artifactVersions.toLocaleString()}</dd></div><div><dt>Passage versions</dt><dd>{health.storage.immutableHistory.passageEntityVersions.toLocaleString()}</dd></div></dl>
       </section>
       <section className="brief-section"><h2>Recorded AI usage</h2>
+        <form className="usage-filters" aria-label="Filter recorded AI usage" onSubmit={(event) => {
+          event.preventDefault(); void refresh().catch((error: Error) => setMessage(error.message));
+        }}>
+          <label>Workflow<select value={filters.workflow ?? ""} onChange={(event) => setFilters((current) => ({ ...current, workflow: event.target.value || undefined }))}>
+            <option value="">All workflows</option>{usage.available.workflows.map((value) => <option key={value}>{value}</option>)}
+          </select></label>
+          <label>Provider<select value={filters.providerId ?? ""} onChange={(event) => setFilters((current) => ({ ...current, providerId: event.target.value || undefined }))}>
+            <option value="">All providers</option>{usage.available.providers.map((value) => <option key={value}>{value}</option>)}
+          </select></label>
+          <label>Model<select value={filters.modelId ?? ""} onChange={(event) => setFilters((current) => ({ ...current, modelId: event.target.value || undefined }))}>
+            <option value="">All models</option>{usage.available.models.map((value) => <option key={value}>{value}</option>)}
+          </select></label>
+          <label>From<input type="date" value={filters.from?.slice(0, 10) ?? ""} onChange={(event) => setFilters((current) => ({ ...current, from: event.target.value || undefined }))} /></label>
+          <label>To<input type="date" value={filters.to?.slice(0, 10) ?? ""} onChange={(event) => setFilters((current) => ({ ...current, to: event.target.value ? `${event.target.value}T23:59:59.999Z` : undefined }))} /></label>
+          <button>Apply filters</button>
+          <button type="button" onClick={() => {
+            setFilters({}); void Promise.all([loadProjectHealth(projectId), loadProjectUsage(projectId)])
+              .then(([nextHealth, nextUsage]) => { setHealth(nextHealth); setUsage(nextUsage); })
+              .catch((error: Error) => setMessage(error.message));
+          }}>Clear</button>
+        </form>
+        <p className="field-note">Filters use recorded metadata only. Prompts, provider responses, credentials, and reasoning text are never shown.</p>
         <p>{usage.totals.attemptCount.toLocaleString()} recorded attempt(s) · {providerRequestText(usage.totals)} · {usage.totals.inputTokens.toLocaleString()} input tokens · {usage.totals.outputTokens.toLocaleString()} output tokens · {costText(usage.totals.cost)}. Costs are never estimated or repriced.</p>
         {usage.groups.length > 0 && <div className="compact-table" role="table" aria-label="Recorded AI usage by workflow"><div role="row"><strong role="columnheader">Workflow</strong><strong role="columnheader">Tokens</strong><strong role="columnheader">Cost</strong></div>{usage.groups.map((group) => <div role="row" key={`${group.workflow}-${group.providerId}-${group.modelId}`}><span role="cell">{group.workflow} · {group.providerId ?? "historical"} / {group.modelId ?? "unknown model"}</span><span role="cell">{group.totalTokens.toLocaleString()} ({group.attemptCount} attempt(s); {providerRequestText(group)})</span><span role="cell">{costText(group.cost)}</span></div>)}</div>}
         {usage.groupsTruncated && <p>Only the first {health.budgets.maximumUsageGroups} usage groups are displayed.</p>}

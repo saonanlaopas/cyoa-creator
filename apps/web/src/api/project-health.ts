@@ -50,6 +50,18 @@ export interface ProjectUsageReport {
   totals: ProjectHealth["usage"];
   groups: ProjectUsageGroup[];
   groupsTruncated: boolean;
+  filters: ProjectUsageFilters;
+  available: { workflows: string[]; providers: string[]; models: string[] };
+}
+
+export interface ProjectUsageFilters { workflow?: string; providerId?: string; modelId?: string; from?: string; to?: string }
+export interface ProjectResumeReport {
+  schemaId: "cyoa.project-resume"; schemaVersion: 1; projectId: string;
+  authority: "persisted-facts-only"; generatedAt: string;
+  facts: Record<string, number | string | null>;
+  backup: { latestVerifiedAt: string | null; latestVerifiedBackupId: string | null; freshness: "not-evaluated" };
+  actions: Array<{ id: string; stage: "passage-plan" | "repair" | "publication" | "recovery" | "health"; label: string; count: number; stableId: string | null }>;
+  truncated: false;
 }
 
 async function json<T>(response: Response): Promise<T> {
@@ -61,4 +73,8 @@ async function json<T>(response: Response): Promise<T> {
 const root = (projectId: string) => `/api/long-form/projects/${encodeURIComponent(projectId)}/health`;
 
 export const loadProjectHealth = async (projectId: string) => json<ProjectHealth>(await fetch(root(projectId)));
-export const loadProjectUsage = async (projectId: string) => json<ProjectUsageReport>(await fetch(`${root(projectId)}/usage`));
+export const loadProjectUsage = async (projectId: string, filters: ProjectUsageFilters = {}) => {
+  const query = new URLSearchParams(Object.entries(filters).filter((entry): entry is [string, string] => Boolean(entry[1])));
+  return json<ProjectUsageReport>(await fetch(`${root(projectId)}/usage?${query}`));
+};
+export const loadProjectResume = async (projectId: string) => json<ProjectResumeReport>(await fetch(`${root(projectId)}/resume`));
