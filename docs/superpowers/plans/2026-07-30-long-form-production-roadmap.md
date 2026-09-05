@@ -35,7 +35,11 @@ Implementation checkpoints:
 - Foundation 7C is complete and externally accepted at `225a04dd958c36bc4773edddcbef854725d7c73c`.
 - Foundation 7 is **CLOSED** at accepted head `225a04dd958c36bc4773edddcbef854725d7c73c`.
 
-Foundation 8A is externally accepted at `968febd6e16082176e13171e2b6f57067a2b21ce`. Foundation 8B is externally accepted at `7ab7a8da79f59835323082174c23bcdbe3c77779`. Foundation 8C is implemented on `checkpoint/foundation-8c-long-session-ux-accessibility` and pending external acceptance. Do not mark Foundation 8 or this roadmap closed before that acceptance.
+- Foundation 8A is externally accepted at `968febd6e16082176e13171e2b6f57067a2b21ce`.
+- Foundation 8B is externally accepted at `7ab7a8da79f59835323082174c23bcdbe3c77779`.
+- Foundation 8C is externally accepted at `5ec21870c19375d8c4de34516e8ed14685050993`.
+- Foundation 8 is **CLOSED** at accepted head `5ec21870c19375d8c4de34516e8ed14685050993`.
+- The long-form production foundation roadmap is **CLOSED**. There is no Foundation 9.
 
 The detailed passage, versioning, and runtime contracts are defined in:
 
@@ -737,7 +741,7 @@ Do not begin a checkpoint until the previous checkpoint has an externally accept
 
 ### Foundation 8: scale, recovery, and authoring polish (formerly Production 5)
 
-**Implementation status:** Checkpoint 8A is externally accepted at `968febd6e16082176e13171e2b6f57067a2b21ce`; checkpoint 8B is externally accepted at `7ab7a8da79f59835323082174c23bcdbe3c77779`; checkpoint 8C is implemented on `checkpoint/foundation-8c-long-session-ux-accessibility` and pending external acceptance. Foundation 8 and the roadmap remain open until that review passes.
+**Implementation status:** Checkpoint 8A is externally accepted at `968febd6e16082176e13171e2b6f57067a2b21ce`; checkpoint 8B is externally accepted at `7ab7a8da79f59835323082174c23bcdbe3c77779`; checkpoint 8C is externally accepted at `5ec21870c19375d8c4de34516e8ed14685050993`. Foundation 8 and the long-form production foundation roadmap are **CLOSED** at that accepted head.
 
 #### Goal
 
@@ -812,7 +816,7 @@ Finish production hardening so long sessions and 150,000-200,000-word projects a
 
 #### Checkpoint 8B: Performance, health, and large-project scale
 
-**Implementation status:** Implemented on `checkpoint/foundation-8b-performance-health-scale`, pending external acceptance.
+**Implementation status:** Externally accepted at `7ab7a8da79f59835323082174c23bcdbe3c77779`.
 
 **Purpose:** Measure the real large-project workflows, establish structural and wall-clock budgets, and optimize only demonstrated bottlenecks while preserving correctness and accessibility.
 
@@ -839,6 +843,8 @@ Finish production hardening so long sessions and 150,000-200,000-word projects a
 **Recommended engineering model:** Terra High by default because the work is measurement-led performance and operational reporting; use Sol High when migration, query-plan, or transactional invariants form a substantial part of the checkpoint. This model choice does not authorize a provider call.
 
 #### Checkpoint 8C: Long-session UX, accessibility, and operational closure
+
+**Implementation status:** Externally accepted at `5ec21870c19375d8c4de34516e8ed14685050993`. Foundation 8 and the long-form production foundation roadmap are closed. There is no Foundation 9.
 
 **Purpose:** Make extended authoring sessions navigable and understandable, finish accessibility and responsive behavior, and close the production roadmap with one offline data-loss and provider-independence review.
 
@@ -893,7 +899,7 @@ Do not begin a checkpoint until the previous checkpoint has an externally accept
 
 #### Production roadmap closure
 
-Foundation 8 is the final planned foundation. There is no Foundation 9. After 8C receives an externally accepted SHA and the Foundation 8 acceptance gate passes, the long-form production roadmap is **CLOSED**. Later work is treated as bug fixing, maintenance or compatibility work, optional future features, or concrete release/distribution work only when separately planned, rather than an automatic continuation of the foundation sequence.
+Foundation 8 is the final planned foundation and is **CLOSED** at `5ec21870c19375d8c4de34516e8ed14685050993`. There is no Foundation 9. The long-form production foundation roadmap is **CLOSED**. Later work is treated as bug fixing, maintenance or compatibility work, optional future features, or concrete release/distribution work only when separately planned, rather than an automatic continuation of the foundation sequence.
 
 ## Verification strategy
 
