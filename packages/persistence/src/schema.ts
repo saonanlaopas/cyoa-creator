@@ -1667,6 +1667,116 @@ END;
 ${recoveryMetadataIntegrityTriggerSql}
 `;
 
+export const authorMemoryIntegrityTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS conversation_summary_versions_monotonic_insert
+BEFORE INSERT ON conversation_summary_versions
+WHEN NEW.version != COALESCE((
+  SELECT MAX(version) FROM conversation_summary_versions WHERE series_id = NEW.series_id
+), 0) + 1
+  OR (NEW.version > 1 AND NOT EXISTS (
+    SELECT 1 FROM conversation_summary_heads heads
+    WHERE heads.series_id = NEW.series_id AND heads.project_id = NEW.project_id
+      AND heads.current_version_id = NEW.supersedes_version_id
+  ))
+BEGIN SELECT RAISE(ABORT, 'conversation summary version progression mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS pinned_decision_versions_monotonic_insert
+BEFORE INSERT ON pinned_decision_versions
+WHEN NEW.version != COALESCE((
+  SELECT MAX(version) FROM pinned_decision_versions WHERE decision_id = NEW.decision_id
+), 0) + 1
+  OR (NEW.version > 1 AND NOT EXISTS (
+    SELECT 1 FROM pinned_decision_heads heads
+    WHERE heads.decision_id = NEW.decision_id AND heads.project_id = NEW.project_id
+      AND heads.current_version_id = NEW.supersedes_version_id
+  ))
+BEGIN SELECT RAISE(ABORT, 'pinned decision version progression mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS conversation_summary_heads_latest_insert
+BEFORE INSERT ON conversation_summary_heads
+WHEN NOT EXISTS (
+  SELECT 1 FROM conversation_summary_versions versions
+  WHERE versions.id = NEW.current_version_id AND versions.series_id = NEW.series_id
+    AND versions.version = (SELECT MAX(latest.version) FROM conversation_summary_versions latest
+      WHERE latest.series_id = NEW.series_id)
+)
+BEGIN SELECT RAISE(ABORT, 'conversation summary head must reference latest version'); END;
+
+CREATE TRIGGER IF NOT EXISTS conversation_summary_heads_monotonic_update
+BEFORE UPDATE ON conversation_summary_heads
+WHEN NEW.series_id != OLD.series_id OR NEW.project_id != OLD.project_id OR NOT EXISTS (
+  SELECT 1 FROM conversation_summary_versions next
+  JOIN conversation_summary_versions previous ON previous.id = OLD.current_version_id
+  WHERE next.id = NEW.current_version_id AND next.series_id = OLD.series_id
+    AND next.project_id = OLD.project_id AND next.version = previous.version + 1
+    AND next.supersedes_version_id = previous.id
+    AND next.version = (SELECT MAX(latest.version) FROM conversation_summary_versions latest
+      WHERE latest.series_id = OLD.series_id)
+)
+BEGIN SELECT RAISE(ABORT, 'conversation summary head progression mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS pinned_decision_heads_latest_insert
+BEFORE INSERT ON pinned_decision_heads
+WHEN NOT EXISTS (
+  SELECT 1 FROM pinned_decision_versions versions
+  WHERE versions.id = NEW.current_version_id AND versions.decision_id = NEW.decision_id
+    AND versions.version = (SELECT MAX(latest.version) FROM pinned_decision_versions latest
+      WHERE latest.decision_id = NEW.decision_id)
+)
+BEGIN SELECT RAISE(ABORT, 'pinned decision head must reference latest version'); END;
+
+CREATE TRIGGER IF NOT EXISTS pinned_decision_heads_monotonic_update
+BEFORE UPDATE ON pinned_decision_heads
+WHEN NEW.decision_id != OLD.decision_id OR NEW.project_id != OLD.project_id OR NOT EXISTS (
+  SELECT 1 FROM pinned_decision_versions next
+  JOIN pinned_decision_versions previous ON previous.id = OLD.current_version_id
+  WHERE next.id = NEW.current_version_id AND next.decision_id = OLD.decision_id
+    AND next.project_id = OLD.project_id AND next.version = previous.version + 1
+    AND next.supersedes_version_id = previous.id
+    AND next.version = (SELECT MAX(latest.version) FROM pinned_decision_versions latest
+      WHERE latest.decision_id = OLD.decision_id)
+)
+BEGIN SELECT RAISE(ABORT, 'pinned decision head progression mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS conversation_summary_series_immutable_update
+BEFORE UPDATE ON conversation_summary_series
+BEGIN SELECT RAISE(ABORT, 'conversation summary series are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS pinned_decisions_immutable_update
+BEFORE UPDATE ON pinned_decisions
+BEGIN SELECT RAISE(ABORT, 'pinned decision roots are immutable'); END;
+
+CREATE TRIGGER IF NOT EXISTS conversation_summary_series_immutable_delete
+BEFORE DELETE ON conversation_summary_series
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'conversation summary series are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS conversation_summary_versions_immutable_delete
+BEFORE DELETE ON conversation_summary_versions
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'conversation summary versions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS conversation_summary_heads_immutable_delete
+BEFORE DELETE ON conversation_summary_heads
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'conversation summary heads are durable'); END;
+CREATE TRIGGER IF NOT EXISTS pinned_decisions_immutable_delete
+BEFORE DELETE ON pinned_decisions
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'pinned decision roots are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS pinned_decision_versions_immutable_delete
+BEFORE DELETE ON pinned_decision_versions
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'pinned decision versions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS pinned_decision_heads_immutable_delete
+BEFORE DELETE ON pinned_decision_heads
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'pinned decision heads are durable'); END;
+
+CREATE TRIGGER IF NOT EXISTS messages_author_memory_size_insert
+BEFORE INSERT ON messages
+WHEN (NEW.role = 'user' AND length(CAST(NEW.content AS BLOB)) > 16000)
+  OR (NEW.role = 'assistant' AND length(CAST(NEW.content AS BLOB)) > 32000)
+BEGIN SELECT RAISE(ABORT, 'conversation message exceeds durable byte limit'); END;
+`;
+
 export const authorMemoryMigrationSql = `
 CREATE TABLE conversation_summary_series (
   id TEXT PRIMARY KEY,
@@ -1853,4 +1963,6 @@ CREATE TRIGGER messages_author_memory_immutable_delete
 BEFORE DELETE ON messages
 WHEN EXISTS (SELECT 1 FROM conversations WHERE id = OLD.conversation_id)
 BEGIN SELECT RAISE(ABORT, 'conversation source messages are append-only'); END;
+
+${authorMemoryIntegrityTriggerSql}
 `;

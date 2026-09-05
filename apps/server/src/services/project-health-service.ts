@@ -2,6 +2,7 @@ import { statSync } from "node:fs";
 import {
   CURRENT_SCHEMA_VERSION,
   PROJECT_HEALTH_BUDGETS,
+  RESUME_ATTENTION_JOB_STATUSES,
   ProjectHealthRepository,
   RecoveryRepository,
   type ProjectRepository,
@@ -66,7 +67,9 @@ export interface ProjectResumeReport {
   generatedAt: string;
   facts: ReturnType<ProjectHealthRepository["resume"]>;
   backup: { latestVerifiedAt: string | null; latestVerifiedBackupId: string | null; freshness: "not-evaluated" };
-  actions: Array<{ id: string; stage: "passage-plan" | "repair" | "publication" | "recovery" | "health"; label: string; count: number; stableId: string | null }>;
+  actions: Array<{ id: string; stage: "passage-plan" | "repair" | "publication" | "recovery" | "health";
+    label: string; count: number; stableId: string | null; jobKind: "generation" | "drafting" | null;
+    jobId: string | null; jobStatus: string | null }>;
   truncated: false;
 }
 
@@ -245,17 +248,33 @@ export class ProjectHealthService {
     const facts = this.facts.resume(projectId);
     const backup = this.recovery.latestVerifiedBackup(projectId);
     const actions: ProjectResumeReport["actions"] = [];
-    const add = (id: string, stage: ProjectResumeReport["actions"][number]["stage"], label: string, count: number, stableId: string | null = null) => {
-      if (count > 0) actions.push({ id, stage, label, count, stableId });
+    const add = (id: string, stage: ProjectResumeReport["actions"][number]["stage"], label: string, count: number,
+      stableId: string | null = null, jobKind: "generation" | "drafting" | null = null,
+      jobId: string | null = null, jobStatus: string | null = null) => {
+      if (count > 0) actions.push({ id, stage, label, count, stableId, jobKind, jobId, jobStatus });
     };
     add("passage-plan-stale", "passage-plan", "Review stale passage plan", facts.stalePassagePlan);
     add("drafts-stale", "passage-plan", "Review stale draft heads", facts.staleCurrentDrafts, facts.latestPendingPassageId);
     add("draft-candidates", "passage-plan", "Review pending prose candidates", facts.pendingDraftCandidates, facts.latestPendingPassageId);
     add("accepted-review", "passage-plan", "Review accepted prose", facts.acceptedAwaitingReview, facts.latestPendingPassageId);
-    add("planning-jobs", "passage-plan", "Resume or inspect passage-planning jobs", facts.runningGenerationJobs + facts.failedGenerationJobs);
-    add("drafting-jobs", "passage-plan", "Resume or inspect drafting jobs", facts.runningDraftingJobs + facts.failedDraftingJobs);
+    const labels = {
+      planned: "Review planned",
+      authorized: "Start authorized",
+      running: "Inspect running",
+      partially_failed: "Inspect partially failed",
+      failed: "Retry or inspect failed",
+    } as const;
+    for (const status of RESUME_ATTENTION_JOB_STATUSES) {
+      const generation = facts.generationJobs[status];
+      add(`generation-${status}`, "passage-plan", `${labels[status]} passage-planning job`, generation.count,
+        generation.latestPassageId, "generation", generation.latestJobId, status);
+      const drafting = facts.draftingJobs[status];
+      add(`drafting-${status}`, "passage-plan", `${labels[status]} drafting job`, drafting.count,
+        drafting.latestPassageId, "drafting", drafting.latestJobId, status);
+    }
     add("proposals", "repair", "Review unapplied proposals", facts.proposedChangeSets);
-    if (!backup) actions.push({ id: "backup", stage: "recovery", label: "Create and verify a project backup", count: 1, stableId: null });
+    if (!backup) actions.push({ id: "backup", stage: "recovery", label: "Create and verify a project backup", count: 1,
+      stableId: null, jobKind: null, jobId: null, jobStatus: null });
     return { schemaId: "cyoa.project-resume", schemaVersion: 1, projectId, authority: "persisted-facts-only",
       generatedAt: new Date().toISOString(), facts, backup: { latestVerifiedAt: backup?.verifiedAt ?? null,
         latestVerifiedBackupId: backup?.backupId ?? null, freshness: "not-evaluated" }, actions: actions.slice(0, 20), truncated: false };

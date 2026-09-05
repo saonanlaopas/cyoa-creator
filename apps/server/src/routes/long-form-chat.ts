@@ -18,13 +18,16 @@ import {
   type PlanningArtifactId,
   type ProjectBrief,
 } from "@story-to-cyoa/pipeline";
-import type {
-  ArtifactRepository,
-  AssistantScope,
-  AuthorMemoryRepository,
-  ChangeSetRepository,
-  ConversationRepository,
-  ProjectRepository,
+import {
+  AUTHOR_MEMORY_BUDGETS,
+  CONVERSATION_MESSAGE_BUDGETS,
+  conversationMessageBytes,
+  type ArtifactRepository,
+  type AssistantScope,
+  type AuthorMemoryRepository,
+  type ChangeSetRepository,
+  type ConversationRepository,
+  type ProjectRepository,
 } from "@story-to-cyoa/persistence";
 import type { LongFormProjectService } from "../services/long-form-project-service.js";
 
@@ -230,6 +233,12 @@ export function registerLongFormChatRoutes(
     const content = request.body?.content?.trim() ?? "";
     const intent = request.body?.intent === "propose" ? "propose" : "discuss";
     if (!content) return reply.code(400).send({ error: "Message is required" });
+    const currentMessageBytes = conversationMessageBytes(content);
+    if (currentMessageBytes > CONVERSATION_MESSAGE_BUDGETS.maximumUserMessageBytes) {
+      return reply.code(413).send({
+        error: `Message exceeds the ${CONVERSATION_MESSAGE_BUDGETS.maximumUserMessageBytes.toLocaleString()}-byte limit`,
+      });
+    }
     if (intent === "propose" && conversation.scope.kind === "project") {
       return reply.code(400).send({ error: "Choose a planning artifact before requesting changes" });
     }
@@ -266,8 +275,14 @@ export function registerLongFormChatRoutes(
       metadata: { artifactId, artifactVersion: selectedArtifact.version, sectionId: sectionId ?? "root" },
     });
     authorMemory.ensureSummary(request.params.projectId, conversation.id);
-    const memoryContext = authorMemory.buildContext(request.params.projectId, conversation.id, scope);
-    const recentMessages = memoryContext.recentMessages.filter((message) => message.id !== userMessage.id);
+    const memoryContext = authorMemory.buildContext(request.params.projectId, conversation.id, scope, {
+      excludeMessageIds: [userMessage.id],
+    });
+    const recentMessages = memoryContext.recentMessages;
+    const providerConversationBytes = memoryContext.diagnostics.totalAuthorMemoryBytes + currentMessageBytes;
+    if (providerConversationBytes > AUTHOR_MEMORY_BUDGETS.providerConversationBytes) {
+      throw new Error("Provider conversation context exceeds its deterministic byte limit");
+    }
     const selected = planningSection(selectedArtifact.content, sectionId).content;
     const summaries = Object.fromEntries(planningArtifactIds.map((id) =>
       [id, summarizePlanningArtifact(id, snapshot[id])]));
@@ -347,6 +362,9 @@ export function registerLongFormChatRoutes(
           sectionId: sectionId ?? "root",
           referencedRecords: references.length,
           summaryArtifacts: planningArtifactIds.length,
+          currentMessageBytes,
+          providerConversationBytes,
+          authorMemory: memoryContext.diagnostics,
         },
         usage: generation.usage,
         cost: generation.cost,

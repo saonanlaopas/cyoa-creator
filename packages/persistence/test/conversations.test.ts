@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   ArtifactRepository,
   ChangeSetRepository,
+  CONVERSATION_MESSAGE_BUDGETS,
   ConversationRepository,
   migrate,
   openDatabase,
@@ -142,6 +143,30 @@ describe("persistent scoped conversations and change sets", () => {
     expect(changes.count(conversation.id)).toBe(120);
     expect(changes.listRecent(conversation.id)).toHaveLength(100);
     expect(changes.listRecent(conversation.id)[0]?.summary).toBe("Proposal 20");
+    database.close();
+  });
+
+  it("enforces role-specific UTF-8 message limits at repository and SQLite boundaries", () => {
+    const database = openDatabase();
+    const project = new ProjectRepository(database).create("Message bounds", undefined, "long-form");
+    const conversations = new ConversationRepository(database);
+    const scope = { kind: "project" as const, projectId: project.id };
+    const conversation = conversations.create(project.id, scope);
+    const oversized = "😀".repeat(Math.floor(CONVERSATION_MESSAGE_BUDGETS.maximumUserMessageBytes / 4) + 1);
+    expect(() => conversations.addMessage({ conversationId: conversation.id, role: "user", content: oversized,
+      intent: "discuss", scope, context: {}, metadata: {} })).toThrow("byte limit");
+    const oversizedAssistant = "界".repeat(Math.floor(CONVERSATION_MESSAGE_BUDGETS.maximumAssistantMessageBytes / 3) + 1);
+    expect(() => conversations.addMessage({ conversationId: conversation.id, role: "assistant", content: oversizedAssistant,
+      intent: "discuss", scope, context: {}, metadata: {} })).toThrow("byte limit");
+    expect(() => database.prepare(`INSERT INTO messages
+      (id, conversation_id, role, content, intent, scope_json, context_json, metadata_json, created_at)
+      VALUES ('oversized-direct', ?, 'user', ?, 'discuss', ?, '{}', '{}', 'now')`)
+      .run(conversation.id, oversized, JSON.stringify(scope))).toThrow("durable byte limit");
+    expect(() => database.prepare(`INSERT INTO messages
+      (id, conversation_id, role, content, intent, scope_json, context_json, metadata_json, created_at)
+      VALUES ('oversized-assistant-direct', ?, 'assistant', ?, 'discuss', ?, '{}', '{}', 'now')`)
+      .run(conversation.id, oversizedAssistant, JSON.stringify(scope))).toThrow("durable byte limit");
+    expect(conversations.countMessages(conversation.id)).toBe(0);
     database.close();
   });
 

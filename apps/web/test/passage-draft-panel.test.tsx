@@ -72,6 +72,32 @@ const response = (value: unknown, status = 200) => new Response(JSON.stringify(v
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("PassageDraftPanel", () => {
+  it("loads the exact persisted Resume drafting job rather than a newer passage plan", async () => {
+    const ordinaryPlan = { ...planPreview, id: "drafting-plan-newer", executionPolicyId: planPreview.policy.id,
+      executionPolicy: planPreview.policy, authorizationState: "planned", authorizationFingerprint: null,
+      createdAt: candidate.createdAt, jobId: "drafting-job-newer", jobStatus: "planned" };
+    const requestedPlan = { ...ordinaryPlan, id: "drafting-plan-requested", jobId: "drafting-job-requested", jobStatus: "failed" };
+    const requestedJob = { id: requestedPlan.jobId, projectId: "project-1", planId: requestedPlan.id, status: "failed",
+      startedAt: candidate.createdAt, finishedAt: candidate.createdAt, updatedAt: candidate.createdAt,
+      units: [{ ...planPreview.units[0], projectId: "project-1", planId: requestedPlan.id, jobId: requestedPlan.jobId,
+        status: "failed", attemptNumber: 1, normalizedError: { code: "fixture", message: "Inspect", retryable: true },
+        usage: null, generatedCandidates: [] }] };
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input); requests.push(url);
+      if (url.endsWith("/drafting/plans")) return response([ordinaryPlan, requestedPlan]);
+      if (url.endsWith("/drafting/jobs/drafting-job-requested")) return response(requestedJob);
+      if (url.includes("/compare?")) return response(comparison);
+      return response(emptyState);
+    });
+    render(<PassageDraftPanel projectId="project-1" passageId="passage-001"
+      passagePlanVersionId="passage-plan-v1" passagePlanApproved requestedJobId="drafting-job-requested"
+      setMessage={vi.fn()} />);
+    await waitFor(() => expect(requests.some((url) => url.endsWith("/drafting/jobs/drafting-job-requested"))).toBe(true));
+    await userEvent.setup().click(screen.getByText("Regenerate through bounded drafting"));
+    expect(await screen.findByText("Job failed")).toBeTruthy();
+  });
+
   it("loads compact metadata and saves a provider-free manual candidate", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {

@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  ArtifactRepository,
+  AuthorMemoryRepository,
+  ConversationRepository,
   CURRENT_SCHEMA_VERSION,
+  DatabaseRecoveryError,
   ProjectRepository,
   migrate,
   openDatabase,
@@ -895,6 +899,68 @@ describe("generation kernel migration", () => {
     expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'pinned_decisions'").get()).toBeUndefined();
     database.close();
     expect(digest(v16FixturePath)).toBe(originalHash);
+  });
+
+  it("rejects a non-latest v17 author-memory head without partially reinstalling integrity triggers", () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v17-corrupt-head-"));
+    temporaryDirectories.push(directory);
+    const databasePath = join(directory, "corrupt.sqlite");
+    const database = openDatabase(databasePath);
+    const project = new ProjectRepository(database).create("Corrupt author memory", undefined, "long-form");
+    const brief = new ArtifactRepository(database).saveArtifact({ projectId: project.id, artifactId: "brief",
+      content: { title: "Brief" } });
+    const conversations = new ConversationRepository(database);
+    const scope = { kind: "artifact" as const, projectId: project.id, stage: "brief" as const,
+      artifactId: "brief" as const, versionId: brief.id };
+    const conversation = conversations.create(project.id, scope);
+    const memory = new AuthorMemoryRepository(database);
+    for (let index = 0; index < 14; index += 1) conversations.addMessage({ conversationId: conversation.id,
+      role: "user", content: `Initial ${index}`, intent: "discuss", scope,
+      context: { briefVersionId: brief.id }, metadata: {} });
+    const first = memory.ensureSummary(project.id, conversation.id)!;
+    for (let index = 0; index < 6; index += 1) conversations.addMessage({ conversationId: conversation.id,
+      role: "user", content: `Later ${index}`, intent: "discuss", scope,
+      context: { briefVersionId: brief.id }, metadata: {} });
+    const second = memory.ensureSummary(project.id, conversation.id)!;
+    expect(second.version).toBe(2);
+    database.exec("DROP TRIGGER conversation_summary_heads_monotonic_update");
+    database.prepare("UPDATE conversation_summary_heads SET current_version_id = ? WHERE series_id = ?")
+      .run(first.id, first.stableId);
+    database.close();
+
+    let rejection: unknown;
+    try { openDatabase(databasePath); } catch (error) { rejection = error; }
+    expect(rejection).toBeInstanceOf(DatabaseRecoveryError);
+    expect(String((rejection as Error & { cause?: unknown }).cause)).toContain("non-latest summary head");
+    const rejected = new DatabaseSync(databasePath);
+    expect((rejected.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(17);
+    expect(rejected.prepare("SELECT current_version_id FROM conversation_summary_heads WHERE series_id = ?")
+      .get(first.stableId)).toEqual({ current_version_id: first.id });
+    expect(rejected.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger'
+      AND name = 'conversation_summary_heads_monotonic_update'`).get()).toBeUndefined();
+    rejected.close();
+  });
+
+  it("installs the additive v17 integrity patch without changing valid author-memory history", () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v17-integrity-patch-"));
+    temporaryDirectories.push(directory);
+    const databasePath = join(directory, "valid.sqlite");
+    const database = openDatabase(databasePath);
+    const project = new ProjectRepository(database).create("Valid author memory", undefined, "long-form");
+    const memory = new AuthorMemoryRepository(database);
+    const decision = memory.createDecision({ projectId: project.id, scope: { kind: "project" }, content: "Retain history" });
+    database.exec("DROP TRIGGER pinned_decisions_immutable_delete");
+    database.close();
+
+    const reopened = openDatabase(databasePath);
+    expect(reopened.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger'
+      AND name = 'pinned_decisions_immutable_delete'`).get()).toBeDefined();
+    expect(new AuthorMemoryRepository(reopened).getDecision(project.id, decision.stableId)).toMatchObject({
+      id: decision.id, content: decision.content, version: 1,
+    });
+    expect((reopened.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version)
+      .toBe(17);
+    reopened.close();
   });
 
   it.each([

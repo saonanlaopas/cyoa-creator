@@ -30,6 +30,7 @@ export function PassageDraftPanel(props: {
   passageId: string;
   passagePlanVersionId: string;
   passagePlanApproved: boolean;
+  requestedJobId?: string;
   setMessage(value: string | null): void;
   onCorpusChange?(): void;
 }) {
@@ -61,12 +62,17 @@ export function PassageDraftPanel(props: {
     void load().catch((error: Error) => props.setMessage(error.message));
     if (props.passagePlanApproved) void (async () => {
       const plans = await listDraftingPlans(props.projectId);
-      const latest = plans.find((item) => item.scope.passageIds.includes(props.passageId));
+      const requestedJob = props.requestedJobId
+        ? await loadDraftingJob(props.projectId, props.requestedJobId)
+        : null;
+      const latest = requestedJob
+        ? plans.find((item) => item.id === requestedJob.planId)
+        : plans.find((item) => item.scope.passageIds.includes(props.passageId));
       if (!latest) return;
       setPlan(latest);
-      setJob(await loadDraftingJob(props.projectId, latest.jobId));
+      setJob(requestedJob ?? await loadDraftingJob(props.projectId, latest.jobId));
     })().catch((error: Error) => props.setMessage(error.message));
-  }, [props.projectId, props.passageId, props.passagePlanVersionId, props.passagePlanApproved]);
+  }, [props.projectId, props.passageId, props.passagePlanVersionId, props.passagePlanApproved, props.requestedJobId]);
 
   const reviewVersion = useMemo(() => state?.history.find((version) => version.id === reviewVersionId)
     ?? state?.head?.current ?? null, [state, reviewVersionId]);

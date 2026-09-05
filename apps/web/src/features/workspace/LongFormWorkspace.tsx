@@ -71,6 +71,7 @@ export function LongFormWorkspace() {
   const [stableIdInput, setStableIdInput] = useState("");
   const [navigationHistory, setNavigationHistory] = useState<LongFormStage[]>([]);
   const [lastWorkspaceHint, setLastWorkspaceHint] = useState<NavigationHint | null>(null);
+  const [requestedJob, setRequestedJob] = useState<{ kind: "generation" | "drafting"; id: string } | null>(null);
 
   const openProject = async (projectId: string) => {
     const state = await loadLongFormProject(projectId);
@@ -103,10 +104,12 @@ export function LongFormWorkspace() {
     } catch { /* Browser-local navigation hints are disposable and non-canonical. */ }
   };
 
-  const navigate = (stage: LongFormStage, entityId?: string | null) => {
+  const navigate = (stage: LongFormStage, entityId?: string | null,
+    job: { kind: "generation" | "drafting"; id: string } | null = null) => {
     if (stage !== activeStage) setNavigationHistory((items) => [...items.slice(-19), activeStage]);
     if (stage === "resume" && activeStage !== "resume") setLastWorkspaceHint({ stage: activeStage, entityId: currentStableId || null });
     setActiveStage(stage);
+    setRequestedJob(job);
     if (entityId !== undefined) { setPassagePlanJump(entityId ?? ""); setCurrentStableId(entityId ?? ""); setStableIdInput(entityId ?? ""); }
     localStorage.setItem(activeStageKey, stage);
     if (project) localStorage.setItem(navigationKey(project.id), JSON.stringify({
@@ -428,6 +431,8 @@ export function LongFormWorkspace() {
       message={message}
       setMessage={setMessage}
       requestedJumpId={passagePlanJump}
+      requestedGenerationJobId={requestedJob?.kind === "generation" ? requestedJob.id : undefined}
+      requestedDraftingJobId={requestedJob?.kind === "drafting" ? requestedJob.id : undefined}
       onRequestedJumpHandled={() => setPassagePlanJump("")}
     /> : activeStage === "simulation" ? <SimulationWorkspace projectId={project.id} onNavigateStableId={(stableId) => {
       setPassagePlanJump(stableId);
@@ -437,9 +442,9 @@ export function LongFormWorkspace() {
       ? <PublicationWorkspace projectId={project.id} />
       : activeStage === "resume" ? <ResumeWorkWorkspace projectId={project.id}
         localHint={lastWorkspaceHint}
-        onNavigate={(stage, stableId) => {
+        onNavigate={(stage, stableId, job) => {
           if (stableId) setPassagePlanJump(stableId);
-          navigate(stage, stableId);
+          navigate(stage, stableId, job ?? null);
         }} />
       : activeStage === "health" ? <ProjectHealthWorkspace projectId={project.id} onNavigate={(stage) => {
         navigate(stage);

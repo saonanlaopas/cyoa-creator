@@ -1,16 +1,25 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { AssistantScope, MessageRecord } from "./conversation-repository.js";
+import {
+  CONVERSATION_MESSAGE_BUDGETS,
+  conversationMessageBytes,
+  type AssistantScope,
+  type MessageRecord,
+} from "./conversation-repository.js";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 
 export const AUTHOR_MEMORY_BUDGETS = Object.freeze({
   recentMessageCount: 8,
+  recentMessageBytes: 24_000,
+  recentMessageIndividualBytes: 8_000,
   summaryIncrementMessages: 48,
   summaryBytes: 12_000,
   decisionContentBytes: 2_000,
   relatedIdCount: 40,
   contextDecisionCount: 24,
   contextDecisionBytes: 12_000,
+  totalAuthorMemoryBytes: 48_000,
+  providerConversationBytes: 64_000,
 });
 
 export type SummaryStatus = "current" | "superseded" | "stale";
@@ -64,8 +73,16 @@ export interface AuthorMemoryContext {
     staleSummaryReasons: string[];
     omittedDecisionCount: number;
     omittedDecisionBytes: number;
+    omittedRecentMessageCount: number;
+    omittedRecentMessageBytes: number;
+    recentMessageBytes: number;
+    totalAuthorMemoryBytes: number;
     limits: typeof AUTHOR_MEMORY_BUDGETS;
   };
+}
+
+export interface AuthorMemoryContextOptions {
+  excludeMessageIds?: string[];
 }
 
 type SummaryRow = {
@@ -102,15 +119,15 @@ export class AuthorMemoryRepository {
     if (!conversation || conversation.project_id !== projectId) throw new Error("Conversation not found");
     const conversationScope = json<AssistantScope>(conversation.scope_json);
     const current = this.currentSummary(projectId, conversationId);
+    const dependencies = this.currentCanonicalDependencies(projectId);
     const base = current?.status === "current" ? current : null;
-    const additions = this.summaryAdditions(conversationId, base?.sourceRange.lastMessageId ?? null, conversationScope);
+    const additions = current && !base
+      ? this.regenerationAdditions(conversationId, conversationScope, dependencies)
+      : this.summaryAdditions(conversationId, base?.sourceRange.lastMessageId ?? null, conversationScope, dependencies);
     if (additions.length === 0) return current;
     const firstMessageId = base?.sourceRange.firstMessageId ?? additions[0]!.id;
     const lastMessage = additions.at(-1)!;
     const content = this.summarize(base?.content ?? "", additions);
-    const dependencies = Object.fromEntries(Object.entries(lastMessage.context)
-      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
-      .sort(([left], [right]) => left.localeCompare(right)));
     const sourceFingerprint = fingerprint({
       previous: base?.sourceRange.fingerprint ?? null,
       additions: additions.map(({ id, role, content: messageContent, intent }) => ({ id, role, content: messageContent, intent })),
@@ -217,8 +234,38 @@ export class AuthorMemoryRepository {
       .map(mapDecision);
   }
 
-  buildContext(projectId: string, conversationId: string, scope: AssistantScope): AuthorMemoryContext {
-    const messages = this.messageRows(conversationId, AUTHOR_MEMORY_BUDGETS.recentMessageCount, scope);
+  buildContext(
+    projectId: string,
+    conversationId: string,
+    scope: AssistantScope,
+    options: AuthorMemoryContextOptions = {},
+  ): AuthorMemoryContext {
+    const conversation = this.database.prepare("SELECT project_id FROM conversations WHERE id = ?")
+      .get(conversationId) as { project_id: string } | undefined;
+    if (!conversation || conversation.project_id !== projectId || scope.projectId !== projectId) {
+      throw new Error("Conversation not found");
+    }
+    const excluded = new Set((options.excludeMessageIds ?? []).slice(0, AUTHOR_MEMORY_BUDGETS.recentMessageCount));
+    const candidates = this.messageRows(
+      conversationId,
+      AUTHOR_MEMORY_BUDGETS.recentMessageCount + excluded.size,
+      scope,
+    ).filter((message) => !excluded.has(message.id)).slice(-AUTHOR_MEMORY_BUDGETS.recentMessageCount);
+    const messages: MessageRecord[] = [];
+    let recentBytes = 0;
+    let omittedRecentMessageCount = 0;
+    let omittedRecentMessageBytes = 0;
+    for (const message of [...candidates].reverse()) {
+      const size = conversationMessageBytes(message.content);
+      if (size > AUTHOR_MEMORY_BUDGETS.recentMessageIndividualBytes
+        || recentBytes + size > AUTHOR_MEMORY_BUDGETS.recentMessageBytes) {
+        omittedRecentMessageCount += 1;
+        omittedRecentMessageBytes += size;
+        continue;
+      }
+      messages.unshift(message);
+      recentBytes += size;
+    }
     const summary = this.currentSummary(projectId, conversationId);
     const relevant = this.relevantDecisions(projectId, scope);
     const decisions: PinnedDecisionVersion[] = [];
@@ -231,6 +278,11 @@ export class AuthorMemoryRepository {
     }
     const requestedScopeMatches = summary ? assistantScopesEqual(summary.scope, scope) : true;
     const usableSummary = summary?.status === "current" && requestedScopeMatches ? summary : null;
+    const summaryBytes = usableSummary ? byteLength(usableSummary.content) : 0;
+    const totalAuthorMemoryBytes = summaryBytes + usedBytes + recentBytes;
+    if (totalAuthorMemoryBytes > AUTHOR_MEMORY_BUDGETS.totalAuthorMemoryBytes) {
+      throw new Error("Author-memory context exceeds its deterministic byte limit");
+    }
     return {
       authority: "non-canonical-author-memory",
       summary: usableSummary,
@@ -241,6 +293,10 @@ export class AuthorMemoryRepository {
         staleSummaryReasons: [...(summary?.staleReasons ?? []), ...(summary && !requestedScopeMatches ? ["requested-scope-mismatch"] : [])],
         omittedDecisionCount: relevant.totalCount - decisions.length,
         omittedDecisionBytes: relevant.totalBytes - usedBytes,
+        omittedRecentMessageCount,
+        omittedRecentMessageBytes,
+        recentMessageBytes: recentBytes,
+        totalAuthorMemoryBytes,
         limits: AUTHOR_MEMORY_BUDGETS,
       },
     };
@@ -272,7 +328,12 @@ export class AuthorMemoryRepository {
         createdAt: row.created_at }));
   }
 
-  private summaryAdditions(conversationId: string, afterMessageId: string | null, scope: AssistantScope): MessageRecord[] {
+  private summaryAdditions(
+    conversationId: string,
+    afterMessageId: string | null,
+    scope: AssistantScope,
+    dependencies: Record<string, string>,
+  ): MessageRecord[] {
     const values = assistantScopeValues(scope);
     const rows = this.database.prepare(`SELECT id, conversation_id, role, content, intent, scope_json, context_json,
         metadata_json, created_at FROM messages
@@ -291,9 +352,32 @@ export class AuthorMemoryRepository {
           id: string; conversation_id: string; role: MessageRecord["role"]; content: string; intent: MessageRecord["intent"];
           scope_json: string; context_json: string; metadata_json: string; created_at: string;
         }>;
-    return rows.map((row) => ({ id: row.id, conversationId: row.conversation_id, role: row.role, content: row.content,
-      intent: row.intent, scope: json(row.scope_json), context: json(row.context_json), metadata: json(row.metadata_json),
+    const messages: MessageRecord[] = rows.map((row) => ({ id: row.id, conversationId: row.conversation_id, role: row.role, content: row.content,
+      intent: row.intent, scope: json<AssistantScope>(row.scope_json), context: json<MessageRecord["context"]>(row.context_json),
+      metadata: json<MessageRecord["metadata"]>(row.metadata_json),
       createdAt: row.created_at }));
+    const firstMismatch = messages.findIndex((message) => !dependenciesEqual(message.context, dependencies));
+    return firstMismatch < 0 ? messages : messages.slice(0, firstMismatch);
+  }
+
+  private regenerationAdditions(
+    conversationId: string,
+    scope: AssistantScope,
+    dependencies: Record<string, string>,
+  ): MessageRecord[] {
+    const window = this.messageRows(
+      conversationId,
+      AUTHOR_MEMORY_BUDGETS.summaryIncrementMessages + AUTHOR_MEMORY_BUDGETS.recentMessageCount,
+      scope,
+    );
+    let start = window.length;
+    while (start > 0 && dependenciesEqual(window[start - 1]!.context, dependencies)) start -= 1;
+    const consistentSuffix = window.slice(start);
+    const summarizableCount = Math.min(
+      AUTHOR_MEMORY_BUDGETS.summaryIncrementMessages,
+      Math.max(0, consistentSuffix.length - AUTHOR_MEMORY_BUDGETS.recentMessageCount),
+    );
+    return consistentSuffix.slice(0, summarizableCount);
   }
 
   private relevantDecisions(projectId: string, scope: AssistantScope): {
@@ -319,14 +403,12 @@ export class AuthorMemoryRepository {
 
   private mapSummary(row: SummaryRow): ConversationSummaryVersion {
     const dependencies = json<Record<string, string>>(row.dependencies_json);
-    const staleReasons = Object.entries(dependencies).flatMap(([key, expected]) => {
-      if (!key.endsWith("VersionId")) return [];
-      const artifactId = key.slice(0, -"VersionId".length);
-      const current = this.database.prepare(`SELECT id FROM artifact_versions
-        WHERE project_id = ? AND artifact_id = ? ORDER BY version DESC LIMIT 1`)
-        .get(row.project_id, artifactId) as { id: string } | undefined;
-      return current?.id === expected ? [] : [`canonical-dependency-changed:${artifactId}`];
-    });
+    const currentDependencies = this.currentCanonicalDependencies(row.project_id);
+    const staleReasons = [...new Set([...Object.keys(dependencies), ...Object.keys(currentDependencies)])]
+      .sort()
+      .flatMap((key) => dependencies[key] === currentDependencies[key]
+        ? []
+        : [`canonical-dependency-changed:${key.slice(0, -"VersionId".length)}`]);
     const conversation = this.database.prepare("SELECT scope_json FROM conversations WHERE id = ? AND project_id = ?")
       .get(row.conversation_id, row.project_id) as { scope_json: string } | undefined;
     if (!conversation || conversation.scope_json !== row.scope_json) staleReasons.push("conversation-scope-changed");
@@ -368,6 +450,19 @@ export class AuthorMemoryRepository {
     if (!this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId)) throw new Error("Project not found");
   }
 
+  private currentCanonicalDependencies(projectId: string): Record<string, string> {
+    const rows = this.database.prepare(`SELECT versions.artifact_id, versions.id
+      FROM artifact_versions versions
+      JOIN (SELECT artifact_id, MAX(version) AS version FROM artifact_versions
+        WHERE project_id = ? AND artifact_id IN ('brief', 'bible', 'routes', 'endings', 'mechanics')
+        GROUP BY artifact_id) current
+        ON current.artifact_id = versions.artifact_id AND current.version = versions.version
+      WHERE versions.project_id = ? ORDER BY versions.artifact_id`).all(projectId, projectId) as Array<{
+        artifact_id: string; id: string;
+      }>;
+    return Object.fromEntries(rows.map((row) => [`${row.artifact_id}VersionId`, row.id]));
+  }
+
   private assertProvenance(projectId: string, provenance: PinnedDecisionVersion["provenance"]): void {
     if (provenance.messageId && !this.database.prepare(`SELECT 1 FROM messages messages JOIN conversations conversations
       ON conversations.id = messages.conversation_id WHERE messages.id = ? AND conversations.project_id = ?`)
@@ -385,6 +480,12 @@ function assistantScopeValues(scope: AssistantScope): Array<string | null> {
 }
 function assistantScopesEqual(left: AssistantScope, right: AssistantScope): boolean {
   return assistantScopeValues(left).every((value, index) => value === assistantScopeValues(right)[index]);
+}
+function dependenciesEqual(left: MessageRecord["context"], right: Record<string, string>): boolean {
+  const normalized = Object.fromEntries(Object.entries(left)
+    .filter((entry): entry is [string, string] => entry[0].endsWith("VersionId") && typeof entry[1] === "string")
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)));
+  return JSON.stringify(normalized) === JSON.stringify(right);
 }
 function normalizeDecisionScope(scope: DecisionScope): DecisionScope {
   if (scope.kind === "project") return { kind: "project" };

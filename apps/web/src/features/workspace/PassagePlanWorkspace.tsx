@@ -83,6 +83,8 @@ export function PassagePlanWorkspace(props: {
   message: string | null;
   setMessage(value: string | null): void;
   requestedJumpId?: string;
+  requestedGenerationJobId?: string;
+  requestedDraftingJobId?: string;
   onRequestedJumpHandled?(): void;
 }) {
   const [state, setState] = useState<PassagePlanState | null>(null);
@@ -284,6 +286,7 @@ export function PassagePlanWorkspace(props: {
       approved={state.state.status === "approved"}
       structure={structure}
       passages={passages}
+      requestedJobId={props.requestedGenerationJobId}
       setMessage={props.setMessage}
       onApplied={load}
     />
@@ -441,6 +444,7 @@ export function PassagePlanWorkspace(props: {
               passageId={selected.id}
               passagePlanVersionId={state.passages.find((item) => item.entityId === selected.id)?.id ?? ""}
               passagePlanApproved={state.state.status === "approved"}
+              requestedJobId={props.requestedDraftingJobId}
               setMessage={props.setMessage}
               onCorpusChange={() => setDraftQueueRevision((value) => value + 1)}
             /></> : <p>Select a passage from the outline.</p>}

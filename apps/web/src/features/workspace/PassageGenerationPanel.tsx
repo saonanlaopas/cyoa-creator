@@ -21,6 +21,7 @@ export function PassageGenerationPanel(props: {
   approved: boolean;
   structure: PassageStructure;
   passages: PassagePlan[];
+  requestedJobId?: string;
   setMessage(value: string | null): void;
   onApplied?(): Promise<void>;
 }) {
@@ -39,12 +40,17 @@ export function PassageGenerationPanel(props: {
 
   const refresh = async () => {
     const plans = await listGenerationPlans(props.projectId);
-    const latest = plans[0] ?? null;
+    const requestedJob = props.requestedJobId
+      ? await loadGenerationJob(props.projectId, props.requestedJobId)
+      : null;
+    const latest = requestedJob
+      ? plans.find((item) => item.id === requestedJob.planId) ?? null
+      : plans[0] ?? null;
     setPlan(latest);
     setPreview(null);
-    setJob(latest ? await loadGenerationJob(props.projectId, latest.jobId) : null);
+    setJob(requestedJob ?? (latest ? await loadGenerationJob(props.projectId, latest.jobId) : null));
   };
-  useEffect(() => { void refresh().catch((error: Error) => props.setMessage(error.message)); }, [props.projectId]);
+  useEffect(() => { void refresh().catch((error: Error) => props.setMessage(error.message)); }, [props.projectId, props.requestedJobId]);
   useEffect(() => {
     if (job?.status !== "running") return;
     const timer = setInterval(() => {

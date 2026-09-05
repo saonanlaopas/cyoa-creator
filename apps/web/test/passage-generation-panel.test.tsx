@@ -59,6 +59,22 @@ afterEach(() => {
 });
 
 describe("PassageGenerationPanel", () => {
+  it("loads the exact persisted Resume job rather than the latest plan", async () => {
+    const requestedPlan = { ...plan, id: "plan-requested", jobId: "job-requested", jobStatus: "failed" as const };
+    const requestedJob = { ...job, id: "job-requested", planId: "plan-requested", status: "failed" as const };
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = String(input); requests.push(path);
+      const body = path.endsWith("/plans") ? [plan, requestedPlan]
+        : path.endsWith("/jobs/job-requested") ? requestedJob : job;
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    render(<PassageGenerationPanel projectId="project-a" approved structure={structure} passages={passages}
+      requestedJobId="job-requested" setMessage={vi.fn()} />);
+    await waitFor(() => expect(requests.some((path) => path.endsWith("/jobs/job-requested"))).toBe(true));
+    expect((await screen.findByRole("region", { name: "Generation job status" })).textContent).toContain("Job: failed");
+  });
+
   it("includes shared passages in the default route segment", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("[]", {
       status: 200,

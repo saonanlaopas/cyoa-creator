@@ -278,7 +278,11 @@ export function AssistantPanel(props: {
       <dl>
         <div><dt>Summary</dt><dd>{memory?.summary ? `v${memory.summary.version} · ${memory.summary.sourceRange.messageCount} covered messages` : memory?.diagnostics.summaryStatus === "stale" ? "Stale summary omitted" : "None"}</dd></div>
         <div><dt>Pinned decisions</dt><dd>{memory?.decisions.length ?? 0} included{memory?.diagnostics.omittedDecisionCount ? ` · ${memory.diagnostics.omittedDecisionCount} omitted by bounds` : ""}</dd></div>
-        <div><dt>Recent messages</dt><dd>{memory?.recentMessages.length ?? 0} retained separately</dd></div>
+        <div><dt>Recent messages</dt><dd>{memory?.recentMessages.length ?? 0} retained separately
+          {memory?.diagnostics.omittedRecentMessageCount
+            ? ` · ${memory.diagnostics.omittedRecentMessageCount} omitted (${(memory.diagnostics.omittedRecentMessageBytes ?? 0).toLocaleString()} bytes)`
+            : ""}</dd></div>
+        <div><dt>Author-memory size</dt><dd>{(memory?.diagnostics.totalAuthorMemoryBytes ?? 0).toLocaleString()} bounded bytes</dd></div>
       </dl>
       {memory?.summary && <p>{memory.summary.content}</p>}
       {memory?.decisions.map((decision) => <article className="pinned-decision" key={decision.stableId}>

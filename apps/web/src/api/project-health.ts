@@ -55,12 +55,22 @@ export interface ProjectUsageReport {
 }
 
 export interface ProjectUsageFilters { workflow?: string; providerId?: string; modelId?: string; from?: string; to?: string }
+export type ResumeAttentionJobStatus = "planned" | "authorized" | "running" | "partially_failed" | "failed";
+export type ResumeJobFacts = Record<ResumeAttentionJobStatus, {
+  count: number; latestJobId: string | null; latestPassageId: string | null;
+}>;
 export interface ProjectResumeReport {
   schemaId: "cyoa.project-resume"; schemaVersion: 1; projectId: string;
   authority: "persisted-facts-only"; generatedAt: string;
-  facts: Record<string, number | string | null>;
+  facts: {
+    proposedChangeSets: number; pendingDraftCandidates: number; acceptedAwaitingReview: number;
+    staleCurrentDrafts: number; stalePassagePlan: number; latestPendingPassageId: string | null;
+    generationJobs: ResumeJobFacts; draftingJobs: ResumeJobFacts;
+  };
   backup: { latestVerifiedAt: string | null; latestVerifiedBackupId: string | null; freshness: "not-evaluated" };
-  actions: Array<{ id: string; stage: "passage-plan" | "repair" | "publication" | "recovery" | "health"; label: string; count: number; stableId: string | null }>;
+  actions: Array<{ id: string; stage: "passage-plan" | "repair" | "publication" | "recovery" | "health";
+    label: string; count: number; stableId: string | null; jobKind: "generation" | "drafting" | null;
+    jobId: string | null; jobStatus: string | null }>;
   truncated: false;
 }
 

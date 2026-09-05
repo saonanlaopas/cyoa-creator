@@ -4,7 +4,8 @@ import { loadProjectResume, type ProjectResumeReport } from "../../api/project-h
 export function ResumeWorkWorkspace({ projectId, localHint, onNavigate }: {
   projectId: string;
   localHint: { stage: string; entityId: string | null } | null;
-  onNavigate: (stage: "passage-plan" | "repair" | "publication" | "recovery" | "health", stableId?: string | null) => void;
+  onNavigate: (stage: "passage-plan" | "repair" | "publication" | "recovery" | "health", stableId?: string | null,
+    job?: { kind: "generation" | "drafting"; id: string } | null) => void;
 }) {
   const [report, setReport] = useState<ProjectResumeReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +34,11 @@ export function ResumeWorkWorkspace({ projectId, localHint, onNavigate }: {
       <section className="brief-section" aria-labelledby="resume-actions-heading"><h2 id="resume-actions-heading">Suggested next inspections</h2>
         {report.actions.length === 0 ? <p>No interrupted, stale, pending, or unverified work was found in the bounded checks.</p>
           : <ul className="resume-actions">{report.actions.map((action) => <li key={action.id}>
-            <button onClick={() => onNavigate(action.stage, action.stableId)}><span>{action.label}</span><small>{action.count.toLocaleString()} item(s){action.stableId ? ` · ${action.stableId}` : ""}</small></button>
+            <button onClick={() => onNavigate(action.stage, action.stableId,
+              action.jobKind && action.jobId ? { kind: action.jobKind, id: action.jobId } : null)}>
+              <span>{action.label}</span><small>{action.count.toLocaleString()} item(s)
+                {action.jobId ? ` · job ${action.jobId}` : ""}{action.stableId ? ` · ${action.stableId}` : ""}</small>
+            </button>
           </li>)}</ul>}
       </section>
     </>}

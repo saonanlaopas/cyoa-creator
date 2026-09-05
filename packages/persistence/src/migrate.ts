@@ -6,6 +6,7 @@ import {
 } from "@story-to-cyoa/domain";
 import {
   authorMemoryMigrationSql,
+  authorMemoryIntegrityTriggerSql,
   generationCandidateLineageMigrationSql,
   generationJobParentLineageTriggerSql,
   generationKernelMigrationSql,
@@ -258,9 +259,34 @@ function migrateWithinTransaction(database: StoryDatabase): void {
       ).run(new Date().toISOString());
     });
   } else {
-    assertValidAuthorMemory(database);
+    if (!AUTHOR_MEMORY_INTEGRITY_TRIGGERS.every((name) => hasTrigger(database, name))) {
+      runMigrationStep(database, "migration_v17_integrity_patch", () => {
+        database.exec(authorMemoryIntegrityTriggerSql);
+        assertValidAuthorMemory(database);
+      });
+    } else {
+      assertValidAuthorMemory(database);
+    }
   }
 }
+
+const AUTHOR_MEMORY_INTEGRITY_TRIGGERS = [
+  "conversation_summary_versions_monotonic_insert",
+  "pinned_decision_versions_monotonic_insert",
+  "conversation_summary_heads_latest_insert",
+  "conversation_summary_heads_monotonic_update",
+  "pinned_decision_heads_latest_insert",
+  "pinned_decision_heads_monotonic_update",
+  "conversation_summary_series_immutable_update",
+  "pinned_decisions_immutable_update",
+  "conversation_summary_series_immutable_delete",
+  "conversation_summary_versions_immutable_delete",
+  "conversation_summary_heads_immutable_delete",
+  "pinned_decisions_immutable_delete",
+  "pinned_decision_versions_immutable_delete",
+  "pinned_decision_heads_immutable_delete",
+  "messages_author_memory_size_insert",
+] as const;
 
 function runMigrationStep(database: StoryDatabase, name: string, operation: () => void): void {
   database.exec(`SAVEPOINT ${name}`);
@@ -404,6 +430,9 @@ function assertValidAuthorMemory(database: StoryDatabase): void {
   ]) {
     if (!hasTable(database, table)) throw new Error("Author-memory schema is incomplete");
   }
+  for (const trigger of AUTHOR_MEMORY_INTEGRITY_TRIGGERS) {
+    if (!hasTrigger(database, trigger)) throw new Error("Author-memory integrity triggers are incomplete");
+  }
   const invalidSummary = database.prepare(`SELECT versions.id
     FROM conversation_summary_versions versions
     LEFT JOIN conversation_summary_series series
@@ -419,6 +448,50 @@ function assertValidAuthorMemory(database: StoryDatabase): void {
       ON decisions.id = versions.decision_id AND decisions.project_id = versions.project_id
     WHERE decisions.id IS NULL LIMIT 1`).get();
   if (invalidDecision) throw new Error("Cannot migrate author memory with invalid decision lineage");
+  const invalidSummaryHead = database.prepare(`SELECT series.id
+    FROM conversation_summary_series series
+    LEFT JOIN conversation_summary_heads heads
+      ON heads.series_id = series.id AND heads.project_id = series.project_id
+    LEFT JOIN conversation_summary_versions current
+      ON current.id = heads.current_version_id AND current.series_id = series.id
+    WHERE heads.series_id IS NULL OR current.id IS NULL
+      OR current.version != (SELECT MAX(latest.version) FROM conversation_summary_versions latest
+        WHERE latest.series_id = series.id)
+    LIMIT 1`).get();
+  if (invalidSummaryHead) throw new Error("Cannot open author memory with a non-latest summary head");
+  const invalidSummaryHistory = database.prepare(`WITH ordered AS (
+      SELECT id, series_id, version, supersedes_version_id,
+        ROW_NUMBER() OVER (PARTITION BY series_id ORDER BY version) AS expected_version,
+        LAG(id) OVER (PARTITION BY series_id ORDER BY version) AS expected_previous
+      FROM conversation_summary_versions
+    ) SELECT id FROM ordered
+    WHERE version != expected_version
+      OR (version = 1 AND supersedes_version_id IS NOT NULL)
+      OR (version > 1 AND supersedes_version_id IS NOT expected_previous)
+    LIMIT 1`).get();
+  if (invalidSummaryHistory) throw new Error("Cannot open author memory with a broken summary history");
+  const invalidDecisionHead = database.prepare(`SELECT decisions.id
+    FROM pinned_decisions decisions
+    LEFT JOIN pinned_decision_heads heads
+      ON heads.decision_id = decisions.id AND heads.project_id = decisions.project_id
+    LEFT JOIN pinned_decision_versions current
+      ON current.id = heads.current_version_id AND current.decision_id = decisions.id
+    WHERE heads.decision_id IS NULL OR current.id IS NULL
+      OR current.version != (SELECT MAX(latest.version) FROM pinned_decision_versions latest
+        WHERE latest.decision_id = decisions.id)
+    LIMIT 1`).get();
+  if (invalidDecisionHead) throw new Error("Cannot open author memory with a non-latest decision head");
+  const invalidDecisionHistory = database.prepare(`WITH ordered AS (
+      SELECT id, decision_id, version, supersedes_version_id,
+        ROW_NUMBER() OVER (PARTITION BY decision_id ORDER BY version) AS expected_version,
+        LAG(id) OVER (PARTITION BY decision_id ORDER BY version) AS expected_previous
+      FROM pinned_decision_versions
+    ) SELECT id FROM ordered
+    WHERE version != expected_version
+      OR (version = 1 AND supersedes_version_id IS NOT NULL)
+      OR (version > 1 AND supersedes_version_id IS NOT expected_previous)
+    LIMIT 1`).get();
+  if (invalidDecisionHistory) throw new Error("Cannot open author memory with a broken decision history");
 }
 
 function assertValidPassageDraftLineage(database: StoryDatabase): void {

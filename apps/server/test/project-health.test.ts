@@ -9,6 +9,8 @@ import {
   type StoryDatabase,
   ChangeSetRepository,
   ConversationRepository,
+  DraftingRepository,
+  GenerationRepository,
 } from "@story-to-cyoa/persistence";
 import { ProjectHealthService } from "../src/services/project-health-service.js";
 
@@ -194,5 +196,87 @@ describe("Foundation 8B project health", () => {
     expect(resume).toMatchObject({ authority: "persisted-facts-only", truncated: false,
       facts: { proposedChangeSets: 1 }, backup: { latestVerifiedAt: null, freshness: "not-evaluated" } });
     expect(resume.actions.map((item) => item.id)).toEqual(["proposals", "backup"]);
+  });
+
+  it("classifies every real generation and drafting attention state with exact latest job navigation", () => {
+    const database = openDatabase(); databases.push(database);
+    const projects = new ProjectRepository(database);
+    const artifacts = new ArtifactRepository(database);
+    const passagePlans = new PassagePlanRepository(database);
+    const project = projects.create("Resume job lifecycle", undefined, "long-form");
+    const brief = artifacts.saveArtifact({
+      projectId: project.id, artifactId: "brief", artifactType: "brief", content: { title: "Resume jobs" },
+    });
+    passagePlans.initialize(project.id, {
+      schemaVersion: 1, title: "Plan", projectWordTarget: 1_000, typicalPathWordTarget: 1_000,
+      startPassageId: "passage-1", acts: [], sequences: [], characterAvailability: [],
+    }, [{
+      kind: "passage", id: "passage-1",
+      content: { id: "passage-1", purpose: "Resume target", wordTarget: 500 },
+    }]);
+    const snapshot = passagePlans.createSnapshot(project.id, { brief: brief.id }, { findings: [] });
+    passagePlans.approveSnapshot(project.id, snapshot.id);
+    const passageVersion = passagePlans.currentEntity(project.id, "passage", "passage-1")!;
+    const generations = new GenerationRepository(database);
+    const drafting = new DraftingRepository(database);
+    const statuses = ["planned", "authorized", "running", "partially_failed", "failed", "completed", "cancelled"] as const;
+    const generationJobs = new Map<string, string>();
+    const draftingJobs = new Map<string, string>();
+
+    statuses.forEach((status, index) => {
+      const generation = generations.createPlan({
+        projectId: project.id, fingerprint: `generation-${status}`, snapshotId: snapshot.id,
+        structureVersionId: snapshot.structureVersionId, upstreamVersions: snapshot.upstreamVersions,
+        scope: { kind: "sequence", sequenceId: `sequence-${index}` }, providerId: "offline-resume",
+        modelId: "fixture-v1", estimatedInputTokens: 10, estimatedOutputTokens: 20,
+        costEstimate: { status: "unavailable" }, validationStages: ["schema"],
+        executionPolicyId: "policy-v1", executionPolicy: { maxAttemptsPerUnit: 3 },
+        units: [{ id: "unit-1", position: 0, sequenceId: `sequence-${index}`,
+          passageIds: ["passage-1"], passageVersionIds: [passageVersion.id],
+          inputFingerprint: `generation-input-${status}`, estimatedInputTokens: 10, estimatedOutputTokens: 20 }],
+      });
+      const draft = drafting.createPlan({
+        projectId: project.id, fingerprint: `drafting-${status}`, snapshotId: snapshot.id,
+        structureVersionId: snapshot.structureVersionId, upstreamVersions: snapshot.upstreamVersions,
+        scope: { kind: "passages", passageIds: ["passage-1"] }, providerId: "offline-resume",
+        modelId: "fixture-v1", estimatedInputTokens: 10, estimatedOutputTokens: 20,
+        costEstimate: { status: "unavailable" }, executionPolicyId: "draft-policy-v1",
+        executionPolicy: { id: "draft-policy-v1", maxPassagesPerUnit: 8, maxUnitsPerPlan: 100,
+          maxEstimatedInputTokensPerUnit: 48_000, maxOutputTokensPerPassage: 2_500,
+          maxOutputTokensPerUnit: 12_000, maxAttemptsPerUnit: 3, maxSerializedCandidateBytes: 96_000 },
+        units: [{ id: "unit-1", position: 0, passageIds: ["passage-1"],
+          passageVersionIds: [passageVersion.id], inputFingerprint: `draft-input-${status}`,
+          estimatedInputTokens: 10, estimatedOutputTokens: 20,
+          contextDiagnostics: { status: "not-built", passageIds: ["passage-1"] } }],
+      });
+      const updatedAt = `2026-09-01T00:00:${String(index).padStart(2, "0")}.000Z`;
+      database.prepare("UPDATE generation_jobs SET status = ?, updated_at = ? WHERE id = ?")
+        .run(status, updatedAt, generation.jobId);
+      database.prepare("UPDATE drafting_jobs SET status = ?, updated_at = ? WHERE id = ?")
+        .run(status, updatedAt, draft.jobId);
+      generationJobs.set(status, generation.jobId);
+      draftingJobs.set(status, draft.jobId);
+    });
+
+    const resume = new ProjectHealthService(database, projects).resume(project.id);
+    const attention = statuses.slice(0, 5);
+    for (const status of attention) {
+      expect(resume.facts.generationJobs[status]).toEqual({
+        count: 1, latestJobId: generationJobs.get(status), latestPassageId: "passage-1",
+      });
+      expect(resume.facts.draftingJobs[status]).toEqual({
+        count: 1, latestJobId: draftingJobs.get(status), latestPassageId: "passage-1",
+      });
+      expect(resume.actions).toContainEqual(expect.objectContaining({
+        id: `generation-${status}`, jobKind: "generation", jobId: generationJobs.get(status),
+        jobStatus: status, stableId: "passage-1",
+      }));
+      expect(resume.actions).toContainEqual(expect.objectContaining({
+        id: `drafting-${status}`, jobKind: "drafting", jobId: draftingJobs.get(status),
+        jobStatus: status, stableId: "passage-1",
+      }));
+    }
+    expect(JSON.stringify(resume)).not.toMatch(/queued|cancelling/);
+    expect(resume.actions.some((action) => action.jobStatus === "completed" || action.jobStatus === "cancelled")).toBe(false);
   });
 });

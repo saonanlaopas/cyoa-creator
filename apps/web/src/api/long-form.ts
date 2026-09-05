@@ -273,6 +273,8 @@ export interface AuthorMemoryContext {
   diagnostics: {
     summaryStatus: "none" | "current" | "superseded" | "stale";
     staleSummaryReasons: string[]; omittedDecisionCount: number; omittedDecisionBytes: number;
+    omittedRecentMessageCount: number; omittedRecentMessageBytes: number;
+    recentMessageBytes: number; totalAuthorMemoryBytes: number;
     limits: Record<string, number>;
   };
 }

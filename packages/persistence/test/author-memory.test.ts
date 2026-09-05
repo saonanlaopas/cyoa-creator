@@ -71,6 +71,66 @@ describe("Foundation 8C durable author memory", () => {
     state.database.close();
   });
 
+  it("does not churn stale summaries and regenerates once from a current dependency-consistent range", () => {
+    const state = setup();
+    for (let index = 0; index < 14; index += 1) state.conversations.addMessage({
+      conversationId: state.conversation.id, role: "user", content: `V1 discussion ${index}`, intent: "discuss",
+      scope: state.scope, context: { briefVersionId: state.brief.id }, metadata: {},
+    });
+    const v1Summary = state.memory.ensureSummary(state.project.id, state.conversation.id)!;
+    const briefV2 = state.artifacts.saveArtifact({ projectId: state.project.id, artifactId: "brief",
+      content: { title: "Second" }, schema: ArtifactSchema });
+    expect(state.memory.currentSummary(state.project.id, state.conversation.id)?.status).toBe("stale");
+    for (let index = 0; index < 20; index += 1) {
+      expect(state.memory.ensureSummary(state.project.id, state.conversation.id)?.id).toBe(v1Summary.id);
+    }
+    expect(state.memory.listSummaries(state.project.id, state.conversation.id)).toHaveLength(1);
+    expect(state.memory.buildContext(state.project.id, state.conversation.id, state.scope).summary).toBeNull();
+
+    const v2Scope = { ...state.scope, versionId: briefV2.id };
+    state.conversations.updateScope(state.conversation.id, v2Scope);
+    for (let index = 0; index < 14; index += 1) state.conversations.addMessage({
+      conversationId: state.conversation.id, role: "assistant", content: `V2 discussion ${index}`, intent: "discuss",
+      scope: v2Scope, context: { briefVersionId: briefV2.id }, metadata: {},
+    });
+    const v2Summary = state.memory.ensureSummary(state.project.id, state.conversation.id)!;
+    expect(v2Summary).toMatchObject({ version: 2, status: "current", supersedesVersionId: v1Summary.id,
+      canonicalDependencies: { briefVersionId: briefV2.id }, sourceRange: { messageCount: 6 } });
+    expect(v2Summary.content).toContain("V2 discussion 0");
+    expect(v2Summary.content).not.toContain("V1 discussion");
+    expect(state.memory.ensureSummary(state.project.id, state.conversation.id)?.id).toBe(v2Summary.id);
+    expect(state.memory.listSummaries(state.project.id, state.conversation.id)).toHaveLength(2);
+    expect(state.memory.listSummaries(state.project.id, state.conversation.id)[1]?.content).toBe(v1Summary.content);
+    state.database.close();
+  });
+
+  it("regenerates idempotently after scope and multiple canonical dependency changes", () => {
+    const state = setup();
+    for (let index = 0; index < 14; index += 1) state.conversations.addMessage({
+      conversationId: state.conversation.id, role: "user", content: `Original ${index}`, intent: "discuss",
+      scope: state.scope, context: { briefVersionId: state.brief.id }, metadata: {},
+    });
+    const original = state.memory.ensureSummary(state.project.id, state.conversation.id)!;
+    const briefV2 = state.artifacts.saveArtifact({ projectId: state.project.id, artifactId: "brief",
+      content: { title: "Second" }, schema: ArtifactSchema });
+    const bible = state.artifacts.saveArtifact({ projectId: state.project.id, artifactId: "bible",
+      content: { title: "Bible" }, schema: ArtifactSchema });
+    const nextScope = { ...state.scope, versionId: briefV2.id, sectionId: "changed" };
+    state.conversations.updateScope(state.conversation.id, nextScope);
+    for (let index = 0; index < 20; index += 1) expect(
+      state.memory.ensureSummary(state.project.id, state.conversation.id)?.id,
+    ).toBe(original.id);
+    for (let index = 0; index < 14; index += 1) state.conversations.addMessage({
+      conversationId: state.conversation.id, role: "user", content: `Current ${index}`, intent: "discuss",
+      scope: nextScope, context: { briefVersionId: briefV2.id, bibleVersionId: bible.id }, metadata: {},
+    });
+    const regenerated = state.memory.ensureSummary(state.project.id, state.conversation.id)!;
+    expect(regenerated).toMatchObject({ version: 2, status: "current", scope: nextScope,
+      canonicalDependencies: { bibleVersionId: bible.id, briefVersionId: briefV2.id } });
+    expect(state.memory.ensureSummary(state.project.id, state.conversation.id)?.id).toBe(regenerated.id);
+    state.database.close();
+  });
+
   it("selects relevant decisions before applying strict context count and byte bounds", () => {
     const state = setup();
     const olderRelevant = state.memory.createDecision({ projectId: state.project.id, scope: { kind: "project" },
@@ -166,15 +226,66 @@ describe("Foundation 8C durable author memory", () => {
     expect(context.recentMessages.map((item) => item.content)).toEqual(
       Array.from({ length: AUTHOR_MEMORY_BUDGETS.recentMessageCount }, (_, index) => `Long message ${index + messageCount - AUTHOR_MEMORY_BUDGETS.recentMessageCount}`),
     );
+    const changed = state.artifacts.saveArtifact({ projectId: state.project.id, artifactId: "brief",
+      content: { title: "Changed after legacy history" }, schema: ArtifactSchema });
+    const historyCount = state.memory.listSummaries(state.project.id, state.conversation.id).length;
+    for (let index = 0; index < 20; index += 1) state.memory.ensureSummary(state.project.id, state.conversation.id);
+    expect(state.memory.listSummaries(state.project.id, state.conversation.id)).toHaveLength(historyCount);
+    const changedScope = { ...state.scope, versionId: changed.id };
+    state.conversations.updateScope(state.conversation.id, changedScope);
+    for (let index = 0; index < 14; index += 1) state.conversations.addMessage({
+      conversationId: state.conversation.id, role: "user", content: `Current legacy continuation ${index}`,
+      intent: "discuss", scope: changedScope, context: { briefVersionId: changed.id }, metadata: {},
+    });
+    const regenerated = state.memory.ensureSummary(state.project.id, state.conversation.id)!;
+    expect(regenerated.canonicalDependencies).toEqual({ briefVersionId: changed.id });
+    expect(state.memory.ensureSummary(state.project.id, state.conversation.id)?.id).toBe(regenerated.id);
+    state.database.close();
+  });
+
+  it("bounds recent message bytes newest-first without changing exact stored Unicode messages", () => {
+    const state = setup();
+    const contents = Array.from({ length: 8 }, (_, index) => `${index}:${"😀".repeat(1_700)}`);
+    for (const content of contents) state.conversations.addMessage({ conversationId: state.conversation.id,
+      role: "user", content, intent: "discuss", scope: state.scope,
+      context: { briefVersionId: state.brief.id }, metadata: {} });
+    const context = state.memory.buildContext(state.project.id, state.conversation.id, state.scope);
+    expect(context.recentMessages.map((item) => item.content)).toEqual(contents.slice(-3));
+    expect(context.diagnostics).toMatchObject({ omittedRecentMessageCount: 5,
+      recentMessageBytes: contents.slice(-3).reduce((total, content) => total + Buffer.byteLength(content, "utf8"), 0) });
+    expect(context.diagnostics.omittedRecentMessageBytes).toBe(
+      contents.slice(0, 5).reduce((total, content) => total + Buffer.byteLength(content, "utf8"), 0),
+    );
+    expect(context.diagnostics.totalAuthorMemoryBytes).toBeLessThanOrEqual(AUTHOR_MEMORY_BUDGETS.totalAuthorMemoryBytes);
+    expect(state.conversations.listMessages(state.conversation.id).map((item) => item.content)).toEqual(contents);
+    state.database.close();
+  });
+
+  it("keeps eight tiny recent messages within both count and byte budgets", () => {
+    const state = setup();
+    for (let index = 0; index < 8; index += 1) state.conversations.addMessage({ conversationId: state.conversation.id,
+      role: "user", content: `Tiny ${index}`, intent: "discuss", scope: state.scope,
+      context: { briefVersionId: state.brief.id }, metadata: {} });
+    expect(state.memory.buildContext(state.project.id, state.conversation.id, state.scope)).toMatchObject({
+      recentMessages: Array.from({ length: 8 }, (_, index) => ({ content: `Tiny ${index}` })),
+      diagnostics: { omittedRecentMessageCount: 0, omittedRecentMessageBytes: 0 },
+    });
     state.database.close();
   });
 
   it("rejects direct-SQL head lineage mismatches atomically", () => {
     const state = setup();
     const first = state.memory.createDecision({ projectId: state.project.id, scope: { kind: "project" }, content: "One" });
+    expect(() => state.database.prepare(`INSERT INTO pinned_decision_versions
+      (id, decision_id, project_id, version, scope_kind, artifact_id, entity_kind, entity_id,
+        related_ids_json, content, status, provenance_json, supersedes_version_id, created_at)
+      SELECT 'gap-decision-version', decision_id, project_id, version + 2, scope_kind, artifact_id, entity_kind,
+        entity_id, related_ids_json, content, status, provenance_json, id, created_at
+      FROM pinned_decision_versions WHERE id = ?`).run(first.id)).toThrow(/progression|lineage/);
+    expect(state.memory.listDecisions(state.project.id, true)).toHaveLength(1);
     const second = state.memory.createDecision({ projectId: state.project.id, scope: { kind: "project" }, content: "Two" });
     expect(() => state.database.prepare(`UPDATE pinned_decision_heads SET current_version_id = ? WHERE decision_id = ?`)
-      .run(second.id, first.stableId)).toThrow("lineage mismatch");
+      .run(second.id, first.stableId)).toThrow(/progression|lineage/);
     expect(state.memory.getDecision(state.project.id, first.stableId)?.id).toBe(first.id);
 
     for (let index = 0; index < 12; index += 1) state.conversations.addMessage({
@@ -194,6 +305,32 @@ describe("Foundation 8C durable author memory", () => {
     expect(state.memory.currentSummary(state.project.id, state.conversation.id)?.id).toBe(summary.id);
     expect(state.database.prepare("SELECT id FROM conversation_summary_versions WHERE id = 'bad-summary-version'").get())
       .toBeUndefined();
+
+    const secondDecisionVersion = state.memory.reviseDecision(state.project.id, first.stableId, { content: "One v2" });
+    const thirdDecisionVersion = state.memory.reviseDecision(state.project.id, first.stableId, { content: "One v3" });
+    expect(thirdDecisionVersion.version).toBe(3);
+    expect(() => state.database.prepare(`UPDATE pinned_decision_heads SET current_version_id = ? WHERE decision_id = ?`)
+      .run(first.id, first.stableId)).toThrow("progression mismatch");
+    expect(state.memory.getDecision(state.project.id, first.stableId)?.id).toBe(thirdDecisionVersion.id);
+    expect(() => state.database.prepare("DELETE FROM pinned_decision_versions WHERE id = ?").run(secondDecisionVersion.id))
+      .toThrow("immutable");
+    expect(() => state.database.prepare("DELETE FROM pinned_decisions WHERE id = ?").run(first.stableId))
+      .toThrow("immutable");
+
+    for (let version = 0; version < 3; version += 1) {
+      for (let index = 0; index < 6; index += 1) state.conversations.addMessage({
+        conversationId: state.conversation.id, role: "user", content: `Summary next ${version}-${index}`,
+        intent: "discuss", scope: state.scope, context: { briefVersionId: state.brief.id }, metadata: {},
+      });
+      state.memory.ensureSummary(state.project.id, state.conversation.id);
+    }
+    const summaryHead = state.memory.currentSummary(state.project.id, state.conversation.id)!;
+    expect(summaryHead.version).toBeGreaterThanOrEqual(3);
+    expect(() => state.database.prepare(`UPDATE conversation_summary_heads SET current_version_id = ? WHERE series_id = ?`)
+      .run(summary.id, summary.stableId)).toThrow("progression mismatch");
+    expect(() => state.database.prepare("DELETE FROM conversation_summary_series WHERE id = ?").run(summary.stableId))
+      .toThrow("immutable");
+    expect(state.memory.currentSummary(state.project.id, state.conversation.id)?.id).toBe(summaryHead.id);
     state.database.close();
   });
 

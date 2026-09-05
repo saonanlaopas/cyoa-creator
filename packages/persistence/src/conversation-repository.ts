@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { StoryDatabase } from "./database.js";
 
+export const CONVERSATION_MESSAGE_BUDGETS = Object.freeze({
+  maximumUserMessageBytes: 16_000,
+  maximumAssistantMessageBytes: 32_000,
+});
+
+export function conversationMessageBytes(content: string): number {
+  return Buffer.byteLength(content, "utf8");
+}
+
 export interface AssistantScope {
   kind: "project" | "artifact";
   projectId: string;
@@ -116,6 +125,12 @@ export class ConversationRepository {
     if (input.scope.projectId !== conversation.projectId) throw new Error("Message scope must belong to its project");
     const content = input.content.trim();
     if (!content) throw new Error("Message is required");
+    const maximumBytes = input.role === "user"
+      ? CONVERSATION_MESSAGE_BUDGETS.maximumUserMessageBytes
+      : CONVERSATION_MESSAGE_BUDGETS.maximumAssistantMessageBytes;
+    if (conversationMessageBytes(content) > maximumBytes) {
+      throw new Error(`${input.role === "user" ? "User" : "Assistant"} message exceeds the ${maximumBytes.toLocaleString()}-byte limit`);
+    }
     const id = randomUUID();
     const now = new Date().toISOString();
     this.database.prepare(`

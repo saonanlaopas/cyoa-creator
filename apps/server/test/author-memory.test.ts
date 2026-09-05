@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OpenRouterClient, StructuredGenerationStreamRequest } from "@story-to-cyoa/openrouter";
+import { AUTHOR_MEMORY_BUDGETS, CONVERSATION_MESSAGE_BUDGETS } from "@story-to-cyoa/persistence";
 import { buildApp } from "../src/app.js";
 
 function capturingClient(log: string[]): OpenRouterClient {
@@ -46,6 +47,48 @@ describe("Foundation 8C author-memory API", () => {
     const history = (await app.inject({ method: "GET",
       url: `/api/long-form/projects/${created.project.id}/pinned-decisions?history=true` })).json() as unknown[];
     expect(history).toHaveLength(2);
+    await app.close();
+  });
+
+  it("rejects an oversized current message before persistence, proposal creation, or provider execution", async () => {
+    const prompts: string[] = [];
+    const app = buildApp({ openRouterClient: capturingClient(prompts) });
+    const created = (await app.inject({ method: "POST", url: "/api/long-form/projects",
+      payload: { name: "Bounded memory" } })).json() as { project: { id: string } };
+    const conversation = (await app.inject({ method: "POST",
+      url: `/api/long-form/projects/${created.project.id}/conversations`, payload: {} })).json() as { id: string };
+    const oversized = "😀".repeat(Math.floor(CONVERSATION_MESSAGE_BUDGETS.maximumUserMessageBytes / 4) + 1);
+    const response = await app.inject({ method: "POST",
+      url: `/api/long-form/projects/${created.project.id}/conversations/${conversation.id}/messages`,
+      payload: { content: oversized, intent: "propose", model: "offline/test" } });
+    expect(response.statusCode).toBe(413);
+    expect(response.json().error).toMatch(/16[.,]000-byte limit/);
+    expect(prompts).toHaveLength(0);
+    const reloaded = (await app.inject({ method: "GET",
+      url: `/api/long-form/projects/${created.project.id}/conversations/${conversation.id}` })).json();
+    expect(reloaded.messages).toEqual([]);
+    expect(reloaded.proposals).toEqual([]);
+    await app.close();
+  });
+
+  it("reports a deterministic provider-conversation byte ceiling", async () => {
+    const prompts: string[] = [];
+    const app = buildApp({ openRouterClient: capturingClient(prompts) });
+    const created = (await app.inject({ method: "POST", url: "/api/long-form/projects",
+      payload: { name: "Context ceiling" } })).json() as { project: { id: string } };
+    const conversation = (await app.inject({ method: "POST",
+      url: `/api/long-form/projects/${created.project.id}/conversations`, payload: {} })).json() as { id: string };
+    const sent = await app.inject({ method: "POST",
+      url: `/api/long-form/projects/${created.project.id}/conversations/${conversation.id}/messages`,
+      payload: { content: "Keep this request bounded.", intent: "discuss", model: "offline/test" } });
+    expect(sent.statusCode).toBe(201);
+    expect(sent.json().contextDiagnostics).toMatchObject({
+      currentMessageBytes: Buffer.byteLength("Keep this request bounded.", "utf8"),
+      authorMemory: { omittedRecentMessageCount: 0 },
+    });
+    expect(sent.json().contextDiagnostics.providerConversationBytes)
+      .toBeLessThanOrEqual(AUTHOR_MEMORY_BUDGETS.providerConversationBytes);
+    expect(prompts).toHaveLength(1);
     await app.close();
   });
 });

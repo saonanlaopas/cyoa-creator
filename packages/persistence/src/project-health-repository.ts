@@ -67,18 +67,23 @@ export interface ProjectUsageAggregateRow {
   lastRecordedAt: string | null;
 }
 
+export const RESUME_ATTENTION_JOB_STATUSES = ["planned", "authorized", "running", "partially_failed", "failed"] as const;
+export type ResumeAttentionJobStatus = typeof RESUME_ATTENTION_JOB_STATUSES[number];
+export interface ResumeJobStateFact {
+  count: number;
+  latestJobId: string | null;
+  latestPassageId: string | null;
+}
+export type ResumeJobFacts = Record<ResumeAttentionJobStatus, ResumeJobStateFact>;
+
 export interface ProjectResumeFacts {
-  runningGenerationJobs: number;
-  runningDraftingJobs: number;
-  failedGenerationJobs: number;
-  failedDraftingJobs: number;
+  generationJobs: ResumeJobFacts;
+  draftingJobs: ResumeJobFacts;
   proposedChangeSets: number;
   pendingDraftCandidates: number;
   acceptedAwaitingReview: number;
   staleCurrentDrafts: number;
   stalePassagePlan: number;
-  latestGenerationJobId: string | null;
-  latestDraftingJobId: string | null;
   latestPendingPassageId: string | null;
 }
 
@@ -170,11 +175,7 @@ export class ProjectHealthRepository {
   }
 
   resume(projectId: string): ProjectResumeFacts {
-    return this.database.prepare(`SELECT
-      (SELECT COUNT(*) FROM generation_jobs WHERE project_id = ? AND status IN ('queued', 'running', 'cancelling')) AS runningGenerationJobs,
-      (SELECT COUNT(*) FROM drafting_jobs WHERE project_id = ? AND status IN ('queued', 'running', 'cancelling')) AS runningDraftingJobs,
-      (SELECT COUNT(*) FROM generation_jobs WHERE project_id = ? AND status = 'failed') AS failedGenerationJobs,
-      (SELECT COUNT(*) FROM drafting_jobs WHERE project_id = ? AND status = 'failed') AS failedDraftingJobs,
+    const facts = this.database.prepare(`SELECT
       (SELECT COUNT(*) FROM change_sets WHERE project_id = ? AND status = 'proposed') AS proposedChangeSets,
       (SELECT COUNT(*) FROM passage_draft_heads heads JOIN passage_draft_versions versions
         ON versions.project_id = heads.project_id AND versions.id = heads.current_version_id
@@ -185,13 +186,43 @@ export class ProjectHealthRepository {
       (SELECT COUNT(DISTINCT heads.current_version_id) FROM passage_draft_heads heads JOIN passage_draft_staleness_events stale
         ON stale.project_id = heads.project_id AND stale.draft_version_id = heads.current_version_id WHERE heads.project_id = ?) AS staleCurrentDrafts,
       (SELECT COUNT(*) FROM passage_plan_state WHERE project_id = ? AND status = 'stale') AS stalePassagePlan,
-      (SELECT id FROM generation_jobs WHERE project_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1) AS latestGenerationJobId,
-      (SELECT id FROM drafting_jobs WHERE project_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1) AS latestDraftingJobId,
       (SELECT heads.passage_id FROM passage_draft_heads heads JOIN passage_draft_versions versions
         ON versions.project_id = heads.project_id AND versions.id = heads.current_version_id
         WHERE heads.project_id = ? AND versions.lifecycle_status = 'candidate'
         ORDER BY versions.created_at DESC, heads.passage_id LIMIT 1) AS latestPendingPassageId`)
-      .get(...Array.from({ length: 12 }, () => projectId)) as unknown as ProjectResumeFacts;
+      .get(...Array.from({ length: 6 }, () => projectId)) as unknown as Omit<ProjectResumeFacts, "generationJobs" | "draftingJobs">;
+    return { ...facts, generationJobs: this.resumeGenerationJobs(projectId), draftingJobs: this.resumeDraftingJobs(projectId) };
+  }
+
+  private resumeGenerationJobs(projectId: string): ResumeJobFacts {
+    const rows = this.database.prepare(`WITH ranked AS (
+      SELECT id, plan_id, status, COUNT(*) OVER (PARTITION BY status) AS status_count,
+        ROW_NUMBER() OVER (PARTITION BY status ORDER BY updated_at DESC, id DESC) AS recency
+      FROM generation_jobs WHERE project_id = ?
+        AND status IN ('planned', 'authorized', 'running', 'partially_failed', 'failed')
+    ) SELECT ranked.status, ranked.status_count, ranked.id,
+      (SELECT json_extract(units.passage_ids_json, '$[0]') FROM generation_plan_units units
+        WHERE units.plan_id = ranked.plan_id ORDER BY units.position LIMIT 1) AS passage_id
+      FROM ranked WHERE ranked.recency = 1`).all(projectId) as Array<{
+        status: ResumeAttentionJobStatus; status_count: number; id: string; passage_id: string | null;
+      }>;
+    return mapResumeJobFacts(rows);
+  }
+
+  private resumeDraftingJobs(projectId: string): ResumeJobFacts {
+    const rows = this.database.prepare(`WITH ranked AS (
+      SELECT id, plan_id, status, COUNT(*) OVER (PARTITION BY status) AS status_count,
+        ROW_NUMBER() OVER (PARTITION BY status ORDER BY updated_at DESC, id DESC) AS recency
+      FROM drafting_jobs WHERE project_id = ?
+        AND status IN ('planned', 'authorized', 'running', 'partially_failed', 'failed')
+    ) SELECT ranked.status, ranked.status_count, ranked.id,
+      (SELECT passages.passage_id FROM drafting_plan_unit_passages passages
+        JOIN drafting_plan_units units ON units.plan_id = passages.plan_id AND units.unit_id = passages.unit_id
+        WHERE passages.plan_id = ranked.plan_id ORDER BY units.position, passages.position LIMIT 1) AS passage_id
+      FROM ranked WHERE ranked.recency = 1`).all(projectId) as Array<{
+        status: ResumeAttentionJobStatus; status_count: number; id: string; passage_id: string | null;
+      }>;
+    return mapResumeJobFacts(rows);
   }
 
   latest(projectId: string): ProjectHealthLatestRecord[] {
@@ -349,6 +380,19 @@ export class ProjectHealthRepository {
       ORDER BY json_extract(versions.content_json, '$.position'), heads.entity_id`).all(projectId) as Array<{ detail: string }>;
     return plans.map((row) => ({ operation: "passage-review-queue", detail: row.detail }));
   }
+}
+
+function mapResumeJobFacts(rows: Array<{
+  status: ResumeAttentionJobStatus; status_count: number; id: string; passage_id: string | null;
+}>): ResumeJobFacts {
+  const empty = (): ResumeJobStateFact => ({ count: 0, latestJobId: null, latestPassageId: null });
+  const result: ResumeJobFacts = {
+    planned: empty(), authorized: empty(), running: empty(), partially_failed: empty(), failed: empty(),
+  };
+  for (const row of rows) result[row.status] = {
+    count: Number(row.status_count), latestJobId: row.id, latestPassageId: row.passage_id,
+  };
+  return result;
 }
 
 interface RawUsageRow {
