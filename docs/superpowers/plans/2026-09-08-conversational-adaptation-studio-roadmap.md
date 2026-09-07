@@ -129,7 +129,9 @@ Adapted project
     -> accepted passage planning, drafting, review, simulation, repair, and publication
 ```
 
-Project Brief and Creative Direction are peer foundation artifacts: the Brief owns story/project shape, while Creative Direction owns presentation. For new projects created after A1, both must be explicitly approved before new Bible generation or downstream AI-assisted production. In adapted projects, the Source Dossier and Adaptation Intent are additional exact approved dependencies for bootstrap and fidelity-sensitive work.
+Project Brief and Creative Direction are peer foundation artifacts: the Brief owns story/project shape, while Creative Direction owns presentation. For new projects created after A1, both must be explicitly approved before new Bible generation or downstream AI-assisted production. In adapted projects, the approved Source Dossier is the exact prerequisite for A4 Adaptation Intent; the approved Source Dossier and approved Adaptation Intent are the exact required inputs to A5 bootstrap. Creative Direction is an output of A5, not a prerequisite for A4 or a required pre-existing input to A5.
+
+An author may manually create Creative Direction before A4/A5. That artifact remains optional during A4. If it exists when A5 is planned, bootstrap binds its exact current base and must either preserve it unchanged or propose an explicit reviewed update. If it does not exist, A5 may propose its creation with a `must-not-exist` precondition. A5 never claims to depend on a Creative Direction version that the same bootstrap is creating.
 
 Existing pre-A1 projects without Creative Direction remain readable, playable, exportable, recoverable, and historically valid. Studio must not silently infer and approve new direction for them. Provider-assisted work that requires Creative Direction instead presents a bounded migration/adoption review; after the author explicitly approves the artifact, current downstream work follows normal material-equivalence and staleness rules. Historical approvals and prose are never rewritten.
 
@@ -265,7 +267,7 @@ Supported provenance references include:
 - `proposal`: proposal/group/operation and application audit IDs;
 - `migration-derived`: deterministic compatibility source versions and rule version.
 
-Every reference must resolve inside the same project and must survive history, export, backup, restore, and project duplication. Unsupported or missing evidence is shown as unavailable; Studio does not invent an explanation.
+Within a live full-fidelity project, every reference must resolve inside the same project and survive history, backup, restore, and duplication. Portable privacy-redacted exports may intentionally omit source bodies, but every affected reference then carries an explicit unavailable/redacted state and expected source fingerprint; Studio never presents it as resolved or invents an explanation.
 
 ### Dependency and staleness semantics
 
@@ -380,13 +382,36 @@ The source dossier is a versioned analytical artifact, distinct from the adaptat
 
 During A3, dossier records may be `source-canon` or `inference`. Adaptation-only invention and author overrides belong to later artifacts and must not be smuggled into source analysis.
 
+### Source-analysis corrections
+
+A source-analysis correction means Studio analyzed the supplied source incorrectly. It is part of A3 analytical review and is categorically different from an A4 author override.
+
+Corrections cover at least:
+
+- a wrong character identity;
+- two characters incorrectly merged;
+- one character incorrectly split;
+- a wrong relationship;
+- a canon fact unsupported by its evidence;
+- an inference incorrectly labeled source canon;
+- source canon incorrectly labeled inference;
+- a wrong timeline, event, character, location, or object association.
+
+The original extracted observation and provider provenance remain immutable and auditable. Review creates a new corrected analytical version linked to the observation/version it supersedes. Correction operations include field correction, identity merge, identity split, rejection as unsupported, evidence replacement/addition/removal, and explicit classification change. Every corrected claim must retain exact source evidence or be rejected/marked unsupported; a reviewer cannot turn an unsupported interpretation into source canon by assertion alone.
+
+Merge and split operations preserve identity lineage. A merge records every prior analytical identity and the resulting stable dossier identity. A split records the source identity, each resulting identity, and the exact evidence assigned to each. Downstream dossier references are deterministically remapped or surfaced for review rather than silently orphaned.
+
+The dossier's effective current view is the latest reviewed correction state over immutable extracted observations. Dossier approval applies to that corrected analytical version. The UI shows original observation, corrected state, evidence, classification change, reviewer action, and lineage together.
+
+An A3 correction says, "Studio's account of the source was wrong." An A4 override says, "The source says X, but I intentionally want this adaptation to use Y." Corrections repair source analysis; overrides preserve the source analysis and layer adaptation policy over it. Their provenance types, controls, and history must never be interchangeable.
+
 ## Canon, inference, override, and adaptation-only semantics
 
 ### Source canon
 
 A claim directly supported by one or more exact source evidence references. The claim remains tied to the source version analyzed. Example: "Haru works at the design office."
 
-Source canon can be corrected by creating a new dossier version with corrected evidence; it is never rewritten merely because the adaptation changes it.
+Source canon can be corrected through the explicit A3 source-analysis correction workflow, producing a new dossier version while retaining the original observation and lineage. It is never rewritten merely because the adaptation changes it.
 
 ### Inference
 
@@ -440,17 +465,33 @@ The stored authoritative state is the expanded dimensional policy, not only the 
 
 `preserveCanonRoute` is a first-class adaptation-intent policy, not a marketing promise.
 
-When enabled, operational acceptance requires:
+### Requested canon preservation - A4
+
+A4 records requested preservation before Routes, Endings, or a Passage Plan exist. Its authoritative contract includes:
 
 - source-dossier major events and turning points selected as canon-route obligations have stable IDs;
-- a route/act/sequence mapping represents each required obligation, or records an explicit reviewed condensation/substitution;
-- at least one legal path from the start can reach the mapped source ending where structurally possible;
-- the source ending path is distinguishable from adaptation-only alternatives;
-- alternate branches may diverge and reconverge without erasing the preserved obligations;
-- validation reports missing, reordered, condensed, or impossible obligations;
-- publication readiness never says the canon route is preserved when required mapping or reachability is absent.
+- source-ending obligations have stable IDs and exact dossier evidence;
+- required character, world, tone, and structural fidelity intent is explicit;
+- allowed condensation or substitution policy is explicit;
+- reviewed obligation-specific exceptions retain rationale and provenance.
 
-Preservation does not require exact scene-by-scene replication when source and target scales differ. The UI states the achieved fidelity: represented, condensed, intentionally changed, or blocked, with evidence and author-approved exceptions.
+At this stage the UI may say **Canon route requested**. It must not say **Canon route preserved**, because no generated route graph exists yet and reachability cannot be proven.
+
+### Achieved canon preservation - A5 and downstream
+
+A5 maps requested obligations to exact generated route, act, and ending IDs and reports each as `represented`, `condensed`, `intentionally-changed`, `blocked`, or `pending-passage-validation`. It validates structural ordering and coverage available at the foundation level, but does not claim runtime reachability before a Passage Plan exists.
+
+After Routes, Endings, and the Passage Plan exist, downstream validation extends the mapping to exact sequence, passage, and choice IDs and must:
+
+- validate obligation order and coverage;
+- demonstrate at least one legal path through the approved graph;
+- demonstrate source-ending reachability where structurally possible;
+- keep the source-ending path distinguishable from adaptation-only alternatives;
+- show where alternate branches diverge, reconverge, or intentionally replace an obligation;
+- report missing, reordered, condensed, intentionally changed, or blocked obligations;
+- prevent publication/readiness UI from claiming preservation when required mapping or reachability is absent.
+
+Preservation does not require exact scene-by-scene replication when source and target scales differ. Requested intent remains visible beside achieved evidence so the author can distinguish what was asked for from what the current structure has actually proven.
 
 ## Planned expansion, not prose inflation
 
@@ -472,7 +513,7 @@ Each accepted expansion item has a stable ID, rationale, target scope, estimated
 
 ## Foundation bootstrap behavior
 
-Bootstrap consumes an exact reviewed source dossier plus exact adaptation intent for adapted projects, or exact conversational setup inputs for original projects. It produces a multi-artifact proposal bundle containing draft candidates for:
+Bootstrap consumes an exact approved source dossier plus exact approved adaptation intent for adapted projects, or exact conversational setup inputs for original projects. It produces a multi-artifact proposal bundle containing draft candidates for:
 
 - Project Brief;
 - Creative Direction;
@@ -483,7 +524,9 @@ Bootstrap consumes an exact reviewed source dossier plus exact adaptation intent
 
 It does not produce a passage plan or prose.
 
-Each candidate records exact source/dossier/intent/message/approved-artifact dependencies, schema versions, context fingerprints, provider attempts, and field provenance. New artifact creation uses a `must-not-exist` precondition; replacement uses an exact current base version.
+Each candidate records exact source/dossier/intent/message/approved-artifact dependencies, schema versions, context fingerprints, provider attempts, and field provenance. New artifact creation uses a `must-not-exist` precondition; replacement uses an exact current base version. Creative Direction is normally one of the bootstrap outputs. If a current Creative Direction already exists, bootstrap binds that exact base and either preserves it or proposes a reviewed replacement; otherwise no Creative Direction input dependency exists.
+
+Bootstrap also creates the first achieved-canon-preservation assessment when requested. It maps obligations to generated route/act/ending stable IDs and reports foundation-level coverage honestly, including `pending-passage-validation` where graph proof must wait for the Passage Plan. It cannot label the canon route preserved solely from A5 output.
 
 Review groups may be applied selectively only when their dependency closure is complete. A selected multi-artifact application runs validation and staleness preview against the full effective state, then creates all selected ordinary draft versions and application audits in one SQLite transaction. If any candidate, base, schema, reference, provenance link, or workflow update fails, none of the selected artifacts change.
 
@@ -555,6 +598,29 @@ Before source analysis or bootstrap, show:
 - cost as known, estimated range, or unknown.
 
 Provider-reported historical usage is exact when recorded. Prospective token and cost calculations are estimates. Missing price or usage information remains unknown; partial totals are labeled partial. Studio never invents exact cost or silently fetches/reprices historical work.
+
+## Source-evidence portability and privacy
+
+Adapted projects have two explicit portable archive modes. The selected mode and the evidence availability of every source-grounded reference are part of the archive manifest; omission is never represented as successful evidence resolution.
+
+### Full-fidelity archive
+
+- Includes the immutable source artifact and selected scope, dossier and correction history, adaptation intent, evidence ranges, and all provenance required to resolve exact source-grounded claims.
+- Import validates source identity, normalized-content fingerprint, chapter/excerpt/range identity, and project-owned references before making the imported project available.
+- Normal verified backup/restore remains full fidelity. It must not silently become privacy-redacted or lose source evidence; a redacted share archive is not a substitute for a recoverable backup unless the author explicitly accepts that limitation.
+
+### Privacy-redacted archive
+
+- May omit source bodies only through an explicit privacy choice. The manifest records each omission, the expected source fingerprint and normalization contract, and evidence state as `redacted` or `unavailable` rather than resolved.
+- Dossier, intent, and other selected metadata may remain readable, but the UI identifies source-grounded evidence as unavailable and does not display it as verified against an included source.
+- Source-grounded provider work, correction, re-analysis, and evidence-dependent bootstrap/editing are blocked until the exact source is reattached and its normalized-content fingerprint is verified. A mismatch imports as a distinct source and cannot silently relink historical evidence.
+- Reattachment restores availability without rewriting immutable historical artifacts or evidence references.
+
+### Duplication and identity
+
+- A full project duplicate copies the source and remaps project-owned source artifact/version IDs and every dependent provenance reference transactionally. Content-derived chapter/excerpt/range identities may remain stable when their source fingerprint is unchanged; the duplicate records the complete old-to-new identity map.
+- A duplicate made from privacy-redacted data retains explicit unavailable/redacted evidence descriptors and expected fingerprints. It must not create dangling references that appear valid or invent replacement evidence.
+- Export, import, duplication, backup, and restore preserve the distinction between source present, source redacted, and source missing.
 
 ## Quick Prototype boundary
 
@@ -774,6 +840,7 @@ Studio can analyze a large supplied story in bounded resumable units and produce
 - Bounded analysis plans, jobs, units, attempts, cancellation, retry, restart recovery, and progress.
 - Strict observation schema with exact evidence references.
 - Deterministic merge, identity reconciliation, ambiguity, and contradiction surfacing.
+- Explicit source-analysis correction operations for field correction, merge, split, rejection, evidence repair, and canon/inference reclassification.
 - Source dossier lifecycle, review UI, history, comparison, restore, and export.
 - Deterministic offline analysis provider and stubbed real-provider/OpenRouter boundary.
 
@@ -789,6 +856,8 @@ Studio can analyze a large supplied story in bounded resumable units and produce
 - Source, scope, chunk plan, contexts, unit outputs, observations, dossier versions, and provenance are immutable and fingerprinted.
 - Evidence references resolve to exact source version + chapter/excerpt/range identity.
 - Dossier facts distinguish source canon from inference.
+- Original observations remain immutable; corrected analytical versions retain supersession, evidence, classification, and merge/split identity lineage.
+- Dossier approval binds the reviewed corrected analytical state, never an unreviewed provider aggregate.
 - Consolidation is deterministic and preserves conflicts.
 - No provider output becomes canonical source evidence without local schema and evidence validation.
 
@@ -803,6 +872,8 @@ Import, scope selection, unit preview, dossier browsing, consolidation, and revi
 - Progress by unit without fabricated percentage.
 - Evidence inspector that opens the exact source excerpt.
 - Dossier review organized by character, relationship, location, timeline, event, theme, prose, object, ambiguity, and contradiction.
+- Correction review showing original observation beside corrected state, evidence changes, classification changes, rejection status, and identity lineage.
+- Distinct labels and controls for **Correct analysis** in A3 versus **Override for adaptation** in A4.
 
 ### Migration/schema expectation
 
@@ -814,6 +885,8 @@ Additive schema work is expected for analysis plans/jobs/units/attempts/observat
 - Stable chapter/excerpt identity and reliable subdivision ranges.
 - Oversized chapter/block unit planning and local hard-bound failure.
 - Exact evidence grounding, cross-source rejection, ambiguity, and contradiction retention.
+- Wrong identity, merge, split, relationship, timeline/event association, unsupported claim, and canon/inference reclassification corrections.
+- Immutable original-observation audit, corrected-version history, identity-reference remapping, unsupported-observation rejection, and approval of the corrected effective dossier.
 - Deterministic merge/fingerprint under retries and different completion order.
 - Cancellation, restart recovery, attempt ceilings, malformed/oversized output, stale source/scope, and in-flight mutation race.
 - Large-manuscript browser flow with metadata-first lists and one selected evidence body at a time.
@@ -824,7 +897,7 @@ No whole-work prompt. Unit planning is bounded by source blocks/ranges and provi
 
 ### Failure modes
 
-Unsupported/encrypted input, invalid UTF-8, oversized import, unstable evidence range, context overflow, provider failure, ungrounded observation, duplicate/conflicting identity, stale source/scope, cancellation, and migration failure all preserve source and completed evidence without partial dossier publication.
+Unsupported/encrypted input, invalid UTF-8, oversized import, unstable evidence range, context overflow, provider failure, ungrounded observation, duplicate/conflicting identity, invalid merge/split lineage, evidence-free correction, stale source/scope, cancellation, and migration failure all preserve source and completed evidence without partial dossier publication.
 
 ### Compatibility
 
@@ -834,6 +907,8 @@ Current imports continue to load. Quick Prototype remains unchanged. Historical 
 
 - A representative large multi-chapter source can be imported, previewed, interrupted, resumed, consolidated, and inspected with exact evidence.
 - Canon and inference are visibly distinct; contradiction is preserved.
+- Incorrect analysis can be corrected, merged, split, rejected, or reclassified while the original observation and exact evidence remain auditable.
+- Dossier approval uses the reviewed corrected analytical state, and no correction is represented as an adaptation override.
 - No adaptation-only proposal or passage prose is produced.
 - Every non-provider inspection/review operation works offline.
 
@@ -853,7 +928,7 @@ The author can explicitly define how the adaptation may preserve, reinterpret, d
 - Dimensional fidelity policies and friendly preset expansion.
 - Explicit author overrides linked to source dossier records.
 - Adaptation-only invention records.
-- Preserve-canon-route policy and obligation mapping contract.
+- Requested-canon-preservation policy, source/source-ending obligations, allowed condensation/substitution, and reviewed exceptions.
 - Source-to-target expansion plan and allocation rationale.
 - Validation, provenance, history, comparison, restore, and approval.
 
@@ -866,10 +941,10 @@ The author can explicitly define how the adaptation may preserve, reinterpret, d
 
 ### Durable contracts
 
-- Exact approved source dossier and Creative Direction dependencies.
+- Exact approved source dossier dependency. Creative Direction is optional and is not an A4 prerequisite.
 - Separate immutable source fact, inference, override, and adaptation-only records.
 - Presets expand to stored explicit dimensional policy.
-- Canon-route obligations and exceptions have stable IDs and evidence.
+- Requested canon-route obligations and exceptions have stable IDs and evidence, without claiming achieved graph reachability.
 - Expansion items have origin, scope, rationale, budget, and dependency.
 
 ### Provider boundary
@@ -881,7 +956,7 @@ Manual configuration and validation are local. Conversational suggestions requir
 - Friendly fidelity preset with visible dimension summary.
 - Manual per-dimension and stable-ID exception controls.
 - Side-by-side source fact, override, and adaptation effect.
-- Preserve-canon-route obligation matrix.
+- Requested-canon-preservation obligation matrix labeled **Canon route requested**, never **Canon route preserved** at A4.
 - Source/target length and structural expansion review.
 
 ### Migration/schema expectation
@@ -893,9 +968,9 @@ Use ordinary artifact versions plus additive provenance/index records if A1/A3 s
 - Deterministic preset expansion and manual override.
 - Round-trip history/export/import/backup of every origin category.
 - Override removal revealing unchanged source fact.
-- Canon-route obligation coverage validation and reviewed exceptions.
+- Requested canon-route obligation/evidence validation and reviewed exceptions, with zero claims of achieved route or ending reachability.
 - Expansion budget reconciliation and non-inflation browser scenarios.
-- Stale dossier/Creative Direction/proposal bases and atomic rollback.
+- Stale dossier/proposal bases and atomic rollback; an absent Creative Direction must not block A4.
 
 ### Large-source behavior
 
@@ -903,7 +978,7 @@ Intent references dossier IDs and bounded evidence previews; it never resends th
 
 ### Failure modes
 
-Reject orphaned evidence, override targets from another project/version, contradictory active overrides without explicit resolution, impossible claimed canon preservation, unknown cost/length represented as exact, and partial application.
+Reject orphaned evidence, override targets from another project/version, contradictory active overrides without explicit resolution, unsupported requested obligations, unknown cost/length represented as exact, and partial application. A4 must reject any output that claims achieved route/graph preservation before structure exists.
 
 ### Compatibility
 
@@ -913,7 +988,8 @@ Existing Long-form projects can adopt intent explicitly. Historical Brief fideli
 
 - Presets are transparent expanded policies, not opaque labels.
 - Source canon remains unchanged when overrides are added or removed.
-- Canon-route preservation has testable operational status.
+- Requested canon preservation is explicit, evidence-linked, and visibly distinct from later achieved preservation.
+- A4 works without any Creative Direction artifact and never claims route/ending reachability.
 - Expansion is represented as planned structure with origin and budget.
 - No foundation artifacts or prose are generated.
 
@@ -925,13 +1001,15 @@ Existing Long-form projects can adopt intent explicitly. Historical Brief fideli
 
 ### Outcome
 
-An adapted project's reviewed dossier and adaptation intent can produce one reviewable, provenance-complete bundle of draft Long-form foundations that enters the accepted workflow without bypassing approvals.
+An adapted project's approved dossier and approved adaptation intent can produce one reviewable, provenance-complete bundle of draft Long-form foundations that enters the accepted workflow without bypassing approvals.
 
 ### In scope
 
 - Exact bootstrap input snapshot and deterministic scope/context planning.
 - Bounded generation plans/jobs/units/attempts with preview, authorization, cancellation, retry, recovery, and no-late-commit.
 - Strict candidates for Brief, Creative Direction, Bible, Routes, Detailed Endings, and Mechanics.
+- Optional binding to an exact pre-existing Creative Direction base, with explicit preservation or a reviewable proposed update; absence is a valid bootstrap precondition.
+- Initial achieved-canon assessment mapped to exact proposed route, act, and ending IDs, with passage-level reachability left pending until the required graph exists.
 - Cross-artifact identity/reference reconciliation.
 - Multi-artifact Review Mode with dependency groups, diffs, provenance, validation, and staleness impact.
 - Atomic application to ordinary draft versions and immutable audit.
@@ -946,7 +1024,9 @@ An adapted project's reviewed dossier and adaptation intent can produce one revi
 
 ### Durable contracts
 
-- Bootstrap binds exact dossier, intent, Creative Direction, message/decision, schema, policy, provider/model, and context fingerprints.
+- Bootstrap binds the exact approved dossier, exact approved intent, message/decision, schema, policy, provider/model, and context fingerprints.
+- Creative Direction is an A5 output: when none exists, its candidate uses an exact `must-not-exist` precondition; when one already exists, A5 binds that exact optional base and either preserves it or proposes an explicit reviewed update. Bootstrap never requires the Creative Direction version it is creating.
+- Requested A4 canon obligations map to exact proposed route, act, and ending IDs with explicit represented, condensed, intentionally changed, blocked, or pending-passage-validation status. A5 cannot label a canon route preserved before passage/choice reachability is validated downstream.
 - Absent/current artifact preconditions are exact.
 - Candidate IDs and cross-artifact references are deterministic or explicitly remapped before review.
 - Selected dependency closure validates as one effective project state.
@@ -972,8 +1052,9 @@ Additive bootstrap plan/job/unit/attempt/candidate/application records are expec
 
 - Complete deterministic adapted-project bootstrap.
 - Exact candidate references and provenance.
+- Requested obligations mapped to exact proposed route/act/ending IDs, honest pending-passage-validation status, and no premature **Canon route preserved** claim.
 - Malformed, oversized, ungrounded, duplicate-ID, and invalid-reference outputs.
-- Cancellation/retry/recovery and provider race after dossier/intent/Creative Direction mutation.
+- Cancellation/retry/recovery and provider race after dossier/intent mutation and, only when bound as an optional base, pre-existing Creative Direction mutation.
 - Stale absent/current preconditions.
 - Dependency-safe selection and full rollback after simulated failure late in application.
 - Browser review proving nothing is approved and no prose exists afterward.
@@ -984,7 +1065,7 @@ Bootstrap consumes the bounded dossier and selected evidence summaries, not the 
 
 ### Failure modes
 
-Any stale dependency, invalid evidence, unresolved required identity, schema failure, context overflow, provider interruption, cancellation, or application error leaves canonical artifacts unchanged and the job in a deterministic resumable or terminal state.
+Any stale dependency, stale bound optional Creative Direction base, invalid evidence, unresolved required identity, schema failure, context overflow, provider interruption, cancellation, or application error leaves canonical artifacts unchanged and the job in a deterministic resumable or terminal state.
 
 ### Compatibility
 
@@ -992,8 +1073,9 @@ Applied artifacts are ordinary Long-form artifacts opened by existing Advanced M
 
 ### External acceptance criteria
 
-- A reviewed adapted source can produce all six draft foundation artifacts through bounded offline-tested work.
+- An approved source dossier and approved adaptation intent can produce all six draft foundation artifacts through bounded offline-tested work, whether or not Creative Direction existed beforehand.
 - Review shows exact provenance and downstream effects.
+- Canon obligations have exact proposed structural mappings and honest achieved-status reporting; passage-level preservation remains pending until the graph can prove it.
 - One forced late failure proves no partial artifact application.
 - Resulting project proceeds through normal approvals and existing passage planning.
 - No passage plan or prose is generated.
@@ -1092,7 +1174,8 @@ Projects created through original conversation or source adaptation are indistin
 - Unified creation/resume navigation across Director, Review, and Advanced layers.
 - Exact handoff from setup/bootstrap drafts into normal workflow approvals.
 - Compatibility validation across passage planning, static validation, drafting, review/accept/lock, deterministic simulation, seeded playtesting, narrative review, repair, compilation, player, publishing, backup, Health, usage, resume, and recovery.
-- Portable export/import and backup/restore of Creative Direction, source dossier, adaptation intent, provenance, conversational proposal history, and job state according to explicit privacy choices.
+- Full-fidelity and explicitly privacy-redacted portable export/import of Creative Direction, source dossier, adaptation intent, provenance, conversational proposal history, job state, and source-evidence availability.
+- Full-fidelity verified backup/restore plus transactional project duplication with exact source/provenance identity remapping.
 - Final cognitive-load and accessibility browser journeys.
 - Documentation for conversational/original/adapted use.
 
@@ -1107,7 +1190,9 @@ Projects created through original conversation or source adaptation are indistin
 
 - Project mode remains `long-form`; creation origin is metadata/provenance only.
 - Existing downstream stages consume exact approved canonical artifacts regardless of which UI created them.
-- Portable/backup formats version and validate all new artifacts/evidence while honoring source-body and conversation privacy exclusions.
+- Portable archive manifests version and validate all new artifacts/evidence and distinguish source present, redacted, and missing. Redacted evidence is never presented as resolved.
+- Full-fidelity archives and verified backups contain the source material needed to resolve evidence. Privacy-redacted archives retain expected source fingerprints, block source-grounded provider work until exact verified reattachment, and do not weaken normal backup guarantees.
+- Duplication remaps project-owned source artifact/version IDs and dependent provenance references atomically while preserving content-derived evidence identity only when the source fingerprint is unchanged.
 - Handoff does not auto-approve, auto-generate passages, or bypass readiness.
 
 ### Provider boundary
@@ -1120,16 +1205,22 @@ Handoff, existing workflow use, import/export, play, Health, backup, and recover
 - A conversationally created project opens at the next ordinary review/approval step.
 - Director/Review/Advanced switching preserves current project, stage, scope, stable ID, focus, and scroll behavior.
 - Resume work explains the next action in user language with technical detail available on demand.
+- Export makes full-fidelity versus privacy-redacted mode explicit, warns that redaction limits recovery and evidence-grounded work, and previews what will be omitted.
+- Imported or duplicated redacted projects show unavailable evidence and offer exact-source reattachment with fingerprint verification; mismatches are explained and never silently relinked.
 
 ### Migration/schema expectation
 
-Only compatibility-format version increments required to serialize/restore A1-A6 records. Migrations preserve all historical Long-form and Quick projects. Unknown future formats fail safely without partial import or restore.
+Only compatibility-format version increments required to serialize/restore A1-A6 records and the archive evidence-availability manifest. Migrations preserve all historical Long-form and Quick projects and the full-fidelity behavior of existing verified backups. Unknown future formats fail safely without partial import or restore.
 
 ### Tests
 
 - End-to-end original idea -> reviewed drafts -> approval -> passage plan -> draft -> review -> playtest -> repair -> compile/play/export.
 - End-to-end large source -> dossier -> intent -> bootstrap -> the same downstream workflow.
-- Backup/restore, portable export/import, duplicate, archive/delete confirmation, Health, usage, and resume.
+- Full-fidelity backup/restore and portable export/import with every evidence reference resolvable after round trip.
+- Privacy-redacted export/import with explicit unavailable evidence, retained expected fingerprints, blocked source-grounded provider work, successful exact reattachment, and rejected mismatch without silent relinking.
+- Full and redacted duplicate behavior, including complete project-owned identity remapping, no falsely valid dangling evidence, and transactional rollback on invalid provenance.
+- Regression proving historical/full verified backup behavior is not downgraded by the redacted archive option.
+- Archive/delete confirmation, Health, usage, and resume.
 - Privacy assertions for source bodies, conversations, provider content, credentials, and reasoning.
 - Accessibility, keyboard, narrow-layout, and cognitive-load browser flows.
 - Regression proving Quick Prototype remains separate and unchanged.
@@ -1140,7 +1231,7 @@ Handoff uses immutable dossier/foundation artifacts and metadata; it does not re
 
 ### Failure modes
 
-Missing approvals, stale dossiers/intent/foundations, incompatible portable data, corrupt backup, unsupported schema, interrupted job, absent provider, and downstream readiness errors produce actionable recovery without hidden mutation or data loss.
+Missing approvals, stale dossiers/intent/foundations, incompatible portable data, corrupt backup, unsupported schema, interrupted job, absent provider, unavailable/redacted source evidence, fingerprint mismatch, invalid duplicate identity mapping, and downstream readiness errors produce actionable recovery without hidden mutation or data loss.
 
 ### Compatibility
 
@@ -1150,6 +1241,8 @@ All existing Long-form projects remain valid. Projects created by Director, adap
 
 - Both original and adapted browser journeys enter and complete the accepted Long-form pipeline without conversion-specific downstream code.
 - New artifacts and provenance survive reload, export/import, backup/restore, and history inspection.
+- Full-fidelity archives keep evidence resolvable; privacy-redacted archives honestly mark it unavailable and cannot perform source-grounded work until exact source reattachment succeeds.
+- Duplication preserves or remaps every source/evidence identity according to the declared contract without weakening verified backups.
 - A new user can create a sophisticated project without understanding internal persistence terminology.
 - Advanced users retain every existing control.
 - No non-AI workflow depends on provider availability.
