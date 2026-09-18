@@ -8,6 +8,7 @@ export * from "./schemas/story-bible.js";
 export * from "./schemas/adaptation-plan.js";
 export * from "./schemas/change-proposal.js";
 export * from "./schemas/project-brief.js";
+export * from "./schemas/creative-direction.js";
 export * from "./schemas/assistant-response.js";
 export * from "./schemas/long-form-story-bible.js";
 export * from "./schemas/bible-assistant-response.js";

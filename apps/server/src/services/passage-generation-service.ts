@@ -20,6 +20,7 @@ import {
   type PassagePlanningProviderUsage,
   type PassageStructure,
   type ProjectBrief,
+  type CreativeDirection,
 } from "@story-to-cyoa/pipeline";
 import { redactSecret } from "@story-to-cyoa/openrouter";
 import { createHash } from "node:crypto";
@@ -158,6 +159,9 @@ export class PassageGenerationService {
       routes: this.exactArtifact<LongFormRoutePlan>(projectId, "routes", snapshot.upstreamVersions.routes),
       endings: this.exactArtifact<LongFormEndingPlan>(projectId, "endings", snapshot.upstreamVersions.endings),
       mechanics: this.exactArtifact<LongFormMechanicsPlan>(projectId, "mechanics", snapshot.upstreamVersions.mechanics),
+      creativeDirection: snapshot.upstreamVersions["creative-direction"]
+        ? this.exactArtifact<CreativeDirection>(projectId, "creative-direction", snapshot.upstreamVersions["creative-direction"])
+        : undefined,
     };
     const scope = PassageGenerationScopeSchema.parse(request.scope);
     return buildPassageGenerationPlan({
@@ -188,6 +192,7 @@ export class PassageGenerationService {
           routes: exact.routes,
           endings: exact.endings,
           mechanics: exact.mechanics,
+          creativeDirection: exact.creativeDirection,
           outputSchema: passagePlanningCandidateSchema,
           requestedMaximumOutputTokens,
           maximumEstimatedInputTokens,

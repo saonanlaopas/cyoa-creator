@@ -44,6 +44,7 @@ import {
 import { validateLongFormProject } from "./long-form-foundation.js";
 import { validatePassagePlan, type PassageValidationReport } from "./passage-plan-validator.js";
 import { stableJson } from "./passage-generation-plan.js";
+import type { CreativeDirection } from "./schemas/creative-direction.js";
 
 export {
   REPAIR_PROPOSAL_POLICY_V1,
@@ -63,6 +64,7 @@ export interface RepairProposalBaseState {
   routes: { versionId: string; content: LongFormRoutePlan };
   endings: { versionId: string; content: LongFormEndingPlan };
   mechanics: { versionId: string; content: LongFormMechanicsPlan };
+  creativeDirection?: { versionId: string; content: CreativeDirection };
 }
 
 export interface RepairProposalFieldDiff { field: string; before: unknown; after: unknown }

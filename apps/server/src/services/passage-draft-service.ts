@@ -11,7 +11,7 @@ import type {
 } from "@story-to-cyoa/persistence";
 import { StaleDraftAcceptancePreviewError, transaction } from "@story-to-cyoa/persistence";
 
-const upstreamArtifactIds = ["brief", "bible", "routes", "endings", "mechanics"] as const;
+const upstreamArtifactIds = ["brief", "creative-direction", "bible", "routes", "endings", "mechanics"] as const;
 const maximumManualDraftBytes = 96_000;
 
 export class PassageDraftService {
@@ -143,10 +143,11 @@ export class PassageDraftService {
   }
 
   private approvedUpstreamVersions(projectId: string): Record<string, string> {
-    return Object.fromEntries(upstreamArtifactIds.map((artifactId) => {
+    return Object.fromEntries(upstreamArtifactIds.flatMap((artifactId) => {
       const versionId = this.workflow.get(projectId, artifactId).approvedVersionId;
+      if (!versionId && artifactId === "creative-direction") return [];
       if (!versionId) throw new Error(`Approve ${artifactId} before drafting`);
-      return [artifactId, versionId];
+      return [[artifactId, versionId]];
     }));
   }
 

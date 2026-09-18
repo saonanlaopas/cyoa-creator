@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 
@@ -78,16 +78,53 @@ export class ProjectRepository {
           SELECT artifact_id, MAX(version) AS version
           FROM artifact_versions WHERE project_id = ? GROUP BY artifact_id
         ) latest ON latest.artifact_id = av.artifact_id AND latest.version = av.version
-        WHERE av.project_id = ?
+        WHERE av.project_id = ? AND av.artifact_id <> 'creative-direction'
       `).all(id, id) as Array<Record<string, string | number>>;
+      const versionIdMap = new Map<string, string>();
       for (const version of versions) {
+        const newVersionId = randomUUID();
+        versionIdMap.set(String(version.id), newVersionId);
         this.database.prepare(`
           INSERT INTO artifact_versions
             (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, created_at)
           VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
         `).run(
-          randomUUID(), copy.id, version.artifact_id, version.artifact_type,
+          newVersionId, copy.id, version.artifact_id, version.artifact_type,
           version.schema_version, version.content_json, version.stale, new Date().toISOString(),
+        );
+      }
+      const creativeVersions = this.database.prepare(`
+        SELECT * FROM artifact_versions WHERE project_id = ? AND artifact_id = 'creative-direction' ORDER BY version
+      `).all(id) as Array<Record<string, string | number | null>>;
+      for (const version of creativeVersions) versionIdMap.set(String(version.id), randomUUID());
+      for (const version of creativeVersions) {
+        const content = JSON.parse(String(version.content_json)) as {
+          fieldProvenance?: Array<{ reference?: { kind?: string; targetId?: string; versionId?: string; unavailable?: boolean } }>;
+        };
+        for (const provenance of content.fieldProvenance ?? []) {
+          const reference = provenance.reference;
+          if (!reference) continue;
+          const mappedVersion = reference.versionId ? versionIdMap.get(reference.versionId) : undefined;
+          if (mappedVersion) reference.versionId = mappedVersion;
+          else if (reference.kind !== "manual-edit") reference.unavailable = true;
+          if (["user-message", "proposal", "source-evidence", "source-observation", "author-override"].includes(reference.kind ?? "")) {
+            reference.unavailable = true;
+          }
+        }
+        if (content.fieldProvenance) {
+          content.fieldProvenance.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+          (content as { provenanceFingerprint?: string }).provenanceFingerprint = createHash("sha256")
+            .update(JSON.stringify(content.fieldProvenance)).digest("hex");
+        }
+        this.database.prepare(`
+          INSERT INTO artifact_versions
+            (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, restored_from_version_id, created_at)
+          VALUES (?, ?, 'creative-direction', 'creative-direction', ?, ?, ?, ?, ?, ?)
+        `).run(
+          versionIdMap.get(String(version.id))!, copy.id, version.version, version.schema_version,
+          JSON.stringify(content), version.stale,
+          version.restored_from_version_id ? versionIdMap.get(String(version.restored_from_version_id)) ?? null : null,
+          version.created_at,
         );
       }
       const dependencies = this.database.prepare(
@@ -98,6 +135,17 @@ export class ProjectRepository {
           INSERT INTO artifact_dependencies (project_id, upstream_artifact_id, dependent_artifact_id)
           VALUES (?, ?, ?)
         `).run(copy.id, dependency.upstream_artifact_id, dependency.dependent_artifact_id);
+      }
+      const creativeWorkflow = this.database.prepare(`
+        SELECT status, approved_version_id FROM artifact_workflow_state
+        WHERE project_id = ? AND artifact_id = 'creative-direction'
+      `).get(id) as { status: string; approved_version_id: string | null } | undefined;
+      if (creativeWorkflow) {
+        this.database.prepare(`INSERT INTO artifact_workflow_state
+          (project_id, artifact_id, status, approved_version_id, updated_at) VALUES (?, 'creative-direction', ?, ?, ?)`)
+          .run(copy.id, creativeWorkflow.status,
+            creativeWorkflow.approved_version_id ? versionIdMap.get(creativeWorkflow.approved_version_id) ?? null : null,
+            new Date().toISOString());
       }
       return copy;
     });

@@ -488,6 +488,21 @@ body { overflow-wrap: anywhere; }
 .draft-queue-list code, .draft-queue-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .draft-batch-review { position: sticky; bottom: 0; display: grid; gap: .4rem; margin-top: .5rem; padding: .65rem; border: 1px solid #60708a; border-radius: .5rem; background: #202838; }
 
+.creative-direction-workspace { min-width: 0; }
+.creative-direction-summary dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin: 0; }
+.creative-direction-summary dl > div { min-width: 0; padding: .7rem; border: 1px solid #354055; border-radius: .5rem; background: #11151e; }
+.creative-direction-summary dt { color: #9ea9ba; font-size: .8rem; }
+.creative-direction-summary dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
+.advanced-editor { border: 1px solid #465268; border-radius: .6rem; padding: .8rem; }
+.advanced-editor > summary, .why-inspector > summary, .technical-details > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: .4rem; }
+.advanced-editor > summary span, .why-inspector > summary span { color: #aeb7c6; font-weight: normal; }
+.advanced-editor > section { margin-top: 1rem; padding-top: .75rem; border-top: 1px solid #354055; }
+.checkbox-line { display: flex !important; align-items: center; gap: .55rem; }
+.checkbox-line input { width: auto; }
+.why-inspector ul { display: grid; gap: .45rem; padding-left: 1.2rem; }
+.technical-details code { overflow-wrap: anywhere; }
+.technical-details pre { max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
 @media (max-width: 1050px) {
   .long-form-workspace { grid-template-columns: 14rem minmax(0, 1fr); }
   .assistant-panel { position: static; grid-column: 1 / -1; width: auto !important; max-width: none; height: min(44rem, 80vh); }
@@ -503,6 +518,7 @@ body { overflow-wrap: anywhere; }
   .artifact-header { flex-direction: column; }
   .artifact-actions { justify-content: start; }
   .brief-grid, .brief-grid.targets { grid-template-columns: 1fr; }
+  .creative-direction-summary dl { grid-template-columns: 1fr; }
   .route-budget { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mechanic-condition { grid-template-columns: 1fr; }
   .mechanic-effect, .coverage-table > div { grid-template-columns: 1fr; }

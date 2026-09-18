@@ -17,6 +17,7 @@ async function seedLargePassagePlan(request: APIRequestContext, passageCount = 3
   const created = await post("/api/long-form/projects", { name: "Browser large passage workspace" });
   const projectId = created.project.id as string;
   await post(`/api/long-form/projects/${projectId}/brief/approve`, { versionId: created.brief.id });
+  await post(`/api/long-form/projects/${projectId}/creative-direction/approve`, { versionId: created.creativeDirection.id });
   const bible = await post(`/api/long-form/projects/${projectId}/bible`);
   await post(`/api/long-form/projects/${projectId}/bible/approve`, { versionId: bible.bible.id });
   const routes = await post(`/api/long-form/projects/${projectId}/routes`);
@@ -347,6 +348,38 @@ test("long-form workspace persists and approves a project brief", async ({ page 
   await expect(page.getByRole("heading", { name: "Story bible", exact: true })).toBeVisible();
   await expect(page.getByLabel("Name")).toHaveValue("Mara");
   await expect(page.getByText("I prepared a protagonist record for bible review.")).toBeVisible();
+});
+
+test("Creative Direction edits, explains, approves, and previews bounded context without providers", async ({ page, request }) => {
+  const observedRequests: string[] = [];
+  page.on("request", (entry) => observedRequests.push(entry.url()));
+  const response = await request.post("/api/long-form/projects", { data: { name: "Creative Direction E2E" } });
+  await expect(response).toBeOK();
+  const created = await response.json();
+  await page.addInitScript((projectId) => {
+    localStorage.setItem("story-to-cyoa.long-form-project-id", projectId);
+    localStorage.setItem("story-to-cyoa.long-form-stage", "creative-direction");
+  }, created.project.id);
+  await page.goto("/#long-form");
+  await page.getByRole("button", { name: "Creative Direction draft", exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: "At a glance" })).toBeVisible();
+  await expect(page.getByText("0 configured profile(s)")).toBeVisible();
+  await page.getByLabel("Desired tone").fill("quietly uncanny\nwarm");
+  await page.getByText("Advanced prose and scoped presentation").click();
+  await page.getByLabel("Point of view").selectOption("third-person-close");
+  await page.getByText("Why is this set?").click();
+  await expect(page.getByText("Provenance is unavailable for these initial defaults.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Save Creative Direction draft" }).click();
+  await expect(page.getByText("Creative Direction draft saved.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Changed in the Creative Direction editor").first()).toBeVisible();
+  await page.getByRole("button", { name: "Approve direction" }).click();
+  await expect(page.getByText("Creative Direction approved for future planning and prose work.")).toBeVisible();
+  await page.getByText("Technical identity and context bounds").click();
+  await page.getByRole("button", { name: "Preview bounded context" }).click();
+  await expect(page.locator(".technical-details pre")).toContainText("serializedBytes");
+  expect(observedRequests.some((url) => /openrouter|provider|\/start$/i.test(url))).toBe(false);
 });
 
 test("long-form passage workspace renders, filters, and jumps within a 300-passage fixture", async ({ page, request }) => {
@@ -1041,7 +1074,12 @@ test("repair planning and bounded proposals stay explicit and immutable across a
   expect(lockedAfterApplication.head.accepted).toEqual(lockedBeforeApplication.head.accepted);
   expect(lockedAfterApplication.head.acceptedLocked).toBe(true);
   expect(lockedAfterApplication.head.current.lifecycleStatus).toBe("candidate");
+  const applicationsReloaded = page.waitForResponse((response) =>
+    response.url().includes(`/api/long-form/projects/${projectId}/repair/applications`)
+      && response.request().method() === "GET",
+  );
   await page.reload();
+  await applicationsReloaded;
   const applicationHistory = page.locator(".repair-application-history button").first();
   await expect(applicationHistory).toBeVisible(); await applicationHistory.click();
   await expect(page.getByLabel("Repair application result")).toContainText("passage-prose:passage-000");
@@ -1214,7 +1252,12 @@ test("native browser player opens a 300-passage exact build without rendering th
     localStorage.setItem("story-to-cyoa.long-form-project-id", id);
     localStorage.setItem("story-to-cyoa.long-form-stage", "publication");
   }, projectId);
+  const publicationReadinessLoaded = page.waitForResponse((response) =>
+    response.url().includes(`/api/long-form/projects/${projectId}/publication/readiness`)
+      && response.request().method() === "GET",
+  );
   await page.goto("/#long-form");
+  await publicationReadinessLoaded;
   const publication = page.getByLabel("Native publication workspace");
   await expect(publication.getByText("300 / 300 passages")).toBeVisible();
   await publication.getByRole("button", { name: "Play current build" }).click();

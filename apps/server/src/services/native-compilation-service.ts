@@ -9,6 +9,7 @@ import {
   PassagePlanBundleSchema,
   PassageStructureSchema,
   ProjectBriefSchema,
+  CreativeDirectionSchema,
   assertNativeCompilationInput,
   compileNativeGame,
   nativePublicationFinding,
@@ -72,8 +73,9 @@ export const NATIVE_COMPILATION_INPUT_ARTIFACT_ID = "native-compilation-inputs";
 export const NATIVE_BUILD_ARTIFACT_ID = "native-builds";
 export const NATIVE_PLAYER_CONFIG_ARTIFACT_ID = "native-player-config";
 
-const requiredUpstreamIds = ["brief", "bible", "routes", "endings", "mechanics"] as const;
-type RequiredUpstreamId = typeof requiredUpstreamIds[number];
+const baseRequiredUpstreamIds = ["brief", "bible", "routes", "endings", "mechanics"] as const;
+const allUpstreamIds = ["brief", "creative-direction", "bible", "routes", "endings", "mechanics"] as const;
+type RequiredUpstreamId = typeof allUpstreamIds[number];
 
 export interface PublicationDiagnostic {
   code: string;
@@ -529,7 +531,10 @@ export class NativeCompilationService {
     const choices = choiceVersions.map((item) => parseExactChoice(item, blocker)).filter(nonNull);
     const threads = threadVersions.map((item) => parseExactThread(item, blocker)).filter(nonNull);
 
-    const upstream = {} as Record<RequiredUpstreamId, ArtifactVersion>;
+    const requiredUpstreamIds: readonly RequiredUpstreamId[] = snapshot.upstreamVersions["creative-direction"]
+      ? allUpstreamIds
+      : baseRequiredUpstreamIds;
+    const upstream: Partial<Record<RequiredUpstreamId, ArtifactVersion>> = {};
     const upstreamReferences: NativeCompilationArtifactReference[] = [];
     for (const artifactId of requiredUpstreamIds) {
       const expectedVersionId = snapshot.upstreamVersions[artifactId];
@@ -563,6 +568,9 @@ export class NativeCompilationService {
     );
 
     const brief = upstream.brief ? parseExact(ProjectBriefSchema, upstream.brief.content, "artifact", upstream.brief.id, blocker) : null;
+    const creativeDirection = upstream["creative-direction"]
+      ? parseExact(CreativeDirectionSchema, upstream["creative-direction"].content, "artifact", upstream["creative-direction"].id, blocker)
+      : null;
     const bible = upstream.bible ? parseExact(LongFormStoryBibleSchema, upstream.bible.content, "artifact", upstream.bible.id, blocker) : null;
     const routes = upstream.routes ? parseExact(LongFormRoutePlanSchema, upstream.routes.content, "artifact", upstream.routes.id, blocker) : null;
     const endings = upstream.endings ? parseExact(LongFormEndingPlanSchema, upstream.endings.content, "artifact", upstream.endings.id, blocker) : null;
@@ -749,7 +757,7 @@ export class NativeCompilationService {
         ...identity,
         sourceInputFingerprint: sourceInputFingerprint(identity),
       });
-      resolved = {
+      const resolvedCandidate: ResolvedNativeCompilationInput = {
         input,
         structure: { versionId: structureVersion!.id, content: exactStructure },
         passages: passageVersions.map((item) => ({ versionId: item.id, content: item.content as PassagePlan })),
@@ -757,12 +765,13 @@ export class NativeCompilationService {
         threads: threadVersions.map((item) => ({ versionId: item.id, content: item.content as NarrativeThread })),
         upstreamArtifacts: upstreamReferences.map((reference) => ({
           ...reference,
-          content: { brief, bible, routes, endings, mechanics }[reference.artifactId],
-        })),
+          content: { brief, "creative-direction": creativeDirection, bible, routes, endings, mechanics }[reference.artifactId],
+        })) as ResolvedNativeCompilationInput["upstreamArtifacts"],
         acceptedDrafts,
       };
+      resolved = resolvedCandidate;
       try {
-        const bundle = compileNativeGame(resolved);
+        const bundle = compileNativeGame(resolvedCandidate);
         const loaded = loadNativeGame(bundle);
         currentNativePassage(loaded, initializeNativeGame(loaded));
         info.push(diagnostic(
@@ -841,13 +850,16 @@ export class NativeCompilationService {
       }
       return { selection, proseMarkdown: draft.proseMarkdown };
     });
-    const parsedUpstream = {
+    const parsedUpstream: Partial<Record<RequiredUpstreamId, unknown>> = {
       brief: ProjectBriefSchema.parse(upstream.brief),
       bible: LongFormStoryBibleSchema.parse(upstream.bible),
       routes: LongFormRoutePlanSchema.parse(upstream.routes),
       endings: LongFormEndingPlanSchema.parse(upstream.endings),
       mechanics: LongFormMechanicsPlanSchema.parse(upstream.mechanics),
     };
+    if (upstream["creative-direction"]) {
+      parsedUpstream["creative-direction"] = CreativeDirectionSchema.parse(upstream["creative-direction"]);
+    }
     const resolved: ResolvedNativeCompilationInput = {
       input,
       structure: { versionId: structureVersion.id, content: structure },
@@ -857,7 +869,7 @@ export class NativeCompilationService {
       upstreamArtifacts: input.upstreamArtifacts.map((reference) => ({
         ...reference,
         content: parsedUpstream[reference.artifactId],
-      })),
+      })) as ResolvedNativeCompilationInput["upstreamArtifacts"],
       acceptedDrafts,
     };
     return resolved;

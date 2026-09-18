@@ -5,6 +5,7 @@ import type { LongFormRoutePlan } from "./schemas/long-form-route-plan.js";
 import type { LongFormStoryBible } from "./schemas/long-form-story-bible.js";
 import type { ChoicePlan, NarrativeThread, PassagePlan, PassageStructure } from "./schemas/passage-plan.js";
 import type { ProjectBrief } from "./schemas/project-brief.js";
+import { selectCreativeDirectionContext, type CreativeDirection } from "./schemas/creative-direction.js";
 import { stableJson, type PassageGenerationScope } from "./passage-generation-plan.js";
 
 export const passagePlanningContextSchema = Object.freeze({
@@ -40,7 +41,8 @@ export interface PassagePlanningContextPack {
   choices: Array<ImmutableVersioned<ChoicePlan>>;
   threads: Array<ImmutableVersioned<NarrativeThread>>;
   upstream: {
-    brief: Pick<ProjectBrief, "workingTitle" | "premise" | "sourceMode" | "tone" | "pointOfView" | "adaptationFidelity">;
+    brief: Partial<Pick<ProjectBrief, "workingTitle" | "premise" | "sourceMode" | "tone" | "pointOfView" | "adaptationFidelity">>;
+    creativeDirection?: ReturnType<typeof selectCreativeDirectionContext>["context"];
     routes: Partial<LongFormRoutePlan>;
     endings: Partial<LongFormEndingPlan>;
     mechanics: Partial<LongFormMechanicsPlan>;
@@ -64,6 +66,7 @@ export interface PassagePlanningContextInput {
   routes: LongFormRoutePlan;
   endings: LongFormEndingPlan;
   mechanics: LongFormMechanicsPlan;
+  creativeDirection?: CreativeDirection;
   outputSchema: { id: string; version: number };
   requestedMaximumOutputTokens: number;
   maximumEstimatedInputTokens: number;
@@ -140,6 +143,9 @@ export function buildPassagePlanningContext(input: PassagePlanningContextInput):
   relevantEndings.flatMap((item) => item.characterOutcomes).forEach((item) => characterIds.add(item.characterId));
   relevantEndings.flatMap((item) => item.relationshipOutcomes).forEach((item) => relationshipIds.add(item.relationshipId));
 
+  const creativeDirection = input.creativeDirection ? selectCreativeDirectionContext(input.creativeDirection, {
+    routeIds: [...routeIds], actIds: [act.id], relationshipIds: [...relationshipIds], characterIds: [...characterIds],
+  }) : undefined;
   const context: PassagePlanningContextPack = {
     schemaId: passagePlanningContextSchema.id,
     schemaVersion: passagePlanningContextSchema.version,
@@ -156,7 +162,10 @@ export function buildPassagePlanningContext(input: PassagePlanningContextInput):
     choices: connectedChoices,
     threads,
     upstream: {
-      brief: pick(input.brief, ["workingTitle", "premise", "sourceMode", "tone", "pointOfView", "adaptationFidelity"]),
+      brief: input.creativeDirection
+        ? pick(input.brief, ["workingTitle", "premise", "sourceMode", "adaptationFidelity"])
+        : pick(input.brief, ["workingTitle", "premise", "sourceMode", "tone", "pointOfView", "adaptationFidelity"]),
+      ...(creativeDirection ? { creativeDirection: creativeDirection.context } : {}),
       routes: {
         schemaVersion: input.routes.schemaVersion,
         title: input.routes.title,
@@ -181,7 +190,7 @@ export function buildPassagePlanningContext(input: PassagePlanningContextInput):
       bible: {
         schemaVersion: input.bible.schemaVersion,
         title: input.bible.title,
-        proseGuidance: input.bible.proseGuidance,
+        ...(input.creativeDirection ? {} : { proseGuidance: input.bible.proseGuidance }),
         characters: input.bible.characters.filter((item) => characterIds.has(item.id)),
         relationships: input.bible.relationships.filter((item) => relationshipIds.has(item.id)),
         settings: input.bible.settings.filter((item) => locationIds.has(item.id)),
@@ -211,6 +220,10 @@ export function buildPassagePlanningContext(input: PassagePlanningContextInput):
       locations: { ids: [...locationIds].sort() },
       facts: { ids: [...factIds].sort() },
       mechanicKeys: { ids: [...mechanicKeys].sort() },
+      ...(creativeDirection ? {
+        creativeDirectionProfiles: { ids: creativeDirection.diagnostics.relevantProfileIds },
+        creativeDirectionVariations: { ids: creativeDirection.diagnostics.relevantVariationIds },
+      } : {}),
     },
     excludedRecordCounts: {
       passages: input.passages.length - selectedPassages.length - neighboringPassages.length,
@@ -222,6 +235,10 @@ export function buildPassagePlanningContext(input: PassagePlanningContextInput):
       relationships: input.bible.relationships.length - relationshipIds.size,
       locations: input.bible.settings.length - locationIds.size,
       facts: input.bible.canonFacts.length - factIds.size,
+      ...(creativeDirection ? {
+        creativeDirectionProfiles: creativeDirection.diagnostics.omittedRelationshipProfiles,
+        creativeDirectionVariations: creativeDirection.diagnostics.omittedScopedVariations,
+      } : {}),
     },
     estimatedInputTokens,
     outputSchema: input.outputSchema,

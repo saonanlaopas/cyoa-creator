@@ -13,8 +13,8 @@ export function conversationMessageBytes(content: string): number {
 export interface AssistantScope {
   kind: "project" | "artifact";
   projectId: string;
-  stage?: "brief" | "bible" | "routes" | "endings" | "mechanics";
-  artifactId?: "brief" | "bible" | "routes" | "endings" | "mechanics";
+  stage?: "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics";
+  artifactId?: "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics";
   versionId?: string;
   sectionId?: string;
 }
@@ -38,7 +38,7 @@ export interface MessageRecord {
   scope: AssistantScope;
   context: {
     briefVersionId?: string; bibleVersionId?: string; routesVersionId?: string;
-    endingsVersionId?: string; mechanicsVersionId?: string;
+    endingsVersionId?: string; mechanicsVersionId?: string; creativeDirectionVersionId?: string;
     [key: string]: string | undefined;
   };
   metadata: Record<string, unknown>;

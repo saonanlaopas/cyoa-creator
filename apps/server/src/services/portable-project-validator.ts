@@ -12,6 +12,7 @@ import {
   PassagePlanSchema,
   PassageStructureSchema,
   ProjectBriefSchema,
+  CreativeDirectionSchema,
   StoryBibleSchema,
 } from "@story-to-cyoa/pipeline";
 import {
@@ -51,7 +52,7 @@ type EntityRow = { id: string; entity_kind: "passage" | "choice" | "thread"; ent
 export const PORTABLE_PROJECT_V1_ARTIFACT_POLICY = {
   excluded: ["source", "source-scope"],
   supported: [
-    "adaptation", "bible", "brief", "change-proposal", "drafts", "endings", "export", "mechanics",
+    "adaptation", "bible", "brief", "creative-direction", "change-proposal", "drafts", "endings", "export", "mechanics",
     "narrative-review", "native-build", "native-compilation-input", "native-player-config",
     "playtest-campaign", "repair-plan", "repair-proposal", "repair-proposal-generation", "review", "routes",
     "simulation", "simulation-input", "simulation-run",
@@ -101,7 +102,7 @@ function validateArtifacts(database: StoryDatabase, projectId: string): void {
     .all(projectId) as JsonRow[];
   for (const row of rows) {
     try {
-      validateArtifactRow({ row, projectId, content: parse(() => JSON.parse(row.content_json), `artifact JSON ${row.id}`), simulation, playtest, native });
+      validateArtifactRow({ row, projectId, database, content: parse(() => JSON.parse(row.content_json), `artifact JSON ${row.id}`), simulation, playtest, native });
     } catch (error) {
       if ((error as Error).message.startsWith("portable_project_")) throw error;
       throw new Error(`portable_project_domain_invalid: artifact ${row.id}: ${(error as Error).message}`);
@@ -112,12 +113,13 @@ function validateArtifacts(database: StoryDatabase, projectId: string): void {
 function validateArtifactRow(input: {
   row: JsonRow;
   projectId: string;
+  database: StoryDatabase;
   content: unknown;
   simulation: SimulationService;
   playtest: PlaytestService;
   native: NativeCompilationService;
 }): void {
-  const { row, projectId, content, simulation, playtest, native } = input;
+  const { row, projectId, database, content, simulation, playtest, native } = input;
   if ((PORTABLE_PROJECT_V1_ARTIFACT_POLICY.excluded as readonly string[]).includes(row.artifact_type)
     || (PORTABLE_PROJECT_V1_ARTIFACT_POLICY.excluded as readonly string[]).includes(row.artifact_id)) {
     throw new Error(`portable_project_artifact_type_excluded: ${row.artifact_type}`);
@@ -128,6 +130,27 @@ function validateArtifactRow(input: {
   switch (row.artifact_type) {
     case "brief":
       exactIdentity(row, "brief", [1]); canonical(ProjectBriefSchema.parse(content), content, row); return;
+    case "creative-direction": {
+      exactIdentity(row, "creative-direction", [1]);
+      const direction = canonical(CreativeDirectionSchema.parse(content), content, row);
+      for (const provenance of direction.fieldProvenance) {
+        const reference = provenance.reference;
+        if (reference.unavailable) continue;
+        if (reference.kind === "manual-edit") {
+          if (reference.versionId && !database.prepare(`SELECT 1 FROM artifact_versions
+            WHERE id = ? AND project_id = ? AND artifact_id = 'creative-direction'`).get(reference.versionId, projectId)) fail(`creative direction provenance ${row.id}`);
+        } else if (reference.kind === "migration-derived" || reference.kind === "approved-artifact") {
+          if (!reference.targetId || !reference.versionId || !database.prepare(`SELECT 1 FROM artifact_versions
+            WHERE id = ? AND project_id = ? AND artifact_id = ?`).get(reference.versionId, projectId, reference.targetId)) fail(`creative direction provenance ${row.id}`);
+        } else if (reference.kind === "user-message") {
+          if (!reference.targetId || !database.prepare(`SELECT 1 FROM messages message JOIN conversations conversation
+            ON conversation.id = message.conversation_id WHERE message.id = ? AND conversation.project_id = ?`).get(reference.targetId, projectId)) fail(`creative direction provenance ${row.id}`);
+        } else if (reference.kind === "proposal") {
+          if (!reference.targetId || !database.prepare("SELECT 1 FROM change_sets WHERE id = ? AND project_id = ?").get(reference.targetId, projectId)) fail(`creative direction provenance ${row.id}`);
+        } else fail(`creative direction provenance kind ${row.id}`);
+      }
+      return;
+    }
     case "bible":
       exactIdentity(row, "bible", [1]); canonicalOne(content, row, [LongFormStoryBibleSchema, StoryBibleSchema]); return;
     case "routes":

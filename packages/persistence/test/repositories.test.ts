@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ArtifactRepository, JobRepository, openDatabase, ProjectRepository, WorkflowRepository } from "../src/index.js";
+import { ArtifactRepository, ChangeSetRepository, ConversationRepository, JobRepository, openDatabase, ProjectRepository, WorkflowRepository } from "../src/index.js";
 
 describe("SQLite repositories", () => {
   it("supports projects, immutable versions, rollback, restore, checkpoints and usage", () => {
@@ -61,6 +61,37 @@ describe("SQLite repositories", () => {
       status: "draft",
       approvedVersionId: first.id,
     });
+    database.close();
+  });
+
+  it("enforces Creative Direction evidence ownership at the persistence boundary", () => {
+    const database = openDatabase();
+    const projects = new ProjectRepository(database);
+    const artifacts = new ArtifactRepository(database);
+    const first = projects.create("First", undefined, "long-form");
+    const second = projects.create("Second", undefined, "long-form");
+    const foreignBrief = artifacts.saveArtifact({ projectId: second.id, artifactId: "brief", content: { title: "Foreign" } });
+    const conversations = new ConversationRepository(database);
+    const foreignConversation = conversations.create(second.id, { kind: "project", projectId: second.id, stage: "brief" });
+    const foreignMessage = conversations.addMessage({
+      conversationId: foreignConversation.id, role: "user", content: "Foreign intent", intent: "propose",
+      scope: foreignConversation.scope, context: {}, metadata: {},
+    });
+    const foreignProposal = new ChangeSetRepository(database).create({
+      projectId: second.id, conversationId: foreignConversation.id, artifactId: "brief", baseVersionId: foreignBrief.id,
+      summary: "Foreign proposal", rationale: "Must remain foreign", candidate: { title: "Changed" },
+    });
+    for (const reference of [
+      { kind: "approved-artifact", targetId: "brief", versionId: foreignBrief.id },
+      { kind: "user-message", targetId: foreignMessage.id },
+      { kind: "proposal", targetId: foreignProposal.id },
+    ]) {
+      expect(() => artifacts.saveArtifact({
+        projectId: first.id, artifactId: "creative-direction", artifactType: "creative-direction",
+        content: { fieldProvenance: [{ fieldPath: "/tone", reference }] },
+      })).toThrow(/another project|missing/);
+    }
+    expect(artifacts.listVersions(first.id, "creative-direction")).toHaveLength(0);
     database.close();
   });
 });

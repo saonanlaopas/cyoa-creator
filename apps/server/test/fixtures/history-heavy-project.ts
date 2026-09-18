@@ -41,6 +41,9 @@ export async function createHistoryHeavyProjectFixture(): Promise<HistoryHeavyPr
   await json(source, {
     method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`, payload: { versionId: created.brief.id },
   });
+  await json(source, {
+    method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: created.creativeDirection.id },
+  });
   for (const artifactId of ["bible", "routes", "endings"] as const) {
     const generated = await json(source, { method: "POST", url: `/api/long-form/projects/${projectId}/${artifactId}` });
     await json(source, {

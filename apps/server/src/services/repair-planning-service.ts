@@ -452,7 +452,13 @@ export class RepairPlanningService {
       const current = new Map(this.passagePlans.currentEntities(projectId, kind).map((item) => [item.entityId, item.id]));
       if (repairFingerprint(Object.fromEntries(expected)) !== repairFingerprint(Object.fromEntries(current))) reasons.push(`Current ${kind} heads differ`);
     }
-    for (const [artifactId, versionId] of Object.entries(snapshot.upstreamVersions)) if (this.workflow.get(projectId, artifactId).approvedVersionId !== versionId) reasons.push(`Approved ${artifactId} version differs`);
+    for (const [artifactId, versionId] of Object.entries(snapshot.upstreamVersions)) {
+      const currentVersionId = this.workflow.get(projectId, artifactId).approvedVersionId;
+      const materialEquivalentDirection = artifactId === "creative-direction" && currentVersionId
+        && this.artifacts.getVersion<{ materialFingerprint: string }>(versionId)?.content.materialFingerprint
+          === this.artifacts.getVersion<{ materialFingerprint: string }>(currentVersionId)?.content.materialFingerprint;
+      if (currentVersionId !== versionId && !materialEquivalentDirection) reasons.push(`Approved ${artifactId} version differs`);
+    }
     return evidenceState(reasons);
   }
 

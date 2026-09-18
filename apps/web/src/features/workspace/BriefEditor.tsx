@@ -6,6 +6,7 @@ const lines = (value: string) => value.split(/\r?\n/).map((item) => item.trim())
 export function BriefEditor(props: {
   brief: ProjectBrief;
   busy: boolean;
+  presentationOwnedByCreativeDirection?: boolean;
   onSave(brief: ProjectBrief): Promise<void>;
 }) {
   const [draft, setDraft] = useState(props.brief);
@@ -29,8 +30,8 @@ export function BriefEditor(props: {
           </select>
         </label>
         <label>Protagonist<input value={draft.protagonist} onChange={(event) => field("protagonist", event.target.value)} /></label>
-        <label>Point of view
-          <select value={draft.pointOfView} onChange={(event) => field("pointOfView", event.target.value as ProjectBrief["pointOfView"])}>
+        <label>Legacy point of view
+          <select disabled={props.presentationOwnedByCreativeDirection} value={draft.pointOfView} onChange={(event) => field("pointOfView", event.target.value as ProjectBrief["pointOfView"])}>
             <option value="second-person">Second person</option>
             <option value="first-person">First person</option>
             <option value="third-person">Third person</option>
@@ -44,7 +45,8 @@ export function BriefEditor(props: {
           </select>
         </label>
       </div>
-      <label>Tone and style<textarea value={draft.tone} onChange={(event) => field("tone", event.target.value)} /></label>
+      <label>Legacy tone and style<textarea disabled={props.presentationOwnedByCreativeDirection} value={draft.tone} onChange={(event) => field("tone", event.target.value)} /></label>
+      {props.presentationOwnedByCreativeDirection && <p className="field-note">Creative Direction now owns current point of view, tone, pacing, and prose treatment. These historical Brief fields remain readable but are no longer edited or sent as equal authority.</p>}
     </section>
 
     <section className="brief-section">

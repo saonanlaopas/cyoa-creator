@@ -13,6 +13,7 @@ async function approvedPassagePlan(app: ReturnType<typeof buildApp>, passageCoun
   const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Generation" } })).json();
   const projectId = created.project.id as string;
   await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`, payload: { versionId: created.brief.id } });
+  await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: created.creativeDirection.id } });
   const bible = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/bible` })).json();
   await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/bible/approve`, payload: { versionId: bible.bible.id } });
   const routes = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/routes` })).json();

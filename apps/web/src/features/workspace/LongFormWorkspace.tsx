@@ -12,11 +12,13 @@ import {
   type LongFormEndingPlan,
   type LongFormMechanicsPlan,
   type ProjectBrief,
+  type CreativeDirection,
   type ProjectRecord,
   type PlanningFinding,
   type WorkflowState,
 } from "../../api/long-form.js";
 import { BriefEditor } from "./BriefEditor.js";
+import { CreativeDirectionWorkspace } from "./CreativeDirectionWorkspace.js";
 import { AssistantPanel } from "./AssistantPanel.js";
 import { BibleWorkspace } from "./BibleWorkspace.js";
 import { RoutePlanWorkspace } from "./RoutePlanWorkspace.js";
@@ -34,13 +36,14 @@ import { ResumeWorkWorkspace } from "./ResumeWorkWorkspace.js";
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
 const navigationKey = (projectId: string) => `story-to-cyoa.navigation.${projectId}`;
-type LongFormStage = "brief" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
-const stageIds: LongFormStage[] = ["brief", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
+type LongFormStage = "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
+const stageIds: LongFormStage[] = ["brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
 const isLongFormStage = (value: unknown): value is LongFormStage => typeof value === "string" && stageIds.includes(value as LongFormStage);
-const stages = ["Project brief", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Repair planning", "Publication", "Resume work", "Project health", "Backup & recovery"];
+const stages = ["Project brief", "Creative Direction", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Repair planning", "Publication", "Resume work", "Project health", "Backup & recovery"];
+const navigationStageIds: Array<LongFormStage | null> = ["brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", null, "simulation", "repair", "publication", "resume", "health", "recovery"];
 type NavigationHint = { stage: LongFormStage; entityId: string | null };
 const stageLabels: Record<LongFormStage, string> = {
-  brief: "Project brief", bible: "Story bible", routes: "Routes", endings: "Endings", mechanics: "Mechanics",
+  brief: "Project brief", "creative-direction": "Creative Direction", bible: "Story bible", routes: "Routes", endings: "Endings", mechanics: "Mechanics",
   "passage-plan": "Passage plan", simulation: "Playtest & analysis", repair: "Repair planning",
   publication: "Publication", resume: "Resume work", health: "Project health", recovery: "Backup & recovery",
 };
@@ -50,6 +53,8 @@ export function LongFormWorkspace() {
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [brief, setBrief] = useState<ArtifactVersion<ProjectBrief> | null>(null);
   const [briefWorkflow, setBriefWorkflow] = useState<WorkflowState | null>(null);
+  const [creativeDirection, setCreativeDirection] = useState<ArtifactVersion<CreativeDirection> | null>(null);
+  const [creativeDirectionWorkflow, setCreativeDirectionWorkflow] = useState<WorkflowState | null>(null);
   const [bible, setBible] = useState<ArtifactVersion<LongFormStoryBible> | null>(null);
   const [bibleWorkflow, setBibleWorkflow] = useState<WorkflowState | null>(null);
   const [routes, setRoutes] = useState<ArtifactVersion<LongFormRoutePlan> | null>(null);
@@ -78,6 +83,8 @@ export function LongFormWorkspace() {
     setProject(state.project);
     setBrief(state.brief);
     setBriefWorkflow(state.workflow.brief);
+    setCreativeDirection(state.creativeDirection);
+    setCreativeDirectionWorkflow(state.workflow["creative-direction"]);
     setBible(state.bible);
     setBibleWorkflow(state.workflow.bible);
     setRoutes(state.routes);
@@ -147,6 +154,8 @@ export function LongFormWorkspace() {
       setProject(created.project);
       setBrief(created.brief);
       setBriefWorkflow(created.workflow);
+      setCreativeDirection(created.creativeDirection);
+      setCreativeDirectionWorkflow(created.creativeDirectionWorkflow);
       setBible(null);
       setBibleWorkflow({
         projectId: created.project.id,
@@ -184,7 +193,7 @@ export function LongFormWorkspace() {
     }
   };
 
-  if (!project || !brief || !briefWorkflow || !bibleWorkflow || !routesWorkflow || !endingsWorkflow || !mechanicsWorkflow) {
+  if (!project || !brief || !briefWorkflow || !creativeDirectionWorkflow || !bibleWorkflow || !routesWorkflow || !endingsWorkflow || !mechanicsWorkflow) {
     return <main id="main-content" className="long-form-home" tabIndex={-1}>
       <header>
         <p className="eyebrow">Long-form workspace</p>
@@ -221,6 +230,7 @@ export function LongFormWorkspace() {
         setProject(null);
         setBrief(null);
         setBriefWorkflow(null);
+        setCreativeDirection(null); setCreativeDirectionWorkflow(null);
         setBible(null);
         setBibleWorkflow(null);
         setRoutes(null);
@@ -234,32 +244,8 @@ export function LongFormWorkspace() {
       }}>New project</button>
       <ol>
         {stages.map((stage, index) => {
-          const stageId = index === 0
-            ? "brief"
-            : index === 1
-              ? "bible"
-              : index === 2
-                ? "routes"
-                : index === 3
-                  ? "endings"
-              : index === 4
-                    ? "mechanics"
-                    : index === 5
-                      ? "passage-plan"
-                      : index === 7
-                        ? "simulation"
-                        : index === 8
-                          ? "repair"
-                          : index === 9
-                            ? "publication"
-                            : index === 10
-                              ? "resume"
-                              : index === 11
-                                ? "health"
-                                : index === 12
-                                  ? "recovery"
-                  : null;
-          const enabled = stageId === "brief"
+          const stageId = navigationStageIds[index] ?? null;
+          const enabled = stageId === "brief" || stageId === "creative-direction"
             || (stageId === "bible" && (briefWorkflow.status === "approved" || Boolean(bible)))
             || (stageId === "routes" && (bibleWorkflow.status === "approved" || Boolean(routes)));
           const available = enabled
@@ -269,6 +255,8 @@ export function LongFormWorkspace() {
             || ((stageId === "passage-plan" || stageId === "simulation" || stageId === "repair" || stageId === "publication") && mechanicsWorkflow.status === "approved");
           const status = stageId === "brief"
             ? briefWorkflow.status
+            : stageId === "creative-direction"
+              ? creativeDirectionWorkflow.status === "empty" ? "Adoption needed" : creativeDirectionWorkflow.status
             : stageId === "bible"
               ? bibleWorkflow.status === "empty" ? "Not started" : bibleWorkflow.status
               : stageId === "routes"
@@ -334,7 +322,7 @@ export function LongFormWorkspace() {
       <ArtifactHistory
         projectId={project.id}
         artifactId={activeStage}
-        currentVersionId={(activeStage === "brief" ? brief : activeStage === "bible" ? bible : activeStage === "routes" ? routes : activeStage === "endings" ? endings : mechanics)?.id ?? ""}
+        currentVersionId={(activeStage === "brief" ? brief : activeStage === "creative-direction" ? creativeDirection : activeStage === "bible" ? bible : activeStage === "routes" ? routes : activeStage === "endings" ? endings : mechanics)?.id ?? ""}
         onChanged={() => openProject(project.id)}
       />
       {validation.filter((finding) => finding.artifactId === activeStage).length > 0 && <details className="validation-panel" open>
@@ -371,7 +359,7 @@ export function LongFormWorkspace() {
       </header>
 
       {message && <p className={message.includes("approved") ? "status good" : "error"} role="status">{message}</p>}
-      <BriefEditor brief={brief.content} busy={busy} onSave={async (content) => {
+      <BriefEditor brief={brief.content} busy={busy} presentationOwnedByCreativeDirection={Boolean(creativeDirection)} onSave={async (content) => {
         setBusy(true);
         setMessage(null);
         try {
@@ -385,9 +373,15 @@ export function LongFormWorkspace() {
           setBusy(false);
         }
       }} />
-    </section> : activeStage === "bible" ? <BibleWorkspace
+    </section> : activeStage === "creative-direction" ? <CreativeDirectionWorkspace
+      projectId={project.id} direction={creativeDirection} workflow={creativeDirectionWorkflow}
+      busy={busy} message={message} setBusy={setBusy} setMessage={setMessage}
+      onChanged={() => openProject(project.id)}
+    /> : activeStage === "bible" ? <BibleWorkspace
       projectId={project.id}
       briefApproved={briefWorkflow.status === "approved"}
+      creativeDirectionApproved={creativeDirectionWorkflow.status === "approved"}
+      presentationOwnedByCreativeDirection={Boolean(creativeDirection)}
       bible={bible}
       workflow={bibleWorkflow}
       busy={busy}
@@ -450,7 +444,7 @@ export function LongFormWorkspace() {
         navigate(stage);
       }} /> : <RecoveryWorkspace projectId={project.id} onProjectDeleted={async () => {
         const items = await listLongFormProjects(); setProjects(items);
-        setProject(null); setBrief(null); setBriefWorkflow(null); setBible(null); setBibleWorkflow(null);
+        setProject(null); setBrief(null); setBriefWorkflow(null); setCreativeDirection(null); setCreativeDirectionWorkflow(null); setBible(null); setBibleWorkflow(null);
         setRoutes(null); setRoutesWorkflow(null); setEndings(null); setEndingsWorkflow(null);
         setMechanics(null); setMechanicsWorkflow(null); localStorage.removeItem(activeProjectKey);
       }} onProjectRestored={async (restoredProjectId) => {
@@ -462,6 +456,7 @@ export function LongFormWorkspace() {
       key={project.id}
       project={project}
       brief={brief}
+      creativeDirection={creativeDirection}
       bible={bible}
       routes={routes}
       endings={endings}

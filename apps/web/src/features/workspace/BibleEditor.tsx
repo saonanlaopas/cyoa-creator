@@ -12,6 +12,7 @@ const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 export function BibleEditor(props: {
   bible: LongFormStoryBible;
   busy: boolean;
+  presentationOwnedByCreativeDirection?: boolean;
   onSave(bible: LongFormStoryBible): Promise<void>;
 }) {
   const [draft, setDraft] = useState(props.bible);
@@ -79,20 +80,21 @@ export function BibleEditor(props: {
     />)}
 
     <section className="brief-section">
-      <h3>Prose guidance</h3>
-      <label>Point of view<input value={draft.proseGuidance.pointOfView} onChange={(event) => setDraft({
+      <h3>Legacy prose guidance</h3>
+      {props.presentationOwnedByCreativeDirection && <p className="field-note">Creative Direction is authoritative for new presentation contexts. This historical Bible guidance remains readable and unchanged.</p>}
+      <label>Point of view<input disabled={props.presentationOwnedByCreativeDirection} value={draft.proseGuidance.pointOfView} onChange={(event) => setDraft({
         ...draft,
         proseGuidance: { ...draft.proseGuidance, pointOfView: event.target.value },
       })} /></label>
       <div className="brief-grid">
-        <LinesField label="Tone" value={draft.proseGuidance.tone} onChange={(tone) => setDraft({
+        <LinesField disabled={props.presentationOwnedByCreativeDirection} label="Tone" value={draft.proseGuidance.tone} onChange={(tone) => setDraft({
           ...draft, proseGuidance: { ...draft.proseGuidance, tone },
         })} />
-        <LinesField label="Style rules" value={draft.proseGuidance.style} onChange={(style) => setDraft({
+        <LinesField disabled={props.presentationOwnedByCreativeDirection} label="Style rules" value={draft.proseGuidance.style} onChange={(style) => setDraft({
           ...draft, proseGuidance: { ...draft.proseGuidance, style },
         })} />
       </div>
-      <LinesField label="Avoid" value={draft.proseGuidance.avoid} onChange={(avoid) => setDraft({
+      <LinesField disabled={props.presentationOwnedByCreativeDirection} label="Avoid" value={draft.proseGuidance.avoid} onChange={(avoid) => setDraft({
         ...draft, proseGuidance: { ...draft.proseGuidance, avoid },
       })} />
     </section>
@@ -178,9 +180,9 @@ function RemoveButton(props: { onClick(): void }) {
   return <button type="button" className="danger-text" onClick={props.onClick}>Remove</button>;
 }
 
-function LinesField(props: { label: string; value: string[]; onChange(value: string[]): void }) {
+function LinesField(props: { label: string; value: string[]; disabled?: boolean; onChange(value: string[]): void }) {
   return <label>{props.label} <span>One per line</span>
-    <textarea value={props.value.join("\n")} onChange={(event) => props.onChange(lines(event.target.value))} />
+    <textarea disabled={props.disabled} value={props.value.join("\n")} onChange={(event) => props.onChange(lines(event.target.value))} />
   </label>;
 }
 

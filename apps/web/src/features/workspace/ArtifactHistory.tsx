@@ -58,10 +58,19 @@ export function ArtifactHistory(props: {
     </div>
     {comparison && <div className="history-comparison">
       <p>{comparison.equal ? "These versions are identical." : `Comparing v${comparison.from.version} with v${comparison.to.version}.`}</p>
+      {props.artifactId === "creative-direction" && !comparison.equal && <p>{creativeDirectionComparison(comparison.from.content, comparison.to.content)}</p>}
       {!comparison.equal && <div className="history-json">
         <pre>{JSON.stringify(comparison.from.content, null, 2)}</pre>
         <pre>{JSON.stringify(comparison.to.content, null, 2)}</pre>
       </div>}
     </div>}
   </details>;
+}
+
+function creativeDirectionComparison(from: unknown, to: unknown): string {
+  const before = from as { materialFingerprint?: string; provenanceFingerprint?: string };
+  const after = to as { materialFingerprint?: string; provenanceFingerprint?: string };
+  const material = before.materialFingerprint === after.materialFingerprint ? "Material direction is equivalent" : "Material direction changed";
+  const provenance = before.provenanceFingerprint === after.provenanceFingerprint ? "explanation evidence is equivalent" : "explanation evidence changed";
+  return `${material}; ${provenance}.`;
 }

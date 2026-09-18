@@ -13,6 +13,11 @@ async function createApprovedPlanningChain(app: ReturnType<typeof buildApp>) {
     url: `/api/long-form/projects/${projectId}/brief/approve`,
     payload: { versionId: created.brief.id },
   });
+  await app.inject({
+    method: "POST",
+    url: `/api/long-form/projects/${projectId}/creative-direction/approve`,
+    payload: { versionId: created.creativeDirection.id },
+  });
   const bible = (await app.inject({
     method: "POST",
     url: `/api/long-form/projects/${projectId}/bible`,

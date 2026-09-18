@@ -322,7 +322,11 @@ export class NarrativeReviewService {
     const snapshot = this.passagePlans.getSnapshot(input.snapshotId);
     if (!snapshot || snapshot.projectId !== review.projectId || snapshot.status !== "approved" || snapshot.structureVersionId !== input.structureVersionId) throw stale("Review snapshot lineage is no longer approved");
     for (const [artifactId, versionId] of Object.entries(input.upstreamVersions)) {
-      if (this.workflow.get(review.projectId, artifactId).approvedVersionId !== versionId) throw stale(`Approved ${artifactId} changed`);
+      const currentVersionId = this.workflow.get(review.projectId, artifactId).approvedVersionId;
+      const materialEquivalentDirection = artifactId === "creative-direction" && currentVersionId
+        && this.artifacts.getVersion<{ materialFingerprint: string }>(versionId)?.content.materialFingerprint
+          === this.artifacts.getVersion<{ materialFingerprint: string }>(currentVersionId)?.content.materialFingerprint;
+      if (currentVersionId !== versionId && !materialEquivalentDirection) throw stale(`Approved ${artifactId} changed`);
     }
     for (const reference of input.passageVersions) {
       if (this.passagePlans.currentEntity(review.projectId, "passage", reference.entityId)?.id !== reference.versionId) throw stale(`Passage ${reference.entityId} changed`);

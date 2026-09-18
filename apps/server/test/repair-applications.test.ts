@@ -48,6 +48,7 @@ async function fixture(category: "passage-plan" | "prose" | "prose-locked" | "mi
   const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Repair applications" } })).json();
   const projectId = created.project.id as string;
   await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`, payload: { versionId: created.brief.id } });
+  await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: created.creativeDirection.id } });
   let bibleContent: { relationships: Array<{ id: string }> } | null = null;
   let endingsContent: { endings: Array<Record<string, unknown> & { id: string; routeId: string }> } | null = null;
   for (const artifactId of ["bible", "routes", "endings"] as const) {

@@ -8,6 +8,7 @@ import {
   PassagePlanningCandidateError,
   ProjectBriefSchema,
   buildPassagePlanningContext,
+  normalizeCreativeDirection,
   deterministicCandidateId,
   passagePlanningCandidateSchema,
   validatePassagePlanningCandidate,
@@ -117,6 +118,23 @@ describe("bounded passage-planning context", () => {
     const input = fixture();
     input.maximumEstimatedInputTokens = 1;
     expect(() => buildPassagePlanningContext(input)).toThrow(BoundedPassagePlanningContextError);
+  });
+
+  it("uses Creative Direction as bounded presentation authority and omits unrelated profiles", () => {
+    const input = fixture();
+    input.creativeDirection = normalizeCreativeDirection({
+      tone: { descriptors: ["intimate", "warm"] }, pacing: { developmentPace: "slow-burn" }, prose: { pointOfView: "third-person-close" }, fieldProvenance: [],
+      relationshipPresentation: { profiles: [
+        { id: "profile-a", relationshipKind: "friendship", relationshipId: "relationship-a", participantIds: [], developmentStyle: "gradual", emotionalTension: "high", melodrama: "low", mechanicsVisibility: "subtle", customGuidance: "", contentBoundaries: [] },
+        { id: "profile-other", relationshipKind: "rivalry", relationshipId: "relationship-other", participantIds: [], developmentStyle: "volatile", emotionalTension: "high", melodrama: "moderate", mechanicsVisibility: "hidden", customGuidance: "", contentBoundaries: [] },
+      ] }, scopedVariations: [],
+    });
+    input.upstreamVersions["creative-direction"] = "direction-v1";
+    const built = buildPassagePlanningContext(input);
+    expect(built.context.upstream.creativeDirection?.relationshipPresentation?.profiles.map((item) => item.id)).toEqual(["profile-a"]);
+    expect(built.context.upstream.brief).not.toHaveProperty("tone");
+    expect(built.context.upstream.bible).not.toHaveProperty("proseGuidance");
+    expect(built.diagnostics.excludedRecordCounts.creativeDirectionProfiles).toBe(1);
   });
 
   it("includes a non-adjacent direct inbound choice and its exact source passage while excluding unrelated passages", () => {

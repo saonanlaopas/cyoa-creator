@@ -43,7 +43,7 @@ const artifactLabel = (artifactId: PlanningArtifactId) => artifactId === "mechan
       ? "route architecture"
       : artifactId === "bible"
         ? "story bible"
-        : "project brief";
+        : artifactId === "creative-direction" ? "Creative Direction" : "project brief";
 
 function artifactScope(
   projectId: string,
@@ -247,6 +247,9 @@ export function registerLongFormChatRoutes(
       : "brief";
     const selectedArtifact = currentArtifact(request.params.projectId, artifactId);
     if (!selectedArtifact) return reply.code(409).send({ error: "The selected artifact does not exist yet" });
+    if (intent === "propose" && artifactId === "creative-direction") {
+      return reply.code(400).send({ error: "Creative Direction proposals begin in A2; use the direct editor in A1" });
+    }
     let sectionId = conversation.scope.kind === "artifact" ? conversation.scope.sectionId : undefined;
     try {
       planningSection(selectedArtifact.content, sectionId);
@@ -285,7 +288,7 @@ export function registerLongFormChatRoutes(
     }
     const selected = planningSection(selectedArtifact.content, sectionId).content;
     const summaries = Object.fromEntries(planningArtifactIds.map((id) =>
-      [id, summarizePlanningArtifact(id, snapshot[id])]));
+      [id, summarizePlanningArtifact(id, snapshot[id] ?? null)]));
     const references = collectReferences(selected, snapshot);
     const activity: Array<{ kind: ReasoningEvent["kind"] }> = [];
 

@@ -23,6 +23,7 @@ async function setup(provider?: PassageDraftingProvider) {
   const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Review" } })).json();
   const projectId = created.project.id as string;
   await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`, payload: { versionId: created.brief.id } });
+  await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: created.creativeDirection.id } });
   for (const artifactId of ["bible", "routes", "endings"] as const) {
     const generated = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/${artifactId}` })).json();
     await app.inject({

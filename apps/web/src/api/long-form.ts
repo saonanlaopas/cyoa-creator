@@ -31,6 +31,58 @@ export interface ProjectBrief {
   unresolvedQuestions: string[];
 }
 
+export interface CreativeDirectionProvenance {
+  fieldPath: string;
+  stableEntityId?: string;
+  reference: {
+    kind: "user-message" | "source-evidence" | "source-observation" | "approved-artifact" | "author-override" | "manual-edit" | "proposal" | "migration-derived";
+    targetId?: string; versionId?: string; excerpt?: string; unavailable?: boolean;
+  };
+}
+
+export interface CreativeDirection {
+  schemaId: "cyoa.creative-direction";
+  schemaVersion: 1;
+  tone: { descriptors: string[]; tonalRange: "focused" | "moderate" | "wide"; exclusions: string[]; customGuidance: string };
+  pacing: {
+    developmentPace: "very-slow" | "slow-burn" | "measured" | "brisk" | "rapid";
+    sceneTreatment: "scene-focused" | "balanced" | "summary-forward";
+    actionIntensity: "low" | "moderate" | "high" | "variable";
+    narrativeDensity: "spacious" | "balanced" | "dense";
+    transitionDensity: "sparse" | "balanced" | "frequent";
+    quietScenesAllowed: boolean;
+    escalationShape: "steady" | "stepped" | "wave" | "late-surge" | "custom";
+    customGuidance: string;
+  };
+  prose: {
+    descriptiveness: "restrained" | "balanced" | "descriptive" | "lush";
+    treatment: "compact" | "balanced" | "long-form";
+    pointOfView: "first-person" | "second-person" | "third-person-close" | "third-person-omniscient" | "mixed";
+    tense: "past" | "present" | "mixed";
+    interiority: "low" | "moderate" | "high";
+    dialogueIntegration: "sparse" | "balanced" | "integrated" | "dialogue-forward";
+    sceneTransitionDensity: "sparse" | "balanced" | "frequent";
+    passageLengthPreference: "compact" | "moderate" | "expansive" | "variable";
+    voiceDescriptors: string[]; avoid: string[]; customGuidance: string;
+  };
+  relationshipPresentation?: {
+    projectDefault?: { mechanicsVisibility: "hidden" | "subtle" | "visible"; customGuidance: string };
+    profiles: Array<{
+      id: string; relationshipKind: "romance" | "friendship" | "family" | "rivalry" | "partnership" | "ensemble" | "custom";
+      customKind?: string; relationshipId?: string; participantIds: string[];
+      developmentStyle: "gradual" | "steady" | "volatile" | "episodic" | "background" | "custom";
+      emotionalTension: "low" | "moderate" | "high" | "variable"; melodrama: "low" | "moderate" | "high";
+      sensuality?: "none" | "subtle" | "moderate" | "explicit-within-boundaries";
+      physicalIntimacy?: "none" | "fade-to-black" | "implied" | "on-page-within-boundaries";
+      mechanicsVisibility: "hidden" | "subtle" | "visible"; customGuidance: string; contentBoundaries: string[];
+    }>;
+  };
+  scopedVariations: Array<{ id: string; scopeKind: "route" | "act" | "relationship" | "character"; scopeId: string; toneDescriptors: string[]; pacingGuidance: string; proseGuidance: string }>;
+  fieldProvenance: CreativeDirectionProvenance[];
+  materialFingerprint: string;
+  provenanceFingerprint: string;
+}
+
 export interface BibleCharacter {
   id: string;
   name: string;
@@ -192,19 +244,20 @@ export interface WorkflowState {
 export interface LongFormProjectState {
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
+  creativeDirection: ArtifactVersion<CreativeDirection> | null;
   bible: ArtifactVersion<LongFormStoryBible> | null;
   routes: ArtifactVersion<LongFormRoutePlan> | null;
   endings: ArtifactVersion<LongFormEndingPlan> | null;
   mechanics: ArtifactVersion<LongFormMechanicsPlan> | null;
   workflow: WorkflowState | {
-    brief: WorkflowState; bible: WorkflowState; routes: WorkflowState; endings: WorkflowState; mechanics: WorkflowState;
+    brief: WorkflowState; "creative-direction": WorkflowState; bible: WorkflowState; routes: WorkflowState; endings: WorkflowState; mechanics: WorkflowState;
   };
 }
 
 export interface PlanningFinding {
   code: string;
   severity: "error" | "warning" | "info";
-  artifactId: "brief" | "bible" | "routes" | "endings" | "mechanics";
+  artifactId: "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics";
   entityId?: string;
   path?: string;
   message: string;
@@ -214,8 +267,8 @@ export interface PlanningFinding {
 export interface AssistantScope {
   kind: "project" | "artifact";
   projectId: string;
-  stage?: "brief" | "bible" | "routes" | "endings" | "mechanics";
-  artifactId?: "brief" | "bible" | "routes" | "endings" | "mechanics";
+  stage?: "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics";
+  artifactId?: "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics";
   versionId?: string;
   sectionId?: string;
 }
@@ -239,7 +292,7 @@ export interface MessageRecord {
   scope: AssistantScope;
   context: {
     briefVersionId?: string; bibleVersionId?: string; routesVersionId?: string; endingsVersionId?: string;
-    mechanicsVersionId?: string;
+    mechanicsVersionId?: string; creativeDirectionVersionId?: string;
     [key: string]: string | undefined;
   };
   metadata: Record<string, unknown>;
@@ -330,7 +383,9 @@ export async function listLongFormProjects(): Promise<ProjectRecord[]> {
 export async function createLongFormProject(name: string): Promise<{
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
+  creativeDirection: ArtifactVersion<CreativeDirection>;
   workflow: WorkflowState;
+  creativeDirectionWorkflow: WorkflowState;
 }> {
   return json(await fetch("/api/long-form/projects", {
     method: "POST",
@@ -342,15 +397,40 @@ export async function createLongFormProject(name: string): Promise<{
 export async function loadLongFormProject(projectId: string): Promise<{
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
+  creativeDirection: ArtifactVersion<CreativeDirection> | null;
   bible: ArtifactVersion<LongFormStoryBible> | null;
   routes: ArtifactVersion<LongFormRoutePlan> | null;
   endings: ArtifactVersion<LongFormEndingPlan> | null;
   mechanics: ArtifactVersion<LongFormMechanicsPlan> | null;
-  workflow: { brief: WorkflowState; bible: WorkflowState; routes: WorkflowState; endings: WorkflowState; mechanics: WorkflowState };
+  workflow: { brief: WorkflowState; "creative-direction": WorkflowState; bible: WorkflowState; routes: WorkflowState; endings: WorkflowState; mechanics: WorkflowState };
   validation: PlanningFinding[];
 }> {
   return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}`));
 }
+
+export async function saveCreativeDirection(projectId: string, direction: CreativeDirection): Promise<{
+  creativeDirection: ArtifactVersion<CreativeDirection>; workflow: WorkflowState;
+}> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/creative-direction`, {
+    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(direction),
+  }));
+}
+
+export async function approveCreativeDirection(projectId: string, versionId: string): Promise<WorkflowState> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/creative-direction/approve`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ versionId }),
+  }));
+}
+
+export async function adoptLegacyCreativeDirection(projectId: string): Promise<{
+  artifact: ArtifactVersion<CreativeDirection>; workflow: WorkflowState; conflicts: string[];
+}> {
+  return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/creative-direction/adopt-legacy`, { method: "POST" }));
+}
+
+export async function previewCreativeDirectionContext(projectId: string): Promise<{
+  artifact: ArtifactVersion<CreativeDirection>; context: CreativeDirection; diagnostics: Record<string, unknown>;
+}> { return json(await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/creative-direction/context-preview`)); }
 
 export async function saveProjectBrief(projectId: string, brief: ProjectBrief): Promise<{
   brief: ArtifactVersion<ProjectBrief>;
@@ -470,6 +550,16 @@ export async function downloadBrief(projectId: string, format: "markdown" | "jso
   anchor.download = `${projectId}-brief.${format === "markdown" ? "md" : "json"}`;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+export async function downloadCreativeDirection(projectId: string, format: "markdown" | "json"): Promise<void> {
+  const response = await fetch(`/api/long-form/projects/${encodeURIComponent(projectId)}/creative-direction/export?format=${format}`);
+  if (!response.ok) throw new Error("Creative Direction export failed");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a"); link.href = url;
+  link.download = `${projectId}-creative-direction.${format === "markdown" ? "md" : "json"}`;
+  link.click(); URL.revokeObjectURL(url);
 }
 
 export async function downloadStoryBible(projectId: string, format: "markdown" | "json"): Promise<void> {

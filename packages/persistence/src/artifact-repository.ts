@@ -26,6 +26,7 @@ export interface SaveArtifactInput<T = unknown> {
   schema?: z.ZodType<T>;
   dependencies?: string[];
   simulateFailure?: boolean;
+  markDependentsStale?: boolean;
 }
 
 type ArtifactRow = {
@@ -60,6 +61,9 @@ export class ArtifactRepository {
       FROM artifact_versions WHERE project_id = ? AND artifact_id = ?
     `).get(input.projectId, input.artifactId) as { version: number };
     const artifactType = input.artifactType ?? input.artifactId;
+    if (artifactType === "creative-direction") {
+      this.validateCreativeDirectionProvenance(input.projectId, input.artifactId, content);
+    }
     const id = randomUUID();
     this.database.prepare(`
       INSERT INTO artifact_versions
@@ -74,7 +78,7 @@ export class ArtifactRepository {
     }
     const chainIndex = artifactChain.indexOf(artifactType as typeof artifactChain[number]);
     if (chainIndex > 0) this.addDependency(input.projectId, artifactChain[chainIndex - 1], input.artifactId);
-    this.markDependentsStale(input.projectId, input.artifactId);
+    if (input.markDependentsStale !== false) this.markDependentsStale(input.projectId, input.artifactId);
     if (input.simulateFailure) throw new Error("Simulated artifact transaction failure");
     return this.getVersion<T>(id)!;
   }
@@ -101,7 +105,7 @@ export class ArtifactRepository {
     return row ? mapArtifact<T>(row) : undefined;
   }
 
-  restore<T = unknown>(projectId: string, artifactId: string, versionId: string): ArtifactVersion<T> {
+  restore<T = unknown>(projectId: string, artifactId: string, versionId: string, options: { markDependentsStale?: boolean } = {}): ArtifactVersion<T> {
     const source = this.getVersion<T>(versionId);
     if (!source || source.projectId !== projectId || source.artifactId !== artifactId) {
       throw new Error("Artifact version not found");
@@ -117,9 +121,60 @@ export class ArtifactRepository {
         id, projectId, artifactId, source.artifactType, (latest?.version ?? 0) + 1,
         source.schemaVersion, JSON.stringify(source.content), source.id, new Date().toISOString(),
       );
-      this.markDependentsStale(projectId, artifactId);
+      if (options.markDependentsStale !== false) this.markDependentsStale(projectId, artifactId);
       return this.getVersion<T>(id)!;
     });
+  }
+
+  private validateCreativeDirectionProvenance(projectId: string, artifactId: string, content: unknown): void {
+    if (artifactId !== "creative-direction" || !content || typeof content !== "object" || Array.isArray(content)) {
+      throw new Error("Creative Direction artifact identity is invalid");
+    }
+    const records = (content as { fieldProvenance?: unknown }).fieldProvenance;
+    if (!Array.isArray(records)) throw new Error("Creative Direction provenance is invalid");
+    for (const item of records) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("Creative Direction provenance is invalid");
+      const reference = (item as { reference?: unknown }).reference;
+      if (!reference || typeof reference !== "object" || Array.isArray(reference)) throw new Error("Creative Direction provenance is invalid");
+      const value = reference as { kind?: unknown; targetId?: unknown; versionId?: unknown; unavailable?: unknown };
+      const targetId = typeof value.targetId === "string" ? value.targetId : undefined;
+      const versionId = typeof value.versionId === "string" ? value.versionId : undefined;
+      if (value.unavailable === true) continue;
+      switch (value.kind) {
+        case "manual-edit":
+          if (versionId && !this.database.prepare(`SELECT 1 FROM artifact_versions
+            WHERE id = ? AND project_id = ? AND artifact_id = 'creative-direction'`).get(versionId, projectId)) {
+            throw new Error("Creative Direction provenance references another project or missing version");
+          }
+          break;
+        case "migration-derived":
+        case "approved-artifact":
+          if (!targetId || !versionId || !this.database.prepare(`SELECT 1 FROM artifact_versions
+            WHERE id = ? AND project_id = ? AND artifact_id = ?`).get(versionId, projectId, targetId)) {
+            throw new Error("Creative Direction provenance references another project or missing artifact version");
+          }
+          break;
+        case "user-message":
+          if (!targetId || !this.database.prepare(`SELECT 1 FROM messages message
+            JOIN conversations conversation ON conversation.id = message.conversation_id
+            WHERE message.id = ? AND conversation.project_id = ?`).get(targetId, projectId)) {
+            throw new Error("Creative Direction provenance references another project or missing message");
+          }
+          break;
+        case "proposal":
+          if (!targetId || !this.database.prepare("SELECT 1 FROM change_sets WHERE id = ? AND project_id = ?")
+            .get(targetId, projectId)) {
+            throw new Error("Creative Direction provenance references another project or missing proposal");
+          }
+          break;
+        case "source-evidence":
+        case "source-observation":
+        case "author-override":
+          throw new Error(`Creative Direction provenance kind ${String(value.kind)} is not available in A1`);
+        default:
+          throw new Error("Creative Direction provenance kind is invalid");
+      }
+    }
   }
 
   compare(projectId: string, artifactId: string, fromId: string, toId: string): {
@@ -158,5 +213,12 @@ export class ArtifactRepository {
       `).run(projectId, dependent);
     }
     return [...stale].sort();
+  }
+
+  markCurrentStale(projectId: string, artifactId: string): boolean {
+    const result = this.database.prepare(`UPDATE artifact_versions SET stale = 1 WHERE id = (
+      SELECT id FROM artifact_versions WHERE project_id = ? AND artifact_id = ? ORDER BY version DESC LIMIT 1
+    )`).run(projectId, artifactId);
+    return result.changes > 0;
   }
 }

@@ -17,6 +17,7 @@ import {
   type NarrativeThread,
   type PassageValidationReport,
   type ProjectBrief,
+  type CreativeDirection,
 } from "@story-to-cyoa/pipeline";
 import type {
   ArtifactRepository,
@@ -101,7 +102,8 @@ export class PassagePlanService {
 
   portableBundle(projectId: string) {
     const project = this.requireProject(projectId);
-    const artifactIds = ["brief", "bible", "routes", "endings", "mechanics"];
+    const artifactIds = ["brief", "creative-direction", "bible", "routes", "endings", "mechanics"]
+      .filter((artifactId) => artifactId !== "creative-direction" || this.artifacts.getCurrent(projectId, artifactId));
     const planningArtifacts = Object.fromEntries(artifactIds.map((artifactId) => {
       const current = this.artifacts.getCurrent(projectId, artifactId);
       const approvedVersionId = this.workflow.get(projectId, artifactId).approvedVersionId;
@@ -271,8 +273,13 @@ export class PassagePlanService {
     const routes = this.approved<LongFormRoutePlan>(projectId, "routes");
     const endings = this.approved<LongFormEndingPlan>(projectId, "endings");
     const mechanics = this.approved<LongFormMechanicsPlan>(projectId, "mechanics");
-    if (!brief || !bible || !routes || !endings || !mechanics) {
-      throw new Error("Approve brief, bible, routes, endings, and mechanics first");
+    const directionExists = Boolean(this.artifacts.getCurrent(projectId, "creative-direction"));
+    const creativeDirection = directionExists
+      ? this.approved<CreativeDirection>(projectId, "creative-direction") : undefined;
+    if (!brief || !bible || !routes || !endings || !mechanics || (directionExists && !creativeDirection)) {
+      throw new Error(directionExists
+        ? "Approve brief, Creative Direction, bible, routes, endings, and mechanics first"
+        : "Approve brief, bible, routes, endings, and mechanics first");
     }
     return {
       versions: {
@@ -281,6 +288,7 @@ export class PassagePlanService {
         routes: routes.id,
         endings: endings.id,
         mechanics: mechanics.id,
+        ...(creativeDirection ? { "creative-direction": creativeDirection.id } : {}),
       },
       bible,
       routes,

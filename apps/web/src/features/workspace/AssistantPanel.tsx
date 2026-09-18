@@ -21,6 +21,7 @@ import {
   type LongFormMechanicsPlan,
   type MessageRecord,
   type ProjectBrief,
+  type CreativeDirection,
   type ProjectRecord,
 } from "../../api/long-form.js";
 
@@ -30,11 +31,12 @@ const clampWidth = (value: number) => Math.max(320, Math.min(620, value));
 export function AssistantPanel(props: {
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
+  creativeDirection: ArtifactVersion<CreativeDirection> | null;
   bible: ArtifactVersion<LongFormStoryBible> | null;
   routes: ArtifactVersion<LongFormRoutePlan> | null;
   endings: ArtifactVersion<LongFormEndingPlan> | null;
   mechanics: ArtifactVersion<LongFormMechanicsPlan> | null;
-  activeArtifact: "brief" | "bible" | "routes" | "endings" | "mechanics";
+  activeArtifact: "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics";
   onBriefApplied(): Promise<void>;
 }) {
   const [conversation, setConversation] = useState<ConversationRecord | null>(null);
@@ -83,17 +85,18 @@ export function AssistantPanel(props: {
     if (historyRef.current) historyRef.current.scrollTop = historyRef.current.scrollHeight;
   }, [messages, proposals]);
 
-  const artifactFor = (selection: "brief" | "bible" | "routes" | "endings" | "mechanics") =>
+  const artifactFor = (selection: "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics") =>
     selection === "mechanics" ? props.mechanics : selection === "endings"
       ? props.endings
       : selection === "routes"
         ? props.routes
         : selection === "bible"
           ? props.bible
+          : selection === "creative-direction" ? props.creativeDirection
           : props.brief;
 
   const changeScope = async (
-    selection: "project" | "brief" | "bible" | "routes" | "endings" | "mechanics",
+    selection: "project" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics",
     sectionId = "root",
   ) => {
     if (!conversation) return;
@@ -247,9 +250,10 @@ export function AssistantPanel(props: {
         <select
           value={conversation?.scope.kind === "project" ? "project" : conversation?.scope.artifactId ?? props.activeArtifact}
           disabled={!conversation || busy}
-          onChange={(event) => void changeScope(event.target.value as "project" | "brief" | "bible" | "routes" | "endings" | "mechanics")}
+          onChange={(event) => void changeScope(event.target.value as "project" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics")}
         >
           <option value="brief">Project brief · version {props.brief.version}</option>
+          {props.creativeDirection && <option value="creative-direction">Creative Direction · version {props.creativeDirection.version}</option>}
           {props.bible && <option value="bible">Story bible · version {props.bible.version}</option>}
           {props.routes && <option value="routes">Route architecture · version {props.routes.version}</option>}
           {props.endings && <option value="endings">Ending architecture · version {props.endings.version}</option>}
@@ -262,7 +266,7 @@ export function AssistantPanel(props: {
           value={conversation.scope.sectionId ?? "root"}
           disabled={busy}
           onChange={(event) => void changeScope(
-            conversation.scope.artifactId as "brief" | "bible" | "routes" | "endings" | "mechanics",
+            conversation.scope.artifactId as "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics",
             event.target.value,
           )}
         >

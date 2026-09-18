@@ -1,7 +1,158 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ArtifactRepository, openDatabase, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { defaultLongFormStoryBible, defaultProjectBrief } from "@story-to-cyoa/pipeline";
 import { buildApp } from "../src/app.js";
 
 describe("long-form project brief", () => {
+  it("versions Creative Direction with material-only staleness and exact provenance", async () => {
+    const app = buildApp();
+    const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Direction Project" } })).json();
+    const projectId = created.project.id as string;
+    expect(created.creativeDirection).toMatchObject({ artifactId: "creative-direction", version: 1, content: { schemaId: "cyoa.creative-direction" } });
+    expect(created.creativeDirectionWorkflow.status).toBe("draft");
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`, payload: { versionId: created.brief.id } });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: created.creativeDirection.id } });
+    const bible = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/bible` })).json();
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/bible/approve`, payload: { versionId: bible.bible.id } });
+
+    const provenanceOnly = await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`,
+      payload: { ...created.creativeDirection.content, fieldProvenance: [{
+        fieldPath: "/tone", reference: { kind: "manual-edit", versionId: created.creativeDirection.id, excerpt: "Why this default exists" },
+      }] },
+    });
+    expect(provenanceOnly.statusCode).toBe(201);
+    expect(provenanceOnly.json().creativeDirection.content.materialFingerprint).toBe(created.creativeDirection.content.materialFingerprint);
+    expect(provenanceOnly.json().creativeDirection.content.provenanceFingerprint).not.toBe(created.creativeDirection.content.provenanceFingerprint);
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: provenanceOnly.json().creativeDirection.id } });
+    let state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}` })).json();
+    expect(state.workflow.bible.status).toBe("approved");
+    expect(state.bible.stale).toBe(false);
+
+    const noOp = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`,
+      payload: provenanceOnly.json().creativeDirection.content,
+    })).json();
+    state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}` })).json();
+    expect(state.workflow.bible.status).toBe("approved");
+    expect(state.bible.stale).toBe(false);
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: noOp.creativeDirection.id } });
+    state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}` })).json();
+    expect(state.workflow.bible.status).toBe("approved");
+    expect(state.bible.stale).toBe(false);
+
+    const restoredEquivalent = (await app.inject({
+      method: "POST", url: `/api/projects/${projectId}/artifacts/creative-direction/restore`,
+      payload: { versionId: created.creativeDirection.id },
+    })).json();
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: restoredEquivalent.version.id } });
+    state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}` })).json();
+    expect(state.workflow.bible.status).toBe("approved");
+    expect(state.bible.stale).toBe(false);
+
+    const material = await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`,
+      payload: { ...provenanceOnly.json().creativeDirection.content, tone: { ...provenanceOnly.json().creativeDirection.content.tone, descriptors: ["uncanny", "tense"] } },
+    });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: material.json().creativeDirection.id } });
+    state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}` })).json();
+    expect(state.workflow.bible.status).toBe("stale");
+    expect(state.bible.stale).toBe(true);
+
+    const exported = await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/creative-direction/export?format=json` });
+    expect(exported.statusCode).toBe(200);
+    expect(exported.json().artifact.content.materialFingerprint).toBe(material.json().creativeDirection.content.materialFingerprint);
+    const context = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/creative-direction/context-preview` })).json();
+    expect(context.diagnostics).toMatchObject({
+      artifactVersionId: material.json().creativeDirection.id,
+      materialFingerprint: material.json().creativeDirection.content.materialFingerprint,
+      omittedRelationshipProfileIds: [], omittedScopedVariationIds: [], tokenEstimateKind: "estimated",
+      hardLimitBytes: expect.any(Number), hardLimits: expect.any(Object),
+    });
+    await app.close();
+  });
+
+  it("rejects cross-project Creative Direction provenance before any version is written", async () => {
+    const app = buildApp();
+    const first = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "First" } })).json();
+    const second = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Second" } })).json();
+    const rejected = await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${first.project.id}/creative-direction`,
+      payload: { ...first.creativeDirection.content, fieldProvenance: [{
+        fieldPath: "/tone", reference: { kind: "approved-artifact", targetId: "brief", versionId: second.brief.id },
+      }] },
+    });
+    expect(rejected.statusCode).toBe(400);
+    const state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${first.project.id}` })).json();
+    expect(state.creativeDirection.version).toBe(1);
+    await app.close();
+  });
+
+  it("opens a pre-A1 project unchanged and creates only an explicit migration-derived adoption draft", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-legacy-direction-"));
+    const databasePath = join(directory, "story.sqlite");
+    const database = openDatabase(databasePath);
+    const project = new ProjectRepository(database).create("Legacy project", "legacy-project", "long-form");
+    const artifacts = new ArtifactRepository(database); const workflow = new WorkflowRepository(database);
+    const briefContent = { ...defaultProjectBrief("Legacy project"), tone: "uncanny", pointOfView: "first-person" as const };
+    const brief = artifacts.saveArtifact({ projectId: project.id, artifactId: "brief", artifactType: "brief", schemaVersion: 1, content: briefContent });
+    workflow.approve(project.id, "brief", brief.id);
+    const bibleContent = defaultLongFormStoryBible({
+      title: "Legacy project", overview: "Historical overview", protagonist: "Mara", pointOfView: "first-person", tone: "restrained",
+    });
+    const bible = artifacts.saveArtifact({ projectId: project.id, artifactId: "bible", artifactType: "bible", schemaVersion: 1, content: bibleContent });
+    workflow.approve(project.id, "bible", bible.id);
+    const exactBefore = artifacts.listVersions(project.id, "brief").concat(artifacts.listVersions(project.id, "bible"));
+    database.close();
+
+    const app = buildApp({ databasePath });
+    try {
+      const opened = (await app.inject({ method: "GET", url: `/api/long-form/projects/${project.id}` })).json();
+      expect(opened.creativeDirection).toBeNull();
+      expect(opened.workflow["creative-direction"]).toMatchObject({ status: "empty", approvedVersionId: null });
+      const adopted = await app.inject({ method: "POST", url: `/api/long-form/projects/${project.id}/creative-direction/adopt-legacy` });
+      expect(adopted.statusCode).toBe(201);
+      expect(adopted.json()).toMatchObject({ workflow: { status: "draft", approvedVersionId: null } });
+      expect(adopted.json().artifact.content.prose.pointOfView).toBe("first-person");
+      expect(adopted.json().artifact.content.fieldProvenance).toEqual(expect.arrayContaining([
+        expect.objectContaining({ reference: expect.objectContaining({ kind: "migration-derived", versionId: brief.id }) }),
+        expect.objectContaining({ reference: expect.objectContaining({ kind: "migration-derived", versionId: bible.id }) }),
+      ]));
+      const reopenedDatabase = openDatabase(databasePath);
+      expect(new ArtifactRepository(reopenedDatabase).listVersions(project.id, "brief")
+        .concat(new ArtifactRepository(reopenedDatabase).listVersions(project.id, "bible"))).toEqual(exactBefore);
+      reopenedDatabase.close();
+    } finally {
+      await app.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("duplicates complete Creative Direction history with remapped project-owned provenance", async () => {
+    const app = buildApp();
+    const source = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Source" } })).json();
+    const saved = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${source.project.id}/creative-direction`,
+      payload: { ...source.creativeDirection.content, tone: { ...source.creativeDirection.content.tone, descriptors: ["hopeful"] }, fieldProvenance: [{
+        fieldPath: "/tone", reference: { kind: "manual-edit", versionId: source.creativeDirection.id, excerpt: "Source edit" },
+      }] },
+    })).json();
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${source.project.id}/creative-direction/approve`, payload: { versionId: saved.creativeDirection.id } });
+    const copy = (await app.inject({ method: "POST", url: `/api/projects/${source.project.id}/duplicate`, payload: { name: "Copy" } })).json();
+    const state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${copy.id}` })).json();
+    const history = (await app.inject({ method: "GET", url: `/api/projects/${copy.id}/artifacts/creative-direction/versions` })).json();
+    expect(history).toHaveLength(2);
+    expect(state.workflow["creative-direction"]).toMatchObject({ status: "approved", approvedVersionId: history[0].id });
+    expect(state.creativeDirection.content.materialFingerprint).toBe(saved.creativeDirection.content.materialFingerprint);
+    const referenceVersionId = state.creativeDirection.content.fieldProvenance[0].reference.versionId;
+    expect(history.map((item: { id: string }) => item.id)).toContain(referenceVersionId);
+    expect(referenceVersionId).not.toBe(source.creativeDirection.id);
+    await app.close();
+  });
+
   it("creates, persists, approves, and exports a validated brief", async () => {
     const app = buildApp();
     const created = await app.inject({

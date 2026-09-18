@@ -44,6 +44,7 @@ async function seedApprovedProject(options: SeedOptions = {}) {
   await ok(app.inject({
     method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`, payload: { versionId: created.brief.id },
   }));
+  await ok(app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: created.creativeDirection.id } }));
   const artifacts: Record<string, any> = { brief: created.brief };
   for (const artifactId of ["bible", "routes", "endings"] as const) {
     const generated = (await ok(app.inject({

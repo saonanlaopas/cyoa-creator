@@ -20,6 +20,7 @@ import { LongFormMechanicsPlanSchema, type LongFormMechanicsPlan } from "./schem
 import { LongFormRoutePlanSchema, type LongFormRoutePlan } from "./schemas/long-form-route-plan.js";
 import { LongFormStoryBibleSchema, type LongFormStoryBible } from "./schemas/long-form-story-bible.js";
 import { ProjectBriefSchema, type ProjectBrief } from "./schemas/project-brief.js";
+import { CreativeDirectionSchema } from "./schemas/creative-direction.js";
 import {
   ChoicePlanSchema,
   NarrativeThreadSchema,
@@ -45,7 +46,7 @@ const ExactEntityReferenceSchema = z.object({
   contentFingerprint: Fingerprint,
 }).strict();
 const ExactArtifactReferenceSchema = z.object({
-  artifactId: z.enum(["brief", "bible", "routes", "endings", "mechanics"]),
+  artifactId: z.enum(["brief", "creative-direction", "bible", "routes", "endings", "mechanics"]),
   versionId: StableId,
   schemaVersion: z.number().int().positive(),
   contentFingerprint: Fingerprint,
@@ -94,7 +95,7 @@ export const NativeCompilationInputSchema = z.object({
   passages: z.array(ExactEntityReferenceSchema).max(10_000),
   choices: z.array(ExactEntityReferenceSchema).max(30_000),
   threads: z.array(ExactEntityReferenceSchema).max(5_000),
-  upstreamArtifacts: z.array(ExactArtifactReferenceSchema).length(5),
+  upstreamArtifacts: z.array(ExactArtifactReferenceSchema).min(5).max(6),
   acceptedDrafts: z.array(AcceptedDraftSelectionSchema).max(10_000),
   warnings: z.array(PublicationFindingSchema).max(100_000),
   compilerPolicy: z.object({
@@ -272,6 +273,7 @@ export function assertResolvedNativeCompilationInput(
 
 const upstreamSchemas: Record<PlanningArtifactId, z.ZodTypeAny> = {
   brief: ProjectBriefSchema,
+  "creative-direction": CreativeDirectionSchema,
   bible: LongFormStoryBibleSchema,
   routes: LongFormRoutePlanSchema,
   endings: LongFormEndingPlanSchema,
@@ -304,7 +306,8 @@ function validateUpstreamArtifacts(
 ): void {
   const expectedById = uniqueMap(exact.upstreamArtifacts, (item) => item.artifactId, "exact upstream artifact reference");
   const resolvedById = uniqueMap(resolved.upstreamArtifacts, (item) => item.artifactId, "resolved upstream artifact");
-  const required = Object.keys(upstreamSchemas) as PlanningArtifactId[];
+  const required: PlanningArtifactId[] = ["brief", "bible", "routes", "endings", "mechanics"];
+  if (exact.snapshot.upstreamVersions["creative-direction"]) required.splice(1, 0, "creative-direction");
   if (expectedById.size !== required.length || resolvedById.size !== required.length) {
     throw inputError("native_compilation_upstream_lineage_invalid", "Resolved upstream artifacts are not the exact required set");
   }

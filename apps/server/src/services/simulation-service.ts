@@ -113,9 +113,13 @@ export class SimulationService {
     if (!snapshot || snapshot.projectId !== projectId || snapshot.status !== "approved") {
       throw new SimulationServiceError("simulation_snapshot_not_approved", "The approved passage-plan snapshot is unavailable");
     }
-    for (const artifactId of ["brief", "bible", "routes", "endings", "mechanics"]) {
+    for (const artifactId of Object.keys(snapshot.upstreamVersions)) {
       const expectedVersionId = snapshot.upstreamVersions[artifactId];
-      if (!expectedVersionId || this.workflow.get(projectId, artifactId).approvedVersionId !== expectedVersionId) {
+      const currentVersionId = this.workflow.get(projectId, artifactId).approvedVersionId;
+      const materialEquivalentDirection = artifactId === "creative-direction" && expectedVersionId && currentVersionId
+        && (this.artifacts.getVersion<{ materialFingerprint: string }>(expectedVersionId)?.content.materialFingerprint
+          === this.artifacts.getVersion<{ materialFingerprint: string }>(currentVersionId)?.content.materialFingerprint);
+      if (!expectedVersionId || (currentVersionId !== expectedVersionId && !materialEquivalentDirection)) {
         throw new SimulationServiceError(
           "simulation_upstream_not_current",
           `Approved ${artifactId} does not match the passage-plan snapshot`,

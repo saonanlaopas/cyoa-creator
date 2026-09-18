@@ -4,6 +4,11 @@ import {
   LongFormRoutePlanSchema,
   LongFormStoryBibleSchema,
   ProjectBriefSchema,
+  CreativeDirectionSchema,
+  CREATIVE_DIRECTION_LIMITS,
+  defaultCreativeDirection,
+  normalizeCreativeDirection,
+  selectCreativeDirectionContext,
   defaultLongFormEndingPlan,
   defaultLongFormMechanicsPlan,
   defaultLongFormRoutePlan,
@@ -21,6 +26,8 @@ import {
   type PlanningArtifactId,
   type PlanningFinding,
   type ProjectBrief,
+  type CreativeDirection,
+  type CreativeDirectionInput,
 } from "@story-to-cyoa/pipeline";
 import type {
   ArtifactRepository,
@@ -34,6 +41,7 @@ import type {
 
 const prerequisites: Record<PlanningArtifactId, PlanningArtifactId[]> = {
   brief: [],
+  "creative-direction": [],
   bible: ["brief"],
   routes: ["brief", "bible"],
   endings: ["routes"],
@@ -42,6 +50,7 @@ const prerequisites: Record<PlanningArtifactId, PlanningArtifactId[]> = {
 
 const dependencies: Record<PlanningArtifactId, string[]> = {
   brief: ["source"],
+  "creative-direction": ["brief"],
   bible: ["brief", "source"],
   routes: ["brief", "bible"],
   endings: ["routes"],
@@ -50,6 +59,7 @@ const dependencies: Record<PlanningArtifactId, string[]> = {
 
 const schemas = {
   brief: ProjectBriefSchema,
+  "creative-direction": CreativeDirectionSchema,
   bible: LongFormStoryBibleSchema,
   routes: LongFormRoutePlanSchema,
   endings: LongFormEndingPlanSchema,
@@ -82,7 +92,20 @@ export class LongFormProjectService {
       content: defaultProjectBrief(project.name),
       dependencies: dependencies.brief,
     });
-    return { project, brief, workflow: this.workflow.markDraft(project.id, "brief") };
+    const creativeDirection = this.artifacts.saveArtifact({
+      projectId: project.id,
+      artifactId: "creative-direction",
+      artifactType: "creative-direction",
+      schema: CreativeDirectionSchema,
+      content: defaultCreativeDirection(brief.content.pointOfView),
+      dependencies: dependencies["creative-direction"],
+      markDependentsStale: false,
+    });
+    return {
+      project, brief, creativeDirection,
+      workflow: this.workflow.markDraft(project.id, "brief"),
+      creativeDirectionWorkflow: this.workflow.markDraft(project.id, "creative-direction"),
+    };
   }
 
   getState(projectId: string) {
@@ -90,18 +113,20 @@ export class LongFormProjectService {
     const brief = this.artifacts.getCurrent<ProjectBrief>(projectId, "brief");
     if (!brief) throw new Error("Project brief not found");
     const bible = this.artifacts.getCurrent<LongFormStoryBible>(projectId, "bible") ?? null;
+    const creativeDirection = this.artifacts.getCurrent<CreativeDirection>(projectId, "creative-direction") ?? null;
     const routes = this.artifacts.getCurrent<LongFormRoutePlan>(projectId, "routes") ?? null;
     const endings = this.artifacts.getCurrent<LongFormEndingPlan>(projectId, "endings") ?? null;
     const mechanics = this.artifacts.getCurrent<LongFormMechanicsPlan>(projectId, "mechanics") ?? null;
     const snapshot = {
       brief: brief.content,
+      "creative-direction": creativeDirection?.content ?? null,
       bible: bible?.content ?? null,
       routes: routes?.content ?? null,
       endings: endings?.content ?? null,
       mechanics: mechanics?.content ?? null,
     };
     return {
-      project, brief, bible, routes, endings, mechanics,
+      project, brief, creativeDirection, bible, routes, endings, mechanics,
       workflow: Object.fromEntries(planningArtifactIds.map((id) => [id, this.workflow.get(projectId, id)])),
       validation: validateLongFormProject(snapshot),
     };
@@ -118,6 +143,7 @@ export class LongFormProjectService {
     };
     return {
       brief: content<ProjectBrief>("brief"),
+      "creative-direction": content<CreativeDirection>("creative-direction"),
       bible: content<LongFormStoryBible>("bible"),
       routes: content<LongFormRoutePlan>("routes"),
       endings: content<LongFormEndingPlan>("endings"),
@@ -133,7 +159,9 @@ export class LongFormProjectService {
     const bible = this.approved<LongFormStoryBible>(projectId, "bible");
     const routes = this.approved<LongFormRoutePlan>(projectId, "routes");
     const endings = this.approved<LongFormEndingPlan>(projectId, "endings");
-    const content = artifactId === "bible"
+    const content = artifactId === "creative-direction"
+      ? defaultCreativeDirection(brief!.content.pointOfView)
+      : artifactId === "bible"
       ? defaultLongFormStoryBible({
           title: brief!.content.workingTitle,
           overview: brief!.content.premise,
@@ -152,6 +180,7 @@ export class LongFormProjectService {
   saveArtifact(projectId: string, artifactId: PlanningArtifactId, content: unknown) {
     this.project(projectId);
     if (!this.artifacts.getCurrent(projectId, artifactId)) throw new Error(`Create ${artifactId} first`);
+    if (artifactId === "creative-direction") return this.saveCreativeDirection(projectId, content);
     const parsed = schemas[artifactId].parse(content) as PlanningArtifact;
     const version = this.artifacts.saveArtifact({
       projectId,
@@ -159,7 +188,7 @@ export class LongFormProjectService {
       artifactType: artifactId,
       schema: schemas[artifactId] as never,
       content: parsed as never,
-      dependencies: dependencies[artifactId],
+      dependencies: this.dependenciesFor(projectId, artifactId),
     }) as ArtifactVersion<PlanningArtifact>;
     this.markDraftAndDependents(projectId, artifactId);
     this.markPassagePlanStale(projectId);
@@ -186,8 +215,22 @@ export class LongFormProjectService {
       Object.assign(error, { findings });
       throw error;
     }
+    const priorApprovedId = this.workflow.get(projectId, artifactId).approvedVersionId;
+    const priorApproved = priorApprovedId ? this.artifacts.getVersion<PlanningArtifact>(priorApprovedId) : undefined;
     const approved = this.workflow.approve(projectId, artifactId, versionId);
-    this.passageDrafts?.markStaleForUpstreamVersion(projectId, artifactId, versionId);
+    const materialChanged = artifactId !== "creative-direction"
+      || !priorApproved
+      || (priorApproved.content as CreativeDirection).materialFingerprint !== (version.content as CreativeDirection).materialFingerprint;
+    if (materialChanged) {
+      this.passageDrafts?.markStaleForUpstreamVersion(projectId, artifactId, versionId);
+      if (artifactId === "creative-direction") {
+        if (this.artifacts.getCurrent(projectId, "bible")) {
+          this.artifacts.markCurrentStale(projectId, "bible");
+          this.workflow.markStale(projectId, "bible");
+        }
+        this.markPassagePlanStale(projectId);
+      }
+    }
     return approved;
   }
 
@@ -197,9 +240,14 @@ export class LongFormProjectService {
       throw new Error("Planning artifact not found");
     }
     const id = artifactId as PlanningArtifactId;
-    const version = this.artifacts.restore(projectId, id, versionId);
-    this.markDraftAndDependents(projectId, id);
-    this.markPassagePlanStale(projectId);
+    const version = this.artifacts.restore(projectId, id, versionId, {
+      markDependentsStale: id !== "creative-direction",
+    });
+    if (id === "creative-direction") this.workflow.markDraft(projectId, id);
+    else {
+      this.markDraftAndDependents(projectId, id);
+      this.markPassagePlanStale(projectId);
+    }
     return {
       version,
       workflow: this.workflow.get(projectId, id),
@@ -262,7 +310,8 @@ export class LongFormProjectService {
     const version = this.artifacts.saveArtifact({
       projectId, artifactId, artifactType: artifactId,
       schema: schemas[artifactId] as never, content: content as never,
-      dependencies: dependencies[artifactId],
+      dependencies: this.dependenciesFor(projectId, artifactId),
+      markDependentsStale: artifactId !== "creative-direction",
     }) as ArtifactVersion<PlanningArtifact>;
     return {
       artifact: version,
@@ -280,7 +329,8 @@ export class LongFormProjectService {
   }
 
   private requireApprovedPrerequisites(projectId: string, artifactId: PlanningArtifactId): void {
-    const missing = prerequisites[artifactId].filter((dependency) => {
+    const required = [...prerequisites[artifactId]];
+    const missing = required.filter((dependency) => {
       const state = this.workflow.get(projectId, dependency);
       return state.status !== "approved" || !state.approvedVersionId;
     });
@@ -299,6 +349,121 @@ export class LongFormProjectService {
 
   private markPassagePlanStale(projectId: string): void {
     if (this.passagePlans?.currentStructure(projectId)) this.passagePlans.markStale(projectId);
+  }
+
+  private dependenciesFor(projectId: string, artifactId: PlanningArtifactId): string[] {
+    return artifactId === "bible" && this.artifacts.getCurrent(projectId, "creative-direction")
+      ? [...dependencies.bible, "creative-direction"]
+      : dependencies[artifactId];
+  }
+
+  private saveCreativeDirection(projectId: string, content: unknown) {
+    const current = this.artifacts.getCurrent<CreativeDirection>(projectId, "creative-direction");
+    if (!current) throw new Error("Create creative-direction first");
+    const raw = content && typeof content === "object" && !Array.isArray(content)
+      ? content as Record<string, unknown> : {};
+    const { materialFingerprint: _material, provenanceFingerprint: _provenance, ...withoutFingerprints } = raw;
+    const parsed = normalizeCreativeDirection(withoutFingerprints as CreativeDirectionInput);
+    this.validateCreativeDirectionScopes(projectId, parsed);
+    const version = this.artifacts.saveArtifact({
+      projectId, artifactId: "creative-direction", artifactType: "creative-direction",
+      schema: CreativeDirectionSchema, content: parsed,
+      dependencies: dependencies["creative-direction"], markDependentsStale: false,
+    });
+    this.workflow.markDraft(projectId, "creative-direction");
+    return {
+      artifact: version,
+      workflow: this.workflow.get(projectId, "creative-direction"),
+      validation: validateLongFormProject(this.snapshot(projectId)),
+    };
+  }
+
+  adoptLegacyCreativeDirection(projectId: string) {
+    this.project(projectId);
+    if (this.artifacts.getCurrent(projectId, "creative-direction")) throw new Error("Creative Direction already exists");
+    const brief = this.artifacts.getCurrent<ProjectBrief>(projectId, "brief");
+    if (!brief) throw new Error("Project brief not found");
+    const bible = this.artifacts.getCurrent<LongFormStoryBible>(projectId, "bible");
+    const briefTone = brief.content.tone.trim();
+    const bibleTones = bible?.content.proseGuidance.tone ?? [];
+    const briefPov = brief.content.pointOfView;
+    const biblePov = bible?.content.proseGuidance.pointOfView.trim() ?? "";
+    const normalizedBiblePov = biblePov.includes("first") ? "first-person"
+      : biblePov.includes("second") ? "second-person"
+        : biblePov.includes("third") ? "third-person" : null;
+    const conflicts: string[] = [];
+    if (briefTone && bibleTones.length && !bibleTones.some((tone) => tone.toLowerCase() === briefTone.toLowerCase())) {
+      conflicts.push("Brief tone and Bible prose tone differ; both were retained for review.");
+    }
+    if (normalizedBiblePov && normalizedBiblePov !== briefPov) {
+      conflicts.push("Brief and Bible point of view differ; mixed POV was selected for explicit review.");
+    }
+    const sources = [brief, ...(bible ? [bible] : [])];
+    const fieldProvenance = sources.flatMap((source) => [{
+      fieldPath: source.artifactId === "brief" ? "/tone" : "/prose",
+      reference: {
+        kind: "migration-derived" as const,
+        targetId: source.artifactId,
+        versionId: source.id,
+        excerpt: source.artifactId === "brief" ? "Legacy Project Brief presentation fields" : "Legacy Story Bible prose guidance",
+      },
+    }]);
+    const direction = normalizeCreativeDirection({
+      schemaId: "cyoa.creative-direction", schemaVersion: 1,
+      tone: { descriptors: [briefTone, ...bibleTones].filter(Boolean) },
+      pacing: {},
+      prose: {
+        pointOfView: normalizedBiblePov && normalizedBiblePov !== briefPov ? "mixed"
+          : briefPov === "third-person" ? "third-person-close" : briefPov,
+        voiceDescriptors: bible?.content.proseGuidance.style ?? [],
+        avoid: bible?.content.proseGuidance.avoid ?? [],
+      },
+      scopedVariations: [], fieldProvenance,
+    });
+    const artifact = this.artifacts.saveArtifact({
+      projectId, artifactId: "creative-direction", artifactType: "creative-direction",
+      schema: CreativeDirectionSchema, content: direction,
+      dependencies: dependencies["creative-direction"], markDependentsStale: false,
+    });
+    return { artifact, workflow: this.workflow.markDraft(projectId, "creative-direction"), conflicts };
+  }
+
+  creativeDirectionContext(projectId: string) {
+    const approvedId = this.workflow.get(projectId, "creative-direction").approvedVersionId;
+    if (!approvedId) throw new Error("Approve Creative Direction first");
+    const artifact = this.artifacts.getVersion<CreativeDirection>(approvedId);
+    if (!artifact || artifact.projectId !== projectId || artifact.artifactId !== "creative-direction") {
+      throw new Error("Approved Creative Direction not found");
+    }
+    const selected = selectCreativeDirectionContext(artifact.content);
+    return { artifact, context: selected.context, diagnostics: {
+      artifactVersionId: artifact.id,
+      materialFingerprint: artifact.content.materialFingerprint,
+      provenanceFingerprint: artifact.content.provenanceFingerprint,
+      ...selected.diagnostics,
+      hardLimits: CREATIVE_DIRECTION_LIMITS,
+    } };
+  }
+
+  private validateCreativeDirectionScopes(projectId: string, direction: CreativeDirection): void {
+    const bible = this.artifacts.getCurrent<LongFormStoryBible>(projectId, "bible")?.content;
+    const routes = this.artifacts.getCurrent<LongFormRoutePlan>(projectId, "routes")?.content;
+    const relationshipIds = new Set(bible?.relationships.map((item) => item.id) ?? []);
+    const characterIds = new Set(bible?.characters.map((item) => item.id) ?? []);
+    for (const profile of direction.relationshipPresentation?.profiles ?? []) {
+      if (profile.relationshipId && bible && !relationshipIds.has(profile.relationshipId)) throw new Error(`Unknown relationship ${profile.relationshipId}`);
+      if (bible && profile.participantIds.some((id) => !characterIds.has(id))) throw new Error(`Relationship profile ${profile.id} references an unknown character`);
+    }
+    const known = {
+      route: new Set(routes?.routes.map((item) => item.id) ?? []),
+      act: new Set(routes?.acts.map((item) => item.id) ?? []),
+      relationship: relationshipIds,
+      character: characterIds,
+    };
+    for (const variation of direction.scopedVariations) {
+      const domainExists = variation.scopeKind === "route" || variation.scopeKind === "act" ? Boolean(routes) : Boolean(bible);
+      if (domainExists && !known[variation.scopeKind].has(variation.scopeId)) throw new Error(`Unknown ${variation.scopeKind} scope ${variation.scopeId}`);
+    }
   }
 }
 

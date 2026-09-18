@@ -6,6 +6,7 @@ import {
 } from "@story-to-cyoa/domain";
 import { stableJson } from "./passage-generation-plan.js";
 import type { ChoicePlan, NarrativeThread, PassagePlan } from "./schemas/passage-plan.js";
+import { CreativeDirectionSchema, selectCreativeDirectionContext } from "./schemas/creative-direction.js";
 
 export const narrativeReviewContextSchema = Object.freeze({ id: "cyoa.narrative-review-context", version: 1 });
 export const narrativeReviewOutputSchema = Object.freeze({ id: "cyoa.narrative-review-output", version: 2 });
@@ -433,7 +434,16 @@ function relevantUpstream(upstream: Record<string, unknown>, seeds: unknown[]): 
       }).map((entry) => filter(entry, depth + 1))];
     }));
   };
-  return Object.fromEntries(Object.entries(upstream).map(([key, value]) => [key, filter(value, 0)]));
+  return Object.fromEntries(Object.entries(upstream).map(([key, value]) => {
+    if (key === "creative-direction") {
+      const direction = CreativeDirectionSchema.parse(value);
+      const ids = [...identifiers];
+      return [key, selectCreativeDirectionContext(direction, {
+        routeIds: ids, actIds: ids, relationshipIds: ids, characterIds: ids,
+      }).context];
+    }
+    return [key, filter(value, 0)];
+  }));
 }
 function collectStrings(value: unknown, result = new Set<string>()): Set<string> {
   if (typeof value === "string") result.add(value);

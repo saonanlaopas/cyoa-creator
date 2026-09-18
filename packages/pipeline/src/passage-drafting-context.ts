@@ -5,6 +5,7 @@ import type { LongFormRoutePlan } from "./schemas/long-form-route-plan.js";
 import type { LongFormStoryBible } from "./schemas/long-form-story-bible.js";
 import type { ChoicePlan, NarrativeThread, PassagePlan, PassageStructure } from "./schemas/passage-plan.js";
 import type { ProjectBrief } from "./schemas/project-brief.js";
+import { selectCreativeDirectionContext, type CreativeDirection } from "./schemas/creative-direction.js";
 import { stableJson } from "./passage-generation-plan.js";
 
 export const passageDraftingContextSchema = Object.freeze({
@@ -41,9 +42,10 @@ export interface PassageDraftingContextPack {
   choices: Array<ImmutableDraftingRecord<ChoicePlan>>;
   threads: Array<ImmutableDraftingRecord<NarrativeThread>>;
   upstream: {
-    brief: Pick<ProjectBrief,
+    brief: Partial<Pick<ProjectBrief,
       "workingTitle" | "premise" | "protagonist" | "pointOfView" | "adaptationFidelity"
-      | "tone" | "contentBoundaries" | "priorityCharacters" | "priorityRelationships" | "projectConstraints">;
+      | "tone" | "contentBoundaries" | "priorityCharacters" | "priorityRelationships" | "projectConstraints">>;
+    creativeDirection?: ReturnType<typeof selectCreativeDirectionContext>["context"];
     bible: Partial<LongFormStoryBible>;
     routes: Partial<LongFormRoutePlan>;
     endings: Partial<LongFormEndingPlan>;
@@ -83,6 +85,7 @@ export interface PassageDraftingContextInput {
   routes: LongFormRoutePlan;
   endings: LongFormEndingPlan;
   mechanics: LongFormMechanicsPlan;
+  creativeDirection?: CreativeDirection;
   acceptedDrafts: AcceptedNeighborDraftInput[];
   requiredNeighborPassageIds?: string[];
   maximumEstimatedInputTokens: number;
@@ -178,6 +181,10 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
     || item.conditions.some((condition) => mechanicKeys.has(condition.mechanicKey)));
   gates.flatMap((item) => item.conditions).forEach((condition) => mechanicKeys.add(condition.mechanicKey));
 
+  const creativeDirection = input.creativeDirection ? selectCreativeDirectionContext(input.creativeDirection, {
+    routeIds: [...routeIds], actIds: [...actIds], relationshipIds: [...relationshipIds], characterIds: [...characterIds],
+  }) : undefined;
+
   const base: PassageDraftingContextPack = {
     schemaId: passageDraftingContextSchema.id,
     schemaVersion: passageDraftingContextSchema.version,
@@ -192,14 +199,16 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
     choices: connectedChoices,
     threads,
     upstream: {
-      brief: pick(input.brief, [
-        "workingTitle", "premise", "protagonist", "pointOfView", "adaptationFidelity", "tone",
+      brief: input.creativeDirection ? pick(input.brief, [
+        "workingTitle", "premise", "protagonist", "adaptationFidelity",
         "contentBoundaries", "priorityCharacters", "priorityRelationships", "projectConstraints",
-      ]),
+      ]) : pick(input.brief, ["workingTitle", "premise", "protagonist", "pointOfView", "adaptationFidelity", "tone",
+        "contentBoundaries", "priorityCharacters", "priorityRelationships", "projectConstraints"]),
+      ...(creativeDirection ? { creativeDirection: creativeDirection.context } : {}),
       bible: {
         schemaVersion: input.bible.schemaVersion,
         title: input.bible.title,
-        proseGuidance: input.bible.proseGuidance,
+        ...(input.creativeDirection ? {} : { proseGuidance: input.bible.proseGuidance }),
         characters: input.bible.characters.filter((item) => characterIds.has(item.id)),
         relationships: input.bible.relationships.filter((item) => relationshipIds.has(item.id)),
         settings: input.bible.settings.filter((item) => locationIds.has(item.id)),
@@ -293,8 +302,18 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
         ids: base.acceptedNeighborProse.map((item) => item.passageId),
         versionIds: base.acceptedNeighborProse.map((item) => item.draftVersionId),
       },
+      ...(creativeDirection ? {
+        creativeDirectionProfiles: { ids: creativeDirection.diagnostics.relevantProfileIds },
+        creativeDirectionVariations: { ids: creativeDirection.diagnostics.relevantVariationIds },
+      } : {}),
     },
-    omittedOptionalContext: { acceptedNeighborPassageIds: omittedNeighborIds },
+    omittedOptionalContext: {
+      acceptedNeighborPassageIds: omittedNeighborIds,
+      ...(creativeDirection ? {
+        creativeDirectionProfileIds: creativeDirection.diagnostics.omittedRelationshipProfileIds,
+        creativeDirectionVariationIds: creativeDirection.diagnostics.omittedScopedVariationIds,
+      } : {}),
+    },
     staleNeighborDraftsExcluded,
     estimatedInputTokens,
     requestedMaximumOutputTokens: input.requestedMaximumOutputTokens,

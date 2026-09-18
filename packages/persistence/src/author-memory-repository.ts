@@ -454,7 +454,7 @@ export class AuthorMemoryRepository {
     const rows = this.database.prepare(`SELECT versions.artifact_id, versions.id
       FROM artifact_versions versions
       JOIN (SELECT artifact_id, MAX(version) AS version FROM artifact_versions
-        WHERE project_id = ? AND artifact_id IN ('brief', 'bible', 'routes', 'endings', 'mechanics')
+        WHERE project_id = ? AND artifact_id IN ('brief', 'creative-direction', 'bible', 'routes', 'endings', 'mechanics')
         GROUP BY artifact_id) current
         ON current.artifact_id = versions.artifact_id AND current.version = versions.version
       WHERE versions.project_id = ? ORDER BY versions.artifact_id`).all(projectId, projectId) as Array<{

@@ -58,6 +58,18 @@ const draftWorkflow = {
   updatedAt: "t",
 };
 
+const creativeDirection = {
+  id: "direction-v1", projectId: project.id, artifactId: "creative-direction", version: 1, stale: false, createdAt: "t",
+  content: {
+    schemaId: "cyoa.creative-direction", schemaVersion: 1,
+    tone: { descriptors: [], tonalRange: "moderate", exclusions: [], customGuidance: "" },
+    pacing: { developmentPace: "measured", sceneTreatment: "balanced", actionIntensity: "moderate", narrativeDensity: "balanced", transitionDensity: "balanced", quietScenesAllowed: true, escalationShape: "steady", customGuidance: "" },
+    prose: { descriptiveness: "balanced", treatment: "long-form", pointOfView: "second-person", tense: "past", interiority: "moderate", dialogueIntegration: "integrated", sceneTransitionDensity: "balanced", passageLengthPreference: "moderate", voiceDescriptors: [], avoid: [], customGuidance: "" },
+    scopedVariations: [], fieldProvenance: [], materialFingerprint: "a".repeat(64), provenanceFingerprint: "b".repeat(64),
+  },
+};
+const creativeDirectionWorkflow = { ...draftWorkflow, artifactId: "creative-direction" };
+
 const conversation = {
   id: "conversation-1",
   projectId: project.id,
@@ -85,7 +97,7 @@ describe("LongFormWorkspace", () => {
       const path = String(input);
       if (path === "/api/projects") return response([]);
       if (path === "/api/long-form/projects") {
-        return response({ project, brief, workflow: draftWorkflow }, 201);
+        return response({ project, brief, creativeDirection, workflow: draftWorkflow, creativeDirectionWorkflow }, 201);
       }
       if (path === `/api/long-form/projects/${project.id}/conversations` && !init?.method) {
         return response([]);

@@ -5,6 +5,7 @@ import {
   type LongFormMechanicsPlan,
   type LongFormStoryBible,
   type ProjectBrief,
+  type CreativeDirection,
 } from "@story-to-cyoa/pipeline";
 import type {
   ArtifactRepository,
@@ -19,6 +20,30 @@ interface ProjectParams {
 
 function markdownList(values: string[]): string {
   return values.length ? values.map((value) => `- ${value}`).join("\n") : "_None yet._";
+}
+
+export function renderCreativeDirectionMarkdown(direction: CreativeDirection): string {
+  const profiles = direction.relationshipPresentation?.profiles ?? [];
+  return [
+    "# Creative Direction", "",
+    "## Tone", "", direction.tone.descriptors.join(" · ") || "_No tone descriptors yet._", "",
+    `Range: ${direction.tone.tonalRange}`, "", direction.tone.customGuidance, "",
+    "## Pacing", "",
+    `- Development: ${direction.pacing.developmentPace}`,
+    `- Treatment: ${direction.pacing.sceneTreatment}`,
+    `- Escalation: ${direction.pacing.escalationShape}`,
+    `- Quiet scenes: ${direction.pacing.quietScenesAllowed ? "allowed" : "limited"}`, "",
+    "## Prose", "",
+    `- ${direction.prose.treatment}; ${direction.prose.descriptiveness}`,
+    `- ${direction.prose.pointOfView}; ${direction.prose.tense} tense`,
+    `- Interiority: ${direction.prose.interiority}`,
+    `- Dialogue: ${direction.prose.dialogueIntegration}`, "",
+    "## Relationship presentation", "",
+    profiles.length ? profiles.map((profile) => `- **${profile.id}:** ${profile.relationshipKind}; ${profile.developmentStyle}`).join("\n") : "_No relationship profiles configured._", "",
+    "## Technical identity", "",
+    `- Material fingerprint: \`${direction.materialFingerprint}\``,
+    `- Provenance fingerprint: \`${direction.provenanceFingerprint}\``, "",
+  ].filter((line) => line !== undefined).join("\n");
 }
 
 export function renderBriefMarkdown(brief: ProjectBrief): string {
@@ -323,6 +348,41 @@ export function registerLongFormRoutes(
     } catch (error) {
       return reply.code(404).send({ error: (error as Error).message });
     }
+  });
+
+  app.post<{ Params: ProjectParams }>("/api/long-form/projects/:projectId/creative-direction/adopt-legacy", async (request, reply) => {
+    try { return reply.code(201).send(service.adoptLegacyCreativeDirection(request.params.projectId)); }
+    catch (error) { return reply.code((error as Error).message.includes("not found") ? 404 : 409).send({ error: (error as Error).message }); }
+  });
+
+  app.put<{ Params: ProjectParams; Body: CreativeDirection }>("/api/long-form/projects/:projectId/creative-direction", async (request, reply) => {
+    try {
+      const result = service.saveArtifact(request.params.projectId, "creative-direction", request.body);
+      return reply.code(201).send({ creativeDirection: result.artifact, workflow: result.workflow, validation: result.validation });
+    } catch (error) { return reply.code((error as Error).message.includes("Create") ? 409 : 400).send({ error: (error as Error).message }); }
+  });
+
+  app.post<{ Params: ProjectParams; Body: { versionId?: string } }>("/api/long-form/projects/:projectId/creative-direction/approve", async (request, reply) => {
+    const versionId = request.body?.versionId ?? artifacts.getCurrent(request.params.projectId, "creative-direction")?.id;
+    if (!versionId) return reply.code(404).send({ error: "Creative Direction not found" });
+    try { return service.approveArtifact(request.params.projectId, "creative-direction", versionId); }
+    catch (error) { return reply.code((error as Error).message.includes("not found") ? 404 : 409).send({ error: (error as Error).message }); }
+  });
+
+  app.get<{ Params: ProjectParams }>("/api/long-form/projects/:projectId/creative-direction/context-preview", async (request, reply) => {
+    try { return service.creativeDirectionContext(request.params.projectId); }
+    catch (error) { return reply.code((error as Error).message.includes("not found") ? 404 : 409).send({ error: (error as Error).message }); }
+  });
+
+  app.get<{ Params: ProjectParams; Querystring: { format?: string } }>("/api/long-form/projects/:projectId/creative-direction/export", async (request, reply) => {
+    const project = longFormProject(request.params.projectId);
+    const direction = project && artifacts.getCurrent<CreativeDirection>(project.id, "creative-direction");
+    if (!project || !direction) return reply.code(404).send({ error: "Creative Direction not found" });
+    if (request.query.format === "markdown") return reply.header("content-type", "text/markdown; charset=utf-8")
+      .header("content-disposition", `attachment; filename="${project.id}-creative-direction.md"`).send(renderCreativeDirectionMarkdown(direction.content));
+    return reply.header("content-type", "application/json; charset=utf-8")
+      .header("content-disposition", `attachment; filename="${project.id}-creative-direction.json"`)
+      .send({ project: { id: project.id, name: project.name, mode: project.mode }, artifact: direction, workflow: workflow.get(project.id, "creative-direction") });
   });
 
   app.put<{ Params: ProjectParams; Body: ProjectBrief }>(

@@ -4,11 +4,13 @@ import type { LongFormStoryBible } from "./schemas/long-form-story-bible.js";
 import type { LongFormRoutePlan } from "./schemas/long-form-route-plan.js";
 import type { LongFormEndingPlan } from "./schemas/long-form-ending-plan.js";
 import type { LongFormMechanicsPlan } from "./schemas/long-form-mechanics-plan.js";
+import type { CreativeDirection } from "./schemas/creative-direction.js";
 
-export const planningArtifactIds = ["brief", "bible", "routes", "endings", "mechanics"] as const;
+export const planningArtifactIds = ["brief", "creative-direction", "bible", "routes", "endings", "mechanics"] as const;
 export type PlanningArtifactId = typeof planningArtifactIds[number];
 export type PlanningArtifact =
   | ProjectBrief
+  | CreativeDirection
   | LongFormStoryBible
   | LongFormRoutePlan
   | LongFormEndingPlan
@@ -16,6 +18,7 @@ export type PlanningArtifact =
 
 export interface LongFormProjectSnapshot {
   brief: ProjectBrief | null;
+  "creative-direction"?: CreativeDirection | null;
   bible: LongFormStoryBible | null;
   routes: LongFormRoutePlan | null;
   endings: LongFormEndingPlan | null;
@@ -447,6 +450,17 @@ export function summarizePlanningArtifact(artifactId: PlanningArtifactId, artifa
       routeTarget: brief.routeTarget,
       endingTarget: brief.endingTarget,
       branchingStyle: brief.branchingStyle,
+    };
+  }
+  if (artifactId === "creative-direction") {
+    const direction = artifact as CreativeDirection;
+    return {
+      materialFingerprint: direction.materialFingerprint,
+      tone: direction.tone,
+      pacing: direction.pacing,
+      prose: direction.prose,
+      relationshipProfileCount: direction.relationshipPresentation?.profiles.length ?? 0,
+      scopedVariationCount: direction.scopedVariations.length,
     };
   }
   const root = artifact as unknown as Record<string, unknown>;

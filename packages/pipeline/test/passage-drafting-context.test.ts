@@ -7,13 +7,15 @@ import {
   defaultLongFormRoutePlan,
   defaultLongFormStoryBible,
   defaultProjectBrief,
+  normalizeCreativeDirection,
   type ChoicePlan,
   type NarrativeThread,
   type PassagePlan,
   type PassageStructure,
+  type PassageDraftingContextInput,
 } from "../src/index.js";
 
-function fixture() {
+function fixture(): PassageDraftingContextInput {
   const brief = defaultProjectBrief("Context fixture");
   const bible = defaultLongFormStoryBible({
     title: brief.workingTitle,
@@ -112,6 +114,23 @@ describe("bounded passage drafting context", () => {
       .toThrow(BoundedPassageDraftingContextError);
     expect(() => buildPassageDraftingContext({ ...input, requiredNeighborPassageIds: ["passage-c"] }))
       .toThrow("missing or stale");
+  });
+
+  it("includes only direction profiles relevant to the drafting unit", () => {
+    const input = fixture();
+    input.creativeDirection = normalizeCreativeDirection({
+      tone: { descriptors: ["restrained"] }, pacing: {}, prose: {}, fieldProvenance: [], scopedVariations: [],
+      relationshipPresentation: { profiles: [
+        { id: "trust", relationshipKind: "friendship", relationshipId: "relationship-trust", participantIds: [], developmentStyle: "gradual", emotionalTension: "moderate", melodrama: "low", mechanicsVisibility: "subtle", customGuidance: "", contentBoundaries: [] },
+        { id: "other", relationshipKind: "family", relationshipId: "relationship-other", participantIds: [], developmentStyle: "steady", emotionalTension: "low", melodrama: "low", mechanicsVisibility: "hidden", customGuidance: "", contentBoundaries: [] },
+      ] },
+    });
+    input.upstreamVersions["creative-direction"] = "direction-v1";
+    const built = buildPassageDraftingContext(input);
+    expect(built.context.upstream.creativeDirection?.relationshipPresentation?.profiles.map((item) => item.id)).toEqual(["trust"]);
+    expect(built.context.upstream.brief).not.toHaveProperty("tone");
+    expect(built.context.upstream.bible).not.toHaveProperty("proseGuidance");
+    expect(built.diagnostics.omittedOptionalContext.creativeDirectionProfileIds).toEqual(["other"]);
   });
 
   it("trims optional accepted prose deterministically and reports the exact omission", () => {

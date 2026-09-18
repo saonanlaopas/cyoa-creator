@@ -21,6 +21,8 @@ import {
   type RepairExpectedBase,
   type RepairPlanDefinition,
   type RepairProposalBaseState,
+  CreativeDirectionSchema,
+  selectCreativeDirectionContext,
   type RepairProposalGenerationContext,
   type RepairProposalProvider,
   type RepairProposalRecord,
@@ -73,6 +75,7 @@ export interface RepairProposalGenerationAggregate extends RepairProposalGenerat
   schemaVersion: 1;
   projectId: string;
   baseFingerprint: string;
+  freshnessFingerprint: string;
   base: RepairProposalBaseState;
   generation: RepairProposalGenerationAggregateShape["generation"] & {
     providerId: string; modelId: string; policy: typeof REPAIR_PROPOSAL_POLICY_V1;
@@ -149,7 +152,10 @@ export class RepairProposalService {
     if (built.fingerprint !== preview.generationFingerprint) throw failure("stale_repair_plan", "Repair-proposal generation definition changed during creation");
     const now = new Date().toISOString();
     const aggregate: RepairProposalGenerationAggregate = {
-      schemaVersion: 1, projectId, baseFingerprint: repairProposalFingerprint(base), base,
+      schemaVersion: 1, projectId,
+      baseFingerprint: repairProposalFingerprint(base),
+      freshnessFingerprint: this.baseFingerprint(base),
+      base,
       generation: {
         id: randomUUID(), fingerprint: built.fingerprint, definitionFingerprint: built.fingerprint,
         status: "planned", authorizedFingerprint: null, repairPlanId: plan.id,
@@ -253,7 +259,7 @@ export class RepairProposalService {
     const partitions: string[][] = [];
     for (let index = 0; index < targetKeys.length; index += policy.maxTargetsPerUnit) partitions.push(targetKeys.slice(index, index + policy.maxTargetsPerUnit));
     if (partitions.length > policy.maxUnits) throw failure("repair_proposal_units_too_large", `Repair proposal exceeds the ${policy.maxUnits}-unit limit`);
-    const baseFingerprint = repairProposalFingerprint(base);
+    const baseFingerprint = this.baseFingerprint(base);
     const definition = {
       repairPlanId: plan.id, repairPlanArtifactVersionId: plan.artifactVersionId,
       repairPlanDefinitionFingerprint: plan.definitionFingerprint, providerId, modelId, policy,
@@ -289,6 +295,10 @@ export class RepairProposalService {
       passages: base.passages.filter((item) => connectedPassageIds.has(item.content.id)).map((item) => item.content),
       choices: connectedChoices.map((item) => item.content),
       threads: base.threads.filter((item) => [...item.content.setupPassageIds, ...item.content.payoffPassageIds].some((id) => connectedPassageIds.has(id))).map((item) => item.content),
+      ...(base.creativeDirection ? { creativeDirection: selectCreativeDirectionContext(
+        base.creativeDirection.content,
+        { routeIds: keys, actIds: keys, relationshipIds: keys, characterIds: keys },
+      ).context } : {}),
     };
     return {
       schemaVersion: 1,
@@ -314,12 +324,13 @@ export class RepairProposalService {
     this.requireProject(projectId);
     const structure = this.passagePlans.currentStructure<PassageStructure>(projectId);
     if (!structure) throw failure("repair_proposal_base_missing", "Current passage-plan structure is missing");
-    const approved = <T>(artifactId: "bible" | "routes" | "endings" | "mechanics", parse: (value: unknown) => T): { versionId: string; content: T } => {
+    const approved = <T>(artifactId: "bible" | "routes" | "endings" | "mechanics" | "creative-direction", parse: (value: unknown) => T): { versionId: string; content: T } => {
       const versionId = this.workflow.get(projectId, artifactId).approvedVersionId;
       const version = versionId ? this.artifacts.getVersion(versionId) : undefined;
       if (!version || version.projectId !== projectId || version.artifactId !== artifactId) throw failure("repair_proposal_base_missing", `Approved ${artifactId} is missing`);
       return { versionId: version.id, content: parse(version.content) };
     };
+    const directionVersionId = this.workflow.get(projectId, "creative-direction").approvedVersionId;
     return {
       structure: structure.content,
       passages: this.passagePlans.currentEntities<PassagePlan>(projectId, "passage").map((item) => ({ versionId: item.id, content: item.content })),
@@ -329,6 +340,7 @@ export class RepairProposalService {
       routes: approved("routes", (value) => LongFormRoutePlanSchema.parse(value)),
       endings: approved("endings", (value) => LongFormEndingPlanSchema.parse(value)),
       mechanics: approved("mechanics", (value) => LongFormMechanicsPlanSchema.parse(value)),
+      ...(directionVersionId ? { creativeDirection: approved("creative-direction", (value) => CreativeDirectionSchema.parse(value)) } : {}),
     };
   }
 
@@ -444,7 +456,7 @@ export class RepairProposalService {
   }
   private assertFresh(generation: RepairProposalGenerationAggregate): void {
     this.assertPlanCurrent(generation.projectId, generation.generation.repairPlanId, generation.generation.repairPlanArtifactVersionId, generation.generation.repairPlanDefinitionFingerprint);
-    if (repairProposalFingerprint(this.buildBase(generation.projectId)) !== generation.baseFingerprint) throw failure("stale_repair_proposal_generation", "Canonical repair bases changed after proposal-generation authorization");
+    if (this.baseFingerprint(this.buildBase(generation.projectId)) !== generation.freshnessFingerprint) throw failure("stale_repair_proposal_generation", "Canonical repair bases changed after proposal-generation authorization");
     generation.job.units.forEach((unit) => {
       if (repairProposalFingerprint(unit.context) !== unit.contextFingerprint) throw failure("repair_proposal_context_integrity", "Immutable repair unit context fingerprint mismatch");
     });
@@ -467,6 +479,16 @@ export class RepairProposalService {
     }
   }
   private requireProvider(id: string): RepairProposalProvider { const provider = this.providers.get(id); if (!provider) throw failure("repair_proposal_provider_unavailable", `Repair-proposal provider ${id} is unavailable`); return provider; }
+  private baseFingerprint(base: RepairProposalBaseState): string {
+    const direction = base.creativeDirection;
+    return repairProposalFingerprint({
+      ...base,
+      ...(direction ? { creativeDirection: {
+        versionId: direction.content.materialFingerprint,
+        content: selectCreativeDirectionContext(direction.content).context,
+      } } : {}),
+    });
+  }
   private requireProject(projectId: string) { const project = this.projects.get(projectId); if (!project || project.mode !== "long-form") throw failure("project_not_found", "Long-form project not found"); return project; }
 }
 

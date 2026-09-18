@@ -12,6 +12,8 @@ import { BibleEditor } from "./BibleEditor.js";
 export function BibleWorkspace(props: {
   projectId: string;
   briefApproved: boolean;
+  creativeDirectionApproved?: boolean;
+  presentationOwnedByCreativeDirection?: boolean;
   bible: ArtifactVersion<LongFormStoryBible> | null;
   workflow: WorkflowState;
   busy: boolean;
@@ -24,7 +26,7 @@ export function BibleWorkspace(props: {
     return <section className="artifact-pane">
       <header className="artifact-header">
         <div>
-          <p className="eyebrow">Stage 2</p>
+          <p className="eyebrow">Stage 3</p>
           <h1>Story bible</h1>
           <p>Not started</p>
         </div>
@@ -46,7 +48,7 @@ export function BibleWorkspace(props: {
           } finally {
             props.setBusy(false);
           }
-        }}>{props.briefApproved ? "Create story bible" : "Approve the project brief first"}</button>
+        }}>{!props.briefApproved ? "Approve the project brief first" : "Create story bible"}</button>
       </section>
     </section>;
   }
@@ -54,7 +56,7 @@ export function BibleWorkspace(props: {
   return <section className="artifact-pane">
     <header className="artifact-header">
       <div>
-        <p className="eyebrow">Stage 2</p>
+        <p className="eyebrow">Stage 3</p>
         <h1>Story bible</h1>
         <p>Version {props.bible.version} · <span className={`workflow-status ${props.workflow.status}`}>{props.workflow.status}</span></p>
       </div>
@@ -85,7 +87,7 @@ export function BibleWorkspace(props: {
         : "error"
     } role="status">{props.message}</p>}
     {props.workflow.status === "stale" && <p className="warning">The project brief or source changed after this bible was created. Review and save a new bible version before relying on it downstream.</p>}
-    <BibleEditor bible={props.bible.content} busy={props.busy} onSave={async (content) => {
+    <BibleEditor bible={props.bible.content} busy={props.busy} presentationOwnedByCreativeDirection={props.presentationOwnedByCreativeDirection} onSave={async (content) => {
       props.setBusy(true);
       props.setMessage(null);
       try {

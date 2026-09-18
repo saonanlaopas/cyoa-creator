@@ -15,6 +15,8 @@ const prefix = "repair-proposal-generation:";
 export interface RepairProposalGenerationAggregateShape {
   schemaVersion: 1;
   projectId: string;
+  baseFingerprint?: string;
+  freshnessFingerprint?: string;
   generation: {
     id: string;
     fingerprint: string;
@@ -174,13 +176,16 @@ function assertLineage(content: RepairProposalGenerationAggregateShape): void {
     || !nonempty(job.id) || !dateValue(job.createdAt)) throw new Error("Repair-proposal generation lineage is invalid");
   const ids = content.job.units.map((unit) => unit.id); if (new Set(ids).size !== ids.length || !ids.length) throw new Error("Repair-proposal generation unit IDs are invalid");
   if (typeof aggregate.baseFingerprint !== "string" || hash(aggregate.base) !== aggregate.baseFingerprint) throw new Error("Repair-proposal generation base fingerprint is invalid");
+  if (aggregate.freshnessFingerprint !== undefined && !fingerprintValue(aggregate.freshnessFingerprint)) {
+    throw new Error("Repair-proposal generation freshness fingerprint is invalid");
+  }
   if (!nonempty(generation.providerId) || !nonempty(generation.modelId) || generation.mode !== "ai-assisted"
     || !validPolicy(generation.policy)) throw new Error("Repair-proposal generation provider/model/policy is invalid");
   const expected = hash({
     repairPlanId: generation.repairPlanId, repairPlanArtifactVersionId: generation.repairPlanArtifactVersionId,
     repairPlanDefinitionFingerprint: generation.repairPlanDefinitionFingerprint,
     providerId: generation.providerId, modelId: generation.modelId, policy: generation.policy,
-    baseFingerprint: aggregate.baseFingerprint,
+    baseFingerprint: aggregate.freshnessFingerprint ?? aggregate.baseFingerprint,
     units: content.job.units.map((unit) => {
       const stored = unit as typeof unit & Record<string, unknown>; return { position: stored.position, targetKeys: stored.targetKeys };
     }),

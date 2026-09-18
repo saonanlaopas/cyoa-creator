@@ -2,11 +2,11 @@
 
 ## Status
 
-This is a planning-only post-foundation product roadmap. It starts from the accepted closed-roadmap base `62ecd1d5ea9e3d9bc0d047633f4dc13b6370e905`.
+This post-foundation product roadmap starts from the accepted closed-roadmap base `62ecd1d5ea9e3d9bc0d047633f4dc13b6370e905`. Its corrected planning checkpoint is externally accepted at `c21246fb2d450a0928c62a4632c71c6d333e2fec`.
 
 The long-form production foundation roadmap remains closed. Foundation 8 is closed, and there is no Foundation 9. This document defines a separate product expansion named **Conversational Adaptation Studio**. It does not reopen, replace, or renumber the accepted foundations.
 
-No checkpoint in this roadmap has begun. A1 may begin only after this planning checkpoint is committed, pushed, CI-verified, externally reviewed, and assigned an accepted SHA.
+A1 — Creative Direction Core is implemented on its dedicated checkpoint branch and awaits external review and an accepted implementation SHA. A2 has not begun.
 
 ## Product outcome
 
@@ -668,6 +668,8 @@ Do not begin a checkpoint until the immediately preceding checkpoint has an exte
 
 ## A1 - Creative Direction Core
 
+**Checkpoint status:** implemented and locally acceptance-tested; external acceptance pending. No A2 work is included.
+
 ### Outcome
 
 Studio has one shared authoritative Creative Direction artifact with field provenance, exact dependency semantics, validation, direct editing, history, approval, and bounded context integration for both original and adapted Long-form projects.
@@ -713,7 +715,7 @@ Manual creation/editing, history, approval, provenance inspection, and context p
 
 ### Migration/schema expectation
 
-An additive SQLite migration is likely for field-provenance/application lineage; generic artifact storage may carry Creative Direction itself. Freeze the immediately preceding schema fixture, migrate copies only, and preserve all existing projects and immutable history. Existing projects receive no invented AI content and are never auto-approved because of inferred intent. If deterministic legacy projection is used, it creates explicitly `migration-derived` reviewable state tied to exact old versions.
+Implementation inspection confirmed that the existing generic immutable artifact, workflow, dependency, portable-project, and recovery storage can carry Creative Direction and its embedded provenance safely, so A1 requires no SQLite migration or frozen-schema fixture. Existing projects receive no invented AI content and are never auto-approved because of inferred intent. Deterministic legacy projection creates explicitly `migration-derived` reviewable state tied to exact old versions.
 
 ### Tests
 

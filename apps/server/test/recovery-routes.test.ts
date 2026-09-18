@@ -19,8 +19,23 @@ describe("Foundation 8A recovery HTTP boundary", () => {
 
   it("downloads a verified backup, previews without writes, rejects collision, and restores after explicit deletion", async () => {
     const app = buildApp(); apps.push(app);
-    const created = await app.inject({ method: "POST", url: "/api/projects", payload: { name: "Recovery route", mode: "long-form" } });
-    const projectId = created.json().id as string;
+    const created = await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Recovery route" } });
+    const createdProject = created.json();
+    const projectId = createdProject.project.id as string;
+    const savedDirection = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`, payload: {
+        ...createdProject.creativeDirection.content,
+        relationshipPresentation: { profiles: [{
+          id: "backup-romance-profile", relationshipKind: "romance", participantIds: [], developmentStyle: "gradual",
+          emotionalTension: "high", melodrama: "low", sensuality: "subtle", physicalIntimacy: "fade-to-black",
+          mechanicsVisibility: "subtle", customGuidance: "Preserve slow trust.", contentBoundaries: ["no coercion"],
+        }] },
+      },
+    })).json();
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`,
+      payload: { versionId: savedDirection.creativeDirection.id },
+    });
     const initial = await app.inject({ method: "GET", url: `/api/projects/${projectId}/recovery` });
     expect(initial.json()).toMatchObject({ freshness: "never-backed-up", reminder: { visible: true } });
 
@@ -53,6 +68,13 @@ describe("Foundation 8A recovery HTTP boundary", () => {
     expect(restored.statusCode).toBe(201);
     expect(restored.json()).toMatchObject({ projectId });
     expect((await app.inject({ method: "GET", url: `/api/projects/${projectId}` })).json().name).toBe("Recovery route");
+    const restoredDirection = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}` })).json();
+    expect(restoredDirection.creativeDirection.id).toBe(savedDirection.creativeDirection.id);
+    expect(restoredDirection.creativeDirection.content.relationshipPresentation.profiles[0])
+      .toMatchObject({ id: "backup-romance-profile", relationshipKind: "romance", sensuality: "subtle" });
+    expect(restoredDirection.workflow["creative-direction"]).toMatchObject({
+      status: "approved", approvedVersionId: savedDirection.creativeDirection.id,
+    });
   });
 
   it("applies one streaming limit to preview and restore and does not mutate on rejected uploads", async () => {

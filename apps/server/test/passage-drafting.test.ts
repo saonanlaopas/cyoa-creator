@@ -52,6 +52,9 @@ async function createApprovedFixture(app: ReturnType<typeof buildApp>) {
   await app.inject({
     method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`, payload: { versionId: created.brief.id },
   });
+  await app.inject({
+    method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: created.creativeDirection.id },
+  });
   let bibleArtifact: { id: string; content: Record<string, unknown> } | undefined;
   for (const artifactId of ["bible", "routes", "endings"] as const) {
     const response = (await app.inject({
@@ -91,7 +94,7 @@ async function createApprovedFixture(app: ReturnType<typeof buildApp>) {
     payload: { snapshotId: snapshot.id },
   });
   expect(approved.statusCode).toBe(201);
-  return { projectId, plan, snapshot, bible: bibleArtifact! };
+  return { projectId, plan, snapshot, bible: bibleArtifact!, creativeDirection: created.creativeDirection };
 }
 
 async function waitForGeneration(app: ReturnType<typeof buildApp>, projectId: string, jobId: string) {
@@ -175,7 +178,7 @@ describe("Foundation 4B-1 draft architecture API", () => {
       basedOnPassagePlanVersionId: passage.id, sourceKind: "manual",
     });
     expect(Object.keys(first.json().draft.upstreamVersions).sort()).toEqual([
-      "bible", "brief", "endings", "mechanics", "routes",
+      "bible", "brief", "creative-direction", "endings", "mechanics", "routes",
     ]);
 
     const second = await app.inject({
@@ -431,7 +434,7 @@ describe("Foundation 4B-1 draft architecture API", () => {
     const readiness = (await app.inject({
       method: "GET", url: `/api/long-form/projects/${projectId}/publication/readiness`,
     })).json();
-    expect(readiness.ready).toBe(true);
+    expect(readiness.ready, JSON.stringify(readiness.blockers)).toBe(true);
     expect(readiness.inputPreview.acceptedDrafts.find(
       (item: { passageId: string }) => item.passageId === passageIds[0],
     )).toMatchObject({
@@ -703,6 +706,50 @@ describe("Foundation 4B-1 draft architecture API", () => {
       expectNoCompletedRacePersistence(databasePath, created.jobId);
     },
   );
+
+  it("rejects an obsolete candidate when material Creative Direction changes during a blocked provider request", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-drafting-direction-race-"));
+    directories.push(directory);
+    const databasePath = join(directory, "story.sqlite");
+    const provider = new BlockingPassageDraftingProvider();
+    const app = buildApp({ databasePath, passageDraftingProvider: provider });
+    const { projectId, plan, creativeDirection } = await createApprovedFixture(app);
+    const target = plan.passages[0];
+    if (!target) throw new Error("Expected a passage fixture");
+    const created = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`,
+      payload: { scope: { kind: "passages", passageIds: [target.entityId] }, providerId: provider.id },
+    })).json();
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`,
+      payload: { fingerprint: created.fingerprint },
+    });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
+    await provider.waitForCall(0);
+
+    const saved = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`,
+      payload: {
+        ...creativeDirection.content,
+        tone: { ...creativeDirection.content.tone, descriptors: ["materially changed during generation"] },
+      },
+    })).json();
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`,
+      payload: { versionId: saved.creativeDirection.id },
+    })).statusCode).toBe(200);
+    provider.releaseCall(0);
+
+    const finished = await waitForDrafting(app, projectId, created.jobId);
+    expect(finished).toMatchObject({ status: "failed", units: [{
+      status: "failed", normalizedError: { code: "stale_drafting_plan", retryable: false }, generatedCandidates: [],
+    }] });
+    expect((await app.inject({
+      method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${target.entityId}`,
+    })).json().head).toBeNull();
+    await app.close();
+    expectNoCompletedRacePersistence(databasePath, created.jobId);
+  });
 
   it("rejects repaired output when passage-plan structure changes during the repair request", async () => {
     const directory = mkdtempSync(join(tmpdir(), "cyoa-drafting-repair-race-"));

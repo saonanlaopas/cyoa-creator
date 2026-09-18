@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { createNativePlayerConfig, nativeBundleFingerprint } from "@story-to-cyoa/runtime";
-import { ArtifactRepository, openDatabase, PortableProjectRepository, ProjectRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, openDatabase, PortableProjectRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { defaultCreativeDirection, normalizeCreativeDirection } from "@story-to-cyoa/pipeline";
 import { playerConfigInput, playerFixture } from "../../../packages/runtime/test/native-player-fixture.js";
 import { PublicationExportService } from "../src/services/publication-export-service.js";
 import type { NativeCompilationService } from "../src/services/native-compilation-service.js";
@@ -50,6 +51,63 @@ describe("Foundation 7C publication exports", () => {
       expect(target.service.previewPortable(first.bytes)).toMatchObject({ projectName: "Archive", conflict: false });
       expect(new ProjectRepository(target.database).get("archive")).toBeUndefined();
       target.service.importPortable(first.bytes); expect(new ProjectRepository(target.database).get("archive")?.name).toBe("Archive");
+    } finally { source.database.close(); target.database.close(); }
+  });
+
+  it("round-trips complete Creative Direction history, approval, and exact provenance", () => {
+    const source = service(); const target = service();
+    try {
+      new ProjectRepository(source.database).create("Directed archive", "directed-archive", "long-form");
+      const artifacts = new ArtifactRepository(source.database); const workflow = new WorkflowRepository(source.database);
+      const first = artifacts.saveArtifact({
+        projectId: "directed-archive", artifactId: "creative-direction", artifactType: "creative-direction",
+        schemaVersion: 1, content: defaultCreativeDirection(),
+      });
+      const secondContent = normalizeCreativeDirection({
+        ...first.content as ReturnType<typeof defaultCreativeDirection>,
+        tone: { ...(first.content as ReturnType<typeof defaultCreativeDirection>).tone, descriptors: ["quietly uncanny"] },
+        relationshipPresentation: { profiles: [{
+          id: "relationship-profile-main", relationshipKind: "romance", participantIds: [], developmentStyle: "gradual",
+          emotionalTension: "high", melodrama: "low", sensuality: "subtle", physicalIntimacy: "fade-to-black",
+          mechanicsVisibility: "subtle", customGuidance: "Trust precedes intimacy.", contentBoundaries: ["no coercion"],
+        }] },
+        scopedVariations: [{
+          id: "route-tone-main", scopeKind: "route", scopeId: "route-main", toneDescriptors: ["restrained"],
+          pacingGuidance: "Allow quiet scenes.", proseGuidance: "Use close interiority.",
+        }],
+        fieldProvenance: [{ fieldPath: "/tone", reference: { kind: "manual-edit", versionId: first.id, excerpt: "Exact authored rationale" } }],
+      });
+      const second = artifacts.saveArtifact({
+        projectId: "directed-archive", artifactId: "creative-direction", artifactType: "creative-direction",
+        schemaVersion: 1, content: secondContent,
+      });
+      workflow.approve("directed-archive", "creative-direction", second.id);
+
+      const exported = source.service.exportPortable("directed-archive");
+      target.service.importPortable(exported.bytes);
+      const restoredArtifacts = new ArtifactRepository(target.database);
+      expect(restoredArtifacts.listVersions("directed-archive", "creative-direction")).toEqual(
+        artifacts.listVersions("directed-archive", "creative-direction"),
+      );
+      expect(new WorkflowRepository(target.database).get("directed-archive", "creative-direction"))
+        .toEqual(workflow.get("directed-archive", "creative-direction"));
+      expect((restoredArtifacts.getCurrent("directed-archive", "creative-direction")!.content as ReturnType<typeof defaultCreativeDirection>)
+        .relationshipPresentation?.profiles[0]).toMatchObject({ relationshipKind: "romance", sensuality: "subtle" });
+      expect(Buffer.from(target.service.exportPortable("directed-archive").bytes)).toEqual(Buffer.from(exported.bytes));
+    } finally { source.database.close(); target.database.close(); }
+  });
+
+  it("rejects a future Creative Direction schema in a portable archive without writes", () => {
+    const source = service(); const target = service();
+    try {
+      new ProjectRepository(source.database).create("Future direction", "future-direction", "long-form");
+      const future = { ...defaultCreativeDirection(), schemaVersion: 99 };
+      source.database.prepare(`INSERT INTO artifact_versions
+        (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, created_at)
+        VALUES ('future-direction-v1', 'future-direction', 'creative-direction', 'creative-direction', 1, 99, ?, 0, '2026-09-19T00:00:00.000Z')`)
+        .run(JSON.stringify(future));
+      expect(() => target.service.importPortable(source.service.exportPortable("future-direction").bytes)).toThrow(/domain_invalid/);
+      expect(new ProjectRepository(target.database).get("future-direction")).toBeUndefined();
     } finally { source.database.close(); target.database.close(); }
   });
 

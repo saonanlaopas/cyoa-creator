@@ -23,6 +23,7 @@ import {
   type PassagePlan,
   type PassageStructure,
   type ProjectBrief,
+  type CreativeDirection,
 } from "@story-to-cyoa/pipeline";
 import { redactSecret } from "@story-to-cyoa/openrouter";
 import type {
@@ -36,7 +37,7 @@ import type {
   WorkflowRepository,
 } from "@story-to-cyoa/persistence";
 
-const upstreamArtifactIds = ["brief", "bible", "routes", "endings", "mechanics"] as const;
+const upstreamArtifactIds = ["brief", "creative-direction", "bible", "routes", "endings", "mechanics"] as const;
 
 export interface PassageDraftingPlanRequest {
   scope: unknown;
@@ -420,6 +421,9 @@ export class PassageDraftingService {
       routes: this.exactArtifact<LongFormRoutePlan>(projectId, "routes", versions.routes),
       endings: this.exactArtifact<LongFormEndingPlan>(projectId, "endings", versions.endings),
       mechanics: this.exactArtifact<LongFormMechanicsPlan>(projectId, "mechanics", versions.mechanics),
+      creativeDirection: versions["creative-direction"]
+        ? this.exactArtifact<CreativeDirection>(projectId, "creative-direction", versions["creative-direction"])
+        : undefined,
     };
   }
 
@@ -433,10 +437,11 @@ export class PassageDraftingService {
   }
 
   private approvedUpstreamVersions(projectId: string): Record<string, string> {
-    return Object.fromEntries(upstreamArtifactIds.map((artifactId) => {
+    return Object.fromEntries(upstreamArtifactIds.flatMap((artifactId) => {
       const versionId = this.workflow.get(projectId, artifactId).approvedVersionId;
+      if (!versionId && artifactId === "creative-direction") return [];
       if (!versionId) throw stalePlanError(`Approved ${artifactId} dependency is missing`);
-      return [artifactId, versionId];
+      return [[artifactId, versionId]];
     }));
   }
 

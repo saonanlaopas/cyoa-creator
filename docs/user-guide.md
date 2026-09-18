@@ -34,11 +34,20 @@ The generator requests an existing-protagonist adaptation with visible stats, re
 Choose **Long-form workspace** for a persistent 150,000–200,000-word project. The default target is editable and may be increased. The current build supports these visible stages:
 
 1. Write and approve the project brief.
-2. Create, edit, and approve the story bible.
-3. Create the route architecture.
-4. Turn the approved route hooks into detailed endings.
-5. Design the stats, relationships, flags, resources, gates, and choice effects.
-6. Build and approve the passage plan.
+2. Set and approve Creative Direction.
+3. Create, edit, and approve the story bible.
+4. Create the route architecture.
+5. Turn the approved route hooks into detailed endings.
+6. Design the stats, relationships, flags, resources, gates, and choice effects.
+7. Build and approve the passage plan.
+
+**Creative Direction** is the shared source of truth for presentation: tone, pacing, point of view, prose treatment, optional relationship presentation, custom guidance, and route/act/character/relationship variations. The first screen is a compact creative summary; open **Advanced details** for the complete structured editor. Relationship controls appear only for the relationship types you add, and romance-specific controls appear only on romance profiles. **Why is this set?** shows durable field evidence such as a manual edit or exact artifact/message reference; it never exposes private model reasoning. Direct editing, saving, approval, history, comparison, restore, context preview, and JSON or Markdown export are local and provider-free.
+
+New long-form projects begin with separate draft Brief and Creative Direction versions; neither is automatically approved. Approve both before provider-assisted downstream production. Existing projects created before Creative Direction remain readable, playable, exportable, and recoverable. Their Creative Direction screen offers an explicit deterministic legacy adoption draft based on exact Brief/Bible versions; review and approve it yourself. Once Creative Direction exists, the legacy Brief tone/POV and Bible prose-guidance fields remain historically readable but are no longer competing editable authorities.
+
+Creative Direction stores separate material and provenance fingerprints. A material approval marks affected current Bible, passage-planning, drafting, review, and repair work stale through the existing dependency rules without changing accepted or locked prose. Reordering descriptors, saving equivalent content, or maintaining explanation-only provenance does not manufacture narrative staleness. Context preview lists the exact approved version, included scoped profiles/variations, omitted record IDs, serialized bytes, and estimated tokens.
+
+Creative Direction remains authoring-only at publication time: it is not exposed in the playable runtime and does not directly change gameplay behavior. For projects that have adopted it, native compilation records its exact approved version in the build's authoring-source identity so the accepted prose and its production context remain auditable; pre-A1 projects retain their five-artifact publication lineage.
 
 The passage-plan stage also contains bounded AI passage planning. It creates immutable, validated unit candidates, then consolidates them locally into reviewable stable-ID proposal groups. Generation and proposal creation do not alter the canonical passage plan. Only **Apply reviewed selection** writes new passage-plan entity versions; drafting, simulation, and publishing remain later checkpoints.
 
@@ -46,7 +55,7 @@ The route architecture is seeded locally from the approved brief and bible; crea
 
 Every saved artifact is an immutable local version. Approving a version makes it canonical for the next stage. Editing or restoring upstream planning marks dependent work stale without deleting it. Open **Version history** above the active editor to compare any two versions or restore an older version as a new draft; restoration never erases the intervening history. Export any current planning artifact as readable Markdown or structured JSON.
 
-The assistant follows an explicit visible scope: whole project or a selected section/entity inside the brief, bible, routes, endings, or mechanics. **Discuss only** can answer and brainstorm but cannot mutate project artifacts. **Propose change** returns small stable-ID operations grouped into reviewable changes, not a replacement copy of the artifact. Select independently safe groups and use **Apply selected** to create one transactional draft version. If the base entity changed, application stops rather than overwriting newer work. Hard cross-artifact reference errors block approval or application; warnings and informational findings remain visible for review. Sending a message is an OpenRouter request and may be billable, while direct editing, saving, approval, history, restore, validation, and export stay local.
+The assistant follows an explicit visible scope: whole project or a selected section/entity inside Creative Direction, the brief, bible, routes, endings, or mechanics. In the current A1 checkpoint, Creative Direction is directly editable but conversational Creative Direction proposals wait for A2. **Discuss only** can answer and brainstorm but cannot mutate project artifacts. For the previously supported artifacts, **Propose change** returns small stable-ID operations grouped into reviewable changes, not a replacement copy of the artifact. Select independently safe groups and use **Apply selected** to create one transactional draft version. If the base entity changed, application stops rather than overwriting newer work. Hard cross-artifact reference errors block approval or application; warnings and informational findings remain visible for review. Sending a message is an OpenRouter request and may be billable, while direct editing, saving, approval, history, restore, validation, and export stay local.
 
 For long discussions, the app maintains provider-free, deterministic conversation-summary versions in local SQLite. Each version records its stable identity, exact covered message range, scope, method, canonical version dependencies, and supersession. Summary work processes at most 48 older messages at a time, retains the newest 8 messages separately, and caps summary text at 12,000 UTF-8 bytes. A summary whose conversation scope or canonical dependency changed is labeled stale and is not sent. The conversation UI loads only its newest 200 messages and 100 proposals at once and labels truncated history.
 
