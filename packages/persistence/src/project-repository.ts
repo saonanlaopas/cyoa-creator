@@ -1,4 +1,9 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import {
+  CreativeDirectionSchema,
+  compareCreativeDirectionStrings,
+  creativeDirectionFingerprints,
+} from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 
@@ -98,10 +103,8 @@ export class ProjectRepository {
       `).all(id) as Array<Record<string, string | number | null>>;
       for (const version of creativeVersions) versionIdMap.set(String(version.id), randomUUID());
       for (const version of creativeVersions) {
-        const content = JSON.parse(String(version.content_json)) as {
-          fieldProvenance?: Array<{ reference?: { kind?: string; targetId?: string; versionId?: string; unavailable?: boolean } }>;
-        };
-        for (const provenance of content.fieldProvenance ?? []) {
+        const content = CreativeDirectionSchema.parse(JSON.parse(String(version.content_json)));
+        for (const provenance of content.fieldProvenance) {
           const reference = provenance.reference;
           if (!reference) continue;
           const mappedVersion = reference.versionId ? versionIdMap.get(reference.versionId) : undefined;
@@ -111,11 +114,9 @@ export class ProjectRepository {
             reference.unavailable = true;
           }
         }
-        if (content.fieldProvenance) {
-          content.fieldProvenance.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
-          (content as { provenanceFingerprint?: string }).provenanceFingerprint = createHash("sha256")
-            .update(JSON.stringify(content.fieldProvenance)).digest("hex");
-        }
+        content.fieldProvenance.sort((left, right) => compareCreativeDirectionStrings(JSON.stringify(left), JSON.stringify(right)));
+        content.provenanceFingerprint = creativeDirectionFingerprints(content).provenanceFingerprint;
+        CreativeDirectionSchema.parse(content);
         this.database.prepare(`
           INSERT INTO artifact_versions
             (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, restored_from_version_id, created_at)

@@ -10,3 +10,4 @@ export * from "./repair-application-contract.js";
 export * from "./recovery.js";
 export * from "./simulate.js";
 export * from "./stable-id.js";
+export * from "./creative-direction.js";

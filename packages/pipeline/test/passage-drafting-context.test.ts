@@ -26,6 +26,7 @@ function fixture(): PassageDraftingContextInput {
   bible.characters.push({ id: "character-friend", name: "Ivo", role: "Friend", summary: "An ally", motivations: [], knowledge: [], plannedArc: "" });
   bible.characters.push({ id: "character-unrelated", name: "Elsewhere", role: "Unused", summary: "", motivations: [], knowledge: [], plannedArc: "" });
   bible.relationships.push({ id: "relationship-trust", characterIds: ["character-protagonist", "character-friend"], label: "Trust", currentState: "Fragile", plannedArc: "" });
+  bible.relationships.push({ id: "relationship-other", characterIds: ["character-protagonist", "character-unrelated"], label: "Other", currentState: "", plannedArc: "" });
   bible.settings.push({ id: "location-bridge", label: "Bridge", description: "Rain-slick iron" });
   bible.canonFacts.push({ id: "fact-signal", statement: "The signal repeats at midnight.", sourceExcerptIds: [], confidence: "confirmed" });
   const routes = defaultLongFormRoutePlan(brief);
@@ -131,6 +132,19 @@ describe("bounded passage drafting context", () => {
     expect(built.context.upstream.brief).not.toHaveProperty("tone");
     expect(built.context.upstream.bible).not.toHaveProperty("proseGuidance");
     expect(built.diagnostics.omittedOptionalContext.creativeDirectionProfileIds).toEqual(["other"]);
+  });
+
+  it("refuses drafting context when Creative Direction has an unresolved scope", () => {
+    const input = fixture();
+    input.creativeDirection = normalizeCreativeDirection({
+      tone: {}, pacing: {}, prose: {}, fieldProvenance: [],
+      scopedVariations: [{
+        id: "missing-route", scopeKind: "route", scopeId: "route-missing",
+        toneDescriptors: [], pacingGuidance: "", proseGuidance: "",
+      }],
+    });
+    input.upstreamVersions["creative-direction"] = "direction-invalid";
+    expect(() => buildPassageDraftingContext(input)).toThrow(/missing route route-missing/);
   });
 
   it("trims optional accepted prose deterministically and reports the exact omission", () => {

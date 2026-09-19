@@ -5,7 +5,7 @@ import type { LongFormRoutePlan } from "./schemas/long-form-route-plan.js";
 import type { LongFormStoryBible } from "./schemas/long-form-story-bible.js";
 import type { ChoicePlan, NarrativeThread, PassagePlan, PassageStructure } from "./schemas/passage-plan.js";
 import type { ProjectBrief } from "./schemas/project-brief.js";
-import { selectCreativeDirectionContext, type CreativeDirection } from "./schemas/creative-direction.js";
+import { assertCreativeDirectionReferences, selectCreativeDirectionContext, type CreativeDirection } from "./schemas/creative-direction.js";
 import { stableJson } from "./passage-generation-plan.js";
 
 export const passageDraftingContextSchema = Object.freeze({
@@ -181,6 +181,12 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
     || item.conditions.some((condition) => mechanicKeys.has(condition.mechanicKey)));
   gates.flatMap((item) => item.conditions).forEach((condition) => mechanicKeys.add(condition.mechanicKey));
 
+  if (input.creativeDirection) assertCreativeDirectionReferences(input.creativeDirection, {
+    characterIds: input.bible.characters.map((item) => item.id),
+    relationships: input.bible.relationships.map((item) => ({ id: item.id, characterIds: item.characterIds })),
+    routeIds: input.routes.routes.map((item) => item.id),
+    acts: input.routes.acts.map((item) => ({ id: item.id, routeId: item.routeId })),
+  });
   const creativeDirection = input.creativeDirection ? selectCreativeDirectionContext(input.creativeDirection, {
     routeIds: [...routeIds], actIds: [...actIds], relationshipIds: [...relationshipIds], characterIds: [...characterIds],
   }) : undefined;

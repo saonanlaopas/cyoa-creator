@@ -24,7 +24,10 @@ function fixture(): PassagePlanningContextInput {
       { id: "character-b", name: "B" },
       { id: "character-unrelated", name: "Unrelated" },
     ],
-    relationships: [{ id: "relationship-a", characterIds: ["character-a", "character-b"] }],
+    relationships: [
+      { id: "relationship-a", characterIds: ["character-a", "character-b"] },
+      { id: "relationship-other", characterIds: ["character-a", "character-unrelated"] },
+    ],
     settings: [{ id: "location-a", label: "Station" }, { id: "location-unrelated", label: "Moon" }],
     canonFacts: [{ id: "fact-a", statement: "The key is brass." }, { id: "fact-unrelated", statement: "Unused." }],
   });
@@ -135,6 +138,20 @@ describe("bounded passage-planning context", () => {
     expect(built.context.upstream.brief).not.toHaveProperty("tone");
     expect(built.context.upstream.bible).not.toHaveProperty("proseGuidance");
     expect(built.diagnostics.excludedRecordCounts.creativeDirectionProfiles).toBe(1);
+  });
+
+  it("refuses provider context when approved Creative Direction has an unresolved scope", () => {
+    const input = fixture();
+    input.creativeDirection = normalizeCreativeDirection({
+      tone: {}, pacing: {}, prose: {}, fieldProvenance: [], scopedVariations: [],
+      relationshipPresentation: { profiles: [{
+        id: "missing", relationshipKind: "friendship", relationshipId: "relationship-missing",
+        participantIds: [], developmentStyle: "steady", emotionalTension: "moderate", melodrama: "low",
+        mechanicsVisibility: "subtle", customGuidance: "", contentBoundaries: [],
+      }] },
+    });
+    input.upstreamVersions["creative-direction"] = "direction-invalid";
+    expect(() => buildPassagePlanningContext(input)).toThrow(/missing relationship relationship-missing/);
   });
 
   it("includes a non-adjacent direct inbound choice and its exact source passage while excluding unrelated passages", () => {

@@ -22,11 +22,38 @@ describe("Foundation 8A recovery HTTP boundary", () => {
     const created = await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Recovery route" } });
     const createdProject = created.json();
     const projectId = createdProject.project.id as string;
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`,
+      payload: { versionId: createdProject.brief.id },
+    });
+    const initialBible = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/bible`, payload: {},
+    })).json().bible;
+    const savedBibleResponse = await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/bible`, payload: {
+        ...initialBible.content,
+        characters: [...initialBible.content.characters,
+          { id: "character-author", name: "Mara", role: "Protagonist", summary: "", motivations: [], knowledge: [], plannedArc: "" },
+          { id: "character-partner", name: "Ivo", role: "Partner", summary: "", motivations: [], knowledge: [], plannedArc: "" },
+        ],
+        relationships: [{
+          id: "relationship-backup", characterIds: ["character-author", "character-partner"],
+          label: "Mara and Ivo", currentState: "Cautious allies", plannedArc: "Trust",
+        }],
+      },
+    });
+    expect(savedBibleResponse.statusCode, savedBibleResponse.body).toBe(201);
+    const savedBible = savedBibleResponse.json().bible;
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/bible/approve`,
+      payload: { versionId: savedBible.id },
+    });
     const savedDirection = (await app.inject({
       method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`, payload: {
         ...createdProject.creativeDirection.content,
         relationshipPresentation: { profiles: [{
-          id: "backup-romance-profile", relationshipKind: "romance", participantIds: [], developmentStyle: "gradual",
+          id: "backup-romance-profile", relationshipKind: "romance", relationshipId: "relationship-backup",
+          participantIds: ["character-author", "character-partner"], developmentStyle: "gradual",
           emotionalTension: "high", melodrama: "low", sensuality: "subtle", physicalIntimacy: "fade-to-black",
           mechanicsVisibility: "subtle", customGuidance: "Preserve slow trust.", contentBoundaries: ["no coercion"],
         }] },

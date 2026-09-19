@@ -311,6 +311,11 @@ test("long-form workspace persists and approves a project brief", async ({ page 
   await page.getByRole("button", { name: "Approve brief" }).click();
   await expect(page.getByText("Project brief approved. Story-bible work will be the next stage.")).toBeVisible();
 
+  await page.getByRole("button", { name: "Creative Direction draft", exact: true }).click();
+  await page.getByRole("button", { name: "Approve direction" }).click();
+  await expect(page.getByText("Creative Direction approved for future planning and prose work.")).toBeVisible();
+  await page.getByRole("button", { name: "Project brief approved", exact: true }).click();
+
   await page.getByLabel("Model").fill("e2e/chat");
   await page.locator(".assistant-composer textarea").fill("Would six routes give the relationships more room?");
   await page.getByRole("button", { name: "Send to assistant" }).click();

@@ -9,6 +9,8 @@ import {
   planningArtifactIds,
   planningSection,
   summarizePlanningArtifact,
+  selectCreativeDirectionContext,
+  assertCreativeDirectionReferences,
   validateLongFormProject,
   type LongFormEndingPlan,
   type LongFormMechanicsPlan,
@@ -17,6 +19,7 @@ import {
   type PlanningArtifact,
   type PlanningArtifactId,
   type ProjectBrief,
+  type CreativeDirection,
 } from "@story-to-cyoa/pipeline";
 import {
   AUTHOR_MEMORY_BUDGETS,
@@ -66,6 +69,35 @@ function collectReferences(selected: unknown, snapshot: ReturnType<LongFormProje
   return [...strings].flatMap((id) => index.byId.get(id) ?? [])
     .slice(0, 80)
     .map((record) => ({ artifactId: record.artifactId, value: record.value }));
+}
+
+function collectStrings(value: unknown, result = new Set<string>()): Set<string> {
+  if (typeof value === "string") result.add(value);
+  else if (Array.isArray(value)) value.forEach((item) => collectStrings(item, result));
+  else if (value && typeof value === "object") Object.values(value as Record<string, unknown>)
+    .forEach((item) => collectStrings(item, result));
+  return result;
+}
+
+function scopedCreativeDirection(
+  direction: CreativeDirection,
+  selected: unknown,
+  bible: LongFormStoryBible | null,
+  routes: LongFormRoutePlan | null,
+) {
+  const ids = collectStrings(selected);
+  assertCreativeDirectionReferences(direction, {
+    characterIds: bible?.characters.map((item) => item.id) ?? [],
+    relationships: bible?.relationships.map((item) => ({ id: item.id, characterIds: item.characterIds })) ?? [],
+    routeIds: routes?.routes.map((item) => item.id) ?? [],
+    acts: routes?.acts.map((item) => ({ id: item.id, routeId: item.routeId })) ?? [],
+  });
+  return selectCreativeDirectionContext(direction, {
+    characterIds: bible?.characters.filter((item) => ids.has(item.id)).map((item) => item.id) ?? [],
+    relationshipIds: bible?.relationships.filter((item) => ids.has(item.id)).map((item) => item.id) ?? [],
+    routeIds: routes?.routes.filter((item) => ids.has(item.id)).map((item) => item.id) ?? [],
+    actIds: routes?.acts.filter((item) => ids.has(item.id)).map((item) => item.id) ?? [],
+  });
 }
 
 function assistantPrompt(input: {
@@ -250,6 +282,13 @@ export function registerLongFormChatRoutes(
     if (intent === "propose" && artifactId === "creative-direction") {
       return reply.code(400).send({ error: "Creative Direction proposals begin in A2; use the direct editor in A1" });
     }
+    const projectState = longFormProjects.getState(request.params.projectId);
+    const approvedDirectionId = projectState.workflow["creative-direction"].approvedVersionId;
+    const approvedDirection = approvedDirectionId
+      ? artifacts.getVersion<CreativeDirection>(approvedDirectionId) : undefined;
+    if (artifactId !== "creative-direction" && projectState.creativeDirection && !approvedDirection) {
+      return reply.code(409).send({ error: "Approve Creative Direction before using the planning assistant for another artifact" });
+    }
     let sectionId = conversation.scope.kind === "artifact" ? conversation.scope.sectionId : undefined;
     try {
       planningSection(selectedArtifact.content, sectionId);
@@ -264,10 +303,28 @@ export function registerLongFormChatRoutes(
       conversations.updateScope(conversation.id, scope);
     }
     const snapshot = longFormProjects.snapshot(request.params.projectId);
+    const authoritySnapshot = {
+      ...snapshot,
+      "creative-direction": approvedDirection?.content ?? null,
+    };
     const contextVersions = Object.fromEntries(planningArtifactIds.flatMap((id) => {
-      const version = currentArtifact(request.params.projectId, id);
-      return version ? [[`${id}VersionId`, version.id]] : [];
+      const version = id === "creative-direction" ? approvedDirection : currentArtifact(request.params.projectId, id);
+      return version ? [[id === "creative-direction" ? "creativeDirectionVersionId" : `${id}VersionId`, version.id]] : [];
     }));
+    const selected = planningSection(selectedArtifact.content, sectionId).content;
+    const approvedBibleId = projectState.workflow.bible.approvedVersionId;
+    const approvedRoutesId = projectState.workflow.routes.approvedVersionId;
+    const approvedBible = approvedBibleId ? artifacts.getVersion<LongFormStoryBible>(approvedBibleId)?.content ?? null : null;
+    const approvedRoutes = approvedRoutesId ? artifacts.getVersion<LongFormRoutePlan>(approvedRoutesId)?.content ?? null : null;
+    let directionSelection: ReturnType<typeof scopedCreativeDirection> | null = null;
+    try {
+      directionSelection = approvedDirection
+        ? scopedCreativeDirection(approvedDirection.content, selected, approvedBible, approvedRoutes) : null;
+    } catch (error) {
+      return reply.code(409).send({
+        error: `Approved Creative Direction has unresolved scoped references: ${(error as Error).message}`,
+      });
+    }
     const userMessage = conversations.addMessage({
       conversationId: conversation.id,
       role: "user",
@@ -286,10 +343,15 @@ export function registerLongFormChatRoutes(
     if (providerConversationBytes > AUTHOR_MEMORY_BUDGETS.providerConversationBytes) {
       throw new Error("Provider conversation context exceeds its deterministic byte limit");
     }
-    const selected = planningSection(selectedArtifact.content, sectionId).content;
-    const summaries = Object.fromEntries(planningArtifactIds.map((id) =>
-      [id, summarizePlanningArtifact(id, snapshot[id] ?? null)]));
-    const references = collectReferences(selected, snapshot);
+    const summaries = Object.fromEntries(planningArtifactIds.map((id) => [id, id === "creative-direction"
+      ? directionSelection ? {
+          artifactVersionId: approvedDirection!.id,
+          materialFingerprint: approvedDirection!.content.materialFingerprint,
+          context: directionSelection.context,
+          diagnostics: directionSelection.diagnostics,
+        } : null
+      : summarizePlanningArtifact(id, authoritySnapshot[id] ?? null)]));
+    const references = collectReferences(selected, authoritySnapshot);
     const activity: Array<{ kind: ReasoningEvent["kind"] }> = [];
 
     try {
@@ -342,10 +404,12 @@ export function registerLongFormChatRoutes(
           safeToApplyIndependently: group.safeToApplyIndependently ?? true,
         })));
         const candidate = applyPlanningOperations(selectedArtifact.content, groups);
-        const findings = validateLongFormProject(longFormProjects.snapshot(request.params.projectId, {
+        const candidateSnapshot = longFormProjects.snapshot(request.params.projectId, {
           artifactId,
           content: candidate,
-        }));
+        });
+        candidateSnapshot["creative-direction"] = approvedDirection?.content ?? null;
+        const findings = validateLongFormProject(candidateSnapshot);
         proposal = changeSets.createOperations({
           projectId: request.params.projectId,
           conversationId: conversation.id,

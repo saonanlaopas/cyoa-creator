@@ -13,6 +13,8 @@ import {
   PassageStructureSchema,
   ProjectBriefSchema,
   CreativeDirectionSchema,
+  assertCreativeDirectionReferences,
+  type CreativeDirection,
   StoryBibleSchema,
 } from "@story-to-cyoa/pipeline";
 import {
@@ -98,6 +100,28 @@ function validateArtifacts(database: StoryDatabase, projectId: string): void {
   const simulation = new SimulationService(projects, artifacts, workflow, plans, drafts);
   const playtest = new PlaytestService(projects, artifacts, simulation);
   const native = new NativeCompilationService(projects, artifacts, workflow, plans, drafts);
+  // Use the same repository read boundary as normal reopen so portable import cannot
+  // accept Creative Direction data that the application itself would reject.
+  parse(() => artifacts.listVersions(projectId, "creative-direction"), "creative direction history");
+  const directionVersionId = workflow.get(projectId, "creative-direction").approvedVersionId;
+  if (directionVersionId) {
+    const direction = artifacts.getVersion<CreativeDirection>(directionVersionId);
+    if (!direction || direction.projectId !== projectId || direction.artifactId !== "creative-direction") {
+      fail("approved creative direction identity");
+    }
+    const bibleVersionId = workflow.get(projectId, "bible").approvedVersionId;
+    const routeVersionId = workflow.get(projectId, "routes").approvedVersionId;
+    const bible = bibleVersionId ? artifacts.getVersion(bibleVersionId) : undefined;
+    const routes = routeVersionId ? artifacts.getVersion(routeVersionId) : undefined;
+    const bibleContent = bible ? LongFormStoryBibleSchema.parse(bible.content) : undefined;
+    const routeContent = routes ? LongFormRoutePlanSchema.parse(routes.content) : undefined;
+    parse(() => assertCreativeDirectionReferences(direction.content, {
+      characterIds: bibleContent?.characters.map((item) => item.id) ?? [],
+      relationships: bibleContent?.relationships.map((item) => ({ id: item.id, characterIds: item.characterIds })) ?? [],
+      routeIds: routeContent?.routes.map((item) => item.id) ?? [],
+      acts: routeContent?.acts.map((item) => ({ id: item.id, routeId: item.routeId })) ?? [],
+    }), "approved creative direction scopes");
+  }
   const rows = database.prepare("SELECT id, artifact_id, artifact_type, schema_version, content_json FROM artifact_versions WHERE project_id = ?")
     .all(projectId) as JsonRow[];
   for (const row of rows) {
@@ -132,23 +156,7 @@ function validateArtifactRow(input: {
       exactIdentity(row, "brief", [1]); canonical(ProjectBriefSchema.parse(content), content, row); return;
     case "creative-direction": {
       exactIdentity(row, "creative-direction", [1]);
-      const direction = canonical(CreativeDirectionSchema.parse(content), content, row);
-      for (const provenance of direction.fieldProvenance) {
-        const reference = provenance.reference;
-        if (reference.unavailable) continue;
-        if (reference.kind === "manual-edit") {
-          if (reference.versionId && !database.prepare(`SELECT 1 FROM artifact_versions
-            WHERE id = ? AND project_id = ? AND artifact_id = 'creative-direction'`).get(reference.versionId, projectId)) fail(`creative direction provenance ${row.id}`);
-        } else if (reference.kind === "migration-derived" || reference.kind === "approved-artifact") {
-          if (!reference.targetId || !reference.versionId || !database.prepare(`SELECT 1 FROM artifact_versions
-            WHERE id = ? AND project_id = ? AND artifact_id = ?`).get(reference.versionId, projectId, reference.targetId)) fail(`creative direction provenance ${row.id}`);
-        } else if (reference.kind === "user-message") {
-          if (!reference.targetId || !database.prepare(`SELECT 1 FROM messages message JOIN conversations conversation
-            ON conversation.id = message.conversation_id WHERE message.id = ? AND conversation.project_id = ?`).get(reference.targetId, projectId)) fail(`creative direction provenance ${row.id}`);
-        } else if (reference.kind === "proposal") {
-          if (!reference.targetId || !database.prepare("SELECT 1 FROM change_sets WHERE id = ? AND project_id = ?").get(reference.targetId, projectId)) fail(`creative direction provenance ${row.id}`);
-        } else fail(`creative direction provenance kind ${row.id}`);
-      }
+      canonical(CreativeDirectionSchema.parse(content), content, row);
       return;
     }
     case "bible":

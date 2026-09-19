@@ -91,6 +91,212 @@ describe("long-form project brief", () => {
     await app.close();
   });
 
+  it("enforces Creative Direction stable IDs and resolves every scoped target through approval and restore", async () => {
+    const app = buildApp();
+    const created = (await app.inject({
+      method: "POST", url: "/api/long-form/projects", payload: { name: "Scoped Direction" },
+    })).json();
+    const projectId = created.project.id as string;
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`,
+      payload: { versionId: created.brief.id },
+    });
+    const initialBible = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/bible`, payload: {},
+    })).json();
+    const characters = ["a", "b", "c"].map((suffix) => ({
+      id: `character-${suffix}`, name: suffix.toUpperCase(), role: "", summary: "",
+      motivations: [], knowledge: [], plannedArc: "",
+    }));
+    const bible = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/bible`,
+      payload: {
+        ...initialBible.bible.content,
+        characters,
+        relationships: [{
+          id: "relationship-ab", characterIds: ["character-a", "character-b"],
+          label: "A and B", currentState: "Friends", plannedArc: "Deepening trust",
+        }],
+      },
+    })).json().bible;
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/bible/approve`, payload: { versionId: bible.id },
+    })).statusCode).toBe(200);
+    const routes = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/routes`, payload: {},
+    })).json().routes;
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/routes/approve`, payload: { versionId: routes.id },
+    })).statusCode).toBe(200);
+
+    const valid = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`,
+      payload: {
+        ...created.creativeDirection.content,
+        relationshipPresentation: { profiles: [{
+          id: "profile-ab", relationshipKind: "friendship", relationshipId: "relationship-ab",
+          participantIds: ["character-a", "character-b"], developmentStyle: "gradual",
+          emotionalTension: "moderate", melodrama: "low", mechanicsVisibility: "subtle",
+          customGuidance: "Let trust change slowly.", contentBoundaries: [],
+        }] },
+        scopedVariations: [
+          { id: "variation-route", scopeKind: "route", scopeId: routes.content.routes[0].id, toneDescriptors: ["warm"], pacingGuidance: "", proseGuidance: "" },
+          { id: "variation-act", scopeKind: "act", scopeId: routes.content.acts[0].id, toneDescriptors: ["tense"], pacingGuidance: "", proseGuidance: "" },
+        ],
+      },
+    })).json().creativeDirection;
+    expect(valid.id).toEqual(expect.any(String));
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: valid.id },
+    })).statusCode).toBe(200);
+    // Material Creative Direction approval intentionally stales its downstream Bible;
+    // reapprove the exact still-valid Bible before exercising later route approvals.
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/bible/approve`, payload: { versionId: bible.id },
+    })).statusCode).toBe(200);
+
+    const saveDirection = (content: unknown) => app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`, payload: content,
+    });
+    const renamedProfile = await saveDirection({
+      ...valid.content,
+      relationshipPresentation: { profiles: [{ ...valid.content.relationshipPresentation.profiles[0], id: "profile-renamed" }] },
+    });
+    expect(renamedProfile.statusCode).toBe(400);
+    expect(renamedProfile.json().error).toContain("cannot be renamed in place");
+    const renamedVariation = await saveDirection({
+      ...valid.content,
+      scopedVariations: valid.content.scopedVariations.map((item: { id: string }) =>
+        item.id === "variation-route" ? { ...item, id: "variation-renamed" } : item),
+    });
+    expect(renamedVariation.statusCode).toBe(400);
+    expect(renamedVariation.json().error).toContain("cannot be renamed in place");
+
+    const invalidDirections = [
+      {
+        label: "unscoped",
+        content: { ...valid.content, relationshipPresentation: { profiles: [{
+          ...valid.content.relationshipPresentation.profiles[0], relationshipId: undefined, participantIds: [],
+        }] } },
+        message: "requires a relationshipId or participantIds",
+      },
+      {
+        label: "mismatched participants",
+        content: { ...valid.content, relationshipPresentation: { profiles: [{
+          ...valid.content.relationshipPresentation.profiles[0], participantIds: ["character-a", "character-c"],
+        }] } },
+        message: "participants do not match",
+      },
+      {
+        label: "missing character",
+        content: { ...valid.content, relationshipPresentation: { profiles: [{
+          ...valid.content.relationshipPresentation.profiles[0], relationshipId: undefined,
+          participantIds: ["character-a", "character-missing"],
+        }] } },
+        message: "missing character",
+      },
+      {
+        label: "missing relationship",
+        content: { ...valid.content, relationshipPresentation: { profiles: [{
+          ...valid.content.relationshipPresentation.profiles[0], relationshipId: "relationship-missing",
+        }] } },
+        message: "missing relationship",
+      },
+      {
+        label: "missing route",
+        content: { ...valid.content, scopedVariations: valid.content.scopedVariations.map((item: { id: string }) =>
+          item.id === "variation-route" ? { ...item, scopeId: "route-missing" } : item) },
+        message: "missing route",
+      },
+      {
+        label: "missing act",
+        content: { ...valid.content, scopedVariations: valid.content.scopedVariations.map((item: { id: string }) =>
+          item.id === "variation-act" ? { ...item, scopeId: "act-missing" } : item) },
+        message: "missing act",
+      },
+    ];
+    for (const invalid of invalidDirections) {
+      const response = await saveDirection(invalid.content);
+      expect(response.statusCode, invalid.label).toBe(400);
+      expect(response.json().error, invalid.label).toContain(invalid.message);
+    }
+
+    const routeId = routes.content.routes[0].id as string;
+    const renamedRouteId = `${routeId}-renamed`;
+    const renamedRoute = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/routes`, payload: {
+        ...routes.content,
+        routes: routes.content.routes.map((item: { id: string }) => item.id === routeId ? { ...item, id: renamedRouteId } : item),
+        acts: routes.content.acts.map((item: { routeId: string | null }) => item.routeId === routeId ? { ...item, routeId: renamedRouteId } : item),
+        decisionPoints: routes.content.decisionPoints.map((decision: { choices: Array<{ routeId: string | null }> }) => ({
+          ...decision,
+          choices: decision.choices.map((choice) => choice.routeId === routeId ? { ...choice, routeId: renamedRouteId } : choice),
+        })),
+        endingHooks: routes.content.endingHooks.map((item: { routeId: string }) => item.routeId === routeId ? { ...item, routeId: renamedRouteId } : item),
+      },
+    })).json().routes;
+    const blockedRouteApproval = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/routes/approve`, payload: { versionId: renamedRoute.id },
+    });
+    expect(blockedRouteApproval.statusCode).toBe(409);
+    expect(blockedRouteApproval.json().error).toContain("missing route");
+
+    const actId = routes.content.acts[0].id as string;
+    const renamedActId = `${actId}-renamed`;
+    const renamedAct = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/routes`, payload: {
+        ...routes.content,
+        acts: routes.content.acts.map((item: { id: string }) => item.id === actId ? { ...item, id: renamedActId } : item),
+        decisionPoints: routes.content.decisionPoints.map((decision: { actId: string; choices: Array<{ destinationActId: string }> }) => ({
+          ...decision,
+          actId: decision.actId === actId ? renamedActId : decision.actId,
+          choices: decision.choices.map((choice) => choice.destinationActId === actId ? { ...choice, destinationActId: renamedActId } : choice),
+        })),
+        reconvergences: routes.content.reconvergences.map((item: { fromActIds: string[]; toActId: string }) => ({
+          ...item,
+          fromActIds: item.fromActIds.map((id) => id === actId ? renamedActId : id),
+          toActId: item.toActId === actId ? renamedActId : item.toActId,
+        })),
+      },
+    })).json().routes;
+    const blockedActApproval = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/routes/approve`, payload: { versionId: renamedAct.id },
+    });
+    expect(blockedActApproval.statusCode).toBe(409);
+    expect(blockedActApproval.json().error).toContain("missing act");
+
+    const bibleWithoutRelationship = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/bible`,
+      payload: { ...bible.content, relationships: [] },
+    })).json().bible;
+    const blockedUpstreamApproval = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/bible/approve`,
+      payload: { versionId: bibleWithoutRelationship.id },
+    });
+    expect(blockedUpstreamApproval.statusCode).toBe(409);
+    expect(blockedUpstreamApproval.json().error).toContain("invalidate approved Creative Direction scopes");
+
+    const clean = (await saveDirection({ ...valid.content, relationshipPresentation: { profiles: [] } })).json().creativeDirection;
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: clean.id },
+    })).statusCode).toBe(200);
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/bible/approve`, payload: { versionId: bibleWithoutRelationship.id },
+    })).statusCode).toBe(200);
+
+    const restored = (await app.inject({
+      method: "POST", url: `/api/projects/${projectId}/artifacts/creative-direction/restore`,
+      payload: { versionId: valid.id },
+    })).json().version;
+    const rejectedRestore = await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`,
+      payload: { versionId: restored.id },
+    });
+    expect(rejectedRestore.statusCode).toBe(409);
+    expect(rejectedRestore.json().error).toContain("missing relationship relationship-ab");
+    await app.close();
+  });
+
   it("opens a pre-A1 project unchanged and creates only an explicit migration-derived adoption draft", async () => {
     const directory = mkdtempSync(join(tmpdir(), "cyoa-legacy-direction-"));
     const databasePath = join(directory, "story.sqlite");
@@ -136,9 +342,13 @@ describe("long-form project brief", () => {
     const source = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Source" } })).json();
     const saved = (await app.inject({
       method: "PUT", url: `/api/long-form/projects/${source.project.id}/creative-direction`,
-      payload: { ...source.creativeDirection.content, tone: { ...source.creativeDirection.content.tone, descriptors: ["hopeful"] }, fieldProvenance: [{
-        fieldPath: "/tone", reference: { kind: "manual-edit", versionId: source.creativeDirection.id, excerpt: "Source edit" },
-      }] },
+      payload: {
+        ...source.creativeDirection.content,
+        tone: { ...source.creativeDirection.content.tone, descriptors: ["hopeful"] },
+        fieldProvenance: ["😀", "é", "e\u0301", "ASCII"].map((excerpt) => ({
+          fieldPath: "/tone", reference: { kind: "manual-edit", versionId: source.creativeDirection.id, excerpt },
+        })),
+      },
     })).json();
     await app.inject({ method: "POST", url: `/api/long-form/projects/${source.project.id}/creative-direction/approve`, payload: { versionId: saved.creativeDirection.id } });
     const copy = (await app.inject({ method: "POST", url: `/api/projects/${source.project.id}/duplicate`, payload: { name: "Copy" } })).json();
@@ -150,6 +360,8 @@ describe("long-form project brief", () => {
     const referenceVersionId = state.creativeDirection.content.fieldProvenance[0].reference.versionId;
     expect(history.map((item: { id: string }) => item.id)).toContain(referenceVersionId);
     expect(referenceVersionId).not.toBe(source.creativeDirection.id);
+    expect(state.creativeDirection.content.fieldProvenance.map((item: { reference: { excerpt: string } }) => item.reference.excerpt))
+      .toEqual(["ASCII", "e\u0301", "é", "😀"]);
     await app.close();
   });
 

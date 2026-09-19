@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import {
+  creativeDirectionFingerprints,
+  defaultCreativeDirection,
+  normalizeCreativeDirection,
+} from "@story-to-cyoa/domain";
 import { ArtifactRepository, ChangeSetRepository, ConversationRepository, JobRepository, openDatabase, ProjectRepository, WorkflowRepository } from "../src/index.js";
 
 describe("SQLite repositories", () => {
@@ -64,13 +69,83 @@ describe("SQLite repositories", () => {
     database.close();
   });
 
-  it("enforces Creative Direction evidence ownership at the persistence boundary", () => {
+  it("enforces the complete Creative Direction contract without a caller-supplied schema", () => {
     const database = openDatabase();
     const projects = new ProjectRepository(database);
     const artifacts = new ArtifactRepository(database);
+    const workflow = new WorkflowRepository(database);
     const first = projects.create("First", undefined, "long-form");
     const second = projects.create("Second", undefined, "long-form");
+    const valid = defaultCreativeDirection();
+    expect(artifacts.saveArtifact({
+      projectId: first.id, artifactId: "creative-direction", artifactType: "creative-direction", content: valid,
+    }).content).toEqual(valid);
+
+    expect(() => artifacts.saveArtifact({
+      projectId: first.id, artifactId: "creative-direction", artifactType: "creative-direction",
+      content: { ...valid, materialFingerprint: "0".repeat(64) },
+    })).toThrow(/Material fingerprint/);
+    expect(() => artifacts.saveArtifact({
+      projectId: first.id, artifactId: "creative-direction", artifactType: "creative-direction",
+      content: { ...valid, provenanceFingerprint: "0".repeat(64) },
+    })).toThrow(/Provenance fingerprint/);
+    expect(() => artifacts.saveArtifact({
+      projectId: first.id, artifactId: "creative-direction", artifactType: "creative-direction",
+      content: { schemaId: "cyoa.creative-direction", schemaVersion: 1 },
+    })).toThrow();
+    expect(() => artifacts.saveArtifact({
+      projectId: first.id, artifactId: "creative-direction", artifactType: "brief", content: valid,
+    })).toThrow(/identity/);
+    expect(() => artifacts.saveArtifact({
+      projectId: first.id, artifactId: "brief", artifactType: "creative-direction", content: valid,
+    })).toThrow(/identity/);
+
+    const withProfile = normalizeCreativeDirection({
+      ...valid,
+      relationshipPresentation: { profiles: [{
+        id: "profile-friends", relationshipKind: "friendship", relationshipId: "relationship-friends",
+        participantIds: [], developmentStyle: "steady", emotionalTension: "moderate", melodrama: "low",
+        mechanicsVisibility: "subtle", customGuidance: "", contentBoundaries: [],
+      }] },
+    });
+    const invalidPath = {
+      ...withProfile,
+      fieldProvenance: [{ fieldPath: "/banana", reference: { kind: "manual-edit" as const } }],
+    };
+    expect(() => artifacts.saveArtifact({
+      projectId: first.id, artifactId: "creative-direction", artifactType: "creative-direction",
+      content: { ...invalidPath, ...creativeDirectionFingerprints(invalidPath) },
+    })).toThrow(/material field/);
+    const invalidScopedPath = {
+      ...withProfile,
+      fieldProvenance: [{
+        fieldPath: "/relationshipPresentation/profiles/not-a-real-profile/foo",
+        stableEntityId: "not-a-real-profile",
+        reference: { kind: "manual-edit" as const },
+      }],
+    };
+    expect(() => artifacts.saveArtifact({
+      projectId: first.id, artifactId: "creative-direction", artifactType: "creative-direction",
+      content: { ...invalidScopedPath, ...creativeDirectionFingerprints(invalidScopedPath) },
+    })).toThrow(/does not resolve/);
+    const mismatchedEntity = {
+      ...withProfile,
+      fieldProvenance: [{
+        fieldPath: "/relationshipPresentation/profiles/profile-friends/customGuidance",
+        stableEntityId: "profile-other",
+        reference: { kind: "manual-edit" as const },
+      }],
+    };
+    expect(() => artifacts.saveArtifact({
+      projectId: first.id, artifactId: "creative-direction", artifactType: "creative-direction",
+      content: { ...mismatchedEntity, ...creativeDirectionFingerprints(mismatchedEntity) },
+    })).toThrow(/stableEntityId must match/);
+
     const foreignBrief = artifacts.saveArtifact({ projectId: second.id, artifactId: "brief", content: { title: "Foreign" } });
+    workflow.approve(second.id, "brief", foreignBrief.id);
+    const localUnapprovedBrief = artifacts.saveArtifact({ projectId: first.id, artifactId: "brief", content: { title: "Local draft" } });
+    const localApprovedBrief = artifacts.saveArtifact({ projectId: first.id, artifactId: "approved-brief", content: { title: "Local approved" } });
+    workflow.approve(first.id, "approved-brief", localApprovedBrief.id);
     const conversations = new ConversationRepository(database);
     const foreignConversation = conversations.create(second.id, { kind: "project", projectId: second.id, stage: "brief" });
     const foreignMessage = conversations.addMessage({
@@ -86,12 +161,52 @@ describe("SQLite repositories", () => {
       { kind: "user-message", targetId: foreignMessage.id },
       { kind: "proposal", targetId: foreignProposal.id },
     ]) {
+      const direction = normalizeCreativeDirection({
+        ...valid, fieldProvenance: [{ fieldPath: "/tone", reference: reference as never }],
+      });
       expect(() => artifacts.saveArtifact({
         projectId: first.id, artifactId: "creative-direction", artifactType: "creative-direction",
-        content: { fieldProvenance: [{ fieldPath: "/tone", reference }] },
-      })).toThrow(/another project|missing/);
+        content: direction,
+      })).toThrow(/another project|missing|exact approved version/);
     }
-    expect(artifacts.listVersions(first.id, "creative-direction")).toHaveLength(0);
+    const unapproved = normalizeCreativeDirection({
+      ...valid,
+      fieldProvenance: [{
+        fieldPath: "/tone", reference: { kind: "approved-artifact", targetId: "brief", versionId: localUnapprovedBrief.id },
+      }],
+    });
+    expect(() => artifacts.saveArtifact({
+      projectId: first.id, artifactId: "creative-direction", artifactType: "creative-direction", content: unapproved,
+    })).toThrow(/exact approved version/);
+    const approved = normalizeCreativeDirection({
+      ...valid,
+      fieldProvenance: [{
+        fieldPath: "/tone", reference: {
+          kind: "approved-artifact", targetId: "approved-brief", versionId: localApprovedBrief.id,
+        },
+      }],
+    });
+    expect(artifacts.saveArtifact({
+      projectId: first.id, artifactId: "creative-direction", artifactType: "creative-direction", content: approved,
+    }).content).toEqual(approved);
+    expect(artifacts.listVersions(first.id, "creative-direction")).toHaveLength(2);
+    database.close();
+  });
+
+  it("fails safely when corrupted Creative Direction is reopened", () => {
+    const database = openDatabase();
+    const project = new ProjectRepository(database).create("Corrupt direction", undefined, "long-form");
+    const artifacts = new ArtifactRepository(database);
+    const saved = artifacts.saveArtifact({
+      projectId: project.id, artifactId: "creative-direction", artifactType: "creative-direction",
+      content: defaultCreativeDirection(),
+    });
+    const corrupted = { ...saved.content as ReturnType<typeof defaultCreativeDirection>, materialFingerprint: "0".repeat(64) };
+    database.prepare("UPDATE artifact_versions SET content_json = ? WHERE id = ?").run(JSON.stringify(corrupted), saved.id);
+    expect(() => artifacts.getVersion(saved.id)).toThrow(/Material fingerprint/);
+    expect(() => artifacts.getCurrent(project.id, "creative-direction")).toThrow(/Material fingerprint/);
+    const stored = database.prepare("SELECT content_json FROM artifact_versions WHERE id = ?").get(saved.id) as { content_json: string };
+    expect(JSON.parse(stored.content_json).materialFingerprint).toBe("0".repeat(64));
     database.close();
   });
 });

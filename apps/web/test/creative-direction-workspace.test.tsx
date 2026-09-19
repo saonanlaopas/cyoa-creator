@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CreativeDirectionWorkspace } from "../src/features/workspace/CreativeDirectionWorkspace.js";
@@ -16,7 +16,7 @@ const content: CreativeDirection = {
 const artifact = { id: "direction-v1", projectId: "project-1", artifactId: "creative-direction", version: 1, stale: false, createdAt: "t", content };
 const workflow = { projectId: "project-1", artifactId: "creative-direction", status: "draft" as const, approvedVersionId: null, updatedAt: "t" };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("CreativeDirectionWorkspace", () => {
   it("presents legacy adoption as an explicit unapproved draft action", async () => {
@@ -57,5 +57,26 @@ describe("CreativeDirectionWorkspace", () => {
     expect(saved.fieldProvenance).toEqual(expect.arrayContaining([
       expect.objectContaining({ fieldPath: "/pacing", reference: expect.objectContaining({ kind: "manual-edit", versionId: "direction-v1" }) }),
     ]));
+  });
+
+  it("keeps established profile and variation stable IDs read-only during ordinary editing", async () => {
+    const scopedContent: CreativeDirection = {
+      ...content,
+      relationshipPresentation: { profiles: [{
+        id: "profile-stable", relationshipKind: "friendship", relationshipId: "relationship-stable",
+        participantIds: [], developmentStyle: "steady", emotionalTension: "moderate", melodrama: "low",
+        mechanicsVisibility: "subtle", customGuidance: "", contentBoundaries: [],
+      }] },
+      scopedVariations: [{
+        id: "variation-stable", scopeKind: "route", scopeId: "route-stable",
+        toneDescriptors: [], pacingGuidance: "", proseGuidance: "",
+      }],
+    };
+    const user = userEvent.setup();
+    render(<CreativeDirectionWorkspace projectId="project-1" direction={{ ...artifact, content: scopedContent }} workflow={workflow}
+      busy={false} message={null} setBusy={() => {}} setMessage={() => {}} onChanged={() => {}} />);
+    await user.click(screen.getByText("Advanced prose and scoped presentation"));
+    expect(screen.getByLabelText("Stable profile ID")).toHaveProperty("readOnly", true);
+    expect(screen.getByLabelText("Stable variation ID")).toHaveProperty("readOnly", true);
   });
 });

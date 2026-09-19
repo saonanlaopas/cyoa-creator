@@ -16,7 +16,9 @@ describe("Foundation 8C author-memory API", () => {
     const prompts: string[] = [];
     const app = buildApp({ openRouterClient: capturingClient(prompts) });
     const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Memory" } })).json() as
-      { project: { id: string }; brief: { id: string } };
+      { project: { id: string }; brief: { id: string }; creativeDirection: { id: string } };
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${created.project.id}/creative-direction/approve`,
+      payload: { versionId: created.creativeDirection.id } });
     const conversation = (await app.inject({ method: "POST",
       url: `/api/long-form/projects/${created.project.id}/conversations`, payload: {} })).json() as { id: string; scope: unknown };
     const pinned = await app.inject({ method: "POST", url: `/api/long-form/projects/${created.project.id}/pinned-decisions`,
@@ -75,7 +77,9 @@ describe("Foundation 8C author-memory API", () => {
     const prompts: string[] = [];
     const app = buildApp({ openRouterClient: capturingClient(prompts) });
     const created = (await app.inject({ method: "POST", url: "/api/long-form/projects",
-      payload: { name: "Context ceiling" } })).json() as { project: { id: string } };
+      payload: { name: "Context ceiling" } })).json() as { project: { id: string }; creativeDirection: { id: string } };
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${created.project.id}/creative-direction/approve`,
+      payload: { versionId: created.creativeDirection.id } });
     const conversation = (await app.inject({ method: "POST",
       url: `/api/long-form/projects/${created.project.id}/conversations`, payload: {} })).json() as { id: string };
     const sent = await app.inject({ method: "POST",

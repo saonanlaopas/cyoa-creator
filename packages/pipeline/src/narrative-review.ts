@@ -6,7 +6,9 @@ import {
 } from "@story-to-cyoa/domain";
 import { stableJson } from "./passage-generation-plan.js";
 import type { ChoicePlan, NarrativeThread, PassagePlan } from "./schemas/passage-plan.js";
-import { CreativeDirectionSchema, selectCreativeDirectionContext } from "./schemas/creative-direction.js";
+import { CreativeDirectionSchema, assertCreativeDirectionReferences, selectCreativeDirectionContext } from "./schemas/creative-direction.js";
+import { LongFormStoryBibleSchema } from "./schemas/long-form-story-bible.js";
+import { LongFormRoutePlanSchema } from "./schemas/long-form-route-plan.js";
 
 export const narrativeReviewContextSchema = Object.freeze({ id: "cyoa.narrative-review-context", version: 1 });
 export const narrativeReviewOutputSchema = Object.freeze({ id: "cyoa.narrative-review-output", version: 2 });
@@ -422,6 +424,8 @@ function lastIndexWhere<T>(items: T[], predicate: (item: T) => boolean): number 
 }
 function relevantUpstream(upstream: Record<string, unknown>, seeds: unknown[]): Record<string, unknown> {
   const identifiers = collectStrings(seeds);
+  const bible = upstream["creative-direction"] ? LongFormStoryBibleSchema.parse(upstream.bible) : null;
+  const routes = upstream["creative-direction"] ? LongFormRoutePlanSchema.parse(upstream.routes) : null;
   const filter = (value: unknown, depth: number): unknown => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return value;
     const record = value as Record<string, unknown>;
@@ -437,6 +441,12 @@ function relevantUpstream(upstream: Record<string, unknown>, seeds: unknown[]): 
   return Object.fromEntries(Object.entries(upstream).map(([key, value]) => {
     if (key === "creative-direction") {
       const direction = CreativeDirectionSchema.parse(value);
+      assertCreativeDirectionReferences(direction, {
+        characterIds: bible!.characters.map((item) => item.id),
+        relationships: bible!.relationships.map((item) => ({ id: item.id, characterIds: item.characterIds })),
+        routeIds: routes!.routes.map((item) => item.id),
+        acts: routes!.acts.map((item) => ({ id: item.id, routeId: item.routeId })),
+      });
       const ids = [...identifiers];
       return [key, selectCreativeDirectionContext(direction, {
         routeIds: ids, actIds: ids, relationshipIds: ids, characterIds: ids,

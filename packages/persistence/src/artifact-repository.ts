@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { CreativeDirectionSchema } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 import { artifactChain } from "./schema.js";
@@ -36,10 +37,20 @@ type ArtifactRow = {
 };
 
 function mapArtifact<T>(row: ArtifactRow): ArtifactVersion<T> {
+  const parsed = JSON.parse(row.content_json) as unknown;
+  const creativeIdentity = row.artifact_id === "creative-direction" || row.artifact_type === "creative-direction";
+  if (creativeIdentity && (row.artifact_id !== "creative-direction" || row.artifact_type !== "creative-direction")) {
+    throw new Error("Creative Direction artifact identity is invalid");
+  }
+  const creativeDirection = creativeIdentity ? CreativeDirectionSchema.parse(parsed) : undefined;
+  if (creativeDirection && row.schema_version !== creativeDirection.schemaVersion) {
+    throw new Error("Creative Direction schema version is invalid");
+  }
+  const content = creativeDirection ?? parsed;
   return {
     id: row.id, projectId: row.project_id, artifactId: row.artifact_id,
     artifactType: row.artifact_type, version: row.version, schemaVersion: row.schema_version,
-    content: JSON.parse(row.content_json) as T, stale: Boolean(row.stale),
+    content: content as T, stale: Boolean(row.stale),
     restoredFromVersionId: row.restored_from_version_id ?? undefined, createdAt: row.created_at,
   };
 }
@@ -48,21 +59,27 @@ export class ArtifactRepository {
   constructor(private readonly database: StoryDatabase) {}
 
   saveArtifact<T>(input: SaveArtifactInput<T>): ArtifactVersion<T> {
-    const content = input.schema ? input.schema.parse(input.content) : input.content;
-    JSON.stringify(content);
-    return transaction(this.database, () => this.saveArtifactInTransaction({ ...input, content }));
+    return transaction(this.database, () => this.saveArtifactInTransaction(input));
   }
 
   saveArtifactInTransaction<T>(input: SaveArtifactInput<T>): ArtifactVersion<T> {
-    const content = input.schema ? input.schema.parse(input.content) : input.content;
+    const artifactType = input.artifactType ?? input.artifactId;
+    const creativeIdentity = input.artifactId === "creative-direction" || artifactType === "creative-direction";
+    if (creativeIdentity && (input.artifactId !== "creative-direction" || artifactType !== "creative-direction")) {
+      throw new Error("Creative Direction artifact identity is invalid");
+    }
+    const creativeDirection = creativeIdentity ? CreativeDirectionSchema.parse(input.content) : undefined;
+    const content = creativeDirection ?? (input.schema ? input.schema.parse(input.content) : input.content);
     JSON.stringify(content);
     const latest = this.database.prepare(`
       SELECT COALESCE(MAX(version), 0) AS version
       FROM artifact_versions WHERE project_id = ? AND artifact_id = ?
     `).get(input.projectId, input.artifactId) as { version: number };
-    const artifactType = input.artifactType ?? input.artifactId;
-    if (artifactType === "creative-direction") {
-      this.validateCreativeDirectionProvenance(input.projectId, input.artifactId, content);
+    if (creativeIdentity) {
+      if ((input.schemaVersion ?? 1) !== creativeDirection!.schemaVersion) {
+        throw new Error("Creative Direction schema version is invalid");
+      }
+      this.validateCreativeDirectionProvenance(input.projectId, input.artifactId, creativeDirection);
     }
     const id = randomUUID();
     this.database.prepare(`
@@ -91,9 +108,13 @@ export class ArtifactRepository {
   }
 
   listVersions<T = unknown>(projectId: string, artifactId: string): ArtifactVersion<T>[] {
-    return (this.database.prepare(`
+    const versions = (this.database.prepare(`
       SELECT * FROM artifact_versions WHERE project_id = ? AND artifact_id = ? ORDER BY version DESC
     `).all(projectId, artifactId) as ArtifactRow[]).map(mapArtifact<T>);
+    versions.forEach((version) => {
+      if (version.artifactId === "creative-direction") this.validateCreativeDirectionProvenance(projectId, artifactId, version.content);
+    });
+    return versions;
   }
 
   getCurrent<T = unknown>(projectId: string, artifactId: string): ArtifactVersion<T> | undefined {
@@ -102,7 +123,11 @@ export class ArtifactRepository {
 
   getVersion<T = unknown>(versionId: string): ArtifactVersion<T> | undefined {
     const row = this.database.prepare("SELECT * FROM artifact_versions WHERE id = ?").get(versionId) as ArtifactRow | undefined;
-    return row ? mapArtifact<T>(row) : undefined;
+    const version = row ? mapArtifact<T>(row) : undefined;
+    if (version?.artifactId === "creative-direction") {
+      this.validateCreativeDirectionProvenance(version.projectId, version.artifactId, version.content);
+    }
+    return version;
   }
 
   restore<T = unknown>(projectId: string, artifactId: string, versionId: string, options: { markDependentsStale?: boolean } = {}): ArtifactVersion<T> {
@@ -148,10 +173,18 @@ export class ArtifactRepository {
           }
           break;
         case "migration-derived":
-        case "approved-artifact":
           if (!targetId || !versionId || !this.database.prepare(`SELECT 1 FROM artifact_versions
             WHERE id = ? AND project_id = ? AND artifact_id = ?`).get(versionId, projectId, targetId)) {
             throw new Error("Creative Direction provenance references another project or missing artifact version");
+          }
+          break;
+        case "approved-artifact":
+          if (!targetId || !versionId || !this.database.prepare(`SELECT 1 FROM artifact_versions version
+            JOIN artifact_workflow_state workflow
+              ON workflow.project_id = version.project_id AND workflow.artifact_id = version.artifact_id
+            WHERE version.id = ? AND version.project_id = ? AND version.artifact_id = ?
+              AND workflow.approved_version_id = version.id`).get(versionId, projectId, targetId)) {
+            throw new Error("Creative Direction approved-artifact provenance must reference the exact approved version in this project");
           }
           break;
         case "user-message":

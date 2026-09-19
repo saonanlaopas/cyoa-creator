@@ -151,7 +151,7 @@ export function CreativeDirectionWorkspace(props: {
           })}>Add profile</button></header>
           {(draft.relationshipPresentation?.profiles ?? []).length === 0 && <p className="field-note">No relationship profile is required. Mystery, horror, adventure, and general-fiction projects can leave this empty.</p>}
           {(draft.relationshipPresentation?.profiles ?? []).map((profile, index) => <article className="bible-card" key={profile.id}>
-            <div className="brief-grid"><label>Stable profile ID<input value={profile.id} onChange={(event) => updateProfile(draft, setDraft, index, { ...profile, id: event.target.value })} /></label>
+            <div className="brief-grid"><label>Stable profile ID<input value={profile.id} readOnly aria-readonly="true" /></label>
               <Select label="Kind" value={profile.relationshipKind} values={["romance", "friendship", "family", "rivalry", "partnership", "ensemble", "custom"]} onChange={(value) => updateProfile(draft, setDraft, index, { ...profile, relationshipKind: value as typeof profile.relationshipKind, ...(value === "romance" ? {} : { sensuality: undefined, physicalIntimacy: undefined }) })} /></div>
             {profile.relationshipKind === "custom" && <label>Custom kind<input value={profile.customKind ?? ""} onChange={(event) => updateProfile(draft, setDraft, index, { ...profile, customKind: event.target.value })} /></label>}
             <div className="brief-grid"><label>Relationship ID<input value={profile.relationshipId ?? ""} onChange={(event) => updateProfile(draft, setDraft, index, { ...profile, relationshipId: event.target.value || undefined })} /></label>
@@ -171,7 +171,7 @@ export function CreativeDirectionWorkspace(props: {
         <section>
           <header className="bible-section-heading"><h2>Scoped presentation variations</h2><button type="button" onClick={() => update("scopedVariations", [...draft.scopedVariations, { id: uid("direction-scope"), scopeKind: "route", scopeId: "", toneDescriptors: [], pacingGuidance: "", proseGuidance: "" }])}>Add variation</button></header>
           {draft.scopedVariations.map((variation, index) => <article className="bible-card" key={variation.id}>
-            <div className="brief-grid"><label>Stable variation ID<input value={variation.id} onChange={(event) => updateVariation(draft, setDraft, index, { ...variation, id: event.target.value })} /></label>
+            <div className="brief-grid"><label>Stable variation ID<input value={variation.id} readOnly aria-readonly="true" /></label>
               <Select label="Scope" value={variation.scopeKind} values={["route", "act", "relationship", "character"]} onChange={(value) => updateVariation(draft, setDraft, index, { ...variation, scopeKind: value as typeof variation.scopeKind })} />
               <label>Scope ID<input value={variation.scopeId} onChange={(event) => updateVariation(draft, setDraft, index, { ...variation, scopeId: event.target.value })} /></label></div>
             <label>Tone descriptors<textarea value={variation.toneDescriptors.join("\n")} onChange={(event) => updateVariation(draft, setDraft, index, { ...variation, toneDescriptors: lines(event.target.value) })} /></label>

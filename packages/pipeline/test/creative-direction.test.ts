@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   CreativeDirectionSchema,
+  compareCreativeDirectionStrings,
+  creativeDirectionFingerprints,
   defaultCreativeDirection,
   normalizeCreativeDirection,
   selectCreativeDirectionContext,
@@ -54,6 +56,80 @@ describe("Creative Direction v1", () => {
         mechanicsVisibility: "subtle", customGuidance: "", contentBoundaries: [],
       }] },
     })).toThrow(/Romance-specific/);
+  });
+
+  it("rejects an unscoped relationship profile and invalid scoped provenance paths", () => {
+    expect(() => normalizeCreativeDirection({
+      tone: {}, pacing: {}, prose: {}, scopedVariations: [], fieldProvenance: [],
+      relationshipPresentation: { profiles: [{
+        id: "friends", relationshipKind: "friendship", participantIds: [], developmentStyle: "steady",
+        emotionalTension: "moderate", melodrama: "low", mechanicsVisibility: "subtle",
+        customGuidance: "", contentBoundaries: [],
+      }] },
+    })).toThrow(/requires a relationshipId or participantIds/);
+
+    const direction = normalizeCreativeDirection({
+      tone: {}, pacing: {}, prose: {},
+      relationshipPresentation: { profiles: [{
+        id: "friends", relationshipKind: "friendship", relationshipId: "relationship-friends",
+        participantIds: [], developmentStyle: "steady", emotionalTension: "moderate", melodrama: "low",
+        mechanicsVisibility: "subtle", customGuidance: "", contentBoundaries: [],
+      }] },
+      scopedVariations: [], fieldProvenance: [],
+    });
+    const invalidPath = {
+      ...direction,
+      fieldProvenance: [{ fieldPath: "/banana", reference: { kind: "manual-edit" as const } }],
+    };
+    expect(() => CreativeDirectionSchema.parse({
+      ...invalidPath,
+      ...creativeDirectionFingerprints(invalidPath),
+    })).toThrow(/material field/);
+    const wrongEntity = {
+      ...direction,
+      fieldProvenance: [{
+        fieldPath: "/relationshipPresentation/profiles/friends/customGuidance",
+        stableEntityId: "not-friends",
+        reference: { kind: "manual-edit" as const },
+      }],
+    };
+    expect(() => CreativeDirectionSchema.parse({
+      ...wrongEntity,
+      ...creativeDirectionFingerprints(wrongEntity),
+    })).toThrow(/stableEntityId must match/);
+  });
+
+  it("uses locale-independent Unicode ordering and fixed SHA-256 golden fingerprints", () => {
+    const input = {
+      tone: {
+        descriptors: ["😀", "日本語", "éclair", "ASCII", "Bahasa Indonesia", "e\u0301clair"],
+        exclusions: ["jangan", "naïve"],
+      },
+      pacing: { customGuidance: "pelan tetapi pasti" },
+      prose: { voiceDescriptors: ["声", "voice", "💬"], avoid: ["klisé", "cliche"] },
+      scopedVariations: [],
+      fieldProvenance: [
+        { fieldPath: "/tone/descriptors", reference: { kind: "manual-edit" as const, excerpt: "évidence" } },
+        { fieldPath: "/pacing/customGuidance", reference: { kind: "manual-edit" as const, excerpt: "bukti Indonesia" } },
+        { fieldPath: "/prose/voiceDescriptors", reference: { kind: "manual-edit" as const, excerpt: "証拠 😀" } },
+      ],
+    };
+    const direction = normalizeCreativeDirection(input);
+    expect(direction.tone.descriptors).toEqual([
+      "ASCII", "Bahasa Indonesia", "e\u0301clair", "éclair", "日本語", "😀",
+    ]);
+    expect(direction.materialFingerprint).toBe("7b3c7d8ce752ca97e861c58c9620cc4bc494b93c147dc14478e1fe949c5988c4");
+    expect(direction.provenanceFingerprint).toBe("c8e3cc2ce660ddff9114e323aa38d1cbeef1a01e8be00a3f24c660266786070b");
+    expect(normalizeCreativeDirection({
+      ...input,
+      tone: { ...input.tone, descriptors: [...input.tone.descriptors].reverse() },
+      fieldProvenance: [...input.fieldProvenance].reverse(),
+    })).toMatchObject({
+      materialFingerprint: direction.materialFingerprint,
+      provenanceFingerprint: direction.provenanceFingerprint,
+    });
+    expect("e\u0301clair").not.toBe("éclair");
+    expect(compareCreativeDirectionStrings("e\u0301clair", "éclair")).toBeLessThan(0);
   });
 
   it("selects only relevant scoped direction and reports exact omissions", () => {

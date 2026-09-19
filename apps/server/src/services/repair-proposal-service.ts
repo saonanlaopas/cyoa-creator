@@ -9,6 +9,7 @@ import {
   buildRepairProposal,
   parseRepairProposalCandidate,
   repairProposalFingerprint,
+  repairTargetKey,
   stableJson,
   type ChoicePlan,
   type LongFormEndingPlan,
@@ -23,6 +24,8 @@ import {
   type RepairProposalBaseState,
   CreativeDirectionSchema,
   selectCreativeDirectionContext,
+  assertCreativeDirectionReferences,
+  compareCreativeDirectionStrings,
   type RepairProposalGenerationContext,
   type RepairProposalProvider,
   type RepairProposalRecord,
@@ -290,15 +293,15 @@ export class RepairProposalService {
       : item.kind === "passage-prose-head" ? [item.passageId] : []));
     const connectedChoices = base.choices.filter((item) => targetedPassageIds.has(item.content.sourcePassageId) || targetedPassageIds.has(item.content.destinationPassageId));
     const connectedPassageIds = new Set([...targetedPassageIds, ...connectedChoices.flatMap((item) => [item.content.sourcePassageId, item.content.destinationPassageId])]);
+    const creativeDirection = base.creativeDirection
+      ? selectCreativeDirectionContext(base.creativeDirection.content, repairCreativeDirectionScope(plan, base, keys))
+      : undefined;
     const dependencies = {
       structure: base.structure,
       passages: base.passages.filter((item) => connectedPassageIds.has(item.content.id)).map((item) => item.content),
       choices: connectedChoices.map((item) => item.content),
       threads: base.threads.filter((item) => [...item.content.setupPassageIds, ...item.content.payoffPassageIds].some((id) => connectedPassageIds.has(id))).map((item) => item.content),
-      ...(base.creativeDirection ? { creativeDirection: selectCreativeDirectionContext(
-        base.creativeDirection.content,
-        { routeIds: keys, actIds: keys, relationshipIds: keys, characterIds: keys },
-      ).context } : {}),
+      ...(creativeDirection ? { creativeDirection: creativeDirection.context } : {}),
     };
     return {
       schemaVersion: 1,
@@ -331,7 +334,7 @@ export class RepairProposalService {
       return { versionId: version.id, content: parse(version.content) };
     };
     const directionVersionId = this.workflow.get(projectId, "creative-direction").approvedVersionId;
-    return {
+    const base: RepairProposalBaseState = {
       structure: structure.content,
       passages: this.passagePlans.currentEntities<PassagePlan>(projectId, "passage").map((item) => ({ versionId: item.id, content: item.content })),
       choices: this.passagePlans.currentEntities<ChoicePlan>(projectId, "choice").map((item) => ({ versionId: item.id, content: item.content })),
@@ -342,6 +345,13 @@ export class RepairProposalService {
       mechanics: approved("mechanics", (value) => LongFormMechanicsPlanSchema.parse(value)),
       ...(directionVersionId ? { creativeDirection: approved("creative-direction", (value) => CreativeDirectionSchema.parse(value)) } : {}),
     };
+    if (base.creativeDirection) assertCreativeDirectionReferences(base.creativeDirection.content, {
+      characterIds: base.bible.content.characters.map((item) => item.id),
+      relationships: base.bible.content.relationships.map((item) => ({ id: item.id, characterIds: item.characterIds })),
+      routeIds: base.routes.content.routes.map((item) => item.id),
+      acts: base.routes.content.acts.map((item) => ({ id: item.id, routeId: item.routeId })),
+    });
+    return base;
   }
 
   private async run(projectId: string, generationId: string, controller: AbortController): Promise<void> {
@@ -490,6 +500,99 @@ export class RepairProposalService {
     });
   }
   private requireProject(projectId: string) { const project = this.projects.get(projectId); if (!project || project.mode !== "long-form") throw failure("project_not_found", "Long-form project not found"); return project; }
+}
+
+export function repairCreativeDirectionScope(
+  plan: RepairPlanView,
+  base: RepairProposalBaseState,
+  keys: string[],
+): { routeIds: string[]; actIds: string[]; relationshipIds: string[]; characterIds: string[] } {
+  const routeIds = new Set<string>(); const actIds = new Set<string>();
+  const relationshipIds = new Set<string>(); const characterIds = new Set<string>();
+  const passageIds = new Set<string>(); const choiceIds = new Set<string>(); const threadIds = new Set<string>();
+  const relationshipById = new Map(base.bible.content.relationships.map((item) => [item.id, item]));
+  const routeById = new Map(base.routes.content.routes.map((item) => [item.id, item]));
+  const actById = new Map(base.routes.content.acts.map((item) => [item.id, item]));
+  const passageById = new Map(base.passages.map((item) => [item.content.id, item.content]));
+  const choiceById = new Map(base.choices.map((item) => [item.content.id, item.content]));
+  const threadById = new Map(base.threads.map((item) => [item.content.id, item.content]));
+  const knownCharacters = new Set(base.bible.content.characters.map((item) => item.id));
+
+  const addRelationship = (id: string) => {
+    if (relationshipIds.has(id)) return;
+    const relationship = relationshipById.get(id); if (!relationship) return;
+    relationshipIds.add(id); relationship.characterIds.forEach((characterId) => characterIds.add(characterId));
+  };
+  const addRoute = (id: string) => {
+    if (routeIds.has(id)) return;
+    const route = routeById.get(id); if (!route) return;
+    routeIds.add(id); route.relationshipArcs.forEach((arc) => addRelationship(arc.relationshipId));
+  };
+  const addAct = (id: string) => {
+    if (actIds.has(id)) return;
+    const act = actById.get(id); if (!act) return;
+    actIds.add(id); if (act.routeId) addRoute(act.routeId);
+  };
+  const scan = (value: unknown) => {
+    const strings = new Set<string>();
+    const visit = (item: unknown): void => {
+      if (typeof item === "string") strings.add(item);
+      else if (Array.isArray(item)) item.forEach(visit);
+      else if (item && typeof item === "object") Object.values(item as Record<string, unknown>).forEach(visit);
+    };
+    visit(value);
+    strings.forEach((id) => {
+      if (knownCharacters.has(id)) characterIds.add(id);
+      if (relationshipById.has(id)) addRelationship(id);
+      if (routeById.has(id)) addRoute(id);
+      if (actById.has(id)) addAct(id);
+    });
+  };
+  const addPassage = (id: string) => {
+    const passage = passageById.get(id); if (!passage) return;
+    passageIds.add(id); passage.routeIds.forEach(addRoute);
+    passage.characterIds.forEach((characterId) => characterIds.add(characterId));
+    passage.relationshipIds.forEach(addRelationship); scan(passage);
+  };
+  const addChoice = (id: string) => {
+    const choice = choiceById.get(id); if (!choice) return;
+    choiceIds.add(id); addPassage(choice.sourcePassageId); addPassage(choice.destinationPassageId); scan(choice);
+  };
+  const addThread = (id: string) => {
+    const thread = threadById.get(id); if (!thread) return;
+    threadIds.add(id); thread.routeIds.forEach(addRoute);
+    [...thread.setupPassageIds, ...thread.payoffPassageIds].forEach(addPassage); scan(thread);
+  };
+  const targets = plan.definition.authorizedTargets.filter((target) => keys.includes(repairTargetKey(target)));
+  for (const target of targets) {
+    switch (target.kind) {
+      case "passage-plan-passage": case "passage-prose": addPassage(target.passageId); break;
+      case "passage-plan-choice": addChoice(target.choiceId); break;
+      case "narrative-thread": addThread(target.threadId); break;
+      case "relationship": addRelationship(target.relationshipId); scan(relationshipById.get(target.relationshipId)); break;
+      case "route": addRoute(target.routeId); scan(routeById.get(target.routeId)); break;
+      case "route-section": {
+        if (target.sectionKind === "act") addAct(target.sectionId);
+        const collection = target.sectionKind === "act" ? base.routes.content.acts
+          : target.sectionKind === "decision" ? base.routes.content.decisionPoints
+            : target.sectionKind === "reconvergence" ? base.routes.content.reconvergences
+              : base.routes.content.endingHooks;
+        scan(collection.find((item) => item.id === target.sectionId));
+        break;
+      }
+      case "canon-fact": scan(base.bible.content.canonFacts.find((item) => item.id === target.factId)); break;
+      case "ending": scan(base.endings.content.endings.find((item) => item.id === target.endingId)); break;
+      case "mechanic": scan(findArtifactEntity(base.mechanics.content, "mechanic", target.mechanicKey)); break;
+    }
+  }
+  const directlyTargetedPassages = new Set(passageIds);
+  base.choices.forEach((item) => {
+    if (directlyTargetedPassages.has(item.content.sourcePassageId)
+      || directlyTargetedPassages.has(item.content.destinationPassageId)) addChoice(item.content.id);
+  });
+  passageIds.forEach(addPassage); choiceIds.forEach(addChoice); threadIds.forEach(addThread);
+  const sorted = (values: Set<string>) => [...values].sort(compareCreativeDirectionStrings);
+  return { routeIds: sorted(routeIds), actIds: sorted(actIds), relationshipIds: sorted(relationshipIds), characterIds: sorted(characterIds) };
 }
 
 function currentForBase(base: RepairProposalBaseState, expected: RepairExpectedBase, drafts: PassageDraftRepository, projectId: string): unknown {

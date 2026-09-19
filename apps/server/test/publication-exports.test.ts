@@ -8,7 +8,13 @@ import { describe, expect, it } from "vitest";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { createNativePlayerConfig, nativeBundleFingerprint } from "@story-to-cyoa/runtime";
 import { ArtifactRepository, openDatabase, PortableProjectRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
-import { defaultCreativeDirection, normalizeCreativeDirection } from "@story-to-cyoa/pipeline";
+import {
+  defaultCreativeDirection,
+  defaultLongFormRoutePlan,
+  defaultLongFormStoryBible,
+  defaultProjectBrief,
+  normalizeCreativeDirection,
+} from "@story-to-cyoa/pipeline";
 import { playerConfigInput, playerFixture } from "../../../packages/runtime/test/native-player-fixture.js";
 import { PublicationExportService } from "../src/services/publication-export-service.js";
 import type { NativeCompilationService } from "../src/services/native-compilation-service.js";
@@ -59,6 +65,20 @@ describe("Foundation 7C publication exports", () => {
     try {
       new ProjectRepository(source.database).create("Directed archive", "directed-archive", "long-form");
       const artifacts = new ArtifactRepository(source.database); const workflow = new WorkflowRepository(source.database);
+      const briefContent = defaultProjectBrief("Directed archive");
+      const brief = artifacts.saveArtifact({ projectId: "directed-archive", artifactId: "brief", content: briefContent });
+      workflow.approve("directed-archive", "brief", brief.id);
+      const bibleContent = defaultLongFormStoryBible({ title: "Directed archive", protagonist: "Mara" });
+      bibleContent.characters.push({ id: "character-partner", name: "Ivo", role: "Partner", summary: "", motivations: [], knowledge: [], plannedArc: "" });
+      bibleContent.relationships.push({
+        id: "relationship-main", characterIds: ["character-protagonist", "character-partner"],
+        label: "Mara and Ivo", currentState: "Cautious allies", plannedArc: "Trust",
+      });
+      const bible = artifacts.saveArtifact({ projectId: "directed-archive", artifactId: "bible", content: bibleContent });
+      workflow.approve("directed-archive", "bible", bible.id);
+      const routesContent = defaultLongFormRoutePlan(briefContent);
+      const routes = artifacts.saveArtifact({ projectId: "directed-archive", artifactId: "routes", content: routesContent });
+      workflow.approve("directed-archive", "routes", routes.id);
       const first = artifacts.saveArtifact({
         projectId: "directed-archive", artifactId: "creative-direction", artifactType: "creative-direction",
         schemaVersion: 1, content: defaultCreativeDirection(),
@@ -67,12 +87,13 @@ describe("Foundation 7C publication exports", () => {
         ...first.content as ReturnType<typeof defaultCreativeDirection>,
         tone: { ...(first.content as ReturnType<typeof defaultCreativeDirection>).tone, descriptors: ["quietly uncanny"] },
         relationshipPresentation: { profiles: [{
-          id: "relationship-profile-main", relationshipKind: "romance", participantIds: [], developmentStyle: "gradual",
+          id: "relationship-profile-main", relationshipKind: "romance", relationshipId: "relationship-main",
+          participantIds: ["character-protagonist", "character-partner"], developmentStyle: "gradual",
           emotionalTension: "high", melodrama: "low", sensuality: "subtle", physicalIntimacy: "fade-to-black",
           mechanicsVisibility: "subtle", customGuidance: "Trust precedes intimacy.", contentBoundaries: ["no coercion"],
         }] },
         scopedVariations: [{
-          id: "route-tone-main", scopeKind: "route", scopeId: "route-main", toneDescriptors: ["restrained"],
+          id: "route-tone-main", scopeKind: "route", scopeId: routesContent.routes[0]!.id, toneDescriptors: ["restrained"],
           pacingGuidance: "Allow quiet scenes.", proseGuidance: "Use close interiority.",
         }],
         fieldProvenance: [{ fieldPath: "/tone", reference: { kind: "manual-edit", versionId: first.id, excerpt: "Exact authored rationale" } }],
@@ -94,6 +115,45 @@ describe("Foundation 7C publication exports", () => {
       expect((restoredArtifacts.getCurrent("directed-archive", "creative-direction")!.content as ReturnType<typeof defaultCreativeDirection>)
         .relationshipPresentation?.profiles[0]).toMatchObject({ relationshipKind: "romance", sensuality: "subtle" });
       expect(Buffer.from(target.service.exportPortable("directed-archive").bytes)).toEqual(Buffer.from(exported.bytes));
+    } finally { source.database.close(); target.database.close(); }
+  });
+
+  it("rejects portable data whose approved Creative Direction scopes no longer resolve", () => {
+    const source = service(); const target = service();
+    try {
+      new ProjectRepository(source.database).create("Dangling direction", "dangling-direction", "long-form");
+      const artifacts = new ArtifactRepository(source.database); const workflow = new WorkflowRepository(source.database);
+      const bibleContent = defaultLongFormStoryBible({ title: "Dangling direction" });
+      bibleContent.characters.push(
+        { id: "character-a", name: "A", role: "", summary: "", motivations: [], knowledge: [], plannedArc: "" },
+        { id: "character-b", name: "B", role: "", summary: "", motivations: [], knowledge: [], plannedArc: "" },
+      );
+      bibleContent.relationships.push({
+        id: "relationship-ab", characterIds: ["character-a", "character-b"],
+        label: "A and B", currentState: "", plannedArc: "",
+      });
+      const bible = artifacts.saveArtifact({ projectId: "dangling-direction", artifactId: "bible", content: bibleContent });
+      workflow.approve("dangling-direction", "bible", bible.id);
+      const directionContent = normalizeCreativeDirection({
+        ...defaultCreativeDirection(),
+        relationshipPresentation: { profiles: [{
+          id: "profile-ab", relationshipKind: "friendship", relationshipId: "relationship-ab",
+          participantIds: ["character-a", "character-b"], developmentStyle: "steady",
+          emotionalTension: "moderate", melodrama: "low", mechanicsVisibility: "subtle",
+          customGuidance: "", contentBoundaries: [],
+        }] },
+      });
+      const direction = artifacts.saveArtifact({
+        projectId: "dangling-direction", artifactId: "creative-direction",
+        artifactType: "creative-direction", content: directionContent,
+      });
+      workflow.approve("dangling-direction", "creative-direction", direction.id);
+      source.database.prepare("UPDATE artifact_versions SET content_json = ? WHERE id = ?")
+        .run(JSON.stringify({ ...bibleContent, relationships: [] }), bible.id);
+
+      expect(() => target.service.importPortable(source.service.exportPortable("dangling-direction").bytes))
+        .toThrow(/approved creative direction scopes|missing relationship relationship-ab/);
+      expect(new ProjectRepository(target.database).get("dangling-direction")).toBeUndefined();
     } finally { source.database.close(); target.database.close(); }
   });
 

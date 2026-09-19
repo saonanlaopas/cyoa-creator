@@ -9,6 +9,7 @@ import {
   defaultCreativeDirection,
   normalizeCreativeDirection,
   selectCreativeDirectionContext,
+  creativeDirectionReferenceIssues,
   defaultLongFormEndingPlan,
   defaultLongFormMechanicsPlan,
   defaultLongFormRoutePlan,
@@ -206,6 +207,11 @@ export class LongFormProjectService {
     if (!version || version.projectId !== projectId || version.artifactId !== artifactId) {
       throw new Error("Artifact version not found");
     }
+    if (artifactId === "creative-direction") {
+      this.validateCreativeDirectionScopes(projectId, version.content as CreativeDirection, true);
+    } else if (artifactId === "bible" || artifactId === "routes") {
+      this.validateApprovedDirectionAgainstUpstreamCandidate(projectId, artifactId, version.content);
+    }
     const snapshot = this.snapshot(projectId, { artifactId, content: version.content });
     const findings = validateLongFormProject(snapshot);
     const errors = findings.filter((finding) =>
@@ -364,7 +370,8 @@ export class LongFormProjectService {
       ? content as Record<string, unknown> : {};
     const { materialFingerprint: _material, provenanceFingerprint: _provenance, ...withoutFingerprints } = raw;
     const parsed = normalizeCreativeDirection(withoutFingerprints as CreativeDirectionInput);
-    this.validateCreativeDirectionScopes(projectId, parsed);
+    this.validateCreativeDirectionIdentityTransition(current.content, parsed);
+    this.validateCreativeDirectionScopes(projectId, parsed, false);
     const version = this.artifacts.saveArtifact({
       projectId, artifactId: "creative-direction", artifactType: "creative-direction",
       schema: CreativeDirectionSchema, content: parsed,
@@ -435,6 +442,7 @@ export class LongFormProjectService {
     if (!artifact || artifact.projectId !== projectId || artifact.artifactId !== "creative-direction") {
       throw new Error("Approved Creative Direction not found");
     }
+    this.validateCreativeDirectionScopes(projectId, artifact.content, true);
     const selected = selectCreativeDirectionContext(artifact.content);
     return { artifact, context: selected.context, diagnostics: {
       artifactVersionId: artifact.id,
@@ -445,24 +453,64 @@ export class LongFormProjectService {
     } };
   }
 
-  private validateCreativeDirectionScopes(projectId: string, direction: CreativeDirection): void {
-    const bible = this.artifacts.getCurrent<LongFormStoryBible>(projectId, "bible")?.content;
-    const routes = this.artifacts.getCurrent<LongFormRoutePlan>(projectId, "routes")?.content;
-    const relationshipIds = new Set(bible?.relationships.map((item) => item.id) ?? []);
-    const characterIds = new Set(bible?.characters.map((item) => item.id) ?? []);
-    for (const profile of direction.relationshipPresentation?.profiles ?? []) {
-      if (profile.relationshipId && bible && !relationshipIds.has(profile.relationshipId)) throw new Error(`Unknown relationship ${profile.relationshipId}`);
-      if (bible && profile.participantIds.some((id) => !characterIds.has(id))) throw new Error(`Relationship profile ${profile.id} references an unknown character`);
-    }
-    const known = {
-      route: new Set(routes?.routes.map((item) => item.id) ?? []),
-      act: new Set(routes?.acts.map((item) => item.id) ?? []),
-      relationship: relationshipIds,
-      character: characterIds,
+  private validateCreativeDirectionIdentityTransition(current: CreativeDirection, next: CreativeDirection): void {
+    const rejectRename = (label: string, before: string[], after: string[]) => {
+      const prior = new Set(before); const following = new Set(after);
+      const removed = before.filter((id) => !following.has(id));
+      const added = after.filter((id) => !prior.has(id));
+      if (removed.length && added.length) {
+        throw new Error(`${label} stable IDs cannot be renamed in place; save the removal before adding the replacement`);
+      }
     };
-    for (const variation of direction.scopedVariations) {
-      const domainExists = variation.scopeKind === "route" || variation.scopeKind === "act" ? Boolean(routes) : Boolean(bible);
-      if (domainExists && !known[variation.scopeKind].has(variation.scopeId)) throw new Error(`Unknown ${variation.scopeKind} scope ${variation.scopeId}`);
+    rejectRename("Relationship profile",
+      current.relationshipPresentation?.profiles.map((item) => item.id) ?? [],
+      next.relationshipPresentation?.profiles.map((item) => item.id) ?? []);
+    rejectRename("Scoped variation", current.scopedVariations.map((item) => item.id), next.scopedVariations.map((item) => item.id));
+  }
+
+  private approvedContent<T>(projectId: string, artifactId: PlanningArtifactId): T | undefined {
+    const versionId = this.workflow.get(projectId, artifactId).approvedVersionId;
+    const version = versionId ? this.artifacts.getVersion<T>(versionId) : undefined;
+    return version?.projectId === projectId && version.artifactId === artifactId ? version.content : undefined;
+  }
+
+  private validateCreativeDirectionScopes(projectId: string, direction: CreativeDirection, requireResolved: boolean): void {
+    const bible = this.approvedContent<LongFormStoryBible>(projectId, "bible");
+    const routes = this.approvedContent<LongFormRoutePlan>(projectId, "routes");
+    const issues = creativeDirectionReferenceIssues(direction, {
+      ...(bible || requireResolved ? {
+        characterIds: bible?.characters.map((item) => item.id) ?? [],
+        relationships: bible?.relationships.map((item) => ({ id: item.id, characterIds: item.characterIds })) ?? [],
+      } : {}),
+      ...(routes || requireResolved ? {
+        routeIds: routes?.routes.map((item) => item.id) ?? [],
+        acts: routes?.acts.map((item) => ({ id: item.id, routeId: item.routeId })) ?? [],
+      } : {}),
+    });
+    if (issues.length) throw new Error(issues.join("; "));
+  }
+
+  private validateApprovedDirectionAgainstUpstreamCandidate(
+    projectId: string,
+    artifactId: "bible" | "routes",
+    content: PlanningArtifact,
+  ): void {
+    const approvedDirectionId = this.workflow.get(projectId, "creative-direction").approvedVersionId;
+    const direction = approvedDirectionId
+      ? this.artifacts.getVersion<CreativeDirection>(approvedDirectionId)?.content : undefined;
+    if (!direction) return;
+    const bible = artifactId === "bible"
+      ? content as LongFormStoryBible : this.approvedContent<LongFormStoryBible>(projectId, "bible");
+    const routes = artifactId === "routes"
+      ? content as LongFormRoutePlan : this.approvedContent<LongFormRoutePlan>(projectId, "routes");
+    const issues = creativeDirectionReferenceIssues(direction, {
+      characterIds: bible?.characters.map((item) => item.id) ?? [],
+      relationships: bible?.relationships.map((item) => ({ id: item.id, characterIds: item.characterIds })) ?? [],
+      routeIds: routes?.routes.map((item) => item.id) ?? [],
+      acts: routes?.acts.map((item) => ({ id: item.id, routeId: item.routeId })) ?? [],
+    });
+    if (issues.length) {
+      throw new Error(`This approval would invalidate approved Creative Direction scopes. ${issues.join("; ")}`);
     }
   }
 }
