@@ -3,10 +3,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OpenRouterClient, StructuredGenerationStreamRequest } from "@story-to-cyoa/openrouter";
-import { ArtifactRepository, openDatabase, ProjectRepository } from "@story-to-cyoa/persistence";
+import { defaultCreativeDirection } from "@story-to-cyoa/domain";
+import { ArtifactRepository, openDatabase, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import {
   defaultLongFormRoutePlan,
   defaultLongFormEndingPlan,
+  defaultLongFormStoryBible,
   defaultProjectBrief,
 } from "@story-to-cyoa/pipeline";
 import { buildApp } from "../src/app.js";
@@ -84,6 +86,20 @@ function fakeChatClient(onRequest?: (request: StructuredGenerationStreamRequest)
   } as unknown as OpenRouterClient;
 }
 
+function delayedChatClient() {
+  let begin!: () => void; let release!: () => void;
+  const started = new Promise<void>((resolve) => { begin = resolve; });
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  const delegate = fakeChatClient();
+  const client = {
+    async generateStructuredStream<T>(request: StructuredGenerationStreamRequest, schema: { parse(value: unknown): T }, callbacks: never) {
+      begin(); await released;
+      return delegate.generateStructuredStream(request, schema, callbacks as never);
+    },
+  } as unknown as OpenRouterClient;
+  return { client, started, release };
+}
+
 async function approveCreativeDirection(
   app: ReturnType<typeof buildApp>,
   created: { project: { id: string }; creativeDirection: { id: string } },
@@ -97,6 +113,116 @@ async function approveCreativeDirection(
 }
 
 describe("long-form scoped chat", () => {
+  it("rejects provider completion after material Creative Direction changes in flight", async () => {
+    const delayed = delayedChatClient(); const app = buildApp({ openRouterClient: delayed.client });
+    const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Chat race" } })).json();
+    await approveCreativeDirection(app, created);
+    const conversation = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${created.project.id}/conversations`, payload: {},
+    })).json();
+    const pending = app.inject({
+      method: "POST", url: `/api/long-form/projects/${created.project.id}/conversations/${conversation.id}/messages`,
+      payload: { content: "Propose a route change.", intent: "propose", model: "offline/chat" },
+    });
+    await delayed.started;
+    const changed = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${created.project.id}/creative-direction`,
+      payload: { ...created.creativeDirection.content, tone: { ...created.creativeDirection.content.tone, descriptors: ["material-race-change"] } },
+    })).json().creativeDirection;
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${created.project.id}/creative-direction/approve`, payload: { versionId: changed.id },
+    })).statusCode).toBe(200);
+    delayed.release(); const response = await pending;
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toContain("changed materially");
+    const state = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${created.project.id}/conversations/${conversation.id}`,
+    })).json();
+    expect(state.messages.map((message: { role: string }) => message.role)).toEqual(["user"]);
+    expect(state.proposals).toEqual([]);
+    await app.close();
+  });
+
+  it("accepts provider completion after provenance-only Creative Direction reapproval", async () => {
+    const delayed = delayedChatClient(); const app = buildApp({ openRouterClient: delayed.client });
+    const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Chat provenance race" } })).json();
+    await approveCreativeDirection(app, created);
+    const conversation = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${created.project.id}/conversations`, payload: {},
+    })).json();
+    const pending = app.inject({
+      method: "POST", url: `/api/long-form/projects/${created.project.id}/conversations/${conversation.id}/messages`,
+      payload: { content: "Discuss this direction.", intent: "discuss", model: "offline/chat" },
+    });
+    await delayed.started;
+    const provenanceOnly = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${created.project.id}/creative-direction`, payload: {
+        ...created.creativeDirection.content, fieldProvenance: [{
+          fieldPath: "/tone", reference: { kind: "manual-edit", versionId: created.creativeDirection.id, excerpt: "Explanation only" },
+        }],
+      },
+    })).json().creativeDirection;
+    expect(provenanceOnly.content.materialFingerprint).toBe(created.creativeDirection.content.materialFingerprint);
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${created.project.id}/creative-direction/approve`, payload: { versionId: provenanceOnly.id },
+    })).statusCode).toBe(200);
+    delayed.release(); expect((await pending).statusCode).toBe(201);
+    const state = (await app.inject({
+      method: "GET", url: `/api/long-form/projects/${created.project.id}/conversations/${conversation.id}`,
+    })).json();
+    expect(state.messages.map((message: { role: string }) => message.role)).toEqual(["user", "assistant"]);
+    await app.close();
+  });
+
+  it("projects whole Brief and Bible provider context through Creative Direction authority", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-authority-chat-")); const databasePath = join(directory, "story.sqlite");
+    const database = openDatabase(databasePath); const project = new ProjectRepository(database).create("Authority chat", "authority-chat", "long-form");
+    const artifacts = new ArtifactRepository(database); const workflow = new WorkflowRepository(database);
+    const briefContent = { ...defaultProjectBrief("Authority chat"), tone: "LEGACY_BRIEF_TONE_MARKER", pointOfView: "first-person" as const };
+    const brief = artifacts.saveArtifact({ projectId: project.id, artifactId: "brief", content: briefContent }); workflow.approve(project.id, "brief", brief.id);
+    const bibleContent = {
+      ...defaultLongFormStoryBible({ title: "Authority chat" }),
+      proseGuidance: { ...defaultLongFormStoryBible({ title: "Authority chat" }).proseGuidance, tone: ["LEGACY_BIBLE_PROSE_MARKER"] },
+    };
+    const bible = artifacts.saveArtifact({ projectId: project.id, artifactId: "bible", content: bibleContent }); workflow.approve(project.id, "bible", bible.id);
+    const direction = artifacts.saveArtifact({
+      projectId: project.id, artifactId: "creative-direction", artifactType: "creative-direction",
+      content: defaultCreativeDirection("second-person"),
+    }); workflow.approve(project.id, "creative-direction", direction.id); database.close();
+    const requests: StructuredGenerationStreamRequest[] = [];
+    const app = buildApp({ databasePath, openRouterClient: fakeChatClient((request) => requests.push(request)) });
+    try {
+      const briefConversation = (await app.inject({
+        method: "POST", url: `/api/long-form/projects/${project.id}/conversations`, payload: {},
+      })).json();
+      expect((await app.inject({
+        method: "POST", url: `/api/long-form/projects/${project.id}/conversations/${briefConversation.id}/messages`,
+        payload: { content: "Discuss the whole brief.", intent: "discuss", model: "offline/chat" },
+      })).statusCode).toBe(201);
+      const briefPrompt = requests.at(-1)!.messages.at(-1)!.content;
+      expect(briefPrompt).not.toContain("LEGACY_BRIEF_TONE_MARKER");
+      expect(briefPrompt).not.toContain('"pointOfView":"first-person"');
+      expect(briefPrompt).toContain(direction.id);
+      expect(briefPrompt).toContain(direction.content.materialFingerprint);
+
+      const bibleConversation = (await app.inject({
+        method: "POST", url: `/api/long-form/projects/${project.id}/conversations`, payload: {},
+      })).json();
+      expect((await app.inject({
+        method: "PATCH", url: `/api/long-form/projects/${project.id}/conversations/${bibleConversation.id}/scope`,
+        payload: { scope: { kind: "artifact", projectId: project.id, stage: "bible", artifactId: "bible", versionId: bible.id } },
+      })).statusCode).toBe(200);
+      expect((await app.inject({
+        method: "POST", url: `/api/long-form/projects/${project.id}/conversations/${bibleConversation.id}/messages`,
+        payload: { content: "Discuss the whole bible.", intent: "discuss", model: "offline/chat" },
+      })).statusCode).toBe(201);
+      const biblePrompt = requests.at(-1)!.messages.at(-1)!.content;
+      expect(biblePrompt).not.toContain("LEGACY_BIBLE_PROSE_MARKER");
+      expect(biblePrompt).toContain(direction.id);
+      expect(biblePrompt).toContain(direction.content.materialFingerprint);
+    } finally { await app.close(); rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it("persists discussion and applies a version-bound brief proposal", async () => {
     const app = buildApp({ openRouterClient: fakeChatClient() });
     const created = await app.inject({
@@ -418,11 +544,11 @@ describe("long-form scoped chat", () => {
     const project = new ProjectRepository(database).create("Legacy chat", "legacy-chat", "long-form");
     new ArtifactRepository(database).saveArtifact({
       projectId: project.id, artifactId: "brief", artifactType: "brief", schemaVersion: 1,
-      content: defaultProjectBrief("Legacy chat"),
+      content: { ...defaultProjectBrief("Legacy chat"), tone: "PRE_A1_LEGACY_TONE_MARKER", pointOfView: "first-person" },
     });
     database.close();
-    let providerCalls = 0;
-    const app = buildApp({ databasePath, openRouterClient: fakeChatClient(() => { providerCalls += 1; }) });
+    let providerCalls = 0; const requests: StructuredGenerationStreamRequest[] = [];
+    const app = buildApp({ databasePath, openRouterClient: fakeChatClient((request) => { providerCalls += 1; requests.push(request); }) });
     try {
       const conversation = (await app.inject({
         method: "POST", url: `/api/long-form/projects/${project.id}/conversations`, payload: {},
@@ -433,6 +559,8 @@ describe("long-form scoped chat", () => {
       });
       expect(response.statusCode).toBe(201);
       expect(providerCalls).toBe(1);
+      expect(requests[0]!.messages.at(-1)!.content).toContain("PRE_A1_LEGACY_TONE_MARKER");
+      expect(requests[0]!.messages.at(-1)!.content).toContain('"pointOfView":"first-person"');
     } finally {
       await app.close();
       rmSync(directory, { recursive: true, force: true });

@@ -350,6 +350,35 @@ export function planningSection(
   return { id: sectionId, content: located.value };
 }
 
+export function providerPlanningArtifactView(
+  artifactId: PlanningArtifactId,
+  artifact: PlanningArtifact,
+  creativeDirectionOwnsPresentation: boolean,
+): unknown {
+  if (!creativeDirectionOwnsPresentation) return structuredClone(artifact);
+  if (artifactId === "brief") {
+    const { tone: _legacyTone, pointOfView: _legacyPointOfView, ...structuralBrief } = artifact as ProjectBrief;
+    return {
+      ...structuralBrief,
+      presentationAuthority: {
+        artifactId: "creative-direction",
+        historicalFieldsOmitted: ["tone", "pointOfView"],
+      },
+    };
+  }
+  if (artifactId === "bible") {
+    const { proseGuidance: _legacyProseGuidance, ...storyBible } = artifact as LongFormStoryBible;
+    return {
+      ...storyBible,
+      presentationAuthority: {
+        artifactId: "creative-direction",
+        historicalFieldsOmitted: ["proseGuidance"],
+      },
+    };
+  }
+  return structuredClone(artifact);
+}
+
 export function enrichOperationGroups(
   artifact: PlanningArtifact,
   groups: ProposedOperationGroup[],

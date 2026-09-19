@@ -28,6 +28,8 @@ export interface PortableManifest {
   exclusions: string[]; counts: Record<string, number>; files: Array<{ path: string; sha256: string; bytes: number }>;
 }
 
+const LEGACY_PORTABLE_PROJECT_TABLES = PORTABLE_PROJECT_TABLES.filter((table) => table !== "artifact_version_approvals");
+
 export class PublicationExportService {
   public constructor(
     private readonly portable: PortableProjectRepository,
@@ -39,13 +41,18 @@ export class PublicationExportService {
   exportPortable(projectId: string): { bytes: Uint8Array; manifest: PortableManifest } {
     const rows = this.portable.exportRows(projectId);
     enforcePortableRows(rows);
-    const projectFingerprint = stableFingerprint({ schemaId: SCHEMA_ID, schemaVersion: 1, historyMode: HISTORY_MODE, rows });
-    const payload = strToU8(canonical({ schemaId: SCHEMA_ID, schemaVersion: 1, projectFingerprint, ...rows }));
+    const sections = rows.tables.artifact_version_approvals.length
+      ? [...PORTABLE_PROJECT_TABLES] : [...LEGACY_PORTABLE_PROJECT_TABLES];
+    const serializedRows = { projectId: rows.projectId, tables: Object.fromEntries(
+      sections.map((table) => [table, rows.tables[table]]),
+    ) };
+    const projectFingerprint = stableFingerprint({ schemaId: SCHEMA_ID, schemaVersion: 1, historyMode: HISTORY_MODE, rows: serializedRows });
+    const payload = strToU8(canonical({ schemaId: SCHEMA_ID, schemaVersion: 1, projectFingerprint, ...serializedRows }));
     if (payload.byteLength > PORTABLE_PROJECT_LIMITS.uncompressedBytes) throw new Error("portable_project_too_large");
-    const counts = Object.fromEntries(PORTABLE_PROJECT_TABLES.map((table) => [table, rows.tables[table].length]));
+    const counts = Object.fromEntries(sections.map((table) => [table, rows.tables[table].length]));
     const manifest: PortableManifest = {
       schemaId: SCHEMA_ID, schemaVersion: 1, exportContractVersion: 1, projectId, projectFingerprint,
-      historyMode: HISTORY_MODE, includedSections: [...PORTABLE_PROJECT_TABLES],
+      historyMode: HISTORY_MODE, includedSections: sections,
       exclusions: [...PORTABLE_EXCLUSIONS],
       counts, files: [{ path: "project.json", sha256: sha256(payload), bytes: payload.byteLength }],
     };
@@ -163,7 +170,7 @@ export class PublicationExportService {
     if (Object.keys(manifest).sort().join("\0") !== ["counts", "exclusions", "exportContractVersion", "files", "historyMode", "includedSections", "projectFingerprint", "projectId", "schemaId", "schemaVersion"].sort().join("\0")) throw new Error("portable_project_manifest_schema_invalid");
     if (manifest.schemaId !== SCHEMA_ID || manifest.schemaVersion !== 1 || manifest.exportContractVersion !== 1 || manifest.historyMode !== HISTORY_MODE) throw new Error("portable_project_version_unsupported");
     if (!Array.isArray(manifest.includedSections) || !Array.isArray(manifest.exclusions) || !Array.isArray(manifest.files)
-      || Object.keys(manifest.counts ?? {}).sort().join("\0") !== [...PORTABLE_PROJECT_TABLES].sort().join("\0")
+      || !isSupportedPortableSections(Object.keys(manifest.counts ?? {}))
       || manifest.exclusions.join("\0") !== PORTABLE_EXCLUSIONS.join("\0") || manifest.files.length !== 1
       || Object.keys(manifest.files[0] ?? {}).sort().join("\0") !== ["bytes", "path", "sha256"].join("\0")) throw new Error("portable_project_manifest_schema_invalid");
     const payload = files["project.json"]!;
@@ -173,10 +180,13 @@ export class PublicationExportService {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
       || Object.keys(parsed).sort().join("\0") !== ["projectFingerprint", "projectId", "schemaId", "schemaVersion", "tables"].join("\0")) throw new Error("portable_project_schema_invalid");
     if (parsed.schemaId !== SCHEMA_ID || parsed.schemaVersion !== 1 || parsed.projectId !== manifest.projectId) throw new Error("portable_project_manifest_mismatch");
-    if (!parsed.tables || Object.keys(parsed.tables).sort().join("\0") !== [...PORTABLE_PROJECT_TABLES].sort().join("\0")) throw new Error("portable_project_sections_invalid");
-    if (manifest.includedSections.join("\0") !== PORTABLE_PROJECT_TABLES.join("\0")) throw new Error("portable_project_sections_invalid");
+    const sections = Object.keys(parsed.tables ?? {});
+    if (!parsed.tables || !isSupportedPortableSections(sections)) throw new Error("portable_project_sections_invalid");
+    const expectedSections = sections.includes("artifact_version_approvals")
+      ? [...PORTABLE_PROJECT_TABLES] : [...LEGACY_PORTABLE_PROJECT_TABLES];
+    if (manifest.includedSections.join("\0") !== expectedSections.join("\0")) throw new Error("portable_project_sections_invalid");
     let rowCount = 0;
-    for (const table of PORTABLE_PROJECT_TABLES) {
+    for (const table of expectedSections) {
       const rows = parsed.tables[table]; if (!Array.isArray(rows) || manifest.counts[table] !== rows.length) throw new Error("portable_project_counts_invalid");
       rowCount += rows.length;
       for (const row of rows) {
@@ -188,9 +198,13 @@ export class PublicationExportService {
       }
     }
     if (rowCount > PORTABLE_PROJECT_LIMITS.rows) throw new Error("portable_project_rows_exceeded");
-    const rows = { projectId: parsed.projectId, tables: parsed.tables };
+    const serializedRows = { projectId: parsed.projectId, tables: parsed.tables };
+    const rows = { projectId: parsed.projectId, tables: {
+      ...parsed.tables,
+      artifact_version_approvals: parsed.tables.artifact_version_approvals ?? [],
+    } } as PortableProjectRows;
     enforcePortableRows(rows);
-    const expected = stableFingerprint({ schemaId: SCHEMA_ID, schemaVersion: 1, historyMode: HISTORY_MODE, rows });
+    const expected = stableFingerprint({ schemaId: SCHEMA_ID, schemaVersion: 1, historyMode: HISTORY_MODE, rows: serializedRows });
     if (expected !== parsed.projectFingerprint || expected !== manifest.projectFingerprint) throw new Error("portable_project_fingerprint_invalid");
     return { manifest, rows };
   }
@@ -204,6 +218,12 @@ export class PublicationExportService {
     try { return String(this.portable.exportRows(projectId).tables.projects[0]?.name || "Interactive story"); }
     catch { return bundle.passages.find((item) => item.id === bundle.startPassageId)?.presentation.title ?? "Interactive story"; }
   }
+}
+
+function isSupportedPortableSections(sections: readonly string[]): boolean {
+  const exact = [...sections].sort().join("\0");
+  return exact === [...PORTABLE_PROJECT_TABLES].sort().join("\0")
+    || exact === [...LEGACY_PORTABLE_PROJECT_TABLES].sort().join("\0");
 }
 
 function enforcePortableRows(rows: PortableProjectRows): void {

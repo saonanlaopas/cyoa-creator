@@ -145,7 +145,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     malformedFirstSuccessfulRequest: process.env.E2E_PASSAGE_PLANNING_MALFORMED === "1",
   });
   const passageGenerationService = new PassageGenerationService(
-    projects, artifacts, passagePlans, generations,
+    projects, artifacts, workflow, passagePlans, generations,
     [offlinePassageProvider, new OpenRouterPassagePlanningProvider(openRouter)],
   );
   const offlineDraftingProvider = options.passageDraftingProvider ?? new DeterministicPassageDraftingProvider({

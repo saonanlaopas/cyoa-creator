@@ -164,10 +164,9 @@ export class ArtifactRepository {
       const value = reference as { kind?: unknown; targetId?: unknown; versionId?: unknown; unavailable?: unknown };
       const targetId = typeof value.targetId === "string" ? value.targetId : undefined;
       const versionId = typeof value.versionId === "string" ? value.versionId : undefined;
-      if (value.unavailable === true) continue;
       switch (value.kind) {
         case "manual-edit":
-          if (versionId && !this.database.prepare(`SELECT 1 FROM artifact_versions
+          if (!versionId || !this.database.prepare(`SELECT 1 FROM artifact_versions
             WHERE id = ? AND project_id = ? AND artifact_id = 'creative-direction'`).get(versionId, projectId)) {
             throw new Error("Creative Direction provenance references another project or missing version");
           }
@@ -179,12 +178,12 @@ export class ArtifactRepository {
           }
           break;
         case "approved-artifact":
-          if (!targetId || !versionId || !this.database.prepare(`SELECT 1 FROM artifact_versions version
-            JOIN artifact_workflow_state workflow
-              ON workflow.project_id = version.project_id AND workflow.artifact_id = version.artifact_id
-            WHERE version.id = ? AND version.project_id = ? AND version.artifact_id = ?
-              AND workflow.approved_version_id = version.id`).get(versionId, projectId, targetId)) {
-            throw new Error("Creative Direction approved-artifact provenance must reference the exact approved version in this project");
+          if (!targetId || !versionId || !this.database.prepare(`SELECT 1 FROM artifact_version_approvals approval
+            JOIN artifact_versions version ON version.id = approval.version_id
+              AND version.project_id = approval.project_id AND version.artifact_id = approval.artifact_id
+            WHERE approval.version_id = ? AND approval.project_id = ? AND approval.artifact_id = ?`)
+            .get(versionId, projectId, targetId)) {
+            throw new Error("Creative Direction approved-artifact provenance must reference the exact approved version in this project's durable history");
           }
           break;
         case "user-message":

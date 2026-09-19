@@ -201,7 +201,7 @@ describe("Foundation 4B-1 draft architecture API", () => {
 
   it("applies centralized material, cosmetic, unrelated, and upstream staleness rules", async () => {
     const app = buildApp();
-    const { projectId, plan, bible: approvedBible } = await createApprovedFixture(app);
+    const { projectId, plan, bible: approvedBible, creativeDirection } = await createApprovedFixture(app);
     const selected = plan.passages[0];
     const unrelated = plan.passages[1];
     const saved = (await app.inject({
@@ -264,19 +264,19 @@ describe("Foundation 4B-1 draft architecture API", () => {
     })).json();
     expect(state.head.current.stale).toBe(false);
 
-    const globalBible = (await app.inject({
-      method: "PUT", url: `/api/long-form/projects/${projectId}/bible`,
+    const globalDirection = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`,
       payload: {
-        ...bible.bible.content,
-        proseGuidance: {
-          ...bible.bible.content.proseGuidance,
-          style: [...bible.bible.content.proseGuidance.style, "Use clipped scene endings."],
+        ...creativeDirection.content,
+        prose: {
+          ...creativeDirection.content.prose,
+          customGuidance: "Use clipped scene endings.",
         },
       },
     })).json();
     await app.inject({
-      method: "POST", url: `/api/long-form/projects/${projectId}/bible/approve`,
-      payload: { versionId: globalBible.bible.id },
+      method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`,
+      payload: { versionId: globalDirection.creativeDirection.id },
     });
     state = (await app.inject({
       method: "GET", url: `/api/long-form/projects/${projectId}/drafts/passages/${selected.entityId}`,
@@ -284,9 +284,9 @@ describe("Foundation 4B-1 draft architecture API", () => {
     expect(state.head.current.staleReasons).toEqual(expect.arrayContaining([
       expect.objectContaining({
         reasonCode: "approved-upstream-version-change",
-        sourceEntityId: "bible",
-        fromVersionId: approvedBible.id,
-        toVersionId: globalBible.bible.id,
+        sourceEntityId: "creative-direction",
+        fromVersionId: creativeDirection.id,
+        toVersionId: globalDirection.creativeDirection.id,
       }),
     ]));
     await app.close();

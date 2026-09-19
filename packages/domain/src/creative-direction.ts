@@ -174,6 +174,13 @@ export type CreativeDirection = z.infer<typeof CreativeDirectionSchema>;
 export type CreativeDirectionInput = z.input<typeof CreativeDirectionInputSchema>;
 export type CreativeDirectionFieldProvenance = z.infer<typeof CreativeDirectionFieldProvenanceSchema>;
 
+export function creativeDirectionMaterialEquivalent(
+  left: Pick<CreativeDirection, "materialFingerprint">,
+  right: Pick<CreativeDirection, "materialFingerprint">,
+): boolean {
+  return left.materialFingerprint === right.materialFingerprint;
+}
+
 function canonicalStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
     .sort(compareCreativeDirectionStrings);

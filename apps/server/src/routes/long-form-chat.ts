@@ -8,6 +8,7 @@ import {
   listPlanningSections,
   planningArtifactIds,
   planningSection,
+  providerPlanningArtifactView,
   summarizePlanningArtifact,
   selectCreativeDirectionContext,
   assertCreativeDirectionReferences,
@@ -290,6 +291,9 @@ export function registerLongFormChatRoutes(
       return reply.code(409).send({ error: "Approve Creative Direction before using the planning assistant for another artifact" });
     }
     let sectionId = conversation.scope.kind === "artifact" ? conversation.scope.sectionId : undefined;
+    if (approvedDirection && artifactId === "bible" && sectionId === "section:proseGuidance") {
+      sectionId = undefined;
+    }
     try {
       planningSection(selectedArtifact.content, sectionId);
     } catch {
@@ -303,15 +307,24 @@ export function registerLongFormChatRoutes(
       conversations.updateScope(conversation.id, scope);
     }
     const snapshot = longFormProjects.snapshot(request.params.projectId);
-    const authoritySnapshot = {
-      ...snapshot,
-      "creative-direction": approvedDirection?.content ?? null,
-    };
+    const authoritySnapshot = Object.fromEntries(planningArtifactIds.map((id) => [
+      id,
+      id === "creative-direction"
+        ? approvedDirection?.content ?? null
+        : snapshot[id]
+          ? providerPlanningArtifactView(id, snapshot[id]!, Boolean(projectState.creativeDirection))
+          : null,
+    ])) as unknown as ReturnType<LongFormProjectService["snapshot"]>;
     const contextVersions = Object.fromEntries(planningArtifactIds.flatMap((id) => {
       const version = id === "creative-direction" ? approvedDirection : currentArtifact(request.params.projectId, id);
       return version ? [[id === "creative-direction" ? "creativeDirectionVersionId" : `${id}VersionId`, version.id]] : [];
     }));
-    const selected = planningSection(selectedArtifact.content, sectionId).content;
+    const providerArtifact = providerPlanningArtifactView(
+      artifactId,
+      selectedArtifact.content,
+      Boolean(projectState.creativeDirection),
+    );
+    const selected = planningSection(providerArtifact as PlanningArtifact, sectionId).content;
     const approvedBibleId = projectState.workflow.bible.approvedVersionId;
     const approvedRoutesId = projectState.workflow.routes.approvedVersionId;
     const approvedBible = approvedBibleId ? artifacts.getVersion<LongFormStoryBible>(approvedBibleId)?.content ?? null : null;
@@ -353,6 +366,24 @@ export function registerLongFormChatRoutes(
       : summarizePlanningArtifact(id, authoritySnapshot[id] ?? null)]));
     const references = collectReferences(selected, authoritySnapshot);
     const activity: Array<{ kind: ReasoningEvent["kind"] }> = [];
+    const expectedDirectionMaterialFingerprint = approvedDirection?.content.materialFingerprint ?? null;
+    const assertProviderContextFresh = (): void => {
+      const currentState = longFormProjects.getState(request.params.projectId);
+      const currentApprovedDirectionId = currentState.workflow["creative-direction"].approvedVersionId;
+      const currentApprovedDirection = currentApprovedDirectionId
+        ? artifacts.getVersion<CreativeDirection>(currentApprovedDirectionId) : undefined;
+      if ((currentApprovedDirection?.content.materialFingerprint ?? null) !== expectedDirectionMaterialFingerprint) {
+        throw Object.assign(new Error("Creative Direction changed materially while the assistant request was running"), {
+          code: "stale_planning_context",
+        });
+      }
+      const currentSelected = currentArtifact(request.params.projectId, artifactId);
+      if (!currentSelected || currentSelected.id !== selectedArtifact.id) {
+        throw Object.assign(new Error("The selected planning artifact changed while the assistant request was running"), {
+          code: "stale_planning_context",
+        });
+      }
+    };
 
     try {
       const generation = await client.generateStructuredStream({
@@ -387,6 +418,7 @@ export function registerLongFormChatRoutes(
       if (intent === "propose" && generation.data.proposal === null) {
         return reply.code(422).send({ error: "The assistant did not return a change proposal" });
       }
+      assertProviderContextFresh();
       const assistantMessage = conversations.addMessage({
         conversationId: conversation.id,
         role: "assistant",
@@ -404,12 +436,14 @@ export function registerLongFormChatRoutes(
           safeToApplyIndependently: group.safeToApplyIndependently ?? true,
         })));
         const candidate = applyPlanningOperations(selectedArtifact.content, groups);
+        longFormProjects.assertPresentationAuthorityWrite(request.params.projectId, artifactId, candidate);
         const candidateSnapshot = longFormProjects.snapshot(request.params.projectId, {
           artifactId,
           content: candidate,
         });
         candidateSnapshot["creative-direction"] = approvedDirection?.content ?? null;
         const findings = validateLongFormProject(candidateSnapshot);
+        assertProviderContextFresh();
         proposal = changeSets.createOperations({
           projectId: request.params.projectId,
           conversationId: conversation.id,
@@ -437,6 +471,9 @@ export function registerLongFormChatRoutes(
         cost: generation.cost,
       });
     } catch (error) {
+      if ((error as { code?: unknown }).code === "stale_planning_context") {
+        return reply.code(409).send({ error: (error as Error).message, userMessage });
+      }
       return reply.code(502).send({ error: (error as Error).message, userMessage });
     }
   });

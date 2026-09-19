@@ -6,6 +6,7 @@ import {
 } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
+import { ArtifactRepository } from "./artifact-repository.js";
 
 export interface ProjectRecord {
   id: string;
@@ -78,53 +79,44 @@ export class ProjectRepository {
     return transaction(this.database, () => {
       const copy = this.create(name ?? `${source.name} (copy)`, randomUUID(), source.mode);
       const versions = this.database.prepare(`
-        SELECT av.* FROM artifact_versions av
-        JOIN (
-          SELECT artifact_id, MAX(version) AS version
-          FROM artifact_versions WHERE project_id = ? GROUP BY artifact_id
-        ) latest ON latest.artifact_id = av.artifact_id AND latest.version = av.version
-        WHERE av.project_id = ? AND av.artifact_id <> 'creative-direction'
-      `).all(id, id) as Array<Record<string, string | number>>;
-      const versionIdMap = new Map<string, string>();
-      for (const version of versions) {
-        const newVersionId = randomUUID();
-        versionIdMap.set(String(version.id), newVersionId);
-        this.database.prepare(`
-          INSERT INTO artifact_versions
-            (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, created_at)
-          VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
-        `).run(
-          newVersionId, copy.id, version.artifact_id, version.artifact_type,
-          version.schema_version, version.content_json, version.stale, new Date().toISOString(),
-        );
-      }
-      const creativeVersions = this.database.prepare(`
-        SELECT * FROM artifact_versions WHERE project_id = ? AND artifact_id = 'creative-direction' ORDER BY version
+        SELECT * FROM artifact_versions WHERE project_id = ? ORDER BY artifact_id, version
       `).all(id) as Array<Record<string, string | number | null>>;
-      for (const version of creativeVersions) versionIdMap.set(String(version.id), randomUUID());
-      for (const version of creativeVersions) {
-        const content = CreativeDirectionSchema.parse(JSON.parse(String(version.content_json)));
-        for (const provenance of content.fieldProvenance) {
-          const reference = provenance.reference;
-          if (!reference) continue;
-          const mappedVersion = reference.versionId ? versionIdMap.get(reference.versionId) : undefined;
-          if (mappedVersion) reference.versionId = mappedVersion;
-          else if (reference.kind !== "manual-edit") reference.unavailable = true;
-          if (["user-message", "proposal", "source-evidence", "source-observation", "author-override"].includes(reference.kind ?? "")) {
-            reference.unavailable = true;
-          }
+      const versionIdMap = new Map<string, string>();
+      const conversations = this.database.prepare(
+        "SELECT * FROM conversations WHERE project_id = ? ORDER BY created_at, id",
+      ).all(id) as Array<Record<string, string | number | null>>;
+      const conversationIdMap = new Map(conversations.map((row) => [String(row.id), randomUUID()]));
+      const messages = this.database.prepare(`SELECT messages.* FROM messages
+        JOIN conversations ON conversations.id = messages.conversation_id
+        WHERE conversations.project_id = ? ORDER BY messages.created_at, messages.rowid`).all(id) as Array<Record<string, string | number | null>>;
+      const messageIdMap = new Map(messages.map((row) => [String(row.id), randomUUID()]));
+      const changeSets = this.database.prepare(
+        "SELECT * FROM change_sets WHERE project_id = ? ORDER BY created_at, id",
+      ).all(id) as Array<Record<string, string | number | null>>;
+      const changeSetIdMap = new Map(changeSets.map((row) => [String(row.id), randomUUID()]));
+      for (const version of versions) versionIdMap.set(String(version.id), randomUUID());
+      const allIds = new Map<string, string>([
+        [id, copy.id], ...versionIdMap, ...conversationIdMap, ...messageIdMap, ...changeSetIdMap,
+      ]);
+
+      for (const version of versions) {
+        let contentJson = String(version.content_json);
+        if (version.artifact_id === "creative-direction") {
+          const content = remapJsonValue(
+            CreativeDirectionSchema.parse(JSON.parse(contentJson)), allIds,
+          ) as ReturnType<typeof CreativeDirectionSchema.parse>;
+          content.fieldProvenance.sort((left, right) => compareCreativeDirectionStrings(JSON.stringify(left), JSON.stringify(right)));
+          content.provenanceFingerprint = creativeDirectionFingerprints(content).provenanceFingerprint;
+          contentJson = JSON.stringify(CreativeDirectionSchema.parse(content));
         }
-        content.fieldProvenance.sort((left, right) => compareCreativeDirectionStrings(JSON.stringify(left), JSON.stringify(right)));
-        content.provenanceFingerprint = creativeDirectionFingerprints(content).provenanceFingerprint;
-        CreativeDirectionSchema.parse(content);
         this.database.prepare(`
           INSERT INTO artifact_versions
             (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, restored_from_version_id, created_at)
-          VALUES (?, ?, 'creative-direction', 'creative-direction', ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          versionIdMap.get(String(version.id))!, copy.id, version.version, version.schema_version,
-          JSON.stringify(content), version.stale,
-          version.restored_from_version_id ? versionIdMap.get(String(version.restored_from_version_id)) ?? null : null,
+          versionIdMap.get(String(version.id))!, copy.id, version.artifact_id, version.artifact_type,
+          version.version, version.schema_version, contentJson, version.stale,
+          version.restored_from_version_id ? requireMapped(versionIdMap, String(version.restored_from_version_id)) : null,
           version.created_at,
         );
       }
@@ -137,18 +129,68 @@ export class ProjectRepository {
           VALUES (?, ?, ?)
         `).run(copy.id, dependency.upstream_artifact_id, dependency.dependent_artifact_id);
       }
-      const creativeWorkflow = this.database.prepare(`
-        SELECT status, approved_version_id FROM artifact_workflow_state
-        WHERE project_id = ? AND artifact_id = 'creative-direction'
-      `).get(id) as { status: string; approved_version_id: string | null } | undefined;
-      if (creativeWorkflow) {
+      const workflows = this.database.prepare(
+        "SELECT * FROM artifact_workflow_state WHERE project_id = ? ORDER BY artifact_id",
+      ).all(id) as Array<Record<string, string | number | null>>;
+      for (const workflow of workflows) {
         this.database.prepare(`INSERT INTO artifact_workflow_state
-          (project_id, artifact_id, status, approved_version_id, updated_at) VALUES (?, 'creative-direction', ?, ?, ?)`)
-          .run(copy.id, creativeWorkflow.status,
-            creativeWorkflow.approved_version_id ? versionIdMap.get(creativeWorkflow.approved_version_id) ?? null : null,
-            new Date().toISOString());
+          (project_id, artifact_id, status, approved_version_id, updated_at) VALUES (?, ?, ?, ?, ?)`)
+          .run(copy.id, workflow.artifact_id, workflow.status,
+            workflow.approved_version_id ? requireMapped(versionIdMap, String(workflow.approved_version_id)) : null,
+            workflow.updated_at);
       }
+      const approvals = this.database.prepare(
+        "SELECT * FROM artifact_version_approvals WHERE project_id = ? ORDER BY approved_at, version_id",
+      ).all(id) as Array<Record<string, string | number | null>>;
+      for (const approval of approvals) this.database.prepare(`INSERT INTO artifact_version_approvals
+        (project_id, artifact_id, version_id, approved_at) VALUES (?, ?, ?, ?)`)
+        .run(copy.id, approval.artifact_id, requireMapped(versionIdMap, String(approval.version_id)), approval.approved_at);
+
+      for (const conversation of conversations) this.database.prepare(`INSERT INTO conversations
+        (id, project_id, title, scope_json, summary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(requireMapped(conversationIdMap, String(conversation.id)), copy.id, conversation.title,
+          remapJsonText(String(conversation.scope_json), allIds), conversation.summary,
+          conversation.created_at, conversation.updated_at);
+      for (const message of messages) this.database.prepare(`INSERT INTO messages
+        (id, conversation_id, role, content, intent, scope_json, context_json, metadata_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(requireMapped(messageIdMap, String(message.id)), requireMapped(conversationIdMap, String(message.conversation_id)),
+          message.role, message.content, message.intent, remapJsonText(String(message.scope_json), allIds),
+          remapJsonText(String(message.context_json), allIds), remapJsonText(String(message.metadata_json), allIds), message.created_at);
+      for (const change of changeSets) this.database.prepare(`INSERT INTO change_sets
+        (id, project_id, conversation_id, artifact_id, base_version_id, status, summary, rationale,
+          candidate_json, proposal_json, validation_json, invalidations_json, applied_version_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(requireMapped(changeSetIdMap, String(change.id)), copy.id,
+          requireMapped(conversationIdMap, String(change.conversation_id)), change.artifact_id,
+          requireMapped(versionIdMap, String(change.base_version_id)), change.status, change.summary, change.rationale,
+          remapJsonText(String(change.candidate_json), allIds),
+          change.proposal_json === null ? null : remapJsonText(String(change.proposal_json), allIds),
+          remapJsonText(String(change.validation_json), allIds), remapJsonText(String(change.invalidations_json), allIds),
+          change.applied_version_id ? requireMapped(versionIdMap, String(change.applied_version_id)) : null,
+          change.created_at, change.updated_at);
+
+      new ArtifactRepository(this.database).listVersions(copy.id, "creative-direction");
       return copy;
     });
   }
+}
+
+function requireMapped(map: ReadonlyMap<string, string>, id: string): string {
+  const mapped = map.get(id);
+  if (!mapped) throw new Error(`Project duplicate is missing required lineage for ${id}`);
+  return mapped;
+}
+
+function remapJsonText(value: string, ids: ReadonlyMap<string, string>): string {
+  return JSON.stringify(remapJsonValue(JSON.parse(value), ids));
+}
+
+function remapJsonValue(value: unknown, ids: ReadonlyMap<string, string>): unknown {
+  if (typeof value === "string") return ids.get(value) ?? value;
+  if (Array.isArray(value)) return value.map((item) => remapJsonValue(item, ids));
+  if (value && typeof value === "object") return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, remapJsonValue(item, ids)]),
+  );
+  return value;
 }

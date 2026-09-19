@@ -209,4 +209,120 @@ describe("SQLite repositories", () => {
     expect(JSON.parse(stored.content_json).materialFingerprint).toBe("0".repeat(64));
     database.close();
   });
+
+  it("keeps exact approved-artifact provenance valid after approval advances", () => {
+    const database = openDatabase();
+    const project = new ProjectRepository(database).create("Durable approvals", undefined, "long-form");
+    const artifacts = new ArtifactRepository(database); const workflow = new WorkflowRepository(database);
+    const first = artifacts.saveArtifact({ projectId: project.id, artifactId: "brief", content: { title: "First" } });
+    workflow.approve(project.id, "brief", first.id);
+    const direction = normalizeCreativeDirection({
+      ...defaultCreativeDirection(),
+      fieldProvenance: [{ fieldPath: "/tone", reference: {
+        kind: "approved-artifact", targetId: "brief", versionId: first.id,
+      } }],
+    });
+    const saved = artifacts.saveArtifact({
+      projectId: project.id, artifactId: "creative-direction", artifactType: "creative-direction", content: direction,
+    });
+    const second = artifacts.saveArtifact({ projectId: project.id, artifactId: "brief", content: { title: "Second" } });
+    workflow.approve(project.id, "brief", second.id);
+
+    expect(artifacts.getVersion(saved.id)?.content).toEqual(direction);
+    expect(database.prepare(`SELECT version_id FROM artifact_version_approvals
+      WHERE project_id = ? AND artifact_id = 'brief' ORDER BY approved_at, version_id`).all(project.id))
+      .toEqual(expect.arrayContaining([{ version_id: first.id }, { version_id: second.id }]));
+    database.close();
+  });
+
+  it("duplicates historical artifact, message, proposal, and manual-edit provenance without unavailable shortcuts", () => {
+    const database = openDatabase();
+    const projects = new ProjectRepository(database); const artifacts = new ArtifactRepository(database);
+    const workflow = new WorkflowRepository(database); const conversations = new ConversationRepository(database);
+    const changes = new ChangeSetRepository(database);
+    const project = projects.create("Full fidelity", undefined, "long-form");
+    const briefV1 = artifacts.saveArtifact({ projectId: project.id, artifactId: "brief", content: { title: "First" } });
+    workflow.approve(project.id, "brief", briefV1.id);
+    const briefV2 = artifacts.saveArtifact({ projectId: project.id, artifactId: "brief", content: { title: "Second" } });
+    workflow.approve(project.id, "brief", briefV2.id);
+    const conversation = conversations.create(project.id, { kind: "project", projectId: project.id, stage: "brief" });
+    const message = conversations.addMessage({
+      conversationId: conversation.id, role: "user", content: "Keep the quiet tone", intent: "propose",
+      scope: conversation.scope, context: { briefVersionId: briefV2.id }, metadata: {},
+    });
+    const proposal = changes.create({
+      projectId: project.id, conversationId: conversation.id, artifactId: "brief", baseVersionId: briefV2.id,
+      summary: "Keep tone", rationale: "Author requested it", candidate: { title: "Third" },
+    });
+    const firstDirection = artifacts.saveArtifact({
+      projectId: project.id, artifactId: "creative-direction", artifactType: "creative-direction",
+      content: defaultCreativeDirection(),
+    });
+    const direction = normalizeCreativeDirection({
+      ...defaultCreativeDirection(),
+      fieldProvenance: [
+        { fieldPath: "/tone", reference: { kind: "approved-artifact", targetId: "brief", versionId: briefV1.id } },
+        { fieldPath: "/pacing", reference: { kind: "user-message", targetId: message.id } },
+        { fieldPath: "/prose", reference: { kind: "proposal", targetId: proposal.id } },
+        { fieldPath: "/prose/customGuidance", reference: { kind: "manual-edit", versionId: firstDirection.id } },
+      ],
+    });
+    artifacts.saveArtifact({
+      projectId: project.id, artifactId: "creative-direction", artifactType: "creative-direction", content: direction,
+    });
+
+    const copy = projects.duplicate(project.id);
+    const copiedBriefs = artifacts.listVersions(copy.id, "brief");
+    expect(copiedBriefs).toHaveLength(2);
+    const copiedDirection = artifacts.getCurrent<ReturnType<typeof defaultCreativeDirection>>(copy.id, "creative-direction")!;
+    const references = copiedDirection.content.fieldProvenance.map((item) => item.reference);
+    expect(references.every((reference) => reference.unavailable !== true)).toBe(true);
+    expect(JSON.stringify(references)).not.toContain(project.id);
+    expect(JSON.stringify(references)).not.toContain(briefV1.id);
+    expect(JSON.stringify(references)).not.toContain(message.id);
+    expect(JSON.stringify(references)).not.toContain(proposal.id);
+    const copiedApproved = references.find((reference) => reference.kind === "approved-artifact")!;
+    expect(copiedBriefs.some((version) => version.id === copiedApproved.versionId && version.version === 1)).toBe(true);
+    const copiedMessage = references.find((reference) => reference.kind === "user-message")!;
+    expect(database.prepare(`SELECT 1 FROM messages message JOIN conversations conversation
+      ON conversation.id = message.conversation_id WHERE message.id = ? AND conversation.project_id = ?`)
+      .get(copiedMessage.targetId, copy.id)).toBeTruthy();
+    const copiedProposal = references.find((reference) => reference.kind === "proposal")!;
+    expect(database.prepare("SELECT 1 FROM change_sets WHERE id = ? AND project_id = ?")
+      .get(copiedProposal.targetId, copy.id)).toBeTruthy();
+    database.close();
+  });
+
+  it("rejects unavailable provenance trust bypasses and rolls a failed duplicate back", () => {
+    const database = openDatabase(); const projects = new ProjectRepository(database);
+    const artifacts = new ArtifactRepository(database); const workflow = new WorkflowRepository(database);
+    const local = projects.create("Local", undefined, "long-form"); const foreign = projects.create("Foreign", undefined, "long-form");
+    const foreignBrief = artifacts.saveArtifact({ projectId: foreign.id, artifactId: "brief", content: { title: "Foreign" } });
+    workflow.approve(foreign.id, "brief", foreignBrief.id);
+    const foreignUnavailable = normalizeCreativeDirection({
+      ...defaultCreativeDirection(), fieldProvenance: [{ fieldPath: "/tone", reference: {
+        kind: "approved-artifact", targetId: "brief", versionId: foreignBrief.id, unavailable: true,
+      } }],
+    });
+    expect(() => artifacts.saveArtifact({
+      projectId: local.id, artifactId: "creative-direction", artifactType: "creative-direction", content: foreignUnavailable,
+    })).toThrow(/durable history/);
+    const malformedUnavailable = normalizeCreativeDirection({
+      ...defaultCreativeDirection(), fieldProvenance: [{ fieldPath: "/tone", reference: {
+        kind: "manual-edit", unavailable: true,
+      } }],
+    });
+    expect(() => artifacts.saveArtifact({
+      projectId: local.id, artifactId: "creative-direction", artifactType: "creative-direction", content: malformedUnavailable,
+    })).toThrow(/missing version/);
+
+    database.prepare(`INSERT INTO artifact_versions
+      (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, created_at)
+      VALUES ('corrupt-direction', ?, 'creative-direction', 'creative-direction', 1, 1, ?, 0, ?)`)
+      .run(local.id, JSON.stringify(foreignUnavailable), "2026-09-19T00:00:00.000Z");
+    const before = (database.prepare("SELECT COUNT(*) count FROM projects").get() as { count: number }).count;
+    expect(() => projects.duplicate(local.id)).toThrow(/durable history/);
+    expect((database.prepare("SELECT COUNT(*) count FROM projects").get() as { count: number }).count).toBe(before);
+    database.close();
+  });
 });

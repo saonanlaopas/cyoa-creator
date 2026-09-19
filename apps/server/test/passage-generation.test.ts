@@ -5,9 +5,33 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { DeterministicPassagePlanningProvider } from "../src/services/passage-planning-provider.js";
+import type { PassagePlanningProviderRequest } from "@story-to-cyoa/pipeline";
 
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
+
+class BlockingPassagePlanningProvider extends DeterministicPassagePlanningProvider {
+  public readonly started: Promise<void>;
+  private signalStarted!: () => void;
+  private releaseGate!: () => void;
+  private readonly released: Promise<void>;
+  private blocked = false;
+
+  public constructor(private readonly blockMode: "generate" | "repair", malformedFirst = false) {
+    super(malformedFirst ? { malformedFirstSuccessfulRequest: true } : {});
+    this.started = new Promise<void>((resolve) => { this.signalStarted = resolve; });
+    this.released = new Promise<void>((resolve) => { this.releaseGate = resolve; });
+  }
+
+  public release(): void { this.releaseGate(); }
+
+  public override async generate(request: PassagePlanningProviderRequest) {
+    if (!this.blocked && request.mode === this.blockMode) {
+      this.blocked = true; this.signalStarted(); await this.released;
+    }
+    return super.generate(request);
+  }
+}
 
 async function approvedPassagePlan(app: ReturnType<typeof buildApp>, passageCount = 30, passageSummary = "") {
   const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Generation" } })).json();
@@ -93,6 +117,76 @@ const completeGeneration = async (
 };
 
 describe("passage generation kernel API", () => {
+  it("rejects a generated candidate when Creative Direction changes materially during the provider call", async () => {
+    const provider = new BlockingPassagePlanningProvider("generate"); const app = buildApp({ passagePlanningProvider: provider });
+    const { projectId } = await approvedPassagePlan(app, 2);
+    const payload = { scope: { kind: "sequence", sequenceId: "sequence-main" }, providerId: provider.id, modelId: "fixture-v1" };
+    const plan = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans`, payload })).json();
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans/${plan.id}/authorize`, payload: { fingerprint: plan.fingerprint } });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${plan.jobId}/start` });
+    await provider.started;
+    const state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}` })).json();
+    const changed = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`, payload: {
+        ...state.creativeDirection.content,
+        tone: { ...state.creativeDirection.content.tone, descriptors: ["changed while passage provider was running"] },
+      },
+    })).json().creativeDirection;
+    expect((await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: changed.id },
+    })).statusCode).toBe(200);
+    provider.release(); const failed = await waitForTerminal(app, projectId, plan.jobId);
+    expect(failed).toMatchObject({ status: "failed", units: [{ status: "failed", candidate: null }] });
+    expect(failed.units[0].normalizedError).toMatchObject({ code: "stale_generation_plan", retryable: false });
+    await app.close();
+  });
+
+  it("rejects repaired output when Creative Direction changes materially during repair", async () => {
+    const provider = new BlockingPassagePlanningProvider("repair", true); const app = buildApp({ passagePlanningProvider: provider });
+    const { projectId } = await approvedPassagePlan(app, 2);
+    const payload = { scope: { kind: "sequence", sequenceId: "sequence-main" }, providerId: provider.id, modelId: "fixture-v1" };
+    const plan = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans`, payload })).json();
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans/${plan.id}/authorize`, payload: { fingerprint: plan.fingerprint } });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${plan.jobId}/start` });
+    await provider.started;
+    const state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}` })).json();
+    const changed = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`, payload: {
+        ...state.creativeDirection.content,
+        pacing: { ...state.creativeDirection.content.pacing, customGuidance: "Changed during repair." },
+      },
+    })).json().creativeDirection;
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: changed.id } });
+    provider.release(); const failed = await waitForTerminal(app, projectId, plan.jobId);
+    expect(failed).toMatchObject({ status: "failed", units: [{ status: "failed", candidate: null }] });
+    expect(failed.units[0].normalizedError).toMatchObject({ code: "stale_generation_plan", retryable: false });
+    expect(provider.calls.map((call) => call.mode)).toEqual(["generate", "repair"]);
+    await app.close();
+  });
+
+  it("allows passage-planning completion after provenance-only Creative Direction reapproval", async () => {
+    const provider = new BlockingPassagePlanningProvider("generate"); const app = buildApp({ passagePlanningProvider: provider });
+    const { projectId } = await approvedPassagePlan(app, 2);
+    const payload = { scope: { kind: "sequence", sequenceId: "sequence-main" }, providerId: provider.id, modelId: "fixture-v1" };
+    const plan = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans`, payload })).json();
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/plans/${plan.id}/authorize`, payload: { fingerprint: plan.fingerprint } });
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/passage-generation/jobs/${plan.jobId}/start` });
+    await provider.started;
+    const state = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}` })).json();
+    const provenanceOnly = (await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`, payload: {
+        ...state.creativeDirection.content, fieldProvenance: [{ fieldPath: "/tone", reference: {
+          kind: "manual-edit", versionId: state.creativeDirection.id, excerpt: "Explanation changed only",
+        } }],
+      },
+    })).json().creativeDirection;
+    expect(provenanceOnly.content.materialFingerprint).toBe(state.creativeDirection.content.materialFingerprint);
+    await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: provenanceOnly.id } });
+    provider.release(); const completed = await waitForTerminal(app, projectId, plan.jobId);
+    expect(completed).toMatchObject({ status: "completed", units: [{ status: "completed", candidate: expect.any(Object) }] });
+    await app.close();
+  });
+
   it("previews without provider calls, captures exact inputs, authorizes, partially fails, and retries independently", async () => {
     const failures: string[] = [];
     const provider = new DeterministicPassagePlanningProvider({ failFirstAttemptForUnitIds: failures });

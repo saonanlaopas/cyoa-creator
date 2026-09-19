@@ -42,6 +42,13 @@ CREATE TABLE IF NOT EXISTS artifact_workflow_state (
   updated_at TEXT NOT NULL,
   PRIMARY KEY(project_id, artifact_id)
 );
+CREATE TABLE IF NOT EXISTS artifact_version_approvals (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  artifact_id TEXT NOT NULL,
+  version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE CASCADE,
+  approved_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, artifact_id, version_id)
+);
 CREATE TABLE IF NOT EXISTS artifact_dependencies (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   upstream_artifact_id TEXT NOT NULL,
@@ -198,6 +205,33 @@ CREATE TABLE IF NOT EXISTS passage_finding_overrides (
 `;
 
 export const artifactChain = ["source", "bible", "adaptation", "routes", "drafts", "review", "export"] as const;
+
+export const artifactApprovalHistoryMigrationSql = `
+CREATE TABLE IF NOT EXISTS artifact_version_approvals (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  artifact_id TEXT NOT NULL,
+  version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE CASCADE,
+  approved_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, artifact_id, version_id)
+);
+`;
+
+export const artifactApprovalHistoryIntegrityTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS artifact_version_approvals_lineage_insert
+BEFORE INSERT ON artifact_version_approvals
+WHEN NOT EXISTS (
+  SELECT 1 FROM artifact_versions version
+  WHERE version.id = NEW.version_id
+    AND version.project_id = NEW.project_id
+    AND version.artifact_id = NEW.artifact_id
+)
+BEGIN SELECT RAISE(ABORT, 'artifact approval lineage mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS artifact_version_approvals_immutable_update
+BEFORE UPDATE ON artifact_version_approvals
+BEGIN
+  SELECT RAISE(ABORT, 'Artifact-version approval history is immutable');
+END;
+`;
 
 export const generationKernelMigrationSql = `
 CREATE UNIQUE INDEX IF NOT EXISTS passage_plan_snapshots_project_identity

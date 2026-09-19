@@ -5,6 +5,8 @@ import {
   RepairProposalRecordSchema,
 } from "@story-to-cyoa/domain";
 import {
+  artifactApprovalHistoryMigrationSql,
+  artifactApprovalHistoryIntegrityTriggerSql,
   authorMemoryMigrationSql,
   authorMemoryIntegrityTriggerSql,
   generationCandidateLineageMigrationSql,
@@ -25,7 +27,7 @@ import {
 } from "./schema.js";
 
 export const EARLIEST_SUPPORTED_SCHEMA_VERSION = 4;
-export const CURRENT_SCHEMA_VERSION = 17;
+export const CURRENT_SCHEMA_VERSION = 18;
 
 export const SCHEMA_VERSION_HISTORY = Object.freeze([
   { version: 4, introducedBy: "Foundations 1-3 baseline", frozenFixture: "schema-v4.sqlite" },
@@ -41,7 +43,8 @@ export const SCHEMA_VERSION_HISTORY = Object.freeze([
   { version: 14, introducedBy: "Foundation 6 repair applications", frozenFixture: "schema-v14.sqlite" },
   { version: 15, introducedBy: "Foundation 6 repair-draft provenance", frozenFixture: "schema-v15.sqlite" },
   { version: 16, introducedBy: "Foundation 8A recovery metadata", frozenFixture: "schema-v16.sqlite" },
-  { version: 17, introducedBy: "Foundation 8C author memory", frozenFixture: null },
+  { version: 17, introducedBy: "Foundation 8C author memory", frozenFixture: "schema-v17.sqlite" },
+  { version: 18, introducedBy: "A1 durable artifact approval history", frozenFixture: null },
 ] as const);
 
 export function migrate(database: StoryDatabase): void {
@@ -268,6 +271,48 @@ function migrateWithinTransaction(database: StoryDatabase): void {
       assertValidAuthorMemory(database);
     }
   }
+  const artifactApprovalHistoryApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 18",
+  ).get();
+  if (!artifactApprovalHistoryApplied) {
+    runMigrationStep(database, "migration_v18", () => {
+      database.exec(artifactApprovalHistoryMigrationSql);
+      database.prepare(`INSERT OR IGNORE INTO artifact_version_approvals
+        (project_id, artifact_id, version_id, approved_at)
+        SELECT workflow.project_id, workflow.artifact_id, workflow.approved_version_id, workflow.updated_at
+        FROM artifact_workflow_state workflow
+        JOIN artifact_versions versions
+          ON versions.id = workflow.approved_version_id
+          AND versions.project_id = workflow.project_id
+          AND versions.artifact_id = workflow.artifact_id
+        WHERE workflow.approved_version_id IS NOT NULL`).run();
+      database.prepare(`INSERT OR IGNORE INTO artifact_version_approvals
+        (project_id, artifact_id, version_id, approved_at)
+        SELECT directions.project_id,
+          json_extract(records.value, '$.reference.targetId'),
+          json_extract(records.value, '$.reference.versionId'),
+          directions.created_at
+        FROM artifact_versions directions, json_each(directions.content_json, '$.fieldProvenance') records
+        JOIN artifact_versions evidence
+          ON evidence.id = json_extract(records.value, '$.reference.versionId')
+          AND evidence.project_id = directions.project_id
+          AND evidence.artifact_id = json_extract(records.value, '$.reference.targetId')
+        WHERE directions.artifact_id = 'creative-direction'
+          AND directions.artifact_type = 'creative-direction'
+          AND json_extract(records.value, '$.reference.kind') = 'approved-artifact'`).run();
+      database.exec(artifactApprovalHistoryIntegrityTriggerSql);
+      assertValidArtifactApprovalHistory(database);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (18, ?)",
+      ).run(new Date().toISOString());
+    });
+  } else {
+    if (!hasTrigger(database, "artifact_version_approvals_lineage_insert")
+      || !hasTrigger(database, "artifact_version_approvals_immutable_update")) {
+      database.exec(artifactApprovalHistoryIntegrityTriggerSql);
+    }
+    assertValidArtifactApprovalHistory(database);
+  }
 }
 
 const AUTHOR_MEMORY_INTEGRITY_TRIGGERS = [
@@ -382,6 +427,18 @@ function hasTable(database: StoryDatabase, name: string): boolean {
   return Boolean(database.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
   ).get(name));
+}
+
+function assertValidArtifactApprovalHistory(database: StoryDatabase): void {
+  const invalid = database.prepare(`SELECT approvals.version_id
+    FROM artifact_version_approvals approvals
+    LEFT JOIN artifact_versions versions
+      ON versions.id = approvals.version_id
+      AND versions.project_id = approvals.project_id
+      AND versions.artifact_id = approvals.artifact_id
+    WHERE versions.id IS NULL
+    LIMIT 1`).get();
+  if (invalid) throw new Error("Cannot migrate artifact approval history with invalid version lineage");
 }
 
 function assertValidRecoveryMetadata(database: StoryDatabase): void {

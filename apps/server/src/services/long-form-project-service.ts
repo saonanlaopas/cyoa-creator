@@ -183,6 +183,7 @@ export class LongFormProjectService {
     if (!this.artifacts.getCurrent(projectId, artifactId)) throw new Error(`Create ${artifactId} first`);
     if (artifactId === "creative-direction") return this.saveCreativeDirection(projectId, content);
     const parsed = schemas[artifactId].parse(content) as PlanningArtifact;
+    this.assertPresentationAuthorityWrite(projectId, artifactId, parsed);
     const version = this.artifacts.saveArtifact({
       projectId,
       artifactId,
@@ -246,6 +247,11 @@ export class LongFormProjectService {
       throw new Error("Planning artifact not found");
     }
     const id = artifactId as PlanningArtifactId;
+    const source = this.artifacts.getVersion<PlanningArtifact>(versionId);
+    if (!source || source.projectId !== projectId || source.artifactId !== id) {
+      throw new Error("Artifact version not found");
+    }
+    this.assertPresentationAuthorityWrite(projectId, id, source.content);
     const version = this.artifacts.restore(projectId, id, versionId, {
       markDependentsStale: id !== "creative-direction",
     });
@@ -293,6 +299,7 @@ export class LongFormProjectService {
     }
     const candidate = applyPlanningOperations(current.content, groups as never);
     const parsed = schemas[artifactId].parse(candidate) as PlanningArtifact;
+    this.assertPresentationAuthorityWrite(projectId, artifactId, parsed);
     const findings = validateLongFormProject(this.snapshot(projectId, { artifactId, content: parsed }));
     const errors = findings.filter((finding) =>
       finding.severity === "error" && finding.artifactId === artifactId);
@@ -310,6 +317,28 @@ export class LongFormProjectService {
     this.markDependentWorkflowStale(projectId, artifactId);
     this.markPassagePlanStale(projectId);
     return { ...applied, validation: findings, appliedGroupIds: [...selectedIds] };
+  }
+
+  assertPresentationAuthorityWrite(
+    projectId: string,
+    artifactId: PlanningArtifactId,
+    candidate: PlanningArtifact,
+  ): void {
+    if (!this.artifacts.getCurrent(projectId, "creative-direction")) return;
+    if (artifactId === "brief") {
+      const current = this.artifacts.getCurrent<ProjectBrief>(projectId, "brief");
+      const next = candidate as ProjectBrief;
+      if (current && (next.tone !== current.content.tone || next.pointOfView !== current.content.pointOfView)) {
+        throw new Error("Creative Direction owns current tone and point of view; legacy Brief presentation fields are historical and cannot be changed");
+      }
+    }
+    if (artifactId === "bible") {
+      const current = this.artifacts.getCurrent<LongFormStoryBible>(projectId, "bible");
+      const next = candidate as LongFormStoryBible;
+      if (current && JSON.stringify(next.proseGuidance) !== JSON.stringify(current.content.proseGuidance)) {
+        throw new Error("Creative Direction owns current prose presentation; legacy Story Bible prose guidance is historical and cannot be changed");
+      }
+    }
   }
 
   private saveNew(projectId: string, artifactId: Exclude<PlanningArtifactId, "brief">, content: PlanningArtifact) {

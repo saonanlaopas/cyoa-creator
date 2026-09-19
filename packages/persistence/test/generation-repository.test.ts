@@ -2,13 +2,16 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defaultCreativeDirection, normalizeCreativeDirection } from "@story-to-cyoa/domain";
 import {
+  ArtifactRepository,
   assertGenerationJobTransition,
   GenerationRepository,
   openDatabase,
   PassagePlanRepository,
   ProjectHealthRepository,
   ProjectRepository,
+  WorkflowRepository,
 } from "../src/index.js";
 
 const temporaryDirectories: string[] = [];
@@ -366,6 +369,50 @@ describe("GenerationRepository", () => {
       .toThrow();
     expect(() => fixture.database.prepare("DELETE FROM projects WHERE id = ?").run(fixture.project.id)).not.toThrow();
     expect((fixture.database.prepare("SELECT COUNT(*) AS count FROM generation_unit_candidates").get() as { count: number }).count).toBe(0);
+    fixture.database.close();
+  });
+
+  it("atomically rejects candidate completion after material Creative Direction authority changes", () => {
+    const fixture = setup();
+    const artifacts = new ArtifactRepository(fixture.database); const workflow = new WorkflowRepository(fixture.database);
+    const directionV1 = artifacts.saveArtifact({
+      projectId: fixture.project.id, artifactId: "creative-direction", artifactType: "creative-direction",
+      content: defaultCreativeDirection(),
+    });
+    workflow.approve(fixture.project.id, "creative-direction", directionV1.id);
+    const snapshot = fixture.passages.createSnapshot(fixture.project.id, {
+      brief: "brief-v1", mechanics: "mechanics-v1", "creative-direction": directionV1.id,
+    }, { findings: [] });
+    fixture.passages.approveSnapshot(fixture.project.id, snapshot.id);
+    const input = planInput(fixture.project.id, snapshot.id, snapshot.structureVersionId, snapshot.upstreamVersions);
+    input.units = input.units.map((unit) => ({
+      ...unit, contextFingerprint: `context-${unit.id}`, context: { unitId: unit.id },
+      contextDiagnostics: { contextFingerprint: `context-${unit.id}` },
+    }));
+    const plan = fixture.generations.createPlan(input);
+    fixture.generations.authorize(fixture.project.id, plan.id, plan.fingerprint);
+    fixture.generations.startJob(fixture.project.id, plan.jobId);
+    const attempt = fixture.generations.startUnit(fixture.project.id, plan.jobId, "unit-a");
+    const directionV2 = artifacts.saveArtifact({
+      projectId: fixture.project.id, artifactId: "creative-direction", artifactType: "creative-direction",
+      content: normalizeCreativeDirection({
+        ...directionV1.content, tone: { ...directionV1.content.tone, descriptors: ["materially changed"] },
+      }),
+    });
+    workflow.approve(fixture.project.id, "creative-direction", directionV2.id);
+    let rejection: unknown;
+    try { fixture.generations.completeUnitWithCandidate(
+      fixture.project.id, plan.jobId, "unit-a", attempt.attemptId, {
+        id: "stale-candidate", contextFingerprint: "context-unit-a", providerId: plan.providerId,
+        modelId: plan.modelId, outputSchemaId: "cyoa.passage-planning-unit-candidate", outputSchemaVersion: 1,
+        content: { stale: true }, validation: { valid: true }, repair: { repairsPerformed: 0, maximumRepairs: 1 },
+      },
+    ); } catch (error) { rejection = error; }
+    expect(rejection).toMatchObject({ code: "stale_generation_plan" });
+    expect(fixture.generations.getCandidate(fixture.project.id, "stale-candidate")).toBeUndefined();
+    expect(fixture.generations.getJob(fixture.project.id, plan.jobId)?.units[0]).toMatchObject({
+      status: "running", candidateReference: null,
+    });
     fixture.database.close();
   });
 });

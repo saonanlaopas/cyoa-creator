@@ -8,6 +8,7 @@ import {
   PassageGenerationScopeSchema,
   passageGenerationPolicyV1,
   validatePassagePlanningCandidate,
+  creativeDirectionMaterialEquivalent,
   type ChoicePlan,
   type LongFormEndingPlan,
   type LongFormMechanicsPlan,
@@ -31,6 +32,7 @@ import type {
   GenerationRepository,
   PassagePlanRepository,
   ProjectRepository,
+  WorkflowRepository,
 } from "@story-to-cyoa/persistence";
 
 export interface PassageGenerationPlanRequest {
@@ -46,6 +48,7 @@ export class PassageGenerationService {
   public constructor(
     private readonly projects: ProjectRepository,
     private readonly artifacts: ArtifactRepository,
+    private readonly workflow: WorkflowRepository,
     private readonly passagePlans: PassagePlanRepository,
     private readonly generations: GenerationRepository,
     provider: PassagePlanningProvider | PassagePlanningProvider[],
@@ -110,6 +113,7 @@ export class PassageGenerationService {
     const job = this.getJob(projectId, jobId);
     const plan = this.getPlan(projectId, job.planId);
     this.requireProvider(plan.providerId);
+    this.assertPlanFresh(plan);
     const running = this.generations.startJob(projectId, jobId);
     const controller = new AbortController();
     this.controllers.set(jobId, controller);
@@ -222,6 +226,7 @@ export class PassageGenerationService {
           maximumOutputTokens: Math.min(unit.estimatedOutputTokens, passageGenerationPolicyV1.maxOutputTokensPerUnit),
           signal: controller.signal,
         } as const;
+        this.assertPlanFresh(plan);
         const first = await provider.generate({ ...baseRequest, mode: "generate" });
         const usage: PassagePlanningProviderUsage[] = first.usage ? [first.usage] : [];
         const providerMetadata: Record<string, unknown>[] = first.providerMetadata ? [first.providerMetadata] : [];
@@ -252,6 +257,7 @@ export class PassageGenerationService {
             baseRequest.maximumOutputTokens,
             passagePlanningCandidateLimits.maximumRepairOutputTokens,
           );
+          this.assertPlanFresh(plan);
           const repaired = await provider.generate({
             ...baseRequest,
             mode: "repair",
@@ -279,8 +285,10 @@ export class PassageGenerationService {
             raw: output, jobId, unitId: unit.id, inputFingerprint: unit.inputFingerprint, context,
             maximumOutputTokens: repairMaximumOutputTokens,
           });
+          this.assertPlanFresh(plan);
         }
         if (controller.signal.aborted) break;
+        this.assertPlanFresh(plan);
         job = this.generations.completeUnitWithCandidate(projectId, jobId, unit.id, attemptId, {
           contextFingerprint: unit.contextFingerprint!, providerId: plan.providerId, modelId: plan.modelId,
           outputSchemaId: passagePlanningCandidateSchema.id,
@@ -318,6 +326,20 @@ export class PassageGenerationService {
     return version.content;
   }
 
+  private assertPlanFresh(plan: GenerationPlanRecord): void {
+    const expectedVersionId = plan.upstreamVersions["creative-direction"];
+    if (!expectedVersionId) return;
+    const current = this.workflow.get(plan.projectId, "creative-direction");
+    const expected = this.artifacts.getVersion<CreativeDirection>(expectedVersionId);
+    const approved = current.approvedVersionId
+      ? this.artifacts.getVersion<CreativeDirection>(current.approvedVersionId) : undefined;
+    if (current.status !== "approved" || !expected || !approved
+      || expected.projectId !== plan.projectId || approved.projectId !== plan.projectId
+      || !creativeDirectionMaterialEquivalent(expected.content, approved.content)) {
+      throw staleGenerationPlanError("Creative Direction changed materially after passage generation was authorized");
+    }
+  }
+
   private exactStoredContext(value: unknown, fingerprint: string | undefined): PassagePlanningContextPack {
     if (!value || typeof value !== "object" || !fingerprint) {
       throw Object.assign(new Error("Authorized unit has no persisted bounded context"), {
@@ -343,6 +365,10 @@ export class PassageGenerationService {
     const project = this.projects.get(projectId);
     if (!project || project.mode !== "long-form") throw new Error("Long-form project not found");
   }
+}
+
+function staleGenerationPlanError(message: string): Error {
+  return Object.assign(new Error(message), { code: "stale_generation_plan", retryable: false });
 }
 
 function candidateIssues(error: unknown): string[] {

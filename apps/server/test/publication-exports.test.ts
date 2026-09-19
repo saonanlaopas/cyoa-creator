@@ -96,13 +96,20 @@ describe("Foundation 7C publication exports", () => {
           id: "route-tone-main", scopeKind: "route", scopeId: routesContent.routes[0]!.id, toneDescriptors: ["restrained"],
           pacingGuidance: "Allow quiet scenes.", proseGuidance: "Use close interiority.",
         }],
-        fieldProvenance: [{ fieldPath: "/tone", reference: { kind: "manual-edit", versionId: first.id, excerpt: "Exact authored rationale" } }],
+        fieldProvenance: [
+          { fieldPath: "/tone", reference: { kind: "manual-edit", versionId: first.id, excerpt: "Exact authored rationale" } },
+          { fieldPath: "/pacing", reference: { kind: "approved-artifact", targetId: "brief", versionId: brief.id } },
+        ],
       });
       const second = artifacts.saveArtifact({
         projectId: "directed-archive", artifactId: "creative-direction", artifactType: "creative-direction",
         schemaVersion: 1, content: secondContent,
       });
       workflow.approve("directed-archive", "creative-direction", second.id);
+      const newerBrief = artifacts.saveArtifact({
+        projectId: "directed-archive", artifactId: "brief", content: { ...briefContent, premise: "A newer approved premise" },
+      });
+      workflow.approve("directed-archive", "brief", newerBrief.id);
 
       const exported = source.service.exportPortable("directed-archive");
       target.service.importPortable(exported.bytes);
@@ -114,6 +121,8 @@ describe("Foundation 7C publication exports", () => {
         .toEqual(workflow.get("directed-archive", "creative-direction"));
       expect((restoredArtifacts.getCurrent("directed-archive", "creative-direction")!.content as ReturnType<typeof defaultCreativeDirection>)
         .relationshipPresentation?.profiles[0]).toMatchObject({ relationshipKind: "romance", sensuality: "subtle" });
+      expect(target.database.prepare(`SELECT 1 FROM artifact_version_approvals
+        WHERE project_id = 'directed-archive' AND artifact_id = 'brief' AND version_id = ?`).get(brief.id)).toBeTruthy();
       expect(Buffer.from(target.service.exportPortable("directed-archive").bytes)).toEqual(Buffer.from(exported.bytes));
     } finally { source.database.close(); target.database.close(); }
   });

@@ -3,7 +3,7 @@ import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 
 export const PORTABLE_PROJECT_TABLES = [
-  "projects", "artifact_versions", "artifact_workflow_state", "artifact_dependencies",
+  "projects", "artifact_versions", "artifact_workflow_state", "artifact_version_approvals", "artifact_dependencies",
   "passage_structure_versions", "passage_structure_heads", "passage_entity_versions", "passage_entity_heads",
   "passage_plan_snapshots", "passage_plan_snapshot_items", "passage_plan_state", "passage_finding_overrides",
   "drafting_plans", "drafting_plan_units", "drafting_plan_unit_passages", "drafting_jobs", "drafting_job_units",
@@ -119,6 +119,9 @@ export class PortableProjectRepository {
         ON v.id = w.approved_version_id AND v.project_id = w.project_id AND v.artifact_id = w.artifact_id
         WHERE w.project_id = ? AND ((w.approved_version_id IS NOT NULL AND v.id IS NULL)
           OR (w.status = 'approved' AND w.approved_version_id IS NULL)) LIMIT 1`],
+      ["artifact approval history", `SELECT 1 FROM artifact_version_approvals a LEFT JOIN artifact_versions v
+        ON v.id = a.version_id AND v.project_id = a.project_id AND v.artifact_id = a.artifact_id
+        WHERE a.project_id = ? AND v.id IS NULL LIMIT 1`],
       ["approved passage snapshot", `SELECT 1 FROM passage_plan_state s LEFT JOIN passage_plan_snapshots p
         ON p.id = s.approved_snapshot_id AND p.project_id = s.project_id AND p.status = 'approved'
         WHERE s.project_id = ? AND ((s.approved_snapshot_id IS NOT NULL AND p.id IS NULL)

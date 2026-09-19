@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { CreativeDirectionSchema, creativeDirectionMaterialEquivalent } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 
@@ -441,6 +442,7 @@ export class GenerationRepository {
       if (plan.providerId !== candidate.providerId || plan.modelId !== candidate.modelId) {
         throw new Error("Candidate provider or model does not match the authorized plan");
       }
+      this.assertCurrentMaterialAuthority(projectId, plan.upstreamVersions);
       const id = candidate.id ?? randomUUID();
       const now = new Date().toISOString();
       const usageJson = candidate.usage === undefined ? null : JSON.stringify(candidate.usage);
@@ -472,6 +474,32 @@ export class GenerationRepository {
     const row = this.database.prepare(`SELECT * FROM generation_unit_candidates
       WHERE project_id = ? AND id = ?`).get(projectId, candidateId) as CandidateRow | undefined;
     return row ? mapCandidate(row) : undefined;
+  }
+
+  private assertCurrentMaterialAuthority(projectId: string, upstreamVersions: Record<string, string>): void {
+    const expectedVersionId = upstreamVersions["creative-direction"];
+    if (!expectedVersionId) return;
+    const row = this.database.prepare(`SELECT workflow.status, workflow.approved_version_id,
+        expected.content_json AS expected_json, approved.content_json AS approved_json
+      FROM artifact_workflow_state workflow
+      LEFT JOIN artifact_versions expected
+        ON expected.id = ? AND expected.project_id = workflow.project_id AND expected.artifact_id = 'creative-direction'
+      LEFT JOIN artifact_versions approved
+        ON approved.id = workflow.approved_version_id AND approved.project_id = workflow.project_id
+          AND approved.artifact_id = 'creative-direction'
+      WHERE workflow.project_id = ? AND workflow.artifact_id = 'creative-direction'`)
+      .get(expectedVersionId, projectId) as {
+        status: string; approved_version_id: string | null; expected_json: string | null; approved_json: string | null;
+      } | undefined;
+    const expected = row?.expected_json ? CreativeDirectionSchema.parse(JSON.parse(row.expected_json)) : undefined;
+    const approved = row?.approved_json ? CreativeDirectionSchema.parse(JSON.parse(row.approved_json)) : undefined;
+    if (!row || row.status !== "approved" || !expected || !approved
+      || !creativeDirectionMaterialEquivalent(expected, approved)) {
+      throw Object.assign(
+        new Error("Creative Direction changed materially after passage generation was authorized"),
+        { code: "stale_generation_plan", retryable: false },
+      );
+    }
   }
 
   listCandidates(projectId: string, jobId: string, unitId?: string): GenerationUnitCandidateRecord[] {

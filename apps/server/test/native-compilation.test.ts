@@ -45,7 +45,7 @@ async function seedApprovedProject(options: SeedOptions = {}) {
     method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`, payload: { versionId: created.brief.id },
   }));
   await ok(app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: created.creativeDirection.id } }));
-  const artifacts: Record<string, any> = { brief: created.brief };
+  const artifacts: Record<string, any> = { brief: created.brief, creativeDirection: created.creativeDirection };
   for (const artifactId of ["bible", "routes", "endings"] as const) {
     const generated = (await ok(app.inject({
       method: "POST", url: `/api/long-form/projects/${projectId}/${artifactId}`,
@@ -301,6 +301,53 @@ async function expectPlanningBlocker(
 }
 
 describe("Foundation 7A native compilation API", () => {
+  it("treats provenance-only Creative Direction approvals as materially publication-equivalent", async () => {
+    const fixture = await seedApprovedProject();
+    const first = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
+    }))).json();
+    const original = fixture.artifacts.creativeDirection;
+    const provenanceOnly = (await ok(fixture.app.inject({
+      method: "PUT", url: `/api/long-form/projects/${fixture.projectId}/creative-direction`, payload: {
+        ...original.content, fieldProvenance: [{ fieldPath: "/tone", reference: {
+          kind: "manual-edit", versionId: original.id, excerpt: "Publication explanation only",
+        } }],
+      },
+    }))).json().creativeDirection;
+    expect(provenanceOnly.content.materialFingerprint).toBe(original.content.materialFingerprint);
+    expect(provenanceOnly.content.provenanceFingerprint).not.toBe(original.content.provenanceFingerprint);
+    await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/creative-direction/approve`,
+      payload: { versionId: provenanceOnly.id },
+    }));
+    const readiness = (await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/readiness`,
+    }))).json();
+    expect(readiness.ready).toBe(true);
+    const second = (await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
+    }))).json();
+    expect(second.bundle).toEqual(first.bundle);
+    expect(second.playerConfig).toEqual(first.playerConfig);
+
+    const material = (await ok(fixture.app.inject({
+      method: "PUT", url: `/api/long-form/projects/${fixture.projectId}/creative-direction`, payload: {
+        ...provenanceOnly.content,
+        prose: { ...provenanceOnly.content.prose, customGuidance: "A materially different publication voice." },
+      },
+    }))).json().creativeDirection;
+    await ok(fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/creative-direction/approve`, payload: { versionId: material.id },
+    }));
+    const blocked = (await ok(fixture.app.inject({
+      method: "GET", url: `/api/long-form/projects/${fixture.projectId}/publication/readiness`,
+    }))).json();
+    expect(blocked.ready).toBe(false);
+    expect((await fixture.app.inject({
+      method: "POST", url: `/api/long-form/projects/${fixture.projectId}/publication/compile`, payload: {},
+    })).statusCode).toBe(409);
+  });
+
   it("reports exact readiness, compiles deterministically, excludes candidates and author-only data, and preserves lifecycle-equivalent prose", async () => {
     const fixture = await seedApprovedProject();
     const readiness = (await ok(fixture.app.inject({

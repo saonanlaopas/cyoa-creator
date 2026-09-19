@@ -2,11 +2,91 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ArtifactRepository, openDatabase, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
-import { defaultLongFormStoryBible, defaultProjectBrief } from "@story-to-cyoa/pipeline";
+import { ArtifactRepository, ChangeSetRepository, ConversationRepository, openDatabase, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { defaultLongFormStoryBible, defaultProjectBrief, enrichOperationGroups } from "@story-to-cyoa/pipeline";
 import { buildApp } from "../src/app.js";
 
 describe("long-form project brief", () => {
+  it("enforces Creative Direction as the single current presentation write authority", async () => {
+    const app = buildApp();
+    const created = (await app.inject({
+      method: "POST", url: "/api/long-form/projects", payload: { name: "Authority" },
+    })).json();
+    const projectId = created.project.id as string;
+    const rejectedBrief = await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/brief`,
+      payload: { ...created.brief.content, tone: "LEGACY-TONE-MUTATION", pointOfView: "first-person" },
+    });
+    expect(rejectedBrief.statusCode).toBe(400);
+    expect(rejectedBrief.json().error).toContain("Creative Direction owns current tone");
+    const acceptedBrief = await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/brief`,
+      payload: { ...created.brief.content, premise: "A changed premise that preserves legacy presentation." },
+    });
+    expect(acceptedBrief.statusCode).toBe(201);
+    expect(acceptedBrief.json().brief.content).toMatchObject({
+      premise: "A changed premise that preserves legacy presentation.",
+      tone: created.brief.content.tone,
+      pointOfView: created.brief.content.pointOfView,
+    });
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`,
+      payload: { versionId: acceptedBrief.json().brief.id },
+    });
+    await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`,
+      payload: { versionId: created.creativeDirection.id },
+    });
+    const bible = (await app.inject({
+      method: "POST", url: `/api/long-form/projects/${projectId}/bible`, payload: {},
+    })).json().bible;
+    const rejectedBible = await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/bible`,
+      payload: { ...bible.content, proseGuidance: { ...bible.content.proseGuidance, tone: ["LEGACY-BIBLE-MUTATION"] } },
+    });
+    expect(rejectedBible.statusCode).toBe(400);
+    expect(rejectedBible.json().error).toContain("Creative Direction owns current prose presentation");
+    const acceptedBible = await app.inject({
+      method: "PUT", url: `/api/long-form/projects/${projectId}/bible`,
+      payload: { ...bible.content, overview: "Changed structural overview." },
+    });
+    expect(acceptedBible.statusCode).toBe(201);
+    expect(acceptedBible.json().bible.content.proseGuidance).toEqual(bible.content.proseGuidance);
+    await app.close();
+  });
+
+  it("prevents a persisted generic proposal from bypassing presentation authority", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-authority-proposal-")); const databasePath = join(directory, "story.sqlite");
+    const setupApp = buildApp({ databasePath });
+    const created = (await setupApp.inject({
+      method: "POST", url: "/api/long-form/projects", payload: { name: "Proposal authority" },
+    })).json();
+    await setupApp.close();
+    const database = openDatabase(databasePath); const project = created.project; const brief = created.brief;
+    const conversations = new ConversationRepository(database);
+    const conversation = conversations.create(project.id, { kind: "project", projectId: project.id, stage: "brief" });
+    const proposal = new ChangeSetRepository(database).createOperations({
+      projectId: project.id, conversationId: conversation.id, artifactId: "brief", baseVersionId: brief.id,
+      summary: "Mutate legacy tone", rationale: "Regression probe", proposal: { groups: enrichOperationGroups(brief.content, [{
+        id: "legacy-tone", label: "Legacy tone", summary: "Attempt forbidden mutation", dependsOnGroupIds: [],
+        safeToApplyIndependently: true, operations: [{ kind: "set-fields", targetId: "root", changes: { tone: "forbidden" } }],
+      }]) },
+    });
+    database.close();
+    const app = buildApp({ databasePath });
+    try {
+      const beforeApply = (await app.inject({
+        method: "GET", url: `/api/long-form/projects/${project.id}`,
+      })).json();
+      expect(beforeApply.brief.id).toBe(proposal.baseVersionId);
+      const response = await app.inject({
+        method: "POST", url: `/api/long-form/projects/${project.id}/conversations/${conversation.id}/proposals/${proposal.id}/apply`,
+      });
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json().error).toContain("Creative Direction owns current tone");
+    } finally { await app.close(); rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it("versions Creative Direction with material-only staleness and exact provenance", async () => {
     const app = buildApp();
     const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Direction Project" } })).json();
@@ -319,17 +399,24 @@ describe("long-form project brief", () => {
       const opened = (await app.inject({ method: "GET", url: `/api/long-form/projects/${project.id}` })).json();
       expect(opened.creativeDirection).toBeNull();
       expect(opened.workflow["creative-direction"]).toMatchObject({ status: "empty", approvedVersionId: null });
+      const compatibleLegacyEdit = await app.inject({
+        method: "PUT", url: `/api/long-form/projects/${project.id}/brief`,
+        payload: { ...briefContent, tone: "warmly uncanny" },
+      });
+      expect(compatibleLegacyEdit.statusCode).toBe(201);
+      const compatibleBrief = compatibleLegacyEdit.json().brief;
       const adopted = await app.inject({ method: "POST", url: `/api/long-form/projects/${project.id}/creative-direction/adopt-legacy` });
       expect(adopted.statusCode).toBe(201);
       expect(adopted.json()).toMatchObject({ workflow: { status: "draft", approvedVersionId: null } });
       expect(adopted.json().artifact.content.prose.pointOfView).toBe("first-person");
       expect(adopted.json().artifact.content.fieldProvenance).toEqual(expect.arrayContaining([
-        expect.objectContaining({ reference: expect.objectContaining({ kind: "migration-derived", versionId: brief.id }) }),
+        expect.objectContaining({ reference: expect.objectContaining({ kind: "migration-derived", versionId: compatibleBrief.id }) }),
         expect.objectContaining({ reference: expect.objectContaining({ kind: "migration-derived", versionId: bible.id }) }),
       ]));
       const reopenedDatabase = openDatabase(databasePath);
-      expect(new ArtifactRepository(reopenedDatabase).listVersions(project.id, "brief")
-        .concat(new ArtifactRepository(reopenedDatabase).listVersions(project.id, "bible"))).toEqual(exactBefore);
+      const reopenedHistory = new ArtifactRepository(reopenedDatabase).listVersions(project.id, "brief")
+        .concat(new ArtifactRepository(reopenedDatabase).listVersions(project.id, "bible"));
+      for (const historical of exactBefore) expect(reopenedHistory.find((item) => item.id === historical.id)).toEqual(historical);
       reopenedDatabase.close();
     } finally {
       await app.close();

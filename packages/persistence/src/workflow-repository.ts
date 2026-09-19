@@ -1,4 +1,5 @@
 import type { StoryDatabase } from "./database.js";
+import { transaction } from "./database.js";
 
 export type ArtifactWorkflowStatus = "empty" | "draft" | "reviewed" | "approved" | "stale";
 
@@ -51,11 +52,18 @@ export class WorkflowRepository {
   }
 
   approve(projectId: string, artifactId: string, versionId: string): ArtifactWorkflowState {
-    const version = this.database.prepare(`
-      SELECT id FROM artifact_versions WHERE id = ? AND project_id = ? AND artifact_id = ?
-    `).get(versionId, projectId, artifactId);
-    if (!version) throw new Error("Artifact version not found");
-    return this.set(projectId, artifactId, "approved", versionId);
+    return transaction(this.database, () => {
+      const version = this.database.prepare(`
+        SELECT id FROM artifact_versions WHERE id = ? AND project_id = ? AND artifact_id = ?
+      `).get(versionId, projectId, artifactId);
+      if (!version) throw new Error("Artifact version not found");
+      const now = new Date().toISOString();
+      const state = this.set(projectId, artifactId, "approved", versionId, now);
+      this.database.prepare(`INSERT OR IGNORE INTO artifact_version_approvals
+        (project_id, artifact_id, version_id, approved_at) VALUES (?, ?, ?, ?)`)
+        .run(projectId, artifactId, versionId, now);
+      return state;
+    });
   }
 
   private set(
@@ -63,8 +71,9 @@ export class WorkflowRepository {
     artifactId: string,
     status: ArtifactWorkflowStatus,
     approvedVersionId?: string,
+    timestamp?: string,
   ): ArtifactWorkflowState {
-    const now = new Date().toISOString();
+    const now = timestamp ?? new Date().toISOString();
     this.database.prepare(`
       INSERT INTO artifact_workflow_state
         (project_id, artifact_id, status, approved_version_id, updated_at)

@@ -10,6 +10,7 @@ import {
   PassageStructureSchema,
   ProjectBriefSchema,
   CreativeDirectionSchema,
+  creativeDirectionMaterialEquivalent,
   assertNativeCompilationInput,
   compileNativeGame,
   nativePublicationFinding,
@@ -17,6 +18,7 @@ import {
   validateLongFormProject,
   validatePassagePlan,
   type ChoicePlan,
+  type CreativeDirection,
   type LongFormEndingPlan,
   type LongFormMechanicsPlan,
   type LongFormRoutePlan,
@@ -543,7 +545,17 @@ export class NativeCompilationService {
         blocker("publication.upstream-version-missing", `Snapshot does not identify an exact ${artifactId} version`, "artifact", artifactId);
         continue;
       }
-      if (workflow.status !== "approved" || workflow.approvedVersionId !== expectedVersionId) {
+      let materiallyEquivalentDirection = false;
+      if (artifactId === "creative-direction" && workflow.status === "approved" && workflow.approvedVersionId) {
+        const expectedDirection = this.artifacts.getVersion<CreativeDirection>(expectedVersionId);
+        const currentDirection = this.artifacts.getVersion<CreativeDirection>(workflow.approvedVersionId);
+        materiallyEquivalentDirection = Boolean(expectedDirection && currentDirection
+          && expectedDirection.projectId === projectId && currentDirection.projectId === projectId
+          && expectedDirection.artifactId === artifactId && currentDirection.artifactId === artifactId
+          && creativeDirectionMaterialEquivalent(expectedDirection.content, currentDirection.content));
+      }
+      if ((workflow.status !== "approved" || workflow.approvedVersionId !== expectedVersionId)
+        && !materiallyEquivalentDirection) {
         blocker("publication.upstream-not-current", `Approved ${artifactId} does not match the exact snapshot dependency`, "artifact", artifactId);
       }
       const version = this.artifacts.getVersion(expectedVersionId);

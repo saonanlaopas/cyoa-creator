@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { defaultCreativeDirection, normalizeCreativeDirection } from "@story-to-cyoa/domain";
 import {
   ArtifactRepository,
   AuthorMemoryRepository,
@@ -32,9 +33,11 @@ const v13FixturePath = join(fixtureDirectory, "schema-v13.sqlite");
 const v14FixturePath = join(fixtureDirectory, "schema-v14.sqlite");
 const v15FixturePath = join(fixtureDirectory, "schema-v15.sqlite");
 const v16FixturePath = join(fixtureDirectory, "schema-v16.sqlite");
+const v17FixturePath = join(fixtureDirectory, "schema-v17.sqlite");
 const supportedFixtures = [
   v4FixturePath, v5FixturePath, v6FixturePath, v7FixturePath, v8FixturePath, v9FixturePath,
   v10FixturePath, v11FixturePath, v12FixturePath, v13FixturePath, v14FixturePath, v15FixturePath, v16FixturePath,
+  v17FixturePath,
 ];
 const temporaryDirectories: string[] = [];
 afterEach(() => temporaryDirectories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
@@ -901,6 +904,68 @@ describe("generation kernel migration", () => {
     expect(digest(v16FixturePath)).toBe(originalHash);
   });
 
+  it("migrates the frozen schema-v17 fixture to durable approval history without changing accepted bytes", () => {
+    const originalHash = digest(v17FixturePath);
+    expect(originalHash).toBe("24a4041d791b55a8b94dacacd183469ad1917b0a459a9b7a68d0c91a4ba0ab43");
+    const frozen = new DatabaseSync(v17FixturePath, { readOnly: true });
+    expect((frozen.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(17);
+    expect(frozen.prepare("SELECT name FROM sqlite_master WHERE name = 'artifact_version_approvals'").get()).toBeUndefined();
+    const before = logicalDatabaseState(frozen); frozen.close();
+
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v18-migration-")); temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v17.sqlite"); copyFileSync(v17FixturePath, copyPath);
+    const database = openDatabase(copyPath);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(18);
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'artifact_version_approvals'").get())
+      .toEqual({ name: "artifact_version_approvals" });
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'artifact_version_approvals_lineage_insert'").get())
+      .toEqual({ name: "artifact_version_approvals_lineage_insert" });
+    database.close();
+    expect(digest(v17FixturePath)).toBe(originalHash);
+    const stillFrozen = new DatabaseSync(v17FixturePath, { readOnly: true });
+    expect(logicalDatabaseState(stillFrozen)).toBe(before); stillFrozen.close();
+  });
+
+  it("backfills current and historically referenced approvals during v17 to v18 migration", () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v18-backfill-")); temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v17-backfill.sqlite"); copyFileSync(v17FixturePath, copyPath);
+    const database = new DatabaseSync(copyPath); const now = "2026-09-19T00:00:00.000Z";
+    database.prepare("INSERT INTO projects (id, name, mode, created_at, updated_at) VALUES ('approval-p', 'P', 'long-form', ?, ?)").run(now, now);
+    database.prepare(`INSERT INTO artifact_versions
+      (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, created_at)
+      VALUES ('approval-brief-v1', 'approval-p', 'brief', 'brief', 1, 1, '{}', 0, ?),
+             ('approval-brief-v2', 'approval-p', 'brief', 'brief', 2, 1, '{}', 0, ?),
+             ('approval-direction-v1', 'approval-p', 'creative-direction', 'creative-direction', 1, 1, ?, 0, ?)`)
+      .run(now, now, JSON.stringify(normalizeCreativeDirection({
+        ...defaultCreativeDirection(), fieldProvenance: [{ fieldPath: "/tone", reference: {
+          kind: "approved-artifact", targetId: "brief", versionId: "approval-brief-v1",
+        } }],
+      })), now);
+    database.prepare(`INSERT INTO artifact_workflow_state
+      (project_id, artifact_id, status, approved_version_id, updated_at) VALUES ('approval-p', 'brief', 'approved', 'approval-brief-v2', ?)`)
+      .run(now);
+    migrate(database);
+    expect(database.prepare("SELECT version_id FROM artifact_version_approvals WHERE project_id = 'approval-p' ORDER BY version_id").all())
+      .toEqual([{ version_id: "approval-brief-v1" }, { version_id: "approval-brief-v2" }]);
+    database.close();
+  });
+
+  it("rolls schema-v18 approval-history conflicts back without partial triggers or version records", () => {
+    const originalHash = digest(v17FixturePath);
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v18-rollback-")); temporaryDirectories.push(directory);
+    const copyPath = join(directory, "schema-v17-conflict.sqlite"); copyFileSync(v17FixturePath, copyPath);
+    const database = new DatabaseSync(copyPath);
+    database.exec("CREATE TABLE artifact_version_approvals (conflict TEXT)");
+    expect(() => migrate(database)).toThrow();
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(17);
+    expect((database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(17);
+    expect(database.prepare("SELECT sql FROM sqlite_master WHERE name = 'artifact_version_approvals'").get())
+      .toEqual({ sql: "CREATE TABLE artifact_version_approvals (conflict TEXT)" });
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'artifact_version_approvals_lineage_insert'").get()).toBeUndefined();
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'artifact_version_approvals_immutable_update'").get()).toBeUndefined();
+    database.close(); expect(digest(v17FixturePath)).toBe(originalHash);
+  });
+
   it("rejects a non-latest v17 author-memory head without partially reinstalling integrity triggers", () => {
     const directory = mkdtempSync(join(tmpdir(), "cyoa-v17-corrupt-head-"));
     temporaryDirectories.push(directory);
@@ -933,7 +998,7 @@ describe("generation kernel migration", () => {
     expect(rejection).toBeInstanceOf(DatabaseRecoveryError);
     expect(String((rejection as Error & { cause?: unknown }).cause)).toContain("non-latest summary head");
     const rejected = new DatabaseSync(databasePath);
-    expect((rejected.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(17);
+    expect((rejected.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(18);
     expect(rejected.prepare("SELECT current_version_id FROM conversation_summary_heads WHERE series_id = ?")
       .get(first.stableId)).toEqual({ current_version_id: first.id });
     expect(rejected.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger'
@@ -959,7 +1024,7 @@ describe("generation kernel migration", () => {
       id: decision.id, content: decision.content, version: 1,
     });
     expect((reopened.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version)
-      .toBe(17);
+      .toBe(18);
     reopened.close();
   });
 

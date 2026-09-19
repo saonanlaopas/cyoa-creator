@@ -7,6 +7,7 @@ export {
   CreativeDirectionMaterialSchema,
   CreativeDirectionInputSchema,
   CreativeDirectionSchema,
+  creativeDirectionMaterialEquivalent,
   creativeDirectionFingerprints,
   normalizeCreativeDirection,
   defaultCreativeDirection,
