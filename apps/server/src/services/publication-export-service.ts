@@ -3,7 +3,12 @@ import { resolve } from "node:path";
 import { build } from "esbuild";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { compileSugarCube, renderNativeTwee } from "@story-to-cyoa/export-twine";
-import { PortableProjectRepository, PORTABLE_PROJECT_TABLES, type PortableProjectRows } from "@story-to-cyoa/persistence";
+import {
+  PortableProjectRepository,
+  PORTABLE_PROJECT_TABLES,
+  reconstructLegacyArtifactApprovalHistory,
+  type PortableProjectRows,
+} from "@story-to-cyoa/persistence";
 import { assertNativePlayerConfig, loadNativeGame, stableFingerprint, type NativeGameBundle, type NativePlayerConfig } from "@story-to-cyoa/runtime";
 import type { NativeCompilationService } from "./native-compilation-service.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -27,6 +32,8 @@ export interface PortableManifest {
   projectFingerprint: string; historyMode: typeof HISTORY_MODE; includedSections: string[];
   exclusions: string[]; counts: Record<string, number>; files: Array<{ path: string; sha256: string; bytes: number }>;
 }
+
+export type PortableApprovalHistoryMode = "current" | "legacy-reconstructed";
 
 const LEGACY_PORTABLE_PROJECT_TABLES = PORTABLE_PROJECT_TABLES.filter((table) => table !== "artifact_version_approvals");
 
@@ -161,7 +168,11 @@ export class PublicationExportService {
       bundleFingerprint: source.bundle.bundleFingerprint, playerConfigFingerprint: source.playerConfig.configFingerprint };
   }
 
-  parsePortableArchive(bytes: Uint8Array): { manifest: PortableManifest; rows: PortableProjectRows } {
+  parsePortableArchive(bytes: Uint8Array): {
+    manifest: PortableManifest;
+    rows: PortableProjectRows;
+    approvalHistoryMode: PortableApprovalHistoryMode;
+  } {
     if (bytes.byteLength > PORTABLE_PROJECT_LIMITS.archiveBytes) throw new Error("portable_project_too_large");
     inspectZip(bytes);
     const files = unzipSync(bytes);
@@ -182,7 +193,8 @@ export class PublicationExportService {
     if (parsed.schemaId !== SCHEMA_ID || parsed.schemaVersion !== 1 || parsed.projectId !== manifest.projectId) throw new Error("portable_project_manifest_mismatch");
     const sections = Object.keys(parsed.tables ?? {});
     if (!parsed.tables || !isSupportedPortableSections(sections)) throw new Error("portable_project_sections_invalid");
-    const expectedSections = sections.includes("artifact_version_approvals")
+    const hasApprovalHistory = sections.includes("artifact_version_approvals");
+    const expectedSections = hasApprovalHistory
       ? [...PORTABLE_PROJECT_TABLES] : [...LEGACY_PORTABLE_PROJECT_TABLES];
     if (manifest.includedSections.join("\0") !== expectedSections.join("\0")) throw new Error("portable_project_sections_invalid");
     let rowCount = 0;
@@ -206,7 +218,10 @@ export class PublicationExportService {
     enforcePortableRows(rows);
     const expected = stableFingerprint({ schemaId: SCHEMA_ID, schemaVersion: 1, historyMode: HISTORY_MODE, rows: serializedRows });
     if (expected !== parsed.projectFingerprint || expected !== manifest.projectFingerprint) throw new Error("portable_project_fingerprint_invalid");
-    return { manifest, rows };
+    if (!hasApprovalHistory) {
+      rows.tables.artifact_version_approvals = reconstructLegacyArtifactApprovalHistory(rows);
+    }
+    return { manifest, rows, approvalHistoryMode: hasApprovalHistory ? "current" : "legacy-reconstructed" };
   }
 
   private requireNativeCompilation(): NativeCompilationService {

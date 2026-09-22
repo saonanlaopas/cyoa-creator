@@ -231,6 +231,12 @@ BEFORE UPDATE ON artifact_version_approvals
 BEGIN
   SELECT RAISE(ABORT, 'Artifact-version approval history is immutable');
 END;
+CREATE TRIGGER IF NOT EXISTS artifact_version_approvals_immutable_delete
+BEFORE DELETE ON artifact_version_approvals
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN
+  SELECT RAISE(ABORT, 'Artifact-version approval history is immutable');
+END;
 `;
 
 export const generationKernelMigrationSql = `

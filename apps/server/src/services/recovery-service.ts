@@ -184,7 +184,11 @@ export class RecoveryService {
         const restored = this.publication.exportPortable(parsed.record.projectId);
         const restoredPortable = this.publication.parsePortableArchive(restored.bytes);
         assertPortableSemanticEquivalence(
-          { manifest: verification.manifest, rows: verification.rows },
+          {
+            manifest: verification.manifest,
+            rows: verification.rows,
+            approvalHistoryMode: verification.approvalHistoryMode,
+          },
           restoredPortable,
           "restore_semantic_mismatch",
         );
@@ -259,6 +263,7 @@ export class RecoveryService {
   private async verifyPortable(portableBytes: Uint8Array): Promise<{
     manifest: PortableManifest;
     rows: ReturnType<PublicationExportService["parsePortableArchive"]>["rows"];
+    approvalHistoryMode: ReturnType<PublicationExportService["parsePortableArchive"]>["approvalHistoryMode"];
     projectName: string;
     diagnostics: string[];
   }> {
@@ -282,6 +287,7 @@ export class RecoveryService {
       return {
         manifest: source.manifest,
         rows: source.rows,
+        approvalHistoryMode: source.approvalHistoryMode,
         projectName: String(source.rows.tables.projects[0]?.name ?? "Restored project"),
         diagnostics: ["Hostile archive validation passed", "Isolated SQLite reconstruction passed", "Domain and relationship validation passed", "Canonical semantic comparison passed"],
       };
@@ -299,7 +305,17 @@ function assertPortableSemanticEquivalence(
   code: "backup_semantic_mismatch" | "restore_semantic_mismatch",
 ): void {
   const manifestMeaning = ({ files: _files, ...meaning }: PortableManifest) => meaning;
-  if (canonical(manifestMeaning(expected.manifest)) !== canonical(manifestMeaning(actual.manifest))
+  const legacyManifestMeaning = ({
+    files: _files,
+    projectFingerprint: _projectFingerprint,
+    includedSections: _includedSections,
+    counts: _counts,
+    ...meaning
+  }: PortableManifest) => meaning;
+  const manifestsMatch = expected.approvalHistoryMode === "legacy-reconstructed"
+    ? canonical(legacyManifestMeaning(expected.manifest)) === canonical(legacyManifestMeaning(actual.manifest))
+    : canonical(manifestMeaning(expected.manifest)) === canonical(manifestMeaning(actual.manifest));
+  if (!manifestsMatch
     || canonical(expected.rows) !== canonical(actual.rows)) {
     throw new RecoveryOperationError(code, "The reconstructed portable project differs semantically from the verified source.");
   }

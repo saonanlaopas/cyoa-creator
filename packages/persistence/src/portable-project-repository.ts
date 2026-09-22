@@ -1,3 +1,4 @@
+import { CreativeDirectionSchema } from "@story-to-cyoa/domain";
 import { stableFingerprint } from "@story-to-cyoa/runtime";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
@@ -21,6 +22,60 @@ export interface PortableProjectRows { projectId: string; tables: Record<Portabl
 export type PortableProjectValidator = (database: StoryDatabase, projectId: string) => void;
 
 const rowFingerprint = (row: PortableRow) => stableFingerprint(Object.fromEntries(Object.entries(row).sort(([a], [b]) => a.localeCompare(b))));
+
+export function reconstructLegacyArtifactApprovalHistory(bundle: PortableProjectRows): PortableRow[] {
+  const artifacts = new Map<string, PortableRow>();
+  for (const row of bundle.tables.artifact_versions) {
+    if (row.project_id !== bundle.projectId || typeof row.id !== "string" || typeof row.artifact_id !== "string") {
+      throw new Error("portable_project_lineage_invalid: legacy approval artifact identity");
+    }
+    if (artifacts.has(row.id)) throw new Error("portable_project_lineage_invalid: duplicate artifact version identity");
+    artifacts.set(row.id, row);
+  }
+  const approvals = new Map<string, PortableRow>();
+  const add = (artifactId: unknown, versionId: unknown, approvedAt: unknown): void => {
+    if (typeof artifactId !== "string" || typeof versionId !== "string" || typeof approvedAt !== "string") {
+      throw new Error("portable_project_lineage_invalid: legacy approval identity");
+    }
+    const artifact = artifacts.get(versionId);
+    if (!artifact || artifact.project_id !== bundle.projectId || artifact.artifact_id !== artifactId) {
+      throw new Error("portable_project_lineage_invalid: legacy approval artifact/version mismatch");
+    }
+    const key = `${artifactId}\0${versionId}`;
+    if (!approvals.has(key)) approvals.set(key, {
+      project_id: bundle.projectId, artifact_id: artifactId, version_id: versionId, approved_at: approvedAt,
+    });
+  };
+
+  for (const workflow of bundle.tables.artifact_workflow_state) {
+    if (workflow.project_id !== bundle.projectId) {
+      throw new Error("portable_project_lineage_invalid: legacy approval workflow project");
+    }
+    if (workflow.approved_version_id !== null) {
+      add(workflow.artifact_id, workflow.approved_version_id, workflow.updated_at);
+    }
+  }
+  for (const row of bundle.tables.artifact_versions) {
+    if (row.artifact_id !== "creative-direction" && row.artifact_type !== "creative-direction") continue;
+    if (row.artifact_id !== "creative-direction" || row.artifact_type !== "creative-direction") {
+      throw new Error("portable_project_lineage_invalid: legacy Creative Direction identity");
+    }
+    if (row.schema_version !== 1 || typeof row.content_json !== "string" || typeof row.created_at !== "string") {
+      throw new Error("portable_project_domain_invalid: legacy Creative Direction schema");
+    }
+    let direction: ReturnType<typeof CreativeDirectionSchema.parse>;
+    try { direction = CreativeDirectionSchema.parse(JSON.parse(row.content_json)); }
+    catch (error) {
+      throw new Error(`portable_project_domain_invalid: legacy Creative Direction provenance: ${(error as Error).message}`);
+    }
+    for (const provenance of direction.fieldProvenance) {
+      if (provenance.reference?.kind === "approved-artifact") {
+        add(provenance.reference.targetId, provenance.reference.versionId, row.created_at);
+      }
+    }
+  }
+  return [...approvals.values()].sort((left, right) => rowFingerprint(left).localeCompare(rowFingerprint(right)));
+}
 
 export class PortableProjectRepository {
   public constructor(private readonly database: StoryDatabase) {}
@@ -119,6 +174,10 @@ export class PortableProjectRepository {
         ON v.id = w.approved_version_id AND v.project_id = w.project_id AND v.artifact_id = w.artifact_id
         WHERE w.project_id = ? AND ((w.approved_version_id IS NOT NULL AND v.id IS NULL)
           OR (w.status = 'approved' AND w.approved_version_id IS NULL)) LIMIT 1`],
+      ["artifact workflow approval history", `SELECT 1 FROM artifact_workflow_state w
+        LEFT JOIN artifact_version_approvals a ON a.project_id = w.project_id
+          AND a.artifact_id = w.artifact_id AND a.version_id = w.approved_version_id
+        WHERE w.project_id = ? AND w.approved_version_id IS NOT NULL AND a.version_id IS NULL LIMIT 1`],
       ["artifact approval history", `SELECT 1 FROM artifact_version_approvals a LEFT JOIN artifact_versions v
         ON v.id = a.version_id AND v.project_id = a.project_id AND v.artifact_id = a.artifact_id
         WHERE a.project_id = ? AND v.id IS NULL LIMIT 1`],

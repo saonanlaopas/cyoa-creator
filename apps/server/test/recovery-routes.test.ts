@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
+import { strToU8, unzipSync, zipSync } from "fflate";
+import { stableFingerprint } from "@story-to-cyoa/runtime";
 import { buildApp } from "../src/app.js";
 import { resolveBackupUploadLimit } from "../src/routes/recovery.js";
 import { PROJECT_BACKUP_LIMITS } from "../src/services/recovery-service.js";
@@ -51,6 +54,9 @@ describe("Foundation 8A recovery HTTP boundary", () => {
     const savedDirection = (await app.inject({
       method: "PUT", url: `/api/long-form/projects/${projectId}/creative-direction`, payload: {
         ...createdProject.creativeDirection.content,
+        fieldProvenance: [{ fieldPath: "/tone", reference: {
+          kind: "approved-artifact", targetId: "brief", versionId: createdProject.brief.id,
+        } }],
         relationshipPresentation: { profiles: [{
           id: "backup-romance-profile", relationshipKind: "romance", relationshipId: "relationship-backup",
           participantIds: ["character-author", "character-partner"], developmentStyle: "gradual",
@@ -70,10 +76,14 @@ describe("Foundation 8A recovery HTTP boundary", () => {
     expect(backup.statusCode).toBe(200);
     expect(backup.headers["content-disposition"]).toContain(".cyoa-backup.zip");
     expect(backup.headers["x-cyoa-backup-verification"]).toBe("verified");
-    const upload = multipart(backup.rawPayload, "recovery-route-boundary");
+    const legacyBackup = rewriteLegacyA1Backup(backup.rawPayload);
+    const upload = multipart(legacyBackup, "recovery-route-boundary");
     const preview = await app.inject({ method: "POST", url: "/api/recovery/backups/preview", headers: upload.headers, payload: upload.payload });
     expect(preview.statusCode).toBe(200);
-    expect(preview.json()).toMatchObject({ projectName: "Recovery route", conflict: true, verification: { verified: true } });
+    expect(preview.json()).toMatchObject({
+      projectName: "Recovery route", conflict: true, verification: { verified: true },
+      manifest: { includedSections: expect.not.arrayContaining(["artifact_version_approvals"]) },
+    });
     expect((await app.inject({ method: "GET", url: "/api/projects" })).json()).toHaveLength(1);
 
     const collision = await app.inject({ method: "POST", url: "/api/recovery/backups/restore", headers: upload.headers, payload: upload.payload });
@@ -92,7 +102,7 @@ describe("Foundation 8A recovery HTTP boundary", () => {
     expect((await app.inject({ method: "GET", url: "/api/projects" })).json()).toHaveLength(0);
 
     const restored = await app.inject({ method: "POST", url: "/api/recovery/backups/restore", headers: upload.headers, payload: upload.payload });
-    expect(restored.statusCode).toBe(201);
+    expect(restored.statusCode, restored.body).toBe(201);
     expect(restored.json()).toMatchObject({ projectId });
     expect((await app.inject({ method: "GET", url: `/api/projects/${projectId}` })).json().name).toBe("Recovery route");
     const restoredDirection = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}` })).json();
@@ -129,4 +139,49 @@ function multipart(bytes: Buffer, boundary: string) {
       Buffer.from(`\r\n--${boundary}--\r\n`),
     ]),
   };
+}
+
+function rewriteLegacyA1Backup(bytes: Uint8Array): Uint8Array {
+  const backupFiles = unzipSync(bytes);
+  const portableFiles = unzipSync(backupFiles["portable-project.cyoa.zip"]!);
+  const manifest = JSON.parse(new TextDecoder().decode(portableFiles["manifest.json"]!));
+  const payload = JSON.parse(new TextDecoder().decode(portableFiles["project.json"]!));
+  delete payload.tables.artifact_version_approvals;
+  manifest.includedSections = manifest.includedSections.filter((section: string) => section !== "artifact_version_approvals");
+  delete manifest.counts.artifact_version_approvals;
+  const rows = { projectId: payload.projectId, tables: payload.tables };
+  const fingerprint = stableFingerprint({
+    schemaId: "cyoa.portable-project", schemaVersion: 1,
+    historyMode: "immutable-authoring-history-v1", rows,
+  });
+  payload.projectFingerprint = fingerprint;
+  manifest.projectFingerprint = fingerprint;
+  manifest.counts = Object.fromEntries(manifest.includedSections.map((section: string) => [section, payload.tables[section].length]));
+  const payloadBytes = strToU8(canonicalJson(payload));
+  manifest.files = [{ path: "project.json", bytes: payloadBytes.byteLength, sha256: sha256(payloadBytes) }];
+  const fixedDate = new Date(1980, 0, 1, 0, 0, 0, 0);
+  const portableBytes = zipSync({
+    "manifest.json": [strToU8(canonicalJson(manifest)), { mtime: fixedDate }],
+    "project.json": [payloadBytes, { mtime: fixedDate }],
+  }, { level: 9 });
+
+  const record = JSON.parse(new TextDecoder().decode(backupFiles["backup-record.json"]!));
+  record.portableProjectFingerprint = fingerprint;
+  record.sourceChangeFingerprint = fingerprint;
+  record.restoredSemanticFingerprint = fingerprint;
+  record.portableArchiveSha256 = sha256(portableBytes);
+  record.portableArchiveByteCount = portableBytes.byteLength;
+  return zipSync({
+    "backup-record.json": [strToU8(canonicalJson(record)), { mtime: fixedDate, level: 9 }],
+    "portable-project.cyoa.zip": [portableBytes, { mtime: fixedDate, level: 0 }],
+  });
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right))) : item);
+}
+
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }

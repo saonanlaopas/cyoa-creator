@@ -13,6 +13,7 @@ import {
   CURRENT_SCHEMA_VERSION,
   DatabaseRecoveryError,
   ProjectRepository,
+  WorkflowRepository,
   migrate,
   openDatabase,
   passageDraftArchitectureMigrationSql,
@@ -948,6 +949,51 @@ describe("generation kernel migration", () => {
     expect(database.prepare("SELECT version_id FROM artifact_version_approvals WHERE project_id = 'approval-p' ORDER BY version_id").all())
       .toEqual([{ version_id: "approval-brief-v1" }, { version_id: "approval-brief-v2" }]);
     database.close();
+  });
+
+  it("installs the missing schema-v18 approval delete guard without rewriting valid history", () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v18-delete-patch-")); temporaryDirectories.push(directory);
+    const databasePath = join(directory, "approval-delete.sqlite");
+    const database = openDatabase(databasePath);
+    const project = new ProjectRepository(database).create("Approval patch", "approval-patch", "long-form");
+    const artifacts = new ArtifactRepository(database);
+    const version = artifacts.saveArtifact({ projectId: project.id, artifactId: "brief", content: { title: "Brief" } });
+    new WorkflowRepository(database).approve(project.id, "brief", version.id);
+    const before = database.prepare("SELECT * FROM artifact_version_approvals WHERE project_id = ?").all(project.id);
+    database.exec("DROP TRIGGER artifact_version_approvals_immutable_delete");
+    database.close();
+
+    const reopened = openDatabase(databasePath);
+    expect(reopened.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger'
+      AND name = 'artifact_version_approvals_immutable_delete'`).get())
+      .toEqual({ name: "artifact_version_approvals_immutable_delete" });
+    expect(reopened.prepare("SELECT * FROM artifact_version_approvals WHERE project_id = ?").all(project.id)).toEqual(before);
+    reopened.close();
+  });
+
+  it("rolls a failed schema-v18 integrity patch back without leaving partial triggers", () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-v18-patch-rollback-")); temporaryDirectories.push(directory);
+    const databasePath = join(directory, "approval-corrupt.sqlite");
+    const database = openDatabase(databasePath);
+    const project = new ProjectRepository(database).create("Approval corruption", "approval-corrupt", "long-form");
+    const artifacts = new ArtifactRepository(database);
+    const version = artifacts.saveArtifact({ projectId: project.id, artifactId: "brief", content: { title: "Brief" } });
+    new WorkflowRepository(database).approve(project.id, "brief", version.id);
+    database.exec(`DROP TRIGGER artifact_version_approvals_lineage_insert;
+      DROP TRIGGER artifact_version_approvals_immutable_delete;`);
+    database.close();
+
+    const corrupt = new DatabaseSync(databasePath);
+    corrupt.exec("PRAGMA foreign_keys = OFF");
+    corrupt.prepare(`INSERT INTO artifact_version_approvals
+      (project_id, artifact_id, version_id, approved_at) VALUES (?, 'brief', 'missing-version', '2026-09-22T00:00:00.000Z')`)
+      .run(project.id);
+    expect(() => migrate(corrupt)).toThrow(/invalid version lineage/);
+    expect(corrupt.prepare("SELECT name FROM sqlite_master WHERE name = 'artifact_version_approvals_lineage_insert'").get()).toBeUndefined();
+    expect(corrupt.prepare("SELECT name FROM sqlite_master WHERE name = 'artifact_version_approvals_immutable_delete'").get()).toBeUndefined();
+    expect(corrupt.prepare("SELECT COUNT(*) AS count FROM artifact_version_approvals WHERE project_id = ?").get(project.id))
+      .toEqual({ count: 2 });
+    corrupt.close();
   });
 
   it("rolls schema-v18 approval-history conflicts back without partial triggers or version records", () => {

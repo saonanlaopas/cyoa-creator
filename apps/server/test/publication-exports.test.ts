@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { strToU8, unzipSync, zipSync } from "fflate";
-import { createNativePlayerConfig, nativeBundleFingerprint } from "@story-to-cyoa/runtime";
+import { createNativePlayerConfig, nativeBundleFingerprint, stableFingerprint } from "@story-to-cyoa/runtime";
 import { ArtifactRepository, openDatabase, PortableProjectRepository, ProjectRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import {
   defaultCreativeDirection,
@@ -125,6 +125,87 @@ describe("Foundation 7C publication exports", () => {
         WHERE project_id = 'directed-archive' AND artifact_id = 'brief' AND version_id = ?`).get(brief.id)).toBeTruthy();
       expect(Buffer.from(target.service.exportPortable("directed-archive").bytes)).toEqual(Buffer.from(exported.bytes));
     } finally { source.database.close(); target.database.close(); }
+  });
+
+  it("reconstructs exact approval history only for signed legacy A1 portable archives", () => {
+    const source = service(); const target = service(); const secondTarget = service();
+    try {
+      new ProjectRepository(source.database).create("Legacy A1", "legacy-a1", "long-form");
+      const artifacts = new ArtifactRepository(source.database); const workflow = new WorkflowRepository(source.database);
+      const briefV1 = artifacts.saveArtifact({
+        projectId: "legacy-a1", artifactId: "brief", content: defaultProjectBrief("Legacy A1"),
+      });
+      workflow.approve("legacy-a1", "brief", briefV1.id);
+      const directionContent = normalizeCreativeDirection({
+        ...defaultCreativeDirection(), fieldProvenance: [{ fieldPath: "/tone", reference: {
+          kind: "approved-artifact", targetId: "brief", versionId: briefV1.id,
+        } }],
+      });
+      const direction = artifacts.saveArtifact({
+        projectId: "legacy-a1", artifactId: "creative-direction", artifactType: "creative-direction",
+        content: directionContent,
+      });
+      workflow.approve("legacy-a1", "creative-direction", direction.id);
+      const briefV2 = artifacts.saveArtifact({
+        projectId: "legacy-a1", artifactId: "brief",
+        content: { ...defaultProjectBrief("Legacy A1"), premise: "The later approved premise" },
+      });
+      workflow.approve("legacy-a1", "brief", briefV2.id);
+
+      const current = source.service.exportPortable("legacy-a1").bytes;
+      const legacy = rewritePortableArchive(current, true);
+      expect(Buffer.from(rewritePortableArchive(current, true))).toEqual(Buffer.from(legacy));
+      expect(target.service.previewPortable(legacy)).toMatchObject({
+        projectName: "Legacy A1", conflict: false,
+        manifest: { includedSections: expect.not.arrayContaining(["artifact_version_approvals"]) },
+      });
+      target.service.importPortable(legacy);
+      const restored = new ArtifactRepository(target.database);
+      expect(restored.getVersion(direction.id)?.content).toEqual(directionContent);
+      expect(target.database.prepare(`SELECT version_id FROM artifact_version_approvals
+        WHERE project_id = 'legacy-a1' ORDER BY version_id`).all()).toEqual(expect.arrayContaining([
+        { version_id: briefV1.id }, { version_id: briefV2.id }, { version_id: direction.id },
+      ]));
+
+      const upgraded = target.service.exportPortable("legacy-a1");
+      expect(upgraded.manifest.includedSections).toContain("artifact_version_approvals");
+      expect(upgraded.manifest.counts.artifact_version_approvals).toBeGreaterThanOrEqual(3);
+      secondTarget.service.importPortable(upgraded.bytes);
+      expect(new ArtifactRepository(secondTarget.database).getVersion(direction.id)?.content).toEqual(directionContent);
+
+      for (const tamper of ["missing-version", "artifact-mismatch", "foreign-project"] as const) {
+        const hostile = rewritePortableArchive(current, true, (payload) => {
+          const versions = payload.tables.artifact_versions as Array<Record<string, unknown>>;
+          const directionRow = versions.find((row) => row.id === direction.id)!;
+          if (tamper === "foreign-project") {
+            versions.find((row) => row.id === briefV1.id)!.project_id = "foreign-project";
+            return;
+          }
+          const content = JSON.parse(String(directionRow.content_json));
+          const reference = content.fieldProvenance[0].reference;
+          if (tamper === "missing-version") reference.versionId = "missing-version";
+          else reference.targetId = "bible";
+          directionRow.content_json = JSON.stringify(normalizeCreativeDirection(content));
+        });
+        const rejected = service();
+        try {
+          new ProjectRepository(rejected.database).create("Untouched", "untouched", "long-form");
+          expect(() => rejected.service.importPortable(hostile)).toThrow(/lineage_invalid/);
+          expect(new ProjectRepository(rejected.database).get("legacy-a1")).toBeUndefined();
+          expect(new ProjectRepository(rejected.database).get("untouched")?.name).toBe("Untouched");
+        } finally { rejected.database.close(); }
+      }
+
+      const incompleteCurrent = rewritePortableArchive(current, false, (payload) => {
+        payload.tables.artifact_version_approvals = (payload.tables.artifact_version_approvals as Array<Record<string, unknown>>)
+          .filter((row) => row.version_id !== briefV1.id);
+      });
+      const strictTarget = service();
+      try {
+        expect(() => strictTarget.service.importPortable(incompleteCurrent)).toThrow(/durable history/);
+        expect(new ProjectRepository(strictTarget.database).get("legacy-a1")).toBeUndefined();
+      } finally { strictTarget.database.close(); }
+    } finally { source.database.close(); target.database.close(); secondTarget.database.close(); }
   });
 
   it("rejects portable data whose approved Creative Direction scopes no longer resolve", () => {
@@ -339,4 +420,49 @@ function proseBody(markdown: string, passageNumber: number): string {
   const from = markdown.indexOf(start); const to = markdown.indexOf(end, from + start.length);
   expect(from).toBeGreaterThanOrEqual(0); expect(to).toBeGreaterThanOrEqual(0);
   return markdown.slice(from + start.length, to);
+}
+
+function rewritePortableArchive(
+  bytes: Uint8Array,
+  legacy: boolean,
+  mutate?: (payload: PortableFixturePayload) => void,
+): Uint8Array {
+  const files = unzipSync(bytes);
+  const manifest = JSON.parse(new TextDecoder().decode(files["manifest.json"]!));
+  const payload = JSON.parse(new TextDecoder().decode(files["project.json"]!)) as PortableFixturePayload;
+  if (legacy) {
+    delete payload.tables.artifact_version_approvals;
+    manifest.includedSections = manifest.includedSections.filter((section: string) => section !== "artifact_version_approvals");
+    delete manifest.counts.artifact_version_approvals;
+  }
+  mutate?.(payload);
+  const serializedRows = { projectId: payload.projectId, tables: payload.tables };
+  const projectFingerprint = stableFingerprint({
+    schemaId: "cyoa.portable-project", schemaVersion: 1,
+    historyMode: "immutable-authoring-history-v1", rows: serializedRows,
+  });
+  payload.projectFingerprint = projectFingerprint;
+  manifest.projectFingerprint = projectFingerprint;
+  manifest.counts = Object.fromEntries(manifest.includedSections.map((section: string) => [section, payload.tables[section].length]));
+  const payloadBytes = strToU8(canonicalJson(payload));
+  manifest.files = [{
+    path: "project.json", bytes: payloadBytes.byteLength,
+    sha256: createHash("sha256").update(payloadBytes).digest("hex"),
+  }];
+  const fixedDate = new Date(1980, 0, 1, 0, 0, 0, 0);
+  return zipSync({
+    "manifest.json": [strToU8(canonicalJson(manifest)), { mtime: fixedDate }],
+    "project.json": [payloadBytes, { mtime: fixedDate }],
+  }, { level: 9 });
+}
+
+interface PortableFixturePayload extends Record<string, unknown> {
+  projectId: string;
+  projectFingerprint: string;
+  tables: Record<string, Array<Record<string, unknown>>>;
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right))) : item);
 }

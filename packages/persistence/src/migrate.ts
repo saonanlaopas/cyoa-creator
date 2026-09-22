@@ -308,10 +308,15 @@ function migrateWithinTransaction(database: StoryDatabase): void {
     });
   } else {
     if (!hasTrigger(database, "artifact_version_approvals_lineage_insert")
-      || !hasTrigger(database, "artifact_version_approvals_immutable_update")) {
-      database.exec(artifactApprovalHistoryIntegrityTriggerSql);
+      || !hasTrigger(database, "artifact_version_approvals_immutable_update")
+      || !hasTrigger(database, "artifact_version_approvals_immutable_delete")) {
+      runMigrationStep(database, "migration_v18_integrity_patch", () => {
+        database.exec(artifactApprovalHistoryIntegrityTriggerSql);
+        assertValidArtifactApprovalHistory(database);
+      });
+    } else {
+      assertValidArtifactApprovalHistory(database);
     }
-    assertValidArtifactApprovalHistory(database);
   }
 }
 

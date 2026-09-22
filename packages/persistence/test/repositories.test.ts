@@ -232,6 +232,16 @@ describe("SQLite repositories", () => {
     expect(database.prepare(`SELECT version_id FROM artifact_version_approvals
       WHERE project_id = ? AND artifact_id = 'brief' ORDER BY approved_at, version_id`).all(project.id))
       .toEqual(expect.arrayContaining([{ version_id: first.id }, { version_id: second.id }]));
+    expect(() => database.prepare(`UPDATE artifact_version_approvals SET approved_at = 'tampered'
+      WHERE project_id = ? AND artifact_id = 'brief' AND version_id = ?`).run(project.id, first.id))
+      .toThrow(/immutable/i);
+    expect(() => database.prepare(`DELETE FROM artifact_version_approvals
+      WHERE project_id = ? AND artifact_id = 'brief' AND version_id = ?`).run(project.id, first.id))
+      .toThrow(/immutable/i);
+    expect(database.prepare(`SELECT approved_at FROM artifact_version_approvals
+      WHERE project_id = ? AND artifact_id = 'brief' AND version_id = ?`).get(project.id, first.id)).toBeTruthy();
+    new ProjectRepository(database).remove(project.id);
+    expect(database.prepare("SELECT 1 FROM artifact_version_approvals WHERE project_id = ?").get(project.id)).toBeUndefined();
     database.close();
   });
 
