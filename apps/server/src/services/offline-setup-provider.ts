@@ -19,7 +19,7 @@ const GENRES: Array<[RegExp, string]> = [
 const TONES: Array<[RegExp, string]> = [
   [/\bwarm(th)?\b/i, "warm"], [/\bcozy|cosy\b/i, "cozy"], [/\bintimate\b/i, "intimate"], [/\bwistful|melanchol/i, "wistful"],
   [/\bbittersweet\b/i, "bittersweet"], [/\bhopeful\b/i, "hopeful"], [/\bdark\b/i, "dark"], [/\bbleak\b/i, "bleak"],
-  [/\btense|suspense/i, "tense"], [/\beerie|uncanny|unsettling\b/i, "uncanny"], [/\bfunny|comedic|humou?r/i, "comedic"],
+  [/(?<!past )(?<!present )\btense\b|\bsuspense/i, "tense"], [/\beerie|uncanny|unsettling\b/i, "uncanny"], [/\bfunny|comedic|humou?r/i, "comedic"],
   [/\bgentle|tender\b/i, "tender"], [/\bangst/i, "angsty"],
 ];
 const SETTINGS = /\bset (?:in|on|at|aboard) (?:a |an |the )?([^.,;!?\n]{3,60}?)(?=\s+(?:where|who|that|with|during|and)\b|[.,;!?\n]|$)/i;
@@ -50,7 +50,10 @@ function all(messages: AuthorMessage[], table: Array<[RegExp, string]>): Finding
   for (const message of messages) {
     for (const [pattern, value] of table) {
       const match = message.content.match(pattern);
-      if (match?.index !== undefined) found.set(value, { value, messageId: message.id, excerpt: excerptAround(message.content, match.index) });
+      if (match?.index !== undefined) {
+        if (/\b(?:not|no|without|less|instead of)\s+(?:a\s+)?$/i.test(message.content.slice(Math.max(0, match.index - 20), match.index))) found.delete(value);
+        else found.set(value, { value, messageId: message.id, excerpt: excerptAround(message.content, match.index) });
+      }
     }
   }
   return [...found.values()];
@@ -85,13 +88,17 @@ export interface OfflineSetupReading {
   pair: Finding | null;
   mutual: Finding | null;
   title: Finding | null;
+  protagonist: Finding | null;
+  notHopeless: Finding | null;
 }
 
 export function readSetupConversation(messages: AuthorMessage[]): OfflineSetupReading {
-  const noRomance = latest(messages, NO_ROMANCE);
+  const relationshipIntent = [...messages].reverse().find((message) => ROMANCE.test(message.content) || NO_ROMANCE.test(message.content));
+  const noRomance = relationshipIntent && NO_ROMANCE.test(relationshipIntent.content) ? latest([relationshipIntent], NO_ROMANCE) : null;
   const romance = noRomance ? null : latest(messages, ROMANCE);
   const scope = latest(messages, /\b(whole (?:thing|project|story)|in total|total(?:ly)?|across (?:all|every) (?:route|branch)|all routes combined|one (?:read-?through|playthrough|path)|per (?:read-?through|playthrough)|each (?:read-?through|playthrough)|single (?:read-?through|playthrough))\b/i,
     (match) => /whole|total|across|combined/i.test(match[0]) ? "whole" : "playthrough");
+  const pace = latest(messages, /\b(slow[- ]burn|fast[- ]paced|brisk|quick pace|punchy)\b/i);
   return {
     authorMessageIds: messages.map((message) => message.id),
     genre: all(messages, GENRES).filter((item) => !(noRomance && /romance/.test(item.value))),
@@ -99,8 +106,8 @@ export function readSetupConversation(messages: AuthorMessage[]): OfflineSetupRe
     noRomance,
     tones: all(messages, TONES),
     lowMelodrama: latest(messages, /\b(low|little|no|not much|minimal|without)\s+melodrama|not melodramatic|melodrama[- ]free\b/i),
-    slowBurn: latest(messages, /\bslow[- ]burn\b/i),
-    brisk: latest(messages, /\b(fast[- ]paced|brisk|quick pace|punchy)\b/i),
+    slowBurn: pace && /slow[- ]burn/i.test(pace.value) ? pace : null,
+    brisk: pace && !/slow[- ]burn/i.test(pace.value) ? pace : null,
     descriptive: latest(messages, /\b(lush|descriptive|restrained|sparse prose|minimal prose)\b/i, (match) =>
       /lush/i.test(match[0]) ? "lush" : /descriptive/i.test(match[0]) ? "descriptive" : "restrained"),
     interiority: latest(messages, /\b(lots of interiority|deep interiority|introspective|inner thoughts|interiority)\b/i),
@@ -118,6 +125,8 @@ export function readSetupConversation(messages: AuthorMessage[]): OfflineSetupRe
     pair: latest(messages, PAIR, (match) => match[1]!.toLowerCase()),
     mutual: latest(messages, /\b(already (?:like|love|have feelings for) each other|mutual (?:crush|feelings|pining)|both (?:like|love) each other)\b/i),
     title: latest(messages, /\b(?:titled|working title(?: is)?|call it)\s+["“']([^"”']{2,80})["”']/i, (match) => match[1]!),
+    protagonist: latest(messages, /\b(?:the )?(?:detective|librarian|explorer|protagonist)\b[^.!?]{0,80}/i),
+    notHopeless: latest(messages, /\bnot hopeless\b/i),
   };
 }
 
@@ -170,8 +179,10 @@ export function offlineSetupReply(messages: AuthorMessage[]) {
   if (plan) add("length", "length", plan.ambiguous
     ? `About ${plan.amount.toLocaleString("en-US")} words; read here as one read-through until you confirm.`
     : `About ${plan.amount.toLocaleString("en-US")} words ${plan.scope === "whole" ? "for the whole project" : "per read-through"}.`, reading.length);
-  if (reading.pair) add("leads", "cast", `Two central characters (${reading.pair}).`, reading.pair);
+  if (reading.pair) add("leads", "cast", `Two central characters (${reading.pair.value}).`, reading.pair);
   if (reading.names) add("names", "cast", `Named characters: ${reading.names.value.split("|").join(", ")}.`, reading.names);
+  if (reading.protagonist) add("protagonist", "protagonist", reading.protagonist.value, reading.protagonist);
+  if (reading.notHopeless) add("not-hopeless", "tone", "Melancholy, but not hopeless.", reading.notHopeless);
   if (reading.mutual) add("mutual", "relationships", "The leads already have feelings for each other at the start.", reading.mutual);
   if (reading.setting) add("setting", "setting", `Set in ${reading.setting.value}.`, reading.setting);
   if (reading.slowBurn) add("slow-burn", "pacing", "Slow-burn development.", reading.slowBurn);
@@ -186,13 +197,17 @@ export function offlineSetupReply(messages: AuthorMessage[]) {
     ...(plan?.ambiguous ? [{ id: "length-scope", topic: "length", note: "Whether the length is per read-through or for the whole project." }] : []),
     ...(!reading.setting ? [{ id: "setting", topic: "setting", note: "Where and when the story takes place." }] : []),
     ...(!reading.endings && !reading.routes ? [{ id: "branching", topic: "structure", note: "How many routes and endings." }] : []),
+    ...(!reading.title ? [{ id: "title", topic: "other", note: "Working title is undecided; the project name is only a placeholder." }] : []),
+    ...(!reading.pointOfView ? [{ id: "pov", topic: "prose", note: "Point of view is undecided; retain the existing draft default for now." }] : []),
+    ...(!reading.tense ? [{ id: "tense", topic: "prose", note: "Tense is undecided; retain the existing draft default for now." }] : []),
+    ...(!reading.length ? [{ id: "length", topic: "length", note: "Length is undecided; existing draft targets are not author decisions." }] : []),
     ...(!reading.names && (reading.pair || reading.romance) ? [{ id: "names", topic: "cast", note: "Names for the central characters." }] : []),
   ];
   const ready = messages.length > 0 && (reading.genre.length > 0 || Boolean(reading.pair || reading.names || reading.setting))
     && (reading.tones.length > 0 || Boolean(reading.slowBurn || reading.descriptive || reading.interiority || reading.pointOfView));
   const summary = [
     reading.genre.length ? `A ${reading.genre.map((genre) => genre.value).join(" / ")} story` : "An original story",
-    reading.pair ? ` about two ${reading.pair}` : "",
+    reading.pair ? ` about two ${reading.pair.value}` : "",
     reading.mutual ? " who already care for each other" : "",
     reading.setting ? `, set in ${reading.setting.value}` : "",
     plan ? `, around ${plan.amount.toLocaleString("en-US")} words` : "",
@@ -220,8 +235,8 @@ export function offlineSetupProposal(messages: AuthorMessage[], projectName: str
   };
   if (reading.title) set("workingTitle", reading.title.value, stated(reading.title));
   if (first) {
-    const sentence = first.content.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ").trim().slice(0, 600);
-    set("premise", sentence, { basis: "stated", messageIds: [first.id], excerpt: sentence.slice(0, 280) });
+    const sentence = messages.map((message) => message.content).join("\n").slice(0, 4_000);
+    set("premise", sentence, { basis: "stated", messageIds: messages.slice(-6).map((message) => message.id), excerpt: first.content.slice(0, 280) });
   }
   const constraints: string[] = [];
   const openQuestions: string[] = [];
@@ -243,6 +258,7 @@ export function offlineSetupProposal(messages: AuthorMessage[], projectName: str
   if (reading.endings) set("endingTarget", Math.min(30, Math.max(3, Number(reading.endings.value))), stated(reading.endings));
   const names = reading.names?.value.split("|") ?? [];
   if (names[0]) set("protagonist", names[0], stated(reading.names!));
+  else if (reading.protagonist) set("protagonist", reading.protagonist.value.slice(0, 200), stated(reading.protagonist));
   if (names.length) set("priorityCharacters", names, stated(reading.names!));
   if (reading.romance && (reading.pair || names.length >= 2)) {
     set("priorityRelationships", [reading.slowBurn ? "The leads' slow-burn romance" : "The leads' romance"], stated(reading.romance));
@@ -265,6 +281,7 @@ export function offlineSetupProposal(messages: AuthorMessage[], projectName: str
       .filter(Boolean).join(", but ").replace(/^k/, "K") + ".", stated((angst ?? reading.lowMelodrama)!));
   }
   if (reading.lowMelodrama) direction(tone, "tone.exclusions", ["melodramatic"], stated(reading.lowMelodrama));
+  if (reading.notHopeless) direction(tone, "tone.exclusions", ["hopeless", ...(reading.lowMelodrama ? ["melodramatic"] : [])], stated(reading.notHopeless));
   if (reading.slowBurn) direction(pacing, "pacing.developmentPace", "slow-burn", stated(reading.slowBurn));
   else if (reading.brisk) direction(pacing, "pacing.developmentPace", "brisk", stated(reading.brisk));
   if (reading.slowBurn) direction(pacing, "pacing.quietScenesAllowed", true, inferred("Slow-burn stories need quieter scenes"));
@@ -299,6 +316,8 @@ export function offlineSetupProposal(messages: AuthorMessage[], projectName: str
     key: `${ordinal}-lead`, name: `${ordinal[0]!.toUpperCase()}${ordinal.slice(1)} lead (unnamed)`, role: "Lead",
     summary: "Placeholder: name and details not decided yet.", motivations: [], evidence: stated(reading.pair!),
   }));
+  else if (reading.protagonist) characters.push({ key: "protagonist", name: "Protagonist (unnamed)", role: "Lead",
+    summary: reading.protagonist.value, motivations: [], evidence: stated(reading.protagonist) });
   const relationships: Array<Record<string, unknown>> = [];
   if (characters.length >= 2 && (reading.romance || reading.mutual || /friend/i.test(reading.pair?.value ?? ""))) {
     relationships.push({
@@ -342,10 +361,16 @@ export function parseSetupPrompt(prompt: string): { mode: "ask" | "propose"; pro
   const nameMatch = prompt.match(/^Project working name: (.+)$/m);
   const conversationMatch = prompt.match(/^Setup conversation, oldest first[^\n]*:\n(.+)$/m);
   const conversation = conversationMatch ? JSON.parse(conversationMatch[1]!) as Array<{ id: string; role: string; content: string }> : [];
+  const summary = prompt.match(/Earlier setup conversation summary \(non-canonical\):\n([\s\S]*?)\n\nPinned author decisions/);
+  const earlier = (summary?.[1] ?? "").split("\n").filter((line) => line.startsWith("Author: "))
+    .map((line, index) => ({ id: `summary-memory-${index}`, content: line.slice(8) }));
+  const decisions = prompt.match(/Pinned author decisions \(non-canonical author memory\):\n(.+)/);
+  const pinned = decisions ? (JSON.parse(decisions[1]!) as string[]).map((content, index) => ({ id: `pinned-memory-${index}`, content })) : [];
   return {
     mode,
     projectName: nameMatch ? JSON.parse(nameMatch[1]!) as string : "Untitled project",
-    messages: conversation.filter((message) => message.role === "author").map(({ id, content }) => ({ id, content })),
+    // Memory is interpretation, not a fabricated message: unknown IDs are downgraded to inferred by the boundary.
+    messages: [...earlier, ...conversation.filter((message) => message.role === "author").map(({ id, content }) => ({ id, content })), ...pinned],
   };
 }
 

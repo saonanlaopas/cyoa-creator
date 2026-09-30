@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { OpenRouterClient } from "@story-to-cyoa/openrouter";
 import {
   buildSetupContext,
@@ -51,6 +51,7 @@ const fail = (status: number, code: string, message: string): never => { throw n
 const SETUP_ARTIFACTS = ["brief", "creative-direction", "bible"] as const;
 type SetupArtifactId = typeof SETUP_ARTIFACTS[number];
 const DEFAULT_MODEL = "openrouter/auto";
+const authorizationFingerprint = (fingerprint: string, model: string) => createHash("sha256").update(JSON.stringify({ fingerprint, model })).digest("hex");
 
 export const PROJECT_SETUP_NOTICE = "Setup conversation and proposals are non-canonical. Nothing changes the project until you apply a proposal, and applied drafts still need approval.";
 
@@ -98,6 +99,7 @@ export class ProjectSetupService {
       messagesTruncated: messageCount > messages.length,
       understanding: latestReply ? {
         messageId: latestReply.id,
+        stale: messages.slice(messages.findIndex((message) => message.id === latestReply.id) + 1).some((message) => message.role === "user"),
         ...(latestReply.metadata.reply as Omit<SetupAssistantResponse, "message">),
       } : null,
       proposals,
@@ -144,7 +146,8 @@ export class ProjectSetupService {
       fail(502, "setup_provider_failed", (error as Error).message);
     }
     if (input.signal?.aborted) fail(499, "setup_request_cancelled", "The Studio request was cancelled; nothing was saved except your message");
-    const reply = normalizeSetupReply(generation!.data as SetupAssistantResponse, context.authorMessageIds);
+    if (Buffer.byteLength(JSON.stringify(generation!.data), "utf8") > 20_000) fail(413, "setup_output_too_large", "Studio output exceeds the reply limit; no reply was saved");
+    const reply = normalizeSetupReply(generation!.data as SetupAssistantResponse, context.authorMessageIds, context.authorMessages);
     const assistantMessage = transaction(this.database, () => {
       this.assertFresh(conversation, "ask", context.built.fingerprint);
       const { message, ...structured } = reply;
@@ -169,7 +172,7 @@ export class ProjectSetupService {
     const context = this.context(conversation, "propose", false);
     const state = this.longForm.getState(projectId);
     return {
-      contextFingerprint: context.built.fingerprint,
+      contextFingerprint: authorizationFingerprint(context.built.fingerprint, model?.trim() || DEFAULT_MODEL),
       provider: { model: model?.trim() || DEFAULT_MODEL, explicitStartRequired: true },
       diagnostics: context.built.diagnostics,
       withinLimits: context.built.diagnostics.serializedBytes <= PROJECT_SETUP_LIMITS.maximumContextBytes,
@@ -190,11 +193,11 @@ export class ProjectSetupService {
     const conversation = this.requireConversation(projectId, conversationId);
     if (!input.expectedContextFingerprint) fail(400, "setup_authorization_required", "Preview the proposal context before drafting");
     const context = this.context(conversation, "propose", true);
-    if (context.built.fingerprint !== input.expectedContextFingerprint) {
+    const model = input.model?.trim() || DEFAULT_MODEL;
+    if (authorizationFingerprint(context.built.fingerprint, model) !== input.expectedContextFingerprint) {
       fail(409, "setup_context_stale", "The conversation or project changed since the preview. Preview again before drafting.");
     }
     if (!context.authorMessageIds.size) fail(400, "setup_message_required", "Tell Studio about the story first");
-    const model = input.model?.trim() || DEFAULT_MODEL;
     let generation;
     try {
       generation = await this.client.generateStructuredStream({
@@ -213,12 +216,14 @@ export class ProjectSetupService {
       fail(502, "setup_provider_failed", (error as Error).message);
     }
     if (input.signal?.aborted) fail(499, "setup_request_cancelled", "The proposal request was cancelled; no proposal was created");
+    if (Buffer.byteLength(JSON.stringify(generation!.data), "utf8") > 64_000) fail(413, "setup_output_too_large", "Studio output exceeds the proposal limit; no proposal was saved");
     const proposalId = randomUUID();
     const state = this.longForm.getState(projectId);
     const materialized = materializeSetupProposal({
       proposalId,
       response: generation!.data as SetupProposalResponse,
       authorMessageIds: context.authorMessageIds,
+      authorMessages: context.authorMessages,
       brief: state.brief ? { versionId: state.brief.id, content: state.brief.content } : null,
       creativeDirection: state.creativeDirection ? { versionId: state.creativeDirection.id, content: state.creativeDirection.content } : null,
       bible: state.bible ? { versionId: state.bible.id, content: state.bible.content } : null,
@@ -236,7 +241,10 @@ export class ProjectSetupService {
       conversationId: conversation.id,
       summary: materialized.summary,
       contextFingerprint: context.built.fingerprint,
-      bases: materialized.bases,
+      bases: SETUP_ARTIFACTS.map((artifactId) => {
+        const current = this.proposals.currentArtifactVersionId(projectId, artifactId);
+        return { artifactId, precondition: current ? "exact-base" as const : "must-not-exist" as const, versionId: current };
+      }),
       groups: materialized.groups,
       validationFindings: materialized.findings,
       source: {
@@ -252,7 +260,8 @@ export class ProjectSetupService {
         decisionVersionIds: context.built.diagnostics.decisionVersionIds,
         promptVersion: context.built.diagnostics.promptVersion,
         provider: { model, usage: generation!.usage, cost: generation!.cost, repaired: generation!.repaired,
-          attemptCount: (generation!.attempts?.length ?? 0) || 1 },
+          attemptCount: (generation!.attempts?.length ?? 0) || 1,
+          attempts: generation!.attempts ?? [] },
         omissions: materialized.omissions,
         generatesProse: false,
       },
@@ -273,15 +282,15 @@ export class ProjectSetupService {
   apply(projectId: string, conversationId: string, proposalId: string, groupIds?: string[]) {
     const proposal = this.requireProposal(projectId, conversationId, proposalId);
     if (proposal.status !== "proposed") fail(409, "setup_proposal_closed", `This proposal is already ${proposal.status}.`);
-    const selected = groupIds?.length ? [...new Set(groupIds)] : proposal.groups.map((group) => group.id);
+    const selected = groupIds === undefined ? proposal.groups.map((group) => group.id) : [...new Set(groupIds)];
+    if (!selected.length) fail(400, "setup_selection_invalid", "Select at least one proposal section");
     const issues = setupGroupSelectionIssues(proposal.groups, selected);
     if (issues.length) fail(400, "setup_selection_invalid", issues.join("; "));
     const groups = proposal.groups.filter((group) => selected.includes(group.id))
       .sort((left, right) => SETUP_ARTIFACTS.indexOf(left.artifactId as SetupArtifactId) - SETUP_ARTIFACTS.indexOf(right.artifactId as SetupArtifactId));
     const result = transaction(this.database, () => {
-      for (const group of groups) {
-        const base = proposal.bases.find((item) => item.artifactId === group.artifactId);
-        const current = this.proposals.currentArtifactVersionId(projectId, group.artifactId);
+      for (const base of proposal.bases) {
+        const current = this.proposals.currentArtifactVersionId(projectId, base.artifactId);
         const fresh = base && (base.precondition === "exact-base" ? current === base.versionId : current === null);
         if (!fresh) {
           this.proposals.markSupersededInTransaction(proposal.id);
@@ -342,6 +351,65 @@ export class ProjectSetupService {
     return this.proposals.reject(proposal.id);
   }
 
+  /** Author edits create another immutable, non-canonical proposal for review, never mutate an existing candidate. */
+  revise(projectId: string, conversationId: string, proposalId: string, edits: Array<{ groupId: string; path: string; value: unknown }>) {
+    const proposal = this.requireProposal(projectId, conversationId, proposalId);
+    if (proposal.status !== "proposed") fail(409, "setup_proposal_closed", "Draft a fresh proposal before editing closed work");
+    if (!Array.isArray(edits) || !edits.length || edits.length > 60) fail(400, "setup_edits_invalid", "Provide between one and sixty field edits");
+    const result = transaction(this.database, () => {
+      for (const base of proposal.bases) {
+        if (this.proposals.currentArtifactVersionId(projectId, base.artifactId) !== base.versionId) {
+          fail(409, "setup_proposal_stale", "The project changed; draft a new proposal before editing");
+        }
+      }
+      const groups = structuredClone(proposal.groups) as SetupProposalGroup[];
+      for (const edit of edits) {
+        const group = groups.find((item) => item.id === edit.groupId);
+        const change = group?.changes.find((item) => item.path === edit.path);
+        if (!group || !change) fail(400, "setup_edits_invalid", "Only displayed proposal fields can be edited");
+        const keys = edit.path.slice(1).split("/");
+        if (keys.some((key) => ["__proto__", "constructor", "prototype"].includes(key))) fail(400, "setup_edits_invalid", "Invalid field path");
+        let target: unknown = group!.candidate;
+        for (const key of keys.slice(0, -1)) target = (target as Record<string, unknown>)[key];
+        if (Array.isArray(target)) {
+          const index = target.findIndex((item: { id?: string }) => item.id === keys.at(-1));
+          if (index < 0) fail(400, "setup_edits_invalid", "Unknown seed");
+          if (!edit.value || typeof edit.value !== "object" || (edit.value as { id?: string }).id !== keys.at(-1)) fail(400, "setup_edits_invalid", "Seed identity must be preserved");
+          target[index] = edit.value;
+        } else (target as Record<string, unknown>)[keys.at(-1)!] = edit.value;
+        change!.after = edit.value;
+        change!.basis = "stated";
+      }
+      for (const group of groups) this.parseCandidate(group);
+      const authorMessage = this.saveAuthorMessage(this.requireConversation(projectId, conversationId),
+        `Reviewed setup edits: ${JSON.stringify(edits)}`, true);
+      for (const edit of edits) {
+        const group = groups.find((item) => item.id === edit.groupId)!;
+        const change = group.changes.find((item) => item.path === edit.path)!;
+        change.messageIds = [authorMessage.id];
+        change.excerpt = Buffer.from(authorMessage.content, "utf8").subarray(0, 300).toString("utf8").replace(/\uFFFD$/, "");
+        if (group.artifactId === "creative-direction") {
+          const direction = group.candidate as CreativeDirection;
+          direction.fieldProvenance = direction.fieldProvenance.filter((item) => item.fieldPath !== edit.path);
+          direction.fieldProvenance.push({ fieldPath: edit.path, reference: { kind: "user-message", targetId: authorMessage.id, excerpt: change.excerpt } });
+          group.candidate = normalizeCreativeDirection(direction);
+        }
+      }
+      const snapshot = this.longForm.snapshot(projectId);
+      for (const group of groups) {
+        if (group.artifactId === "brief") snapshot.brief = group.candidate as ProjectBrief;
+        if (group.artifactId === "creative-direction") snapshot["creative-direction"] = group.candidate as CreativeDirection;
+        if (group.artifactId === "bible") snapshot.bible = group.candidate as LongFormStoryBible;
+      }
+      return this.proposals.createInTransaction({ projectId, conversationId, summary: `Author-edited: ${proposal.summary}`,
+        source: { ...proposal.source, revisedFromProposalId: proposal.id, reviewedEditMessageId: authorMessage.id },
+        bases: proposal.bases, groups, validationFindings: validateLongFormProject(snapshot),
+        contextFingerprint: this.context(this.requireConversation(projectId, conversationId), "propose", false).built.fingerprint });
+    });
+    this.authorMemory.ensureSummary(projectId, conversationId);
+    return result;
+  }
+
   private parseCandidate(group: SetupProposalRecord["groups"][number]): PlanningArtifact {
     try {
       if (group.artifactId === "brief") return ProjectBriefSchema.parse(group.candidate);
@@ -357,7 +425,7 @@ export class ProjectSetupService {
   }
 
   private context(conversation: ConversationRecord, mode: "ask" | "propose", enforceLimit: boolean): {
-    built: SetupContext; authorMessageIds: Set<string>;
+    built: SetupContext; authorMessageIds: Set<string>; authorMessages: Map<string, string>;
   } {
     const projectId = conversation.projectId;
     const memory = this.authorMemory.buildContext(projectId, conversation.id, this.scope(projectId));
@@ -378,7 +446,8 @@ export class ProjectSetupService {
     if (enforceLimit && built.diagnostics.serializedBytes > PROJECT_SETUP_LIMITS.maximumContextBytes) {
       fail(413, "setup_context_too_large", "The setup context exceeds its hard limit; nothing was sent to a provider");
     }
-    return { built, authorMessageIds: new Set(messages.filter((message) => message.role === "user").map((message) => message.id)) };
+    const authorMessages = new Map(messages.filter((message) => message.role === "user").map((message) => [message.id, message.content]));
+    return { built, authorMessageIds: new Set(authorMessages.keys()), authorMessages };
   }
 
   /** Post-provider freshness check inside the completion transaction: no late commit over changed context. */
@@ -389,25 +458,31 @@ export class ProjectSetupService {
     }
   }
 
-  private saveAuthorMessage(conversation: ConversationRecord, content: string): MessageRecord {
+  private saveAuthorMessage(conversation: ConversationRecord, content: string, inTransaction = false): MessageRecord {
     const trimmed = content.trim();
     if (!trimmed) fail(400, "setup_message_required", "Message is required");
     if (conversationMessageBytes(trimmed) > CONVERSATION_MESSAGE_BUDGETS.maximumUserMessageBytes) {
       fail(413, "setup_message_too_large", `Message exceeds the ${CONVERSATION_MESSAGE_BUDGETS.maximumUserMessageBytes.toLocaleString()}-byte limit`);
     }
-    const message = this.conversations.addMessage({
-      conversationId: conversation.id, role: "user", content: trimmed, intent: "discuss",
-      scope: this.scope(conversation.projectId), context: this.versionContext(conversation.projectId),
-      metadata: { kind: "setup-author" },
-    });
-    this.authorMemory.ensureSummary(conversation.projectId, conversation.id);
+    const save = () => {
+      for (const proposal of this.proposals.listRecent(conversation.id)) {
+        if (proposal.status === "proposed") this.proposals.markSupersededInTransaction(proposal.id);
+      }
+      return this.conversations.addMessage({
+        conversationId: conversation.id, role: "user", content: trimmed, intent: "discuss",
+        scope: this.scope(conversation.projectId), context: this.versionContext(conversation.projectId),
+        metadata: { kind: "setup-author" },
+      });
+    };
+    const message = inTransaction ? save() : transaction(this.database, save);
+    if (!inTransaction) this.authorMemory.ensureSummary(conversation.projectId, conversation.id);
     return message;
   }
 
   private versionContext(projectId: string): Record<string, string> {
     return Object.fromEntries(["brief", "creative-direction", "bible", "routes", "endings", "mechanics"].flatMap((artifactId) => {
       const current = this.proposals.currentArtifactVersionId(projectId, artifactId);
-      return current ? [[artifactId === "creative-direction" ? "creativeDirectionVersionId" : `${artifactId}VersionId`, current]] : [];
+      return current ? [[`${artifactId}VersionId`, current]] : [];
     }));
   }
 

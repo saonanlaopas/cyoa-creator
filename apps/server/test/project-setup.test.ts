@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { OpenRouterClient, StructuredGenerationStreamRequest } from "@story-to-cyoa/openrouter";
+import { EnvironmentCredentialStore, OpenRouterClient, type StructuredGenerationStreamRequest } from "@story-to-cyoa/openrouter";
 import {
   ArtifactRepository,
   AuthorMemoryRepository,
@@ -16,7 +16,7 @@ import {
 } from "@story-to-cyoa/persistence";
 import type { CreativeDirection, LongFormStoryBible, ProjectBrief } from "@story-to-cyoa/pipeline";
 import { buildApp } from "../src/app.js";
-import { createOfflineSetupClient } from "../src/services/offline-setup-provider.js";
+import { createOfflineSetupClient, offlineSetupResponse } from "../src/services/offline-setup-provider.js";
 import { LongFormProjectService } from "../src/services/long-form-project-service.js";
 import { ProjectSetupError, ProjectSetupService } from "../src/services/project-setup-service.js";
 import { PublicationExportService } from "../src/services/publication-export-service.js";
@@ -29,9 +29,9 @@ afterEach(() => directories.splice(0).forEach((path) => rmSync(path, { recursive
 
 type Group = { id: string; artifactId: string; candidate: unknown; dependsOnGroupIds: string[]; changes: Array<{ path: string; basis: string; messageIds: string[] }> };
 
-function harness(options: Parameters<typeof createOfflineSetupClient>[0] & { databasePath?: string } = {}) {
+function harness(options: Parameters<typeof createOfflineSetupClient>[0] & { databasePath?: string; client?: OpenRouterClient } = {}) {
   const requests: StructuredGenerationStreamRequest[] = [];
-  const client = createOfflineSetupClient({ ...options, onRequest: (request) => { requests.push(request); options.onRequest?.(request); } });
+  const client = options.client ?? createOfflineSetupClient({ ...options, onRequest: (request) => { requests.push(request); options.onRequest?.(request); } });
   const app = buildApp({ openRouterClient: client, databasePath: options.databasePath });
   const base = (projectId: string, conversationId: string) => `/api/long-form/projects/${projectId}/setup/sessions/${conversationId}`;
   const create = async (name = "Setup Project") => {
@@ -57,6 +57,202 @@ function harness(options: Parameters<typeof createOfflineSetupClient>[0] & { dat
 }
 
 describe("A2 conversational project setup", () => {
+  it.each(["A mystery.", "An explorer named Mara.", "Something with a nice vibe."])("keeps unstated structural and presentation decisions unknown for %s", async (content) => {
+    const { app, create, ask, state } = harness(); const { projectId, conversationId } = await create();
+    const before = await state(projectId); const response = await ask(projectId, conversationId, content);
+    expect(response.statusCode).toBe(201);
+    const reply = response.json().reply;
+    expect(reply.questions.length).toBeLessThanOrEqual(3);
+    expect(reply.understanding.unresolved.map((item: { id: string }) => item.id)).toEqual(expect.arrayContaining(["title", "pov", "tense", "length", "branching"]));
+    expect(JSON.stringify(reply)).not.toMatch(/romance|romantic|intimacy|attraction/i);
+    expect((await state(projectId)).brief.id).toBe(before.brief.id); expect((await state(projectId)).creativeDirection.id).toBe(before.creativeDirection.id);
+    await app.close();
+  });
+
+  it("lets explicit pacing corrections replace earlier intent instead of retaining assistant assumptions", async () => {
+    const { app, create, ask, draft } = harness(); const { projectId, conversationId } = await create();
+    await ask(projectId, conversationId, BL_PROMPT);
+    const reply = (await ask(projectId, conversationId, "Actually, not warm. Make the pace brisk.")).json().reply;
+    expect(reply.understanding.items.map((item: { id: string }) => item.id)).not.toContain("tone-warm");
+    const proposal = (await draft(projectId, conversationId)).json().proposal;
+    const direction = proposal.groups.find((group: Group) => group.id === "creative-direction").candidate;
+    expect(direction.pacing.developmentPace).toBe("brisk"); expect(direction.tone.descriptors).not.toContain("warm");
+    await app.close();
+  });
+
+  it("rejects oversized Unicode output without candidates and allows an explicit retry", async () => {
+    let oversized = true;
+    const { app, create, ask, draft, base, state } = harness({ transform: (value, prompt) => {
+      if (!oversized || !prompt.startsWith("You are Studio, drafting")) return value;
+      return { ...(value as object), bibleSeeds: { characters: Array.from({ length: 12 }, (_, index) => ({ key: `c-${index}`, name: `Character ${index}`, summary: "漢".repeat(2000), evidence: { basis: "inferred" } })) } };
+    } });
+    const { projectId, conversationId } = await create(); await ask(projectId, conversationId, BL_PROMPT); const before = await state(projectId);
+    const rejected = await draft(projectId, conversationId); expect(rejected.statusCode).toBe(413);
+    expect((await app.inject({ method: "GET", url: base(projectId, conversationId) })).json().proposals).toEqual([]);
+    expect((await state(projectId)).brief.id).toBe(before.brief.id);
+    oversized = false; expect((await draft(projectId, conversationId)).statusCode).toBe(201);
+    await app.close();
+  });
+
+  it("repairs malformed JSON once through the production adapter with a fully stubbed transport", async () => {
+    let calls = 0; let prompt = "";
+    const client = new OpenRouterClient({ credentialStore: new EnvironmentCredentialStore({ environment: { OPENROUTER_API_KEY: "offline-test-only" } }),
+      fetch: async (_url, init) => {
+        calls++; const body = JSON.parse(String(init?.body));
+        if (calls === 1) prompt = body.messages.at(-1).content;
+        const content = calls === 1 ? "{bad" : JSON.stringify(offlineSetupResponse(prompt));
+        return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content } }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+      } });
+    const { app, create, base } = harness({ client }); const { projectId, conversationId } = await create();
+    await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/messages`, payload: { content: BL_PROMPT } });
+    const preview = (await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/proposal-preview`, payload: {} })).json();
+    const drafted = await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/proposals`, payload: { expectedContextFingerprint: preview.contextFingerprint } });
+    expect(drafted.statusCode, drafted.body).toBe(201); expect(calls).toBe(2);
+    expect(drafted.json().proposal.source.provider).toMatchObject({ repaired: true, attemptCount: 2, attempts: expect.any(Array) });
+    await app.close();
+  });
+
+  it("reopens a pending proposal and applies it after restart without a provider replay", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-a2-reopen-")); directories.push(directory);
+    const databasePath = join(directory, "story.sqlite");
+    const first = harness({ databasePath }); const { projectId, conversationId } = await first.create();
+    await first.ask(projectId, conversationId, BL_PROMPT);
+    const proposal = (await first.draft(projectId, conversationId)).json().proposal;
+    await first.app.close();
+    const second = harness({ databasePath });
+    const session = (await second.app.inject({ method: "GET", url: second.base(projectId, conversationId) })).json();
+    expect(session.proposals[0].id).toBe(proposal.id);
+    const applied = await second.app.inject({ method: "POST", url: `${second.base(projectId, conversationId)}/proposals/${proposal.id}/apply`, payload: {} });
+    expect(applied.statusCode, applied.body).toBe(201); expect(second.requests).toHaveLength(0);
+    await second.app.close();
+  });
+
+  it("rolls back all artifact drafts and audit on a late application storage failure", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-a2-atomic-")); directories.push(directory);
+    const databasePath = join(directory, "story.sqlite");
+    const { app, create, ask, draft, base, state } = harness({ databasePath });
+    const { projectId, conversationId } = await create(); await ask(projectId, conversationId, BL_PROMPT);
+    const proposal = (await draft(projectId, conversationId)).json().proposal; const before = await state(projectId);
+    const database = openDatabase(databasePath);
+    database.exec("CREATE TRIGGER fail_setup_bible BEFORE INSERT ON artifact_versions WHEN NEW.artifact_id = 'bible' BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END");
+    const applied = await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/proposals/${proposal.id}/apply`, payload: {} });
+    expect(applied.statusCode).toBe(400); expect(applied.json().error).toContain("injected storage failure");
+    const after = await state(projectId); expect(after.brief.id).toBe(before.brief.id); expect(after.creativeDirection.id).toBe(before.creativeDirection.id); expect(after.bible).toBeNull();
+    expect(new SetupProposalRepository(database).get(proposal.id)?.status).toBe("proposed");
+    database.exec("DROP TRIGGER fail_setup_bible"); database.close();
+    expect((await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/proposals/${proposal.id}/apply`, payload: {} })).statusCode).toBe(201);
+    await app.close();
+  });
+
+  it("uses bounded earlier author memory and pinned decisions without pretending they are exact message evidence", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-a2-memory-")); directories.push(directory);
+    const databasePath = join(directory, "story.sqlite");
+    const { app, create, base, draft, requests } = harness({ databasePath }); const { projectId, conversationId } = await create();
+    await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/messages`, payload: { content: "A warm detective story in a flooded city." } });
+    const memoryDatabase = openDatabase(databasePath);
+    const decision = new AuthorMemoryRepository(memoryDatabase).createDecision({ projectId, scope: { kind: "project" }, content: "Past tense." });
+    memoryDatabase.close();
+    for (let index = 0; index < 30; index++) await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/messages`, payload: { content: `Undecided detail ${index}.` } });
+    const proposal = (await draft(projectId, conversationId)).json().proposal;
+    expect(proposal.source.summaryVersionId).not.toBeNull();
+    expect(proposal.source.decisionVersionIds).toContain(decision.id);
+    expect(requests.at(-1)!.messages.at(-1)!.content).toContain("Earlier setup conversation summary");
+    expect(proposal.groups.find((group: Group) => group.id === "creative-direction").candidate.tone.descriptors).toContain("warm");
+    expect(JSON.stringify(proposal.groups)).not.toMatch(/"targetId":"summary-memory/);
+    expect(Buffer.byteLength(requests.at(-1)!.messages.at(-1)!.content, "utf8")).toBeLessThanOrEqual(72_000);
+    await app.close();
+  });
+
+  it("binds preview authorization to the requested model without invoking the provider", async () => {
+    const { app, create, ask, base, requests } = harness();
+    const { projectId, conversationId } = await create();
+    await ask(projectId, conversationId, BL_PROMPT);
+    const preview = (await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/proposal-preview`, payload: { model: "reviewed-model" } })).json();
+    const count = requests.length;
+    const response = await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/proposals`,
+      payload: { model: "different-model", expectedContextFingerprint: preview.contextFingerprint } });
+    expect(response.statusCode).toBe(409); expect(requests).toHaveLength(count);
+    await app.close();
+  });
+
+  it("does not apply an explicit empty selection and supersedes candidates immediately on clarification", async () => {
+    const { app, create, ask, draft, base, state } = harness();
+    const { projectId, conversationId } = await create();
+    await ask(projectId, conversationId, BL_PROMPT);
+    const proposal = (await draft(projectId, conversationId)).json().proposal;
+    const before = await state(projectId);
+    const url = `${base(projectId, conversationId)}/proposals/${proposal.id}/apply`;
+    expect((await app.inject({ method: "POST", url, payload: { groupIds: [] } })).statusCode).toBe(400);
+    await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/messages`, payload: { content: "Actually, make it brisk." } });
+    expect((await app.inject({ method: "POST", url, payload: {} })).statusCode).toBe(409);
+    expect((await state(projectId)).brief.id).toBe(before.brief.id);
+    await app.close();
+  });
+
+  it("refines the flooded-city detective across three author turns without romance contamination", async () => {
+    const { app, create, ask, draft } = harness();
+    const { projectId, conversationId } = await create();
+    await ask(projectId, conversationId, "I want a detective story in a flooded city.");
+    await ask(projectId, conversationId, "Actually make the detective retired and reluctant.");
+    const reply = (await ask(projectId, conversationId, "Keep it melancholy but not hopeless.")).json().reply;
+    expect(reply.understanding.items).toContainEqual(expect.objectContaining({ statement: expect.stringContaining("retired and reluctant") }));
+    const proposal = (await draft(projectId, conversationId)).json().proposal;
+    const brief = proposal.groups.find((group: Group) => group.id === "brief").candidate;
+    expect(brief.protagonist).toContain("retired and reluctant");
+    expect(brief.premise).toContain("flooded city"); expect(brief.premise).toContain("not hopeless");
+    const direction = proposal.groups.find((group: Group) => group.id === "creative-direction").candidate;
+    expect(direction.tone.descriptors).toContain("wistful"); expect(direction.tone.exclusions).toContain("hopeless");
+    expect(JSON.stringify(proposal.groups)).not.toMatch(/romance|romantic|intimacy|attraction/i);
+    await app.close();
+  });
+
+  it("respects an explicit relationship opt-out without erasing the author's boundary quote", async () => {
+    const { app, create, ask, draft } = harness();
+    const { projectId, conversationId } = await create();
+    await ask(projectId, conversationId, "A tense detective mystery. No romance, please.");
+    const proposal = (await draft(projectId, conversationId)).json().proposal;
+    expect(proposal.groups.find((group: Group) => group.id === "creative-direction").candidate.relationshipPresentation).toBeUndefined();
+    expect(proposal.groups.find((group: Group) => group.id === "bible-seeds").candidate.relationships).toEqual([]);
+    expect(proposal.groups.find((group: Group) => group.id === "brief").candidate.premise).toContain("No romance");
+    await app.close();
+  });
+
+  it("creates immutable reviewed edits, preserves canonical state until Apply, and saves durable author provenance", async () => {
+    const { app, create, ask, draft, base, state, requests } = harness();
+    const { projectId, conversationId } = await create();
+    await ask(projectId, conversationId, BL_PROMPT);
+    const proposal = (await draft(projectId, conversationId)).json().proposal;
+    const before = await state(projectId); const count = requests.length;
+    const revision = await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/proposals/${proposal.id}/revise`, payload: {
+      edits: [{ groupId: "creative-direction", path: "/tone/descriptors", value: ["wistful"] }, { groupId: "brief", path: "/premise", value: "An author-reviewed premise." }],
+    } });
+    expect(revision.statusCode, revision.body).toBe(201);
+    const edited = revision.json(); expect(edited.id).not.toBe(proposal.id); expect(edited.status).toBe("proposed");
+    expect((await state(projectId)).brief.id).toBe(before.brief.id); expect(requests).toHaveLength(count);
+    const session = (await app.inject({ method: "GET", url: base(projectId, conversationId) })).json();
+    expect(session.proposals.find((item: { id: string }) => item.id === proposal.id).status).toBe("superseded");
+    const applied = await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/proposals/${edited.id}/apply`, payload: {} });
+    expect(applied.statusCode, applied.body).toBe(201);
+    const after = await state(projectId); expect(after.brief.content.premise).toBe("An author-reviewed premise.");
+    expect(after.creativeDirection.content.tone.descriptors).toEqual(["wistful"]);
+    expect(after.creativeDirection.content.fieldProvenance).toContainEqual(expect.objectContaining({ fieldPath: "/tone/descriptors", reference: expect.objectContaining({ kind: "user-message", targetId: edited.source.reviewedEditMessageId }) }));
+    expect(after.workflow["creative-direction"]!.status).toBe("draft"); expect(requests).toHaveLength(count);
+    await app.close();
+  });
+
+  it("rolls invalid reviewed edits back without superseding the original proposal", async () => {
+    const { app, create, ask, draft, base } = harness();
+    const { projectId, conversationId } = await create(); await ask(projectId, conversationId, BL_PROMPT);
+    const proposal = (await draft(projectId, conversationId)).json().proposal;
+    const response = await app.inject({ method: "POST", url: `${base(projectId, conversationId)}/proposals/${proposal.id}/revise`,
+      payload: { edits: [{ groupId: "creative-direction", path: "/pacing/developmentPace", value: "invalid" }] } });
+    expect(response.statusCode).toBe(422);
+    const session = (await app.inject({ method: "GET", url: base(projectId, conversationId) })).json();
+    expect(session.proposals).toHaveLength(1); expect(session.proposals[0].status).toBe("proposed");
+    expect(session.messages.some((message: { content: string }) => message.content.startsWith("Reviewed setup edits"))).toBe(false);
+    await app.close();
+  });
+
   it("creates an ordinary long-form project with a separate, non-canonical setup conversation", async () => {
     const { app, create, requests } = harness();
     const { projectId, conversationId, body } = await create("Tidewater");

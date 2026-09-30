@@ -32,17 +32,20 @@ import { PublicationWorkspace } from "./PublicationWorkspace.js";
 import { GlobalRestorePanel, RecoveryWorkspace } from "./RecoveryWorkspace.js";
 import { ProjectHealthWorkspace } from "./ProjectHealthWorkspace.js";
 import { ResumeWorkWorkspace } from "./ResumeWorkWorkspace.js";
+import { ProjectSetupWorkspace } from "./ProjectSetupWorkspace.js";
+import { createSetupProject } from "../../api/project-setup.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
 const navigationKey = (projectId: string) => `story-to-cyoa.navigation.${projectId}`;
-type LongFormStage = "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
-const stageIds: LongFormStage[] = ["brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
+type LongFormStage = "setup" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
+const stageIds: LongFormStage[] = ["setup", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
 const isLongFormStage = (value: unknown): value is LongFormStage => typeof value === "string" && stageIds.includes(value as LongFormStage);
 const stages = ["Project brief", "Creative Direction", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Repair planning", "Publication", "Resume work", "Project health", "Backup & recovery"];
 const navigationStageIds: Array<LongFormStage | null> = ["brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", null, "simulation", "repair", "publication", "resume", "health", "recovery"];
 type NavigationHint = { stage: LongFormStage; entityId: string | null };
 const stageLabels: Record<LongFormStage, string> = {
+  setup: "Talk it through",
   brief: "Project brief", "creative-direction": "Creative Direction", bible: "Story bible", routes: "Routes", endings: "Endings", mechanics: "Mechanics",
   "passage-plan": "Passage plan", simulation: "Playtest & analysis", repair: "Repair planning",
   publication: "Publication", resume: "Resume work", health: "Project health", recovery: "Backup & recovery",
@@ -204,6 +207,17 @@ export function LongFormWorkspace() {
         <h2>New long-form project</h2>
         <label>Working title<input value={newName} onChange={(event) => setNewName(event.target.value)} /></label>
         <button className="primary" disabled={busy || !newName.trim()} onClick={() => void create()}>Create project</button>
+        <button disabled={busy} onClick={async () => {
+          setBusy(true); setMessage(null);
+          try {
+            const created = await createSetupProject(newName);
+            setProjects((items) => [created.project, ...items]);
+            await openProject(created.project.id);
+            setActiveStage("setup"); localStorage.setItem(activeStageKey, "setup"); setNewName("");
+            localStorage.setItem(navigationKey(created.project.id), JSON.stringify({ stage: "setup" }));
+          } catch (error) { setMessage((error as Error).message); }
+          finally { setBusy(false); }
+        }}>Talk through an original idea</button>
         {projects.length > 0 && <div className="project-list">
           <h3>Existing projects</h3>
           {projects.map((item) => <button key={item.id} onClick={() => void openProject(item.id)}>{item.name}</button>)}
@@ -217,7 +231,7 @@ export function LongFormWorkspace() {
     </main>;
   }
 
-  return <main id="main-content" className="long-form-workspace" tabIndex={-1}>
+  return <main id="main-content" className={`long-form-workspace${activeStage === "setup" ? " setup-active" : ""}`} tabIndex={-1}>
     <nav className="workflow-nav" aria-label="Long-form workflow">
       <p className="eyebrow">Long-form project</p>
       <h2>{project.name}</h2>
@@ -242,7 +256,8 @@ export function LongFormWorkspace() {
         setActiveStage("brief");
         localStorage.setItem(activeStageKey, "brief");
       }}>New project</button>
-      <ol>
+      <button aria-current={activeStage === "setup" ? "step" : undefined} onClick={() => navigate("setup")}>Talk it through</button>
+      <details open={activeStage !== "setup"}><summary>Advanced workspace</summary><ol>
         {stages.map((stage, index) => {
           const stageId = navigationStageIds[index] ?? null;
           const enabled = stageId === "brief" || stageId === "creative-direction"
@@ -316,9 +331,10 @@ export function LongFormWorkspace() {
         </div>
         <small>Stored only in this browser; never treated as project workflow state.</small>
       </section>
+      </details>
     </nav>
 
-    {activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
+    {activeStage !== "setup" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
       <ArtifactHistory
         projectId={project.id}
         artifactId={activeStage}
@@ -334,7 +350,7 @@ export function LongFormWorkspace() {
       </details>}
     </section>}
 
-    {activeStage === "brief" ? <section className="artifact-pane">
+    {activeStage === "setup" ? <ProjectSetupWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id)} /> : activeStage === "brief" ? <section className="artifact-pane">
       <header className="artifact-header">
         <div>
           <p className="eyebrow">Stage 1</p>
@@ -452,7 +468,7 @@ export function LongFormWorkspace() {
         await openProject(restoredProjectId);
       }} />}
 
-    {activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
+    {activeStage !== "setup" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
       key={project.id}
       project={project}
       brief={brief}

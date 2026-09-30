@@ -365,16 +365,22 @@ export interface SetupEvidence {
 export function normalizeSetupEvidence(
   evidence: { basis: SetupBasis; messageIds?: string[]; excerpt?: string },
   authorMessageIds: ReadonlySet<string>,
+  authorMessages?: ReadonlyMap<string, string>,
 ): SetupEvidence {
   const messageIds = [...new Set((evidence.messageIds ?? []).filter((id) => authorMessageIds.has(id)))]
     .slice(0, PROJECT_SETUP_LIMITS.maximumEvidenceMessageIds);
   const basis = evidence.basis === "stated" && messageIds.length ? "stated" : "inferred";
+  if (basis === "stated" && evidence.excerpt && authorMessages
+    && !messageIds.some((id) => authorMessages.get(id)?.includes(evidence.excerpt!.trim()))) {
+    return { basis: "inferred", messageIds: [], excerpt: "" };
+  }
   return { basis, messageIds, excerpt: (evidence.excerpt ?? "").trim() };
 }
 
 export function normalizeSetupReply(
   response: SetupAssistantResponse,
   authorMessageIds: ReadonlySet<string>,
+  authorMessages?: ReadonlyMap<string, string>,
 ): SetupAssistantResponse {
   const unique = <T extends { id: string }>(items: T[]) => {
     const seen = new Set<string>();
@@ -385,7 +391,7 @@ export function normalizeSetupReply(
     readiness: authorMessageIds.size === 0 ? "needs-input" : response.readiness,
     understanding: {
       ...response.understanding,
-      items: unique(response.understanding.items).map((item) => ({ ...item, ...normalizeSetupEvidence(item, authorMessageIds) })),
+      items: unique(response.understanding.items).map((item) => ({ ...item, ...normalizeSetupEvidence(item, authorMessageIds, authorMessages) })),
       unresolved: unique(response.understanding.unresolved),
     },
     questions: unique(response.questions).slice(0, PROJECT_SETUP_LIMITS.maximumQuestions),
@@ -455,6 +461,7 @@ export interface MaterializeSetupInput {
   proposalId: string;
   response: SetupProposalResponse;
   authorMessageIds: ReadonlySet<string>;
+  authorMessages?: ReadonlyMap<string, string>;
   brief: { versionId: string; content: ProjectBrief } | null;
   creativeDirection: { versionId: string; content: CreativeDirection } | null;
   bible: { versionId: string; content: LongFormStoryBible } | null;
@@ -470,7 +477,7 @@ export function materializeSetupProposal(input: MaterializeSetupInput): Material
   const bases: SetupProposalBaseRecord[] = [];
   const omissions: string[] = [];
   const evidenceFor = (value: { basis: SetupBasis; messageIds?: string[]; excerpt?: string } | undefined) =>
-    normalizeSetupEvidence(value ?? { basis: "inferred" }, input.authorMessageIds);
+    normalizeSetupEvidence(value ?? { basis: "inferred" }, input.authorMessageIds, input.authorMessages);
 
   let briefCandidate: ProjectBrief | null = null;
   if (input.response.brief && input.brief) {
@@ -539,10 +546,9 @@ export function materializeSetupProposal(input: MaterializeSetupInput): Material
       const fieldEvidence = evidenceFor(evidence.get(path));
       const section = segments[0] === "relationshipPresentation" ? "Relationships" : segments[0]![0]!.toUpperCase() + segments[0]!.slice(1);
       const fieldPath = `/${segments.join("/")}`;
-      if (!same(before, after)) {
-        changes.push({ path: fieldPath,
-          label: `${section}: ${segments.at(-1)!.replace(/([A-Z])/g, " $1").toLowerCase()}`, before, after, ...fieldEvidence });
-      }
+      changes.push({ path: fieldPath,
+        label: `${section}: ${segments.at(-1)!.replace(/([A-Z])/g, " $1").toLowerCase()}${same(before, after) ? " (confirm existing value)" : ""}`,
+        before, after, ...fieldEvidence });
       if (fieldEvidence.basis === "stated") {
         for (const messageId of fieldEvidence.messageIds.slice(0, 2)) {
           provenance.push({ fieldPath, reference: { kind: "user-message", targetId: messageId,

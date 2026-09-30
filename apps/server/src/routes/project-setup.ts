@@ -86,4 +86,11 @@ export function registerProjectSetupRoutes(app: FastifyInstance, setup: ProjectS
       try { return setup.reject(request.params.projectId, request.params.conversationId, request.params.proposalId); }
       catch (error) { return send(reply, error); }
     });
+
+  app.post<{ Params: ProposalParams; Body: { edits?: Array<{ groupId: string; path: string; value: unknown }> } }>(
+    `${base}/sessions/:conversationId/proposals/:proposalId/revise`, async (request, reply) => {
+      try { return reply.code(201).send(setup.revise(request.params.projectId, request.params.conversationId,
+        request.params.proposalId, request.body?.edits ?? [])); }
+      catch (error) { return send(reply, error); }
+    });
 }

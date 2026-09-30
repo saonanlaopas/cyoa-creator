@@ -41,6 +41,27 @@ function setupProject() {
 }
 
 describe("A2 project-setup persistence", () => {
+  it("rejects cross-project bases, author evidence, malformed dependency graphs and audit versions", () => {
+    const { database, project, artifacts, conversations, setup, create, proposals } = setupProject();
+    const proposal = create();
+    const other = new ProjectRepository(database).create("Other", undefined, "long-form");
+    const foreign = artifacts.saveArtifact({ projectId: other.id, artifactId: "brief", content: {} });
+    expect(() => proposals.create({ ...proposal, id: undefined, bases: [{ artifactId: "brief", precondition: "exact-base", versionId: foreign.id }] })).toThrow("ownership");
+    const otherChat = conversations.create(other.id, { kind: "project", projectId: other.id }, "Setup", "setup");
+    const foreignMessage = conversations.addMessage({ conversationId: otherChat.id, role: "user", content: "Other author", intent: "discuss", scope: { kind: "project", projectId: other.id }, context: {}, metadata: {} });
+    expect(() => proposals.create({ ...proposal, id: undefined, source: { messageRange: { authorMessageIds: [foreignMessage.id] } } })).toThrow("evidence ownership");
+    expect(() => proposals.create({ ...proposal, id: undefined, groups: [{ ...proposal.groups[0]!, dependsOnGroupIds: ["missing"] }] })).toThrow("dependency");
+    expect(() => proposals.markAppliedInTransaction(proposal.id, { appliedGroupIds: ["brief"], createdVersions: [{ groupId: "brief", artifactId: "brief", versionId: foreign.id }], appliedAt: new Date().toISOString() })).toThrow("ownership");
+    expect(proposals.get(proposal.id)?.status).toBe("proposed"); database.close();
+  });
+
+  it("cascades setup conversations, messages and proposals when their project is deleted", () => {
+    const { database, project, create } = setupProject(); create();
+    database.prepare("DELETE FROM projects WHERE id = ?").run(project.id);
+    expect(database.prepare("SELECT COUNT(*) AS count FROM setup_proposals").get()).toEqual({ count: 0 });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM conversations").get()).toEqual({ count: 0 }); database.close();
+  });
+
   it("migrates the frozen schema-v18 fixture additively without changing accepted bytes", () => {
     const originalHash = digest(fixture);
     expect(originalHash).toBe("0185eee05e45eabe6a1c20a1111adffac20c688e15cfbb9609c7b026e167e9d0");

@@ -43,6 +43,12 @@ export interface SetupProposalRecord<T = unknown> {
   updatedAt: string;
 }
 
+interface SetupProposalInput<T> {
+  id?: string; projectId: string; conversationId: string; summary: string;
+  source: Record<string, unknown>; bases: SetupProposalBase[]; groups: Array<SetupProposalGroupRecord<T>>;
+  validationFindings?: unknown[]; contextFingerprint: string; beforeInsert?: () => void;
+}
+
 type SetupProposalRow = {
   id: string; project_id: string; conversation_id: string; schema_version: 1; status: SetupProposalStatus;
   summary: string; source_json: string; bases_json: string; groups_json: string; validation_json: string;
@@ -77,35 +83,67 @@ export class SetupProposalRepository {
   public constructor(private readonly database: StoryDatabase) {}
 
   /** Stores a proposal and supersedes every earlier pending proposal in the same setup conversation. */
-  create<T>(input: {
-    id?: string;
-    projectId: string;
-    conversationId: string;
-    summary: string;
-    source: Record<string, unknown>;
-    bases: SetupProposalBase[];
-    groups: Array<SetupProposalGroupRecord<T>>;
-    validationFindings?: unknown[];
-    contextFingerprint: string;
-    beforeInsert?: () => void;
-  }): SetupProposalRecord<T> {
+  create<T>(input: SetupProposalInput<T>): SetupProposalRecord<T> {
+    return transaction(this.database, () => this.createInTransaction(input));
+  }
+
+  createInTransaction<T>(input: SetupProposalInput<T>): SetupProposalRecord<T> {
     if (!input.groups.length) throw new Error("A setup proposal needs at least one group");
+    const conversation = this.database.prepare("SELECT project_id, purpose FROM conversations WHERE id = ?")
+      .get(input.conversationId) as { project_id: string; purpose: string } | undefined;
+    if (!conversation || conversation.project_id !== input.projectId || conversation.purpose !== "setup") throw new Error("Invalid setup proposal lineage");
+    if (!/^[a-f0-9]{64}$/.test(input.contextFingerprint)) throw new Error("Invalid setup context fingerprint");
+    if (input.groups.length > 3 || input.bases.length > 3 || Buffer.byteLength(JSON.stringify(input), "utf8") > 256_000) {
+      throw new Error("Setup proposal exceeds storage limits");
+    }
+    const supported = new Set(["brief", "creative-direction", "bible"]);
+    const groupIds = new Set(input.groups.map((group) => group.id));
+    if (groupIds.size !== input.groups.length || new Set(input.groups.map((group) => group.artifactId)).size !== input.groups.length
+      || new Set(input.bases.map((base) => base.artifactId)).size !== input.bases.length) throw new Error("Duplicate setup groups or bases");
+    for (const base of input.bases) {
+      if (!supported.has(base.artifactId)) throw new Error("Unsupported setup artifact base");
+      if (base.precondition === "must-not-exist") {
+        if (base.versionId !== null) throw new Error("Absent setup base cannot identify a version");
+      } else {
+        const version = this.database.prepare("SELECT project_id, artifact_id FROM artifact_versions WHERE id = ?")
+          .get(base.versionId!) as { project_id: string; artifact_id: string } | undefined;
+        if (base.precondition !== "exact-base" || !version || version.project_id !== input.projectId || version.artifact_id !== base.artifactId) {
+          throw new Error("Invalid setup artifact base ownership");
+        }
+      }
+    }
+    for (const group of input.groups) {
+      if (!supported.has(group.artifactId) || !input.bases.some((base) => base.artifactId === group.artifactId)
+        || group.dependsOnGroupIds.some((dependency) => dependency === group.id || !groupIds.has(dependency))) throw new Error("Invalid setup group dependency or base");
+    }
+    const visit = (id: string, path = new Set<string>()): void => {
+      if (path.has(id)) throw new Error("Cyclic setup group dependencies");
+      const next = new Set([...path, id]);
+      input.groups.find((group) => group.id === id)!.dependsOnGroupIds.forEach((dependency) => visit(dependency, next));
+    };
+    input.groups.forEach((group) => visit(group.id));
+    const range = input.source.messageRange as { authorMessageIds?: string[] } | undefined;
+    const messageIds = new Set([...(range?.authorMessageIds ?? []), ...input.groups.flatMap((group) =>
+      group.changes.flatMap((change) => (change as { messageIds?: string[] }).messageIds ?? []))]);
+    for (const messageId of messageIds) {
+      const message = this.database.prepare("SELECT conversation_id, role FROM messages WHERE id = ?")
+        .get(messageId) as { conversation_id: string; role: string } | undefined;
+      if (!message || message.conversation_id !== input.conversationId || message.role !== "user") throw new Error("Invalid setup author evidence ownership");
+    }
     const id = input.id ?? randomUUID();
-    return transaction(this.database, () => {
-      input.beforeInsert?.();
-      const now = new Date().toISOString();
-      this.database.prepare(`UPDATE setup_proposals SET status = 'superseded', updated_at = ?
-        WHERE conversation_id = ? AND project_id = ? AND status = 'proposed'`)
-        .run(now, input.conversationId, input.projectId);
-      this.database.prepare(`INSERT INTO setup_proposals
-        (id, project_id, conversation_id, schema_version, status, summary, source_json, bases_json, groups_json,
-          validation_json, context_fingerprint, application_json, created_at, updated_at)
-        VALUES (?, ?, ?, 1, 'proposed', ?, ?, ?, ?, ?, ?, NULL, ?, ?)`)
-        .run(id, input.projectId, input.conversationId, input.summary.trim().slice(0, 1_000),
-          JSON.stringify(input.source), JSON.stringify(input.bases), JSON.stringify(input.groups),
-          JSON.stringify(input.validationFindings ?? []), input.contextFingerprint, now, now);
-      return this.get<T>(id)!;
-    });
+    input.beforeInsert?.();
+    const now = new Date().toISOString();
+    this.database.prepare(`UPDATE setup_proposals SET status = 'superseded', updated_at = ?
+      WHERE conversation_id = ? AND project_id = ? AND status = 'proposed'`)
+      .run(now, input.conversationId, input.projectId);
+    this.database.prepare(`INSERT INTO setup_proposals
+      (id, project_id, conversation_id, schema_version, status, summary, source_json, bases_json, groups_json,
+        validation_json, context_fingerprint, application_json, created_at, updated_at)
+      VALUES (?, ?, ?, 1, 'proposed', ?, ?, ?, ?, ?, ?, NULL, ?, ?)`)
+      .run(id, input.projectId, input.conversationId, input.summary.trim().slice(0, 1_000),
+        JSON.stringify(input.source), JSON.stringify(input.bases), JSON.stringify(input.groups),
+        JSON.stringify(input.validationFindings ?? []), input.contextFingerprint, now, now);
+    return this.get<T>(id)!;
   }
 
   get<T = unknown>(id: string): SetupProposalRecord<T> | undefined {
@@ -153,6 +191,19 @@ export class SetupProposalRepository {
     const current = this.get(id);
     if (!current) throw new Error("Setup proposal not found");
     if (current.status !== "proposed") throw new Error("Only pending setup proposals can be applied");
+    const selected = new Set(application.appliedGroupIds);
+    if (!selected.size || selected.size !== application.appliedGroupIds.length || application.createdVersions.length !== selected.size
+      || new Set(application.createdVersions.map((version) => version.groupId)).size !== selected.size
+      || !Number.isFinite(Date.parse(application.appliedAt))) throw new Error("Invalid setup application audit");
+    for (const version of application.createdVersions) {
+      const group = current.groups.find((item) => item.id === version.groupId);
+      const saved = this.database.prepare("SELECT project_id, artifact_id FROM artifact_versions WHERE id = ?")
+        .get(version.versionId) as { project_id: string; artifact_id: string } | undefined;
+      if (!selected.has(version.groupId) || !group || group.artifactId !== version.artifactId || !saved
+        || saved.project_id !== current.projectId || saved.artifact_id !== version.artifactId
+        || current.bases.some((base) => base.versionId === version.versionId)
+        || group.dependsOnGroupIds.some((dependency) => !selected.has(dependency))) throw new Error("Invalid setup applied version ownership or dependency");
+    }
     this.database.prepare(`UPDATE setup_proposals SET status = 'applied', application_json = ?, updated_at = ?
       WHERE id = ?`).run(JSON.stringify(application), application.appliedAt, id);
     return this.get(id)!;

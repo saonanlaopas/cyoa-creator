@@ -103,6 +103,30 @@ textarea.source { min-height: 20rem; }
 .workflow-nav li.current button { border-color: #d3a45e; background: #332d25; }
 .workflow-nav small { color: #aeb7c6; text-transform: capitalize; }
 .artifact-pane { min-width: 0; display: grid; gap: 1rem; }
+.long-form-workspace.setup-active { grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr); }
+.setup-workspace { min-width: 0; display: grid; gap: 1.25rem; }
+.setup-workspace h1 { font-size: 1.75rem; }
+.setup-workspace h2 { font-size: 1.25rem; }
+.setup-columns { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 1.5rem; }
+.setup-columns > section { min-width: 0; }
+.setup-workspace label { display: grid; gap: .4rem; margin: .6rem 0; }
+.setup-workspace label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: .6rem; }
+.setup-workspace input, .setup-workspace textarea { max-width: 100%; min-width: 0; }
+.setup-messages { padding: 0; list-style: none; max-height: 28rem; overflow-y: auto; }
+.setup-messages li { border-bottom: 1px solid #48536a; padding: .8rem 0; }
+.setup-messages p, .setup-value { white-space: pre-wrap; overflow-wrap: anywhere; }
+.setup-proposal-group { display: block; border: 0; border-top: 1px solid #48536a; border-radius: 0; background: transparent; padding: 1rem 0; }
+.setup-proposal-group > label { font-weight: 600; font-size: 1.1rem; }
+.setup-proposal-group summary { padding: .4rem 0; cursor: pointer; }
+.setup-proposal-group dt { font-weight: 600; }
+.setup-proposal-group dd { margin: 0 0 1rem; }
+.setup-workspace pre { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.setup-workspace small { color: #b8c7bb; }
+.setup-authorization { border-left: 3px solid #92bfa7; padding-left: 1rem; }
+@media (max-width: 900px) {
+  .long-form-workspace.setup-active, .setup-columns { grid-template-columns: minmax(0, 1fr); }
+  .setup-active .workflow-nav { position: static; height: auto; min-height: 0; }
+}
 .artifact-header { display: flex; justify-content: space-between; align-items: start; gap: 1rem; padding: 1.2rem; border: 1px solid #364258; border-radius: .8rem; background: #1c222f; }
 .artifact-header h1 { margin: 0; font-size: clamp(2rem, 3vw, 2.8rem); white-space: nowrap; }
 .artifact-header p { margin: .3rem 0 0; }
