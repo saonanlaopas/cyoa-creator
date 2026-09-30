@@ -35,10 +35,11 @@ const v14FixturePath = join(fixtureDirectory, "schema-v14.sqlite");
 const v15FixturePath = join(fixtureDirectory, "schema-v15.sqlite");
 const v16FixturePath = join(fixtureDirectory, "schema-v16.sqlite");
 const v17FixturePath = join(fixtureDirectory, "schema-v17.sqlite");
+const v18FixturePath = join(fixtureDirectory, "schema-v18.sqlite");
 const supportedFixtures = [
   v4FixturePath, v5FixturePath, v6FixturePath, v7FixturePath, v8FixturePath, v9FixturePath,
   v10FixturePath, v11FixturePath, v12FixturePath, v13FixturePath, v14FixturePath, v15FixturePath, v16FixturePath,
-  v17FixturePath,
+  v17FixturePath, v18FixturePath,
 ];
 const temporaryDirectories: string[] = [];
 afterEach(() => temporaryDirectories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
@@ -916,7 +917,7 @@ describe("generation kernel migration", () => {
     const directory = mkdtempSync(join(tmpdir(), "cyoa-v18-migration-")); temporaryDirectories.push(directory);
     const copyPath = join(directory, "schema-v17.sqlite"); copyFileSync(v17FixturePath, copyPath);
     const database = openDatabase(copyPath);
-    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(18);
+    expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(CURRENT_SCHEMA_VERSION);
     expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'artifact_version_approvals'").get())
       .toEqual({ name: "artifact_version_approvals" });
     expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'artifact_version_approvals_lineage_insert'").get())
@@ -1044,7 +1045,7 @@ describe("generation kernel migration", () => {
     expect(rejection).toBeInstanceOf(DatabaseRecoveryError);
     expect(String((rejection as Error & { cause?: unknown }).cause)).toContain("non-latest summary head");
     const rejected = new DatabaseSync(databasePath);
-    expect((rejected.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(18);
+    expect((rejected.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(CURRENT_SCHEMA_VERSION);
     expect(rejected.prepare("SELECT current_version_id FROM conversation_summary_heads WHERE series_id = ?")
       .get(first.stableId)).toEqual({ current_version_id: first.id });
     expect(rejected.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger'
@@ -1070,7 +1071,7 @@ describe("generation kernel migration", () => {
       id: decision.id, content: decision.content, version: 1,
     });
     expect((reopened.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version)
-      .toBe(18);
+      .toBe(CURRENT_SCHEMA_VERSION);
     reopened.close();
   });
 

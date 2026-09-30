@@ -19,9 +19,13 @@ export interface AssistantScope {
   sectionId?: string;
 }
 
+export type ConversationPurpose = "planning" | "setup";
+
 export interface ConversationRecord {
   id: string;
   projectId: string;
+  /** Setup conversations are non-canonical Director-mode project setup sessions (A2). */
+  purpose: ConversationPurpose;
   title: string;
   scope: AssistantScope;
   summary: string;
@@ -46,7 +50,7 @@ export interface MessageRecord {
 }
 
 type ConversationRow = {
-  id: string; project_id: string; title: string; scope_json: string;
+  id: string; project_id: string; purpose: ConversationPurpose; title: string; scope_json: string;
   summary: string; created_at: string; updated_at: string;
 };
 type MessageRow = {
@@ -59,6 +63,7 @@ const parse = <T>(value: string): T => JSON.parse(value) as T;
 const mapConversation = (row: ConversationRow): ConversationRecord => ({
   id: row.id,
   projectId: row.project_id,
+  purpose: row.purpose,
   title: row.title,
   scope: parse(row.scope_json),
   summary: row.summary,
@@ -80,14 +85,20 @@ const mapMessage = (row: MessageRow): MessageRecord => ({
 export class ConversationRepository {
   public constructor(private readonly database: StoryDatabase) {}
 
-  create(projectId: string, scope: AssistantScope, title = "Project brief discussion"): ConversationRecord {
+  create(
+    projectId: string,
+    scope: AssistantScope,
+    title = "Project brief discussion",
+    purpose: ConversationPurpose = "planning",
+  ): ConversationRecord {
     if (scope.projectId !== projectId) throw new Error("Conversation scope must belong to its project");
+    if (purpose === "setup" && scope.kind !== "project") throw new Error("Setup conversations use project scope");
     const id = randomUUID();
     const now = new Date().toISOString();
     this.database.prepare(`
-      INSERT INTO conversations (id, project_id, title, scope_json, summary, created_at, updated_at)
-      VALUES (?, ?, ?, ?, '', ?, ?)
-    `).run(id, projectId, title.trim() || "Project discussion", JSON.stringify(scope), now, now);
+      INSERT INTO conversations (id, project_id, purpose, title, scope_json, summary, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, '', ?, ?)
+    `).run(id, projectId, purpose, title.trim() || "Project discussion", JSON.stringify(scope), now, now);
     return this.get(id)!;
   }
 
@@ -96,16 +107,17 @@ export class ConversationRepository {
     return row ? mapConversation(row) : undefined;
   }
 
-  list(projectId: string): ConversationRecord[] {
+  list(projectId: string, purpose: ConversationPurpose = "planning"): ConversationRecord[] {
     return (this.database.prepare(`
-      SELECT * FROM conversations WHERE project_id = ? ORDER BY updated_at DESC, id
-    `).all(projectId) as ConversationRow[]).map(mapConversation);
+      SELECT * FROM conversations WHERE project_id = ? AND purpose = ? ORDER BY updated_at DESC, id
+    `).all(projectId, purpose) as ConversationRow[]).map(mapConversation);
   }
 
   updateScope(id: string, scope: AssistantScope): ConversationRecord {
     const conversation = this.get(id);
     if (!conversation) throw new Error("Conversation not found");
     if (scope.projectId !== conversation.projectId) throw new Error("Conversation scope must belong to its project");
+    if (conversation.purpose === "setup" && scope.kind !== "project") throw new Error("Setup conversations use project scope");
     this.database.prepare("UPDATE conversations SET scope_json = ?, updated_at = ? WHERE id = ?")
       .run(JSON.stringify(scope), new Date().toISOString(), id);
     return this.get(id)!;
@@ -163,7 +175,7 @@ export class ConversationRepository {
       .get(conversationId) as { count: number }).count;
   }
 
-  private getMessage(id: string): MessageRecord | undefined {
+  getMessage(id: string): MessageRecord | undefined {
     const row = this.database.prepare("SELECT * FROM messages WHERE id = ?").get(id) as MessageRow | undefined;
     return row ? mapMessage(row) : undefined;
   }

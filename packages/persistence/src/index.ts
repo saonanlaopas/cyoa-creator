@@ -24,3 +24,4 @@ export * from "./recovery-repository.js";
 export * from "./project-health-repository.js";
 export * from "./author-memory-repository.js";
 export * from "./portable-project-repository.js";
+export * from "./setup-proposal-repository.js";

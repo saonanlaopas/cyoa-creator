@@ -174,7 +174,7 @@ export function registerLongFormChatRoutes(
   };
   const ownedConversation = (projectId: string, conversationId: string) => {
     const value = conversations.get(conversationId);
-    return value?.projectId === projectId ? value : undefined;
+    return value?.projectId === projectId && value.purpose === "planning" ? value : undefined;
   };
   const currentArtifact = (projectId: string, artifactId: PlanningArtifactId) =>
     artifacts.getCurrent<PlanningArtifact>(projectId, artifactId);
@@ -281,7 +281,7 @@ export function registerLongFormChatRoutes(
     const selectedArtifact = currentArtifact(request.params.projectId, artifactId);
     if (!selectedArtifact) return reply.code(409).send({ error: "The selected artifact does not exist yet" });
     if (intent === "propose" && artifactId === "creative-direction") {
-      return reply.code(400).send({ error: "Creative Direction proposals begin in A2; use the direct editor in A1" });
+      return reply.code(400).send({ error: "Creative Direction proposals come from project setup review; use Talk it through or the direct editor" });
     }
     const projectState = longFormProjects.getState(request.params.projectId);
     const approvedDirectionId = projectState.workflow["creative-direction"].approvedVersionId;

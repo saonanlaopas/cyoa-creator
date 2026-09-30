@@ -187,6 +187,9 @@ export class ArtifactRepository {
           }
           break;
         case "user-message":
+          // Conversations are local, non-canonical evidence that portable archives and backups omit; the exported
+          // reference keeps its excerpt but is explicitly marked unavailable rather than presented as resolved.
+          if (value.unavailable === true) break;
           if (!targetId || !this.database.prepare(`SELECT 1 FROM messages message
             JOIN conversations conversation ON conversation.id = message.conversation_id
             WHERE message.id = ? AND conversation.project_id = ?`).get(targetId, projectId)) {
@@ -194,8 +197,10 @@ export class ArtifactRepository {
           }
           break;
         case "proposal":
-          if (!targetId || !this.database.prepare("SELECT 1 FROM change_sets WHERE id = ? AND project_id = ?")
-            .get(targetId, projectId)) {
+          if (value.unavailable === true) break;
+          if (!targetId || (!this.database.prepare("SELECT 1 FROM change_sets WHERE id = ? AND project_id = ?")
+            .get(targetId, projectId) && !this.database.prepare("SELECT 1 FROM setup_proposals WHERE id = ? AND project_id = ?")
+            .get(targetId, projectId))) {
             throw new Error("Creative Direction provenance references another project or missing proposal");
           }
           break;

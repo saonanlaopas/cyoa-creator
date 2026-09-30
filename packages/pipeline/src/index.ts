@@ -40,3 +40,4 @@ export * from "./stages/propose-adaptation.js";
 export * from "./stages/generate-routes.js";
 export * from "./stages/draft-passages.js";
 export * from "./stages/propose-change.js";
+export * from "./project-setup.js";

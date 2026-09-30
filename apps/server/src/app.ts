@@ -1,7 +1,7 @@
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { ArtifactRepository, AuthorMemoryRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, NarrativeReviewRepository, openDatabase, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, PortableProjectRepository, ProjectRepository, RepairApplicationRepository, RepairPlanRepository, RepairProposalGenerationRepository, RepairProposalRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, AuthorMemoryRepository, ChangeSetRepository, CommandRepository, ConversationRepository, DraftingRepository, GenerationRepository, JobRepository, NarrativeReviewRepository, openDatabase, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PassageProposalRepository, PortableProjectRepository, ProjectRepository, RepairApplicationRepository, SetupProposalRepository, RepairPlanRepository, RepairProposalGenerationRepository, RepairProposalRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import { createDefaultCredentialStore, EnvironmentCredentialStore, type CredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { JobRunner, type NarrativeReviewProvider, type PassageDraftingProvider, type PassagePlanningProvider, type RepairProposalProvider } from "@story-to-cyoa/pipeline";
 import { existsSync } from "node:fs";
@@ -65,6 +65,8 @@ import { registerRecoveryRoutes } from "./routes/recovery.js";
 import { registerProjectHealthRoutes } from "./routes/project-health.js";
 import { ProjectHealthService } from "./services/project-health-service.js";
 import { registerAuthorMemoryRoutes } from "./routes/author-memory.js";
+import { ProjectSetupService } from "./services/project-setup-service.js";
+import { registerProjectSetupRoutes } from "./routes/project-setup.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -193,6 +195,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     database, projects, artifacts, workflow, passagePlans, passageDrafts,
     repairPlanningService, repairProposals, repairApplications,
   );
+  const projectSetupService = new ProjectSetupService(
+    database, artifacts, workflow, conversations, authorMemory, new SetupProposalRepository(database),
+    longFormProjects, passagePlans, openRouter,
+  );
   const diagnostics = new GenerationDiagnosticStore();
   const runner = new JobRunner(new JobRepository(database));
   void app.register(fastifyMultipart, {
@@ -215,6 +221,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerLongFormRoutes(app, projects, artifacts, workflow, longFormProjects);
   registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, authorMemory, changeSets, longFormProjects);
   registerAuthorMemoryRoutes(app, projects, authorMemory);
+  registerProjectSetupRoutes(app, projectSetupService);
   registerPassagePlanRoutes(app, passagePlanService);
   registerPassageGenerationRoutes(app, passageGenerationService);
   registerPassageProposalRoutes(app, passageProposalService);

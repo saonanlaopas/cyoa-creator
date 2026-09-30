@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { boundedDiagnosticBody, OpenRouterError, type GenerationAttempt, type GenerationResult, type GenerationUsage, type OpenRouterClient, type ReasoningEvent, type StreamCallbacks, type StructuredGenerationStreamRequest } from "@story-to-cyoa/openrouter";
 import { defaultLongFormStoryBible, defaultProjectBrief } from "@story-to-cyoa/pipeline";
+import { isSetupPrompt, offlineSetupResponse } from "./offline-setup-provider.js";
 
 type ParseSchema<T> = { parse(value: unknown): T };
 
@@ -37,6 +38,12 @@ export class FakeModelProvider {
     callbacks: StreamCallbacks & { onRepair?: (attempt: number) => void } = {},
   ): Promise<GenerationResult<T>> {
     if (request.model === "e2e/non-json") throw this.nonJsonFailure();
+    const lastPrompt = request.messages.at(-1)?.content ?? "";
+    if (isSetupPrompt(lastPrompt)) {
+      const usage = { inputTokens: Math.ceil(lastPrompt.length / 4), outputTokens: 400, totalTokens: Math.ceil(lastPrompt.length / 4) + 400 };
+      await new Promise<void>((resolveDelay) => setTimeout(resolveDelay, 50));
+      return { data: schema.parse(offlineSetupResponse(lastPrompt)), usage, cost: null, repaired: false, attempts: [this.attempt(usage)] };
+    }
     if (request.model === "e2e/chat") {
       const prompt = request.messages.at(-1)?.content ?? "";
       const selectedMatch = prompt.match(

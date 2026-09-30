@@ -23,11 +23,13 @@ import {
   passageDraftGenerationMigrationSql,
   passageDraftProvenanceMigrationSql,
   passageProposalMigrationSql,
+  projectSetupIntegrityTriggerSql,
+  projectSetupMigrationSql,
   schemaSql,
 } from "./schema.js";
 
 export const EARLIEST_SUPPORTED_SCHEMA_VERSION = 4;
-export const CURRENT_SCHEMA_VERSION = 18;
+export const CURRENT_SCHEMA_VERSION = 19;
 
 export const SCHEMA_VERSION_HISTORY = Object.freeze([
   { version: 4, introducedBy: "Foundations 1-3 baseline", frozenFixture: "schema-v4.sqlite" },
@@ -44,7 +46,8 @@ export const SCHEMA_VERSION_HISTORY = Object.freeze([
   { version: 15, introducedBy: "Foundation 6 repair-draft provenance", frozenFixture: "schema-v15.sqlite" },
   { version: 16, introducedBy: "Foundation 8A recovery metadata", frozenFixture: "schema-v16.sqlite" },
   { version: 17, introducedBy: "Foundation 8C author memory", frozenFixture: "schema-v17.sqlite" },
-  { version: 18, introducedBy: "A1 durable artifact approval history", frozenFixture: null },
+  { version: 18, introducedBy: "A1 durable artifact approval history", frozenFixture: "schema-v18.sqlite" },
+  { version: 19, introducedBy: "A2 conversational project setup", frozenFixture: null },
 ] as const);
 
 export function migrate(database: StoryDatabase): void {
@@ -317,6 +320,25 @@ function migrateWithinTransaction(database: StoryDatabase): void {
     } else {
       assertValidArtifactApprovalHistory(database);
     }
+  }
+  const projectSetupApplied = database.prepare(
+    "SELECT version FROM schema_migrations WHERE version = 19",
+  ).get();
+  if (!projectSetupApplied) {
+    runMigrationStep(database, "migration_v19", () => {
+      addColumn(database, "conversations", "purpose",
+        "TEXT NOT NULL DEFAULT 'planning' CHECK(purpose IN ('planning', 'setup'))");
+      database.exec(projectSetupMigrationSql);
+      database.exec(projectSetupIntegrityTriggerSql);
+      database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (19, ?)",
+      ).run(new Date().toISOString());
+    });
+  } else if (!hasTrigger(database, "setup_proposals_conversation_lineage_insert")
+    || !hasTrigger(database, "setup_proposals_immutable_update")) {
+    runMigrationStep(database, "migration_v19_integrity_patch", () => {
+      database.exec(projectSetupIntegrityTriggerSql);
+    });
   }
 }
 

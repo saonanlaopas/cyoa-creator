@@ -94,9 +94,13 @@ export class ProjectRepository {
         "SELECT * FROM change_sets WHERE project_id = ? ORDER BY created_at, id",
       ).all(id) as Array<Record<string, string | number | null>>;
       const changeSetIdMap = new Map(changeSets.map((row) => [String(row.id), randomUUID()]));
+      const setupProposals = this.database.prepare(
+        "SELECT * FROM setup_proposals WHERE project_id = ? ORDER BY created_at, rowid",
+      ).all(id) as Array<Record<string, string | number | null>>;
+      const setupProposalIdMap = new Map(setupProposals.map((row) => [String(row.id), randomUUID()]));
       for (const version of versions) versionIdMap.set(String(version.id), randomUUID());
       const allIds = new Map<string, string>([
-        [id, copy.id], ...versionIdMap, ...conversationIdMap, ...messageIdMap, ...changeSetIdMap,
+        [id, copy.id], ...versionIdMap, ...conversationIdMap, ...messageIdMap, ...changeSetIdMap, ...setupProposalIdMap,
       ]);
 
       for (const version of versions) {
@@ -147,8 +151,8 @@ export class ProjectRepository {
         .run(copy.id, approval.artifact_id, requireMapped(versionIdMap, String(approval.version_id)), approval.approved_at);
 
       for (const conversation of conversations) this.database.prepare(`INSERT INTO conversations
-        (id, project_id, title, scope_json, summary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(requireMapped(conversationIdMap, String(conversation.id)), copy.id, conversation.title,
+        (id, project_id, purpose, title, scope_json, summary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(requireMapped(conversationIdMap, String(conversation.id)), copy.id, conversation.purpose, conversation.title,
           remapJsonText(String(conversation.scope_json), allIds), conversation.summary,
           conversation.created_at, conversation.updated_at);
       for (const message of messages) this.database.prepare(`INSERT INTO messages
@@ -169,6 +173,26 @@ export class ProjectRepository {
           remapJsonText(String(change.validation_json), allIds), remapJsonText(String(change.invalidations_json), allIds),
           change.applied_version_id ? requireMapped(versionIdMap, String(change.applied_version_id)) : null,
           change.created_at, change.updated_at);
+      for (const proposal of setupProposals) {
+        const copiedId = requireMapped(setupProposalIdMap, String(proposal.id));
+        // Insert as pending, then replay the terminal review state so lineage triggers stay authoritative.
+        this.database.prepare(`INSERT INTO setup_proposals
+          (id, project_id, conversation_id, schema_version, status, summary, source_json, bases_json, groups_json,
+            validation_json, context_fingerprint, application_json, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?, ?, NULL, ?, ?)`)
+          .run(copiedId, copy.id, requireMapped(conversationIdMap, String(proposal.conversation_id)),
+            proposal.schema_version, proposal.summary, remapJsonText(String(proposal.source_json), allIds),
+            remapJsonText(String(proposal.bases_json), allIds), remapJsonText(String(proposal.groups_json), allIds),
+            remapJsonText(String(proposal.validation_json), allIds), proposal.context_fingerprint,
+            proposal.created_at, proposal.created_at);
+        if (proposal.status !== "proposed") {
+          this.database.prepare("UPDATE setup_proposals SET status = ?, application_json = ?, updated_at = ? WHERE id = ?")
+            .run(proposal.status, proposal.application_json === null ? null : remapJsonText(String(proposal.application_json), allIds),
+              proposal.updated_at, copiedId);
+        } else if (proposal.updated_at !== proposal.created_at) {
+          this.database.prepare("UPDATE setup_proposals SET updated_at = ? WHERE id = ?").run(proposal.updated_at, copiedId);
+        }
+      }
 
       new ArtifactRepository(this.database).listVersions(copy.id, "creative-direction");
       return copy;

@@ -2006,3 +2006,49 @@ BEGIN SELECT RAISE(ABORT, 'conversation source messages are append-only'); END;
 
 ${authorMemoryIntegrityTriggerSql}
 `;
+
+export const projectSetupMigrationSql = `
+CREATE TABLE IF NOT EXISTS setup_proposals (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+  status TEXT NOT NULL CHECK(status IN ('proposed', 'applied', 'rejected', 'superseded')),
+  summary TEXT NOT NULL,
+  source_json TEXT NOT NULL,
+  bases_json TEXT NOT NULL,
+  groups_json TEXT NOT NULL,
+  validation_json TEXT NOT NULL DEFAULT '[]',
+  context_fingerprint TEXT NOT NULL CHECK(length(context_fingerprint) = 64),
+  application_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK((status = 'applied') = (application_json IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS setup_proposals_conversation_order
+  ON setup_proposals(conversation_id, created_at, id);
+`;
+
+export const projectSetupIntegrityTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS setup_proposals_conversation_lineage_insert
+BEFORE INSERT ON setup_proposals
+WHEN NOT EXISTS (
+  SELECT 1 FROM conversations conversation
+  WHERE conversation.id = NEW.conversation_id
+    AND conversation.project_id = NEW.project_id
+    AND conversation.purpose = 'setup'
+) OR NEW.status != 'proposed'
+BEGIN SELECT RAISE(ABORT, 'setup proposal lineage mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS setup_proposals_immutable_update
+BEFORE UPDATE ON setup_proposals
+WHEN OLD.status != 'proposed'
+  OR NEW.id IS NOT OLD.id OR NEW.project_id IS NOT OLD.project_id
+  OR NEW.conversation_id IS NOT OLD.conversation_id OR NEW.schema_version IS NOT OLD.schema_version
+  OR NEW.summary IS NOT OLD.summary OR NEW.source_json IS NOT OLD.source_json
+  OR NEW.bases_json IS NOT OLD.bases_json OR NEW.groups_json IS NOT OLD.groups_json
+  OR NEW.validation_json IS NOT OLD.validation_json
+  OR NEW.context_fingerprint IS NOT OLD.context_fingerprint
+  OR NEW.created_at IS NOT OLD.created_at
+BEGIN SELECT RAISE(ABORT, 'setup proposals are immutable after review'); END;
+`;

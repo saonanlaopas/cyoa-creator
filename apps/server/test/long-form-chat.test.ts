@@ -603,7 +603,7 @@ describe("long-form scoped chat", () => {
       payload: { content: "Change it.", intent: "propose", model: "offline/chat" },
     });
     expect(proposal.statusCode).toBe(400);
-    expect(proposal.json().error).toContain("begin in A2");
+    expect(proposal.json().error).toContain("project setup review");
     expect(requests).toHaveLength(1);
     await app.close();
   });

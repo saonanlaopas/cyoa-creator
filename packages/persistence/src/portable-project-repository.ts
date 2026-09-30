@@ -1,4 +1,4 @@
-import { CreativeDirectionSchema } from "@story-to-cyoa/domain";
+import { CreativeDirectionSchema, normalizeCreativeDirection } from "@story-to-cyoa/domain";
 import { stableFingerprint } from "@story-to-cyoa/runtime";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
@@ -77,6 +77,30 @@ export function reconstructLegacyArtifactApprovalHistory(bundle: PortableProject
   return [...approvals.values()].sort((left, right) => rowFingerprint(left).localeCompare(rowFingerprint(right)));
 }
 
+/**
+ * Portable archives (and the verified backups built on them) exclude chat bodies and conversation proposals.
+ * Creative Direction provenance that cites them is exported with an explicit unavailable marker so an imported
+ * project never presents that evidence as resolved. Material content and its fingerprint are unchanged.
+ */
+const CONVERSATION_EVIDENCE_KINDS = new Set(["user-message", "proposal"]);
+function redactConversationEvidence(row: PortableRow): PortableRow {
+  if (row.artifact_id !== "creative-direction" || typeof row.content_json !== "string") return row;
+  const content = JSON.parse(row.content_json) as {
+    fieldProvenance?: Array<{ reference?: { kind?: string; unavailable?: boolean } }>;
+  };
+  const records = content.fieldProvenance ?? [];
+  if (!records.some((record) => CONVERSATION_EVIDENCE_KINDS.has(record.reference?.kind ?? "") && record.reference?.unavailable !== true)) {
+    return row;
+  }
+  const redacted = normalizeCreativeDirection({
+    ...(content as Parameters<typeof normalizeCreativeDirection>[0]),
+    fieldProvenance: records.map((record) => CONVERSATION_EVIDENCE_KINDS.has(record.reference?.kind ?? "")
+      ? { ...record, reference: { ...record.reference, unavailable: true } }
+      : record) as Parameters<typeof normalizeCreativeDirection>[0]["fieldProvenance"],
+  });
+  return { ...row, content_json: JSON.stringify(redacted) };
+}
+
 export class PortableProjectRepository {
   public constructor(private readonly database: StoryDatabase) {}
 
@@ -91,9 +115,9 @@ export class PortableProjectRepository {
         SELECT items.* FROM passage_plan_snapshot_items items
         JOIN passage_plan_snapshots snapshots ON snapshots.id = items.snapshot_id
         WHERE snapshots.project_id = ?`).all(projectId) as PortableRow[];
-      else if (table === "artifact_versions") rows = this.database.prepare(
+      else if (table === "artifact_versions") rows = (this.database.prepare(
         "SELECT * FROM artifact_versions WHERE project_id = ? AND artifact_id NOT IN ('source', 'source-scope')",
-      ).all(projectId) as PortableRow[];
+      ).all(projectId) as PortableRow[]).map(redactConversationEvidence);
       else if (table === "artifact_workflow_state") rows = this.database.prepare(
         "SELECT * FROM artifact_workflow_state WHERE project_id = ? AND artifact_id NOT IN ('source', 'source-scope')",
       ).all(projectId) as PortableRow[];
