@@ -1,4 +1,6 @@
 import type { StoryDatabase } from "./database.js";
+import { sourceAnalysisMigrationSql } from "./source-analysis-schema.js";
+import { validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
 import { assertSetupProposalSource } from "./setup-proposal-repository.js";
 import {
   RepairApplicationRecordSchema,
@@ -30,7 +32,7 @@ import {
 } from "./schema.js";
 
 export const EARLIEST_SUPPORTED_SCHEMA_VERSION = 4;
-export const CURRENT_SCHEMA_VERSION = 19;
+export const CURRENT_SCHEMA_VERSION = 20;
 
 export const SCHEMA_VERSION_HISTORY = Object.freeze([
   { version: 4, introducedBy: "Foundations 1-3 baseline", frozenFixture: "schema-v4.sqlite" },
@@ -48,7 +50,8 @@ export const SCHEMA_VERSION_HISTORY = Object.freeze([
   { version: 16, introducedBy: "Foundation 8A recovery metadata", frozenFixture: "schema-v16.sqlite" },
   { version: 17, introducedBy: "Foundation 8C author memory", frozenFixture: "schema-v17.sqlite" },
   { version: 18, introducedBy: "A1 durable artifact approval history", frozenFixture: "schema-v18.sqlite" },
-  { version: 19, introducedBy: "A2 conversational project setup", frozenFixture: null },
+  { version: 19, introducedBy: "A2 conversational project setup", frozenFixture: "schema-v19.sqlite" },
+  { version: 20, introducedBy: "A3 source analysis", frozenFixture: null },
 ] as const);
 
 export function migrate(database: StoryDatabase): void {
@@ -346,6 +349,11 @@ function migrateWithinTransaction(database: StoryDatabase): void {
   } else {
     assertValidSetupProposals(database);
   }
+  runMigrationStep(database, "migration_v20", () => {
+    database.exec(sourceAnalysisMigrationSql);
+    validateSourceAnalysisDatabase(database);
+    database.prepare("INSERT OR IGNORE INTO schema_migrations (version,applied_at) VALUES (20,?)").run(new Date().toISOString());
+  });
 }
 
 function assertValidSetupProposals(database: StoryDatabase): void {

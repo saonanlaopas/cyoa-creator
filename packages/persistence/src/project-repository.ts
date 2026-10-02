@@ -8,6 +8,9 @@ import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 import { ArtifactRepository } from "./artifact-repository.js";
 import { assertSetupProposalSource } from "./setup-proposal-repository.js";
+import { prepareSourceAnalysisDuplicate, copySourceAnalysisRows, remapSourceAnalysisValue, remapSourceDossierContent } from "./source-analysis-duplication.js";
+import { validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
+import type { SourceDossier } from "@story-to-cyoa/domain";
 
 export interface ProjectRecord {
   id: string;
@@ -117,9 +120,12 @@ export class ProjectRepository {
       const allIds = new Map<string, string>([
         [id, copy.id], ...versionIdMap, ...conversationIdMap, ...messageIdMap, ...changeSetIdMap, ...setupProposalIdMap, ...memoryIdMap,
       ]);
+      prepareSourceAnalysisDuplicate(this.database, id, copy.id, allIds);
 
-      for (const version of versions) {
+      const insertVersion = (version: typeof versions[number]) => {
         let contentJson = String(version.content_json);
+        if (version.artifact_id === "source-scope") contentJson = JSON.stringify(remapSourceAnalysisValue(JSON.parse(contentJson), allIds));
+        if (version.artifact_id === "source-dossier") contentJson = JSON.stringify(remapSourceDossierContent(this.database, JSON.parse(contentJson) as SourceDossier, allIds));
         if (version.artifact_id === "creative-direction") {
           const content = remapJsonValue(
             CreativeDirectionSchema.parse(JSON.parse(contentJson)), allIds,
@@ -138,7 +144,10 @@ export class ProjectRepository {
           version.restored_from_version_id ? requireMapped(versionIdMap, String(version.restored_from_version_id)) : null,
           version.created_at,
         );
-      }
+      };
+      for (const version of versions.filter((v) => v.artifact_id !== "source-dossier")) insertVersion(version);
+      copySourceAnalysisRows(this.database, id, allIds);
+      for (const version of versions.filter((v) => v.artifact_id === "source-dossier")) insertVersion(version);
       const dependencies = this.database.prepare(
         "SELECT upstream_artifact_id, dependent_artifact_id FROM artifact_dependencies WHERE project_id = ?",
       ).all(id) as Array<{ upstream_artifact_id: string; dependent_artifact_id: string }>;
@@ -253,6 +262,7 @@ export class ProjectRepository {
       }
 
       new ArtifactRepository(this.database).listVersions(copy.id, "creative-direction");
+      validateSourceAnalysisDatabase(this.database, copy.id);
       return copy;
     });
   }

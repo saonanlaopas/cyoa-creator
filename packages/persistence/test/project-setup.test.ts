@@ -93,7 +93,7 @@ describe("A2 project-setup persistence", () => {
     const repaired = openDatabase(path);
     expect(repaired.prepare("SELECT * FROM setup_proposals").all()).toEqual(before);
     expect(() => repaired.prepare("DELETE FROM setup_proposals").run()).toThrow("append-only");
-    expect(CURRENT_SCHEMA_VERSION).toBe(19);
+    expect(CURRENT_SCHEMA_VERSION).toBe(20);
     new ProjectRepository(repaired).remove(project.id); repaired.close();
   });
 
@@ -105,7 +105,7 @@ describe("A2 project-setup persistence", () => {
     expect(() => migrate(database)).toThrow("summary lineage");
     expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'setup_proposals_immutable_delete'").get()).toBeUndefined();
     expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'setup_proposals_immutable_update'").get()).toBeUndefined();
-    expect(database.prepare("SELECT MAX(version) version FROM schema_migrations").get()).toEqual({ version: 19 });
+    expect(database.prepare("SELECT MAX(version) version FROM schema_migrations").get()).toEqual({ version: CURRENT_SCHEMA_VERSION });
     database.prepare("UPDATE setup_proposals SET source_json = ? WHERE id = ?").run(JSON.stringify(proposal.source), proposal.id);
     migrate(database);
     database.exec("DROP TRIGGER setup_proposals_immutable_update");
@@ -237,7 +237,7 @@ describe("A2 project-setup persistence", () => {
     const database = openDatabase(copy);
     expect((database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version)
       .toBe(CURRENT_SCHEMA_VERSION);
-    expect(CURRENT_SCHEMA_VERSION).toBe(19);
+    expect(CURRENT_SCHEMA_VERSION).toBe(20);
     expect(new ConversationRepository(database).get("legacy-c")).toMatchObject({ purpose: "planning", title: "Brief chat" });
     expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'setup_proposals'").get()).toEqual({ name: "setup_proposals" });
     expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'setup_proposals_immutable_update'").get())

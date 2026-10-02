@@ -6,6 +6,7 @@ import { compileSugarCube, renderNativeTwee } from "@story-to-cyoa/export-twine"
 import {
   PortableProjectRepository,
   PORTABLE_PROJECT_TABLES,
+  SOURCE_ANALYSIS_TABLES,
   reconstructLegacyArtifactApprovalHistory,
   type PortableProjectRows,
 } from "@story-to-cyoa/persistence";
@@ -20,6 +21,7 @@ export const PUBLICATION_EXPORT_LIMITS = Object.freeze({ staticArchiveBytes: 128
 const SCHEMA_ID = "cyoa.portable-project" as const;
 const HISTORY_MODE = "immutable-authoring-history-v1" as const;
 const PORTABLE_EXCLUSIONS = ["credentials", "environment", "machine paths", "browser saves", "chat and source bodies", "passage-planning jobs/candidates", "provider raw responses"] as const;
+const ANALYSIS_PORTABLE_EXCLUSIONS = PORTABLE_EXCLUSIONS.map((value) => value === "chat and source bodies" ? "chat bodies (immutable source evidence included)" : value);
 // ZIP stores local DOS calendar fields without a timezone. Construct the epoch in
 // local time so those encoded fields are identical on every host.
 const fixedDate = new Date(1980, 0, 1, 0, 0, 0, 0);
@@ -35,7 +37,8 @@ export interface PortableManifest {
 
 export type PortableApprovalHistoryMode = "current" | "legacy-reconstructed";
 
-const LEGACY_PORTABLE_PROJECT_TABLES = PORTABLE_PROJECT_TABLES.filter((table) => table !== "artifact_version_approvals");
+const PRE_ANALYSIS_TABLES = PORTABLE_PROJECT_TABLES.filter((table) => !(SOURCE_ANALYSIS_TABLES as readonly string[]).includes(table));
+const LEGACY_PORTABLE_PROJECT_TABLES = PRE_ANALYSIS_TABLES.filter((table) => table !== "artifact_version_approvals");
 
 export class PublicationExportService {
   public constructor(
@@ -48,8 +51,9 @@ export class PublicationExportService {
   exportPortable(projectId: string): { bytes: Uint8Array; manifest: PortableManifest } {
     const rows = this.portable.exportRows(projectId);
     enforcePortableRows(rows);
-    const sections = rows.tables.artifact_version_approvals.length
-      ? [...PORTABLE_PROJECT_TABLES] : [...LEGACY_PORTABLE_PROJECT_TABLES];
+    const analysis = rows.tables.source_analysis_plans.length > 0;
+    const sections = analysis ? [...PORTABLE_PROJECT_TABLES] : rows.tables.artifact_version_approvals.length
+      ? [...PRE_ANALYSIS_TABLES] : [...LEGACY_PORTABLE_PROJECT_TABLES];
     const serializedRows = { projectId: rows.projectId, tables: Object.fromEntries(
       sections.map((table) => [table, rows.tables[table]]),
     ) };
@@ -60,7 +64,7 @@ export class PublicationExportService {
     const manifest: PortableManifest = {
       schemaId: SCHEMA_ID, schemaVersion: 1, exportContractVersion: 1, projectId, projectFingerprint,
       historyMode: HISTORY_MODE, includedSections: sections,
-      exclusions: [...PORTABLE_EXCLUSIONS],
+      exclusions: [...(analysis ? ANALYSIS_PORTABLE_EXCLUSIONS : PORTABLE_EXCLUSIONS)],
       counts, files: [{ path: "project.json", sha256: sha256(payload), bytes: payload.byteLength }],
     };
     const manifestBytes = strToU8(canonical(manifest));
@@ -182,7 +186,7 @@ export class PublicationExportService {
     if (manifest.schemaId !== SCHEMA_ID || manifest.schemaVersion !== 1 || manifest.exportContractVersion !== 1 || manifest.historyMode !== HISTORY_MODE) throw new Error("portable_project_version_unsupported");
     if (!Array.isArray(manifest.includedSections) || !Array.isArray(manifest.exclusions) || !Array.isArray(manifest.files)
       || !isSupportedPortableSections(Object.keys(manifest.counts ?? {}))
-      || manifest.exclusions.join("\0") !== PORTABLE_EXCLUSIONS.join("\0") || manifest.files.length !== 1
+      || manifest.exclusions.join("\0") !== (manifest.includedSections.includes("source_analysis_plans") ? ANALYSIS_PORTABLE_EXCLUSIONS : PORTABLE_EXCLUSIONS).join("\0") || manifest.files.length !== 1
       || Object.keys(manifest.files[0] ?? {}).sort().join("\0") !== ["bytes", "path", "sha256"].join("\0")) throw new Error("portable_project_manifest_schema_invalid");
     const payload = files["project.json"]!;
     const declared = manifest.files.find((item) => item.path === "project.json");
@@ -194,8 +198,9 @@ export class PublicationExportService {
     const sections = Object.keys(parsed.tables ?? {});
     if (!parsed.tables || !isSupportedPortableSections(sections)) throw new Error("portable_project_sections_invalid");
     const hasApprovalHistory = sections.includes("artifact_version_approvals");
-    const expectedSections = hasApprovalHistory
-      ? [...PORTABLE_PROJECT_TABLES] : [...LEGACY_PORTABLE_PROJECT_TABLES];
+    const hasAnalysis = sections.includes("source_analysis_plans");
+    const expectedSections = hasAnalysis ? [...PORTABLE_PROJECT_TABLES] : hasApprovalHistory
+      ? [...PRE_ANALYSIS_TABLES] : [...LEGACY_PORTABLE_PROJECT_TABLES];
     if (manifest.includedSections.join("\0") !== expectedSections.join("\0")) throw new Error("portable_project_sections_invalid");
     let rowCount = 0;
     for (const table of expectedSections) {
@@ -214,6 +219,7 @@ export class PublicationExportService {
     const rows = { projectId: parsed.projectId, tables: {
       ...parsed.tables,
       artifact_version_approvals: parsed.tables.artifact_version_approvals ?? [],
+      ...Object.fromEntries(SOURCE_ANALYSIS_TABLES.map((table) => [table, parsed.tables[table] ?? []])),
     } } as PortableProjectRows;
     enforcePortableRows(rows);
     const expected = stableFingerprint({ schemaId: SCHEMA_ID, schemaVersion: 1, historyMode: HISTORY_MODE, rows: serializedRows });
@@ -238,6 +244,7 @@ export class PublicationExportService {
 function isSupportedPortableSections(sections: readonly string[]): boolean {
   const exact = [...sections].sort().join("\0");
   return exact === [...PORTABLE_PROJECT_TABLES].sort().join("\0")
+    || exact === [...PRE_ANALYSIS_TABLES].sort().join("\0")
     || exact === [...LEGACY_PORTABLE_PROJECT_TABLES].sort().join("\0");
 }
 

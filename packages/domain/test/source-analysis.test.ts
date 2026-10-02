@@ -1,0 +1,79 @@
+import { describe, expect, it } from "vitest";
+import { planSourceAnalysis, sourceBinding, sourceUnitContext, resolveSourceEvidence, consolidateSourceDossier,
+  correctSourceDossier, validateSourceOutput, SOURCE_ANALYSIS_POLICY, type SourceProvenance, type AnalysisSource } from "../src/index.js";
+
+const source: AnalysisSource = { metadata: { sourceFormat: "txt" }, chapters: [{ id: "ch", title: "Chapter 1", order: 0,
+  blocks: [{ type: "paragraph", excerptId: "ex", text: "Alex and Alexander met. Alex is twenty. He was twenty-one. Perhaps they are different people." }] }] };
+function fixture() {
+  const binding = sourceBinding("project", "source-v1", "scope-v1", source, ["ch"]);
+  const plan = planSourceAnalysis(binding, source, "offline-source-analysis", "fixture");
+  const evidence = plan.units[0]!.ranges;
+  const original = (id: string, identityKey = id, field = "identity", claim = id, classification: "source-canon" | "inference" = "source-canon", references: string[] = []) => ({
+    id, identityKey, field, claim, classification, references, evidence, category: "character" as const, aliases: [], uncertainty: "",
+  });
+  const observations = [original("alex", "Alex"), { ...original("alexander", "Alexander"), aliases: ["Alex"] },
+    original("age-one", "Alex", "age", "Twenty", "source-canon", ["alex"]), original("age-two", "Alex", "age", "Twenty-one", "source-canon", ["alex"]),
+    original("guess", "Alex", "motivation", "Afraid", "inference", ["alex"]), original("guess-two", "Alex", "motivation", "Afraid", "inference", ["alex"])];
+  const provenance: SourceProvenance[] = observations.map((o) => ({ observationId: o.id, jobId: "job", unitId: plan.units[0]!.id, attemptId: "attempt", providerId: plan.providerId,
+    modelId: plan.modelId, contextFingerprint: plan.units[0]!.contextFingerprint, original: o }));
+  return { plan, evidence, observations, provenance, dossier: consolidateSourceDossier(plan, "job", provenance) };
+}
+describe("A3 deterministic analysis contracts", () => {
+  it("plans deterministically, preserves every large block character and avoids surrogate splits", () => {
+    const text = "A\u{1F600}e\u0301".repeat(9_000);
+    const large = { ...source, chapters: [{ ...source.chapters[0]!, blocks: [{ type: "paragraph" as const, excerptId: "large", text }] }] };
+    const binding = sourceBinding("project", "source-v1", "scope-v1", large, ["ch"]);
+    const plan = planSourceAnalysis(binding, large, "offline-source-analysis", "fixture");
+    expect(plan).toEqual(planSourceAnalysis(binding, large, "offline-source-analysis", "fixture"));
+    expect(plan.units.length).toBeGreaterThan(10);
+    expect(plan.units.map((u) => sourceUnitContext(large, binding, u).evidence.map((e) => e.text).join("")).join("")).toBe(text);
+    expect(plan.units.every((u) => u.characters <= SOURCE_ANALYSIS_POLICY.maxSourceCharacters && u.contextBytes <= SOURCE_ANALYSIS_POLICY.maxContextBytes)).toBe(true);
+  });
+  it.each(["projectId", "sourceVersionId", "scopeVersionId", "chapterId", "excerptId", "digest"])("rejects invalid exact %s evidence", (key) => {
+    const f = fixture();
+    expect(() => resolveSourceEvidence(source, f.plan.binding, { ...f.evidence[0]!, [key]: "bad" })).toThrow();
+  });
+  it("rejects reversed/outside evidence, no evidence, unknown references, duplicate IDs and extra adaptation keys", () => {
+    const f = fixture(), unit = f.plan.units[0]!;
+    const parse = (observations: unknown[]) => validateSourceOutput(source, f.plan, unit, { schemaVersion: 1, observations });
+    expect(() => parse([{ ...f.observations[0], evidence: [{ ...f.evidence[0], start: 8, end: 2 }] }])).toThrow();
+    expect(() => parse([{ ...f.observations[0], evidence: [{ ...f.evidence[0], end: 999 }] }])).toThrow();
+    expect(() => parse([{ ...f.observations[0], evidence: [] }])).toThrow();
+    expect(() => parse([{ ...f.observations[0], references: ["none"] }])).toThrow(/orphan/);
+    expect(() => parse([f.observations[0], f.observations[0]])).toThrow(/duplicate/);
+    expect(() => parse([{ ...f.observations[0], authorOverride: "make them lovers" }])).toThrow();
+  });
+  it("is completion-order independent, retains inference, separates aliases and preserves conflicting facts", () => {
+    const f = fixture();
+    expect(consolidateSourceDossier(f.plan, "job", [...f.provenance].reverse())).toEqual(f.dossier);
+    expect(f.dossier.records.filter((r) => r.field === "motivation")).toHaveLength(1);
+    expect(f.dossier.records.find((r) => r.field === "motivation")?.classification).toBe("inference");
+    expect(f.dossier.conflicts.map((c) => c.kind)).toContain("ambiguity");
+    expect(f.dossier.conflicts.map((c) => c.kind)).toContain("contradiction");
+  });
+  it("merges identities with every dependent remapped, then requires complete evidence/dependent assignments for splitting", () => {
+    const f = fixture(), originals = f.dossier.records.filter((r) => r.field === "identity");
+    const merged = correctSourceDossier(f.dossier, { kind: "merge", intent: "source-analysis-correction", reason: "Same person", previousVersionId: "v1", recordIds: originals.map((r) => r.id), targetId: originals[0]!.id }, source);
+    expect(merged.records.filter((r) => r.status === "supported" && r.field === "identity")).toHaveLength(1);
+    expect(merged.records.flatMap((r) => r.references)).not.toContain(originals[1]!.id);
+    const parent = merged.records.find((r) => r.id === originals[0]!.id)!;
+    const children = [{ id: "new-alex", identityKey: "Alex", claim: "Alex", evidence: parent.evidence }, { id: "new-alexander", identityKey: "Alexander", claim: "Alexander", evidence: parent.evidence }];
+    const operation = { kind: "split", intent: "source-analysis-correction", reason: "Separate people", previousVersionId: "v2", recordId: parent.id, children, assignments: [] };
+    expect(() => correctSourceDossier(merged, operation, source)).toThrow(/assignment/);
+    const assignments = merged.records.filter((r) => r.references.includes(parent.id)).map((r) => ({ recordId: r.id, replacementIds: ["new-alex"] }));
+    const split = correctSourceDossier(merged, { ...operation, assignments }, source);
+    expect(split.records.flatMap((r) => r.references)).not.toContain(parent.id);
+    expect(split.provenance).toEqual(f.dossier.provenance);
+    expect(split.corrections).toHaveLength(2);
+  });
+  it("requires evidence for field, classification and evidence repair; rejection keeps the audit", () => {
+    const f = fixture(), record = f.dossier.records[0]!;
+    const common = { intent: "source-analysis-correction", reason: "Correct analysis", previousVersionId: "v1", recordId: record.id };
+    for (const kind of ["field", "classification", "evidence"]) expect(() => correctSourceDossier(f.dossier, { ...common, kind, changes: {}, classification: "source-canon", evidence: [] }, source)).toThrow();
+    const corrected = correctSourceDossier(f.dossier, { ...common, kind: "field", changes: { claim: "Direct source identity" }, evidence: record.evidence }, source);
+    expect(corrected.records.find((r) => r.id === record.id)?.claim).toBe("Direct source identity");
+    const rejected = correctSourceDossier(f.dossier, { ...common, kind: "reject" }, source);
+    expect(rejected.records.find((r) => r.id === record.id)?.status).toBe("rejected");
+    expect(rejected.provenance).toEqual(f.dossier.provenance);
+  });
+});

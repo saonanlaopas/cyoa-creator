@@ -26,6 +26,7 @@ export function registerImportRoutes(
   workflow?: WorkflowRepository,
 ): void {
   const staleBibleIfNeeded = (projectId: string) => {
+    if (workflow && artifacts.getCurrent(projectId, "source-dossier")) workflow.markStale(projectId, "source-dossier");
     if (
       workflow
       && projects.get(projectId)?.mode === "long-form"
@@ -89,16 +90,17 @@ export function registerImportRoutes(
     if (!sourceVersion) return reply.code(409).send({ error: "Import a source before choosing scope" });
     const available = new Set(sourceVersion.content.chapters.map((chapter) => chapter.id));
     const chapterIds = request.body?.chapterIds;
-    if (!Array.isArray(chapterIds) || !chapterIds.length || chapterIds.some((id) => !available.has(id))) {
+    if (!Array.isArray(chapterIds) || !chapterIds.length || new Set(chapterIds).size !== chapterIds.length || chapterIds.some((id) => !available.has(id))) {
       return reply.code(400).send({ error: "chapterIds must select imported chapters" });
     }
     const version = artifacts.saveArtifact({
       projectId: request.params.projectId,
       artifactId: "source-scope",
       artifactType: "source-scope",
-      content: { chapterIds },
+      content: { chapterIds, sourceVersionId: sourceVersion.id },
       dependencies: ["source"],
     });
+    if (workflow && artifacts.getCurrent(request.params.projectId, "source-dossier")) workflow.markStale(request.params.projectId, "source-dossier");
     return reply.code(201).send(version);
   });
 }

@@ -2,6 +2,8 @@ import { CreativeDirectionSchema, normalizeCreativeDirection } from "@story-to-c
 import { stableFingerprint } from "@story-to-cyoa/runtime";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
+import { SOURCE_ANALYSIS_TABLES } from "./source-analysis-duplication.js";
+import { validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
 
 export const PORTABLE_PROJECT_TABLES = [
   "projects", "artifact_versions", "artifact_workflow_state", "artifact_version_approvals", "artifact_dependencies",
@@ -13,6 +15,7 @@ export const PORTABLE_PROJECT_TABLES = [
   "passage_draft_generation_provenance", "passage_draft_heads", "passage_draft_staleness_events", "passage_draft_acceptance_applications",
   "passage_draft_acceptance_items", "repair_applications", "repair_application_draft_links",
   "repair_application_result_versions",
+  ...SOURCE_ANALYSIS_TABLES,
 ] as const;
 
 export type PortableProjectTable = typeof PORTABLE_PROJECT_TABLES[number];
@@ -108,6 +111,7 @@ export class PortableProjectRepository {
     const project = this.database.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as PortableRow | undefined;
     if (!project) throw new Error("Portable project does not exist");
     const tables = {} as Record<PortableProjectTable, PortableRow[]>;
+    const retainSourceEvidence = Boolean(this.database.prepare("SELECT 1 FROM source_analysis_plans WHERE project_id = ? LIMIT 1").get(projectId));
     for (const table of PORTABLE_PROJECT_TABLES) {
       let rows: PortableRow[];
       if (table === "projects") rows = [project];
@@ -116,13 +120,13 @@ export class PortableProjectRepository {
         JOIN passage_plan_snapshots snapshots ON snapshots.id = items.snapshot_id
         WHERE snapshots.project_id = ?`).all(projectId) as PortableRow[];
       else if (table === "artifact_versions") rows = (this.database.prepare(
-        "SELECT * FROM artifact_versions WHERE project_id = ? AND artifact_id NOT IN ('source', 'source-scope')",
+        `SELECT * FROM artifact_versions WHERE project_id = ? ${retainSourceEvidence ? "" : "AND artifact_id NOT IN ('source', 'source-scope')"}`,
       ).all(projectId) as PortableRow[]).map(redactConversationEvidence);
       else if (table === "artifact_workflow_state") rows = this.database.prepare(
-        "SELECT * FROM artifact_workflow_state WHERE project_id = ? AND artifact_id NOT IN ('source', 'source-scope')",
+        `SELECT * FROM artifact_workflow_state WHERE project_id = ? ${retainSourceEvidence ? "" : "AND artifact_id NOT IN ('source', 'source-scope')"}`,
       ).all(projectId) as PortableRow[];
       else if (table === "artifact_dependencies") rows = this.database.prepare(
-        "SELECT * FROM artifact_dependencies WHERE project_id = ? AND upstream_artifact_id NOT IN ('source', 'source-scope') AND dependent_artifact_id NOT IN ('source', 'source-scope')",
+        `SELECT * FROM artifact_dependencies WHERE project_id = ? ${retainSourceEvidence ? "" : "AND upstream_artifact_id NOT IN ('source', 'source-scope') AND dependent_artifact_id NOT IN ('source', 'source-scope')"}`,
       ).all(projectId) as PortableRow[];
       else rows = this.database.prepare(`SELECT * FROM ${table} WHERE project_id = ?`).all(projectId) as PortableRow[];
       tables[table] = rows.sort((a, b) => rowFingerprint(a).localeCompare(rowFingerprint(b)));
@@ -170,6 +174,7 @@ export class PortableProjectRepository {
     if (violations.length) throw new Error("portable_project_lineage_invalid: foreign-key validation failed");
     this.validateJsonFields(bundle);
     this.validateExactLineage(bundle.projectId);
+    validateSourceAnalysisDatabase(this.database, bundle.projectId);
     validateProject(this.database, bundle.projectId);
   }
 

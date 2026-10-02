@@ -4,6 +4,7 @@ import { CreativeDirectionSchema } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 import { artifactChain } from "./schema.js";
+import { validateDossierPersistence } from "./source-analysis-validation.js";
 
 export interface ArtifactVersion<T = unknown> {
   id: string;
@@ -43,6 +44,8 @@ function mapArtifact<T>(row: ArtifactRow): ArtifactVersion<T> {
     throw new Error("Creative Direction artifact identity is invalid");
   }
   const creativeDirection = creativeIdentity ? CreativeDirectionSchema.parse(parsed) : undefined;
+  if ((row.artifact_id === "source-dossier" || row.artifact_type === "source-dossier")
+    && (row.artifact_id !== "source-dossier" || row.artifact_type !== "source-dossier" || row.schema_version !== 1)) throw new Error("source_dossier_identity_invalid");
   if (creativeDirection && row.schema_version !== creativeDirection.schemaVersion) {
     throw new Error("Creative Direction schema version is invalid");
   }
@@ -69,7 +72,10 @@ export class ArtifactRepository {
       throw new Error("Creative Direction artifact identity is invalid");
     }
     const creativeDirection = creativeIdentity ? CreativeDirectionSchema.parse(input.content) : undefined;
-    const content = creativeDirection ?? (input.schema ? input.schema.parse(input.content) : input.content);
+    const dossierIdentity = input.artifactId === "source-dossier" || artifactType === "source-dossier";
+    if (dossierIdentity && (input.artifactId !== "source-dossier" || artifactType !== "source-dossier" || (input.schemaVersion ?? 1) !== 1)) throw new Error("source_dossier_identity_invalid");
+    const dossier = dossierIdentity ? validateDossierPersistence(this.database, input.projectId, input.content) : undefined;
+    const content = dossier ?? creativeDirection ?? (input.schema ? input.schema.parse(input.content) : input.content);
     JSON.stringify(content);
     const latest = this.database.prepare(`
       SELECT COALESCE(MAX(version), 0) AS version
@@ -113,6 +119,7 @@ export class ArtifactRepository {
     `).all(projectId, artifactId) as ArtifactRow[]).map(mapArtifact<T>);
     versions.forEach((version) => {
       if (version.artifactId === "creative-direction") this.validateCreativeDirectionProvenance(projectId, artifactId, version.content);
+      if (version.artifactId === "source-dossier") validateDossierPersistence(this.database, projectId, version.content);
     });
     return versions;
   }
@@ -127,6 +134,7 @@ export class ArtifactRepository {
     if (version?.artifactId === "creative-direction") {
       this.validateCreativeDirectionProvenance(version.projectId, version.artifactId, version.content);
     }
+    if (version?.artifactId === "source-dossier") validateDossierPersistence(this.database, version.projectId, version.content);
     return version;
   }
 

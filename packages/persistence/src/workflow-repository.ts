@@ -1,5 +1,6 @@
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
+import { assertAnalysisFresh, validateAnalysisPlan, validateDossierPersistence } from "./source-analysis-validation.js";
 
 export type ArtifactWorkflowStatus = "empty" | "draft" | "reviewed" | "approved" | "stale";
 
@@ -53,6 +54,13 @@ export class WorkflowRepository {
 
   approve(projectId: string, artifactId: string, versionId: string): ArtifactWorkflowState {
     return transaction(this.database, () => {
+      if (artifactId === "source-dossier") {
+        const row = this.database.prepare("SELECT id,content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source-dossier' ORDER BY version DESC LIMIT 1").get(projectId) as { id: string; content_json: string } | undefined;
+        if (!row || row.id !== versionId) throw new Error("source_dossier_approval_requires_current_version");
+        const dossier = validateDossierPersistence(this.database, projectId, JSON.parse(row.content_json));
+        const plan = this.database.prepare("SELECT content_json FROM source_analysis_plans WHERE project_id = ? AND id = ?").get(projectId, dossier.planId) as { content_json: string };
+        assertAnalysisFresh(this.database, validateAnalysisPlan(this.database, JSON.parse(plan.content_json)));
+      }
       const version = this.database.prepare(`
         SELECT id FROM artifact_versions WHERE id = ? AND project_id = ? AND artifact_id = ?
       `).get(versionId, projectId, artifactId);

@@ -36,6 +36,7 @@ import {
   RepairApplicationRecordSchema,
   RepairDraftProvenanceSchema,
   SimulationReportSchema,
+  AnalysisSourceSchema, SourceDossierSchema,
 } from "@story-to-cyoa/domain";
 import { assertNativePlayerConfig, stableFingerprint } from "@story-to-cyoa/runtime";
 import {
@@ -57,7 +58,7 @@ export const PORTABLE_PROJECT_V1_ARTIFACT_POLICY = {
     "adaptation", "bible", "brief", "creative-direction", "change-proposal", "drafts", "endings", "export", "mechanics",
     "narrative-review", "native-build", "native-compilation-input", "native-player-config",
     "playtest-campaign", "repair-plan", "repair-proposal", "repair-proposal-generation", "review", "routes",
-    "simulation", "simulation-input", "simulation-run",
+    "simulation", "simulation-input", "simulation-run", "source-dossier",
   ],
 } as const;
 
@@ -144,6 +145,15 @@ function validateArtifactRow(input: {
   native: NativeCompilationService;
 }): void {
   const { row, projectId, database, content, simulation, playtest, native } = input;
+  if (["source", "source-scope"].includes(row.artifact_id) && database.prepare("SELECT 1 FROM source_analysis_plans WHERE project_id = ? LIMIT 1").get(projectId)) {
+    exactIdentity(row, row.artifact_id, [1]);
+    if (row.artifact_id === "source") canonical(AnalysisSourceSchema.parse(content), content, row);
+    else {
+      const scope = content as { chapterIds?: unknown; sourceVersionId?: unknown };
+      if (!Array.isArray(scope?.chapterIds) || !scope.chapterIds.length || scope.chapterIds.some((value) => typeof value !== "string")) fail("source scope");
+    }
+    return;
+  }
   if ((PORTABLE_PROJECT_V1_ARTIFACT_POLICY.excluded as readonly string[]).includes(row.artifact_type)
     || (PORTABLE_PROJECT_V1_ARTIFACT_POLICY.excluded as readonly string[]).includes(row.artifact_id)) {
     throw new Error(`portable_project_artifact_type_excluded: ${row.artifact_type}`);
@@ -152,6 +162,8 @@ function validateArtifactRow(input: {
     throw new Error(`portable_project_artifact_type_unsupported: ${row.artifact_type}`);
   }
   switch (row.artifact_type) {
+    case "source-dossier":
+      exactIdentity(row, "source-dossier", [1]); canonical(SourceDossierSchema.parse(content), content, row); return;
     case "brief":
       exactIdentity(row, "brief", [1]); canonical(ProjectBriefSchema.parse(content), content, row); return;
     case "creative-direction": {

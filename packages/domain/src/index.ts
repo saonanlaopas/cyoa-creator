@@ -11,3 +11,5 @@ export * from "./recovery.js";
 export * from "./simulate.js";
 export * from "./stable-id.js";
 export * from "./creative-direction.js";
+export * from "./source-analysis.js";
+export * from "./source-correction.js";

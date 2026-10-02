@@ -280,7 +280,7 @@ function rotateRight(value: number, count: number): number {
 }
 
 /** Browser-safe SHA-256 over exact UTF-8 bytes; authored strings are not Unicode-normalized. */
-function sha256(value: string): string {
+export function sha256(value: string): string {
   const source = new TextEncoder().encode(value);
   const paddedLength = Math.ceil((source.length + 9) / 64) * 64;
   const bytes = new Uint8Array(paddedLength);
