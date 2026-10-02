@@ -1,6 +1,7 @@
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 import { assertAnalysisFresh, validateAnalysisPlan, validateDossierPersistence } from "./source-analysis-validation.js";
+import { assertAdaptationApproval } from "./adaptation-intent-validation.js";
 
 export type ArtifactWorkflowStatus = "empty" | "draft" | "reviewed" | "approved" | "stale";
 
@@ -51,9 +52,14 @@ export class WorkflowRepository {
   markStale(projectId: string, artifactId: string): ArtifactWorkflowState {
     return this.set(projectId, artifactId, "stale");
   }
+  markReviewed(projectId: string, artifactId: string, versionId: string): ArtifactWorkflowState {
+    if (artifactId === "adaptation-intent") assertAdaptationApproval(this.database, projectId, versionId);
+    return this.set(projectId, artifactId, "reviewed");
+  }
 
   approve(projectId: string, artifactId: string, versionId: string): ArtifactWorkflowState {
     return transaction(this.database, () => {
+      if (artifactId === "adaptation-intent") assertAdaptationApproval(this.database, projectId, versionId);
       if (artifactId === "source-dossier") {
         const row = this.database.prepare("SELECT id,content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source-dossier' ORDER BY version DESC LIMIT 1").get(projectId) as { id: string; content_json: string } | undefined;
         if (!row || row.id !== versionId) throw new Error("source_dossier_approval_requires_current_version");

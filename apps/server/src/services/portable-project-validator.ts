@@ -36,7 +36,7 @@ import {
   RepairApplicationRecordSchema,
   RepairDraftProvenanceSchema,
   SimulationReportSchema,
-  AnalysisSourceSchema, SourceDossierSchema,
+  AnalysisSourceSchema, SourceDossierSchema, AdaptationIntentSchema, AdaptationProposalSchema,
 } from "@story-to-cyoa/domain";
 import { assertNativePlayerConfig, stableFingerprint } from "@story-to-cyoa/runtime";
 import {
@@ -55,7 +55,7 @@ type EntityRow = { id: string; entity_kind: "passage" | "choice" | "thread"; ent
 export const PORTABLE_PROJECT_V1_ARTIFACT_POLICY = {
   excluded: ["source", "source-scope"],
   supported: [
-    "adaptation", "bible", "brief", "creative-direction", "change-proposal", "drafts", "endings", "export", "mechanics",
+    "adaptation", "adaptation-intent", "adaptation-intent-proposal", "bible", "brief", "creative-direction", "change-proposal", "drafts", "endings", "export", "mechanics",
     "narrative-review", "native-build", "native-compilation-input", "native-player-config",
     "playtest-campaign", "repair-plan", "repair-proposal", "repair-proposal-generation", "review", "routes",
     "simulation", "simulation-input", "simulation-run", "source-dossier",
@@ -164,6 +164,10 @@ function validateArtifactRow(input: {
   switch (row.artifact_type) {
     case "source-dossier":
       exactIdentity(row, "source-dossier", [1]); canonical(SourceDossierSchema.parse(content), content, row); return;
+    case "adaptation-intent":
+      exactIdentity(row, "adaptation-intent", [1]); canonical(AdaptationIntentSchema.parse(content), content, row); return;
+    case "adaptation-intent-proposal":
+      exactPrefix(row, "adaptation-intent-proposal-", [1]); canonical(AdaptationProposalSchema.parse(content), content, row); return;
     case "brief":
       exactIdentity(row, "brief", [1]); canonical(ProjectBriefSchema.parse(content), content, row); return;
     case "creative-direction": {

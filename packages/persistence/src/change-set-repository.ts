@@ -165,6 +165,7 @@ export class ChangeSetRepository {
   apply<T>(id: string, schema: z.ZodType<T>): { changeSet: ChangeSetRecord<T>; version: ArtifactVersion<T> } {
     const current = this.get<T>(id);
     if (!current) throw new Error("Proposal not found");
+    if (current.artifactId === "adaptation-intent") throw new Error("adaptation_use_reviewed_proposal_apply");
     if (current.status !== "proposed") throw new Error("Only pending proposals can be applied");
     const candidate = schema.parse(current.candidate);
     const result = transaction(this.database, () => {
@@ -229,6 +230,7 @@ export class ChangeSetRepository {
   ): { changeSet: ChangeSetRecord<T>; version: ArtifactVersion<T> } {
     const current = this.get<T>(id);
     if (!current) throw new Error("Proposal not found");
+    if (current.artifactId === "adaptation-intent") throw new Error("adaptation_use_reviewed_proposal_apply");
     if (current.status !== "proposed") throw new Error("Only pending proposals can be applied");
     const candidate = schema.parse(content);
     const result = transaction(this.database, () => {

@@ -9,6 +9,8 @@ import { transaction } from "./database.js";
 import { ArtifactRepository } from "./artifact-repository.js";
 import { assertSetupProposalSource } from "./setup-proposal-repository.js";
 import { prepareSourceAnalysisDuplicate, copySourceAnalysisRows, remapSourceAnalysisValue, remapSourceDossierContent } from "./source-analysis-duplication.js";
+import { prepareAdaptationDuplicate, remapAdaptationIntent, remapAdaptationProposal } from "./adaptation-intent-duplication.js";
+import { validateAdaptationDatabase } from "./adaptation-intent-validation.js";
 import { validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
 import type { SourceDossier } from "@story-to-cyoa/domain";
 
@@ -121,11 +123,14 @@ export class ProjectRepository {
         [id, copy.id], ...versionIdMap, ...conversationIdMap, ...messageIdMap, ...changeSetIdMap, ...setupProposalIdMap, ...memoryIdMap,
       ]);
       prepareSourceAnalysisDuplicate(this.database, id, copy.id, allIds);
+      prepareAdaptationDuplicate(this.database, id, allIds);
 
       const insertVersion = (version: typeof versions[number]) => {
         let contentJson = String(version.content_json);
         if (version.artifact_id === "source-scope") contentJson = JSON.stringify(remapSourceAnalysisValue(JSON.parse(contentJson), allIds));
         if (version.artifact_id === "source-dossier") contentJson = JSON.stringify(remapSourceDossierContent(this.database, JSON.parse(contentJson) as SourceDossier, allIds));
+        if (version.artifact_id === "adaptation-intent") contentJson = JSON.stringify(remapAdaptationIntent(this.database, JSON.parse(contentJson), allIds));
+        if (version.artifact_type === "adaptation-intent-proposal") contentJson = JSON.stringify(remapAdaptationProposal(this.database, JSON.parse(contentJson), allIds));
         if (version.artifact_id === "creative-direction") {
           const content = remapJsonValue(
             CreativeDirectionSchema.parse(JSON.parse(contentJson)), allIds,
@@ -145,9 +150,10 @@ export class ProjectRepository {
           version.created_at,
         );
       };
-      for (const version of versions.filter((v) => v.artifact_id !== "source-dossier")) insertVersion(version);
+      for (const version of versions.filter((v) => v.artifact_id !== "source-dossier" && v.artifact_id !== "adaptation-intent" && v.artifact_type !== "adaptation-intent-proposal")) insertVersion(version);
       copySourceAnalysisRows(this.database, id, allIds);
       for (const version of versions.filter((v) => v.artifact_id === "source-dossier")) insertVersion(version);
+      for (const version of versions.filter((v) => v.artifact_id === "adaptation-intent")) insertVersion(version);
       const dependencies = this.database.prepare(
         "SELECT upstream_artifact_id, dependent_artifact_id FROM artifact_dependencies WHERE project_id = ?",
       ).all(id) as Array<{ upstream_artifact_id: string; dependent_artifact_id: string }>;
@@ -173,6 +179,7 @@ export class ProjectRepository {
       for (const approval of approvals) this.database.prepare(`INSERT INTO artifact_version_approvals
         (project_id, artifact_id, version_id, approved_at) VALUES (?, ?, ?, ?)`)
         .run(copy.id, approval.artifact_id, requireMapped(versionIdMap, String(approval.version_id)), approval.approved_at);
+      for (const version of versions.filter((v) => v.artifact_type === "adaptation-intent-proposal")) insertVersion(version);
 
       for (const conversation of conversations) this.database.prepare(`INSERT INTO conversations
         (id, project_id, purpose, title, scope_json, summary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -263,6 +270,7 @@ export class ProjectRepository {
 
       new ArtifactRepository(this.database).listVersions(copy.id, "creative-direction");
       validateSourceAnalysisDatabase(this.database, copy.id);
+      validateAdaptationDatabase(this.database, copy.id);
       return copy;
     });
   }

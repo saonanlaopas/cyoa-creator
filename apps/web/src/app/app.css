@@ -590,3 +590,36 @@ body { overflow-wrap: anywhere; }
 .source-analysis-workspace button.primary { background: #a2d5b9; color: #15291d; }
 .source-analysis-workspace a { color: #a2d5b9; }
 @media (max-width: 760px) { .source-review-layout { grid-template-columns: minmax(0, 1fr); } .source-record-list { max-height: 420px; } .source-actions > button { flex: 1 1 160px; } }
+.adaptation-intent-workspace { min-width: 0; padding: 20px; background: #171c1b; color: #edf0ed; overflow-wrap: anywhere; }
+.adaptation-intent-workspace h1 { font-size: 26px; }
+.adaptation-intent-workspace h2 { font-size: 19px; margin: 18px 0 12px; }
+.adaptation-intent-workspace h3 { font-size: 17px; }
+.adaptation-intent-workspace section { padding: 12px 0; border-top: 1px solid #49534e; }
+.adaptation-intent-workspace label { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; min-width: 0; }
+.adaptation-intent-workspace input:not([type=checkbox]), .adaptation-intent-workspace select, .adaptation-intent-workspace textarea { width: 100%; max-width: 100%; min-width: 0; border-radius: 4px; padding: 9px; color: #edf0ed; background: #101513; border: 1px solid #62766b; }
+.adaptation-intent-workspace textarea { min-height: 92px; resize: vertical; }
+.adaptation-intent-workspace fieldset { min-width: 0; margin: 16px 0; padding: 12px; border: 1px solid #49534e; }
+.adaptation-intent-workspace button { border-radius: 4px; padding: 9px 12px; background: #293c33; border: 1px solid #6a8477; color: #edf0ed; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.adaptation-intent-workspace button:hover:not(:disabled), .intent-tabs button[aria-current=page] { background: #45614f; border-color: #b5d6c2; }
+.adaptation-intent-workspace button:disabled { opacity: .5; }
+.adaptation-intent-workspace :focus-visible { outline: 2px solid #ebcf83; outline-offset: 3px; }
+.adaptation-intent-workspace a { color: #c5dfd1; }
+.adaptation-intent-workspace small { display: block; color: #bfc8c2; font-size: 12px; margin: 6px 0; }
+.intent-tabs, .intent-item-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.intent-grid, .intent-dimensions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.intent-dimensions { margin: 12px 0; padding: 12px 0; border-block: 1px solid #49534e; }
+.intent-dimensions dt { color: #bbc7c0; font-size: 13px; }
+.intent-dimensions dd { margin: 4px 0; }
+.intent-review-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; align-items: start; }
+.adaptation-intent-workspace .intent-check { flex-direction: row; align-items: start; gap: 10px; }
+.intent-check input { flex: 0 0 auto; margin-top: 4px; }
+.intent-items article, .intent-selected article { padding: 14px 0; border-bottom: 1px solid #49534e; }
+.intent-selected article strong { color: #ebcf83; font-size: 12px; }
+.intent-item-editor strong { color: #c5dfd1; }
+.intent-pages { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin: 12px 0; min-height: 40px; }
+.intent-pages button { width: 40px; height: 40px; padding: 0; flex: 0 0 40px; }
+.adaptation-intent-workspace blockquote { margin: 12px 0; border-left: 3px solid #ebcf83; padding: 12px; white-space: pre-wrap; background: #252c28; }
+.adaptation-intent-workspace pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font-size: 12px; }
+.long-form-workspace:has(.adaptation-intent-workspace) .workflow-nav { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.long-form-workspace:has(.adaptation-intent-workspace) .workflow-nav ol { min-width: 0; max-width: 100%; overflow-x: auto; }
+@media (max-width: 760px) { .intent-review-layout, .intent-grid, .intent-dimensions { grid-template-columns: minmax(0, 1fr); } .adaptation-intent-workspace { padding: 12px; } }

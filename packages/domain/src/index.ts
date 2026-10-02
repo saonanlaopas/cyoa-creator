@@ -13,3 +13,4 @@ export * from "./stable-id.js";
 export * from "./creative-direction.js";
 export * from "./source-analysis.js";
 export * from "./source-correction.js";
+export * from "./adaptation-intent.js";

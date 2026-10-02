@@ -35,12 +35,13 @@ import { ResumeWorkWorkspace } from "./ResumeWorkWorkspace.js";
 import { ProjectSetupWorkspace } from "./ProjectSetupWorkspace.js";
 import { createSetupProject } from "../../api/project-setup.js";
 import { SourceAnalysisWorkspace } from "./SourceAnalysisWorkspace.js";
+import { AdaptationIntentWorkspace } from "./AdaptationIntentWorkspace.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
 const navigationKey = (projectId: string) => `story-to-cyoa.navigation.${projectId}`;
-type LongFormStage = "setup" | "source-analysis" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
-const stageIds: LongFormStage[] = ["setup", "source-analysis", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
+type LongFormStage = "setup" | "source-analysis" | "adaptation-intent" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
+const stageIds: LongFormStage[] = ["setup", "source-analysis", "adaptation-intent", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
 const isLongFormStage = (value: unknown): value is LongFormStage => typeof value === "string" && stageIds.includes(value as LongFormStage);
 const stages = ["Source analysis", "Project brief", "Creative Direction", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Repair planning", "Publication", "Resume work", "Project health", "Backup & recovery"];
 const navigationStageIds: Array<LongFormStage | null> = ["source-analysis", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", null, "simulation", "repair", "publication", "resume", "health", "recovery"];
@@ -48,6 +49,7 @@ type NavigationHint = { stage: LongFormStage; entityId: string | null };
 const stageLabels: Record<LongFormStage, string> = {
   setup: "Talk it through",
   "source-analysis": "Source analysis",
+  "adaptation-intent": "Adaptation Intent",
   brief: "Project brief", "creative-direction": "Creative Direction", bible: "Story bible", routes: "Routes", endings: "Endings", mechanics: "Mechanics",
   "passage-plan": "Passage plan", simulation: "Playtest & analysis", repair: "Repair planning",
   publication: "Publication", resume: "Resume work", health: "Project health", recovery: "Backup & recovery",
@@ -55,6 +57,7 @@ const stageLabels: Record<LongFormStage, string> = {
 
 export function LongFormWorkspace() {
   const [sourceAnalysisStatus, setSourceAnalysisStatus] = useState<{ projectId: string; status: string } | null>(null);
+  const [adaptationIntentAdopted, setAdaptationIntentAdopted] = useState(false);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [brief, setBrief] = useState<ArtifactVersion<ProjectBrief> | null>(null);
@@ -100,6 +103,7 @@ export function LongFormWorkspace() {
     setMechanics(state.mechanics);
     setMechanicsWorkflow(state.workflow.mechanics);
     setValidation(state.validation);
+    setAdaptationIntentAdopted(Boolean(state.adaptationIntentAdopted));
     localStorage.setItem(activeProjectKey, projectId);
     try {
       const saved = JSON.parse(localStorage.getItem(navigationKey(projectId)) ?? "null") as { stage?: LongFormStage; entityId?: string; scrollY?: number; previous?: NavigationHint } | null;
@@ -235,7 +239,7 @@ export function LongFormWorkspace() {
     </main>;
   }
 
-  return <main id="main-content" className={`long-form-workspace${activeStage === "setup" || activeStage === "source-analysis" ? " setup-active" : ""}`} tabIndex={-1}>
+  return <main id="main-content" className={`long-form-workspace${activeStage === "setup" || activeStage === "source-analysis" || activeStage === "adaptation-intent" ? " setup-active" : ""}`} tabIndex={-1}>
     <nav className="workflow-nav" aria-label="Long-form workflow">
       <p className="eyebrow">Long-form project</p>
       <h2>{project.name}</h2>
@@ -261,6 +265,7 @@ export function LongFormWorkspace() {
         localStorage.setItem(activeStageKey, "brief");
       }}>New project</button>
       <button aria-current={activeStage === "setup" ? "step" : undefined} onClick={() => navigate("setup")}>Talk it through</button>
+      <button aria-current={activeStage === "adaptation-intent" ? "step" : undefined} onClick={() => navigate("adaptation-intent")}>Adaptation Intent</button>
       <details open={activeStage !== "setup"}><summary>Advanced workspace</summary><ol>
         {stages.map((stage, index) => {
           const stageId = navigationStageIds[index] ?? null;
@@ -338,7 +343,7 @@ export function LongFormWorkspace() {
       </details>
     </nav>
 
-    {activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
+    {activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "adaptation-intent" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
       <ArtifactHistory
         projectId={project.id}
         artifactId={activeStage}
@@ -379,7 +384,7 @@ export function LongFormWorkspace() {
       </header>
 
       {message && <p className={message.includes("approved") ? "status good" : "error"} role="status">{message}</p>}
-      <BriefEditor brief={brief.content} busy={busy} presentationOwnedByCreativeDirection={Boolean(creativeDirection)} onSave={async (content) => {
+      <BriefEditor brief={brief.content} busy={busy} presentationOwnedByCreativeDirection={Boolean(creativeDirection)} fidelityOwnedByAdaptationIntent={adaptationIntentAdopted} onSave={async (content) => {
         setBusy(true);
         setMessage(null);
         try {
@@ -397,7 +402,7 @@ export function LongFormWorkspace() {
       projectId={project.id} direction={creativeDirection} workflow={creativeDirectionWorkflow}
       busy={busy} message={message} setBusy={setBusy} setMessage={setMessage}
       onChanged={() => openProject(project.id)}
-    /> : activeStage === "source-analysis" ? <SourceAnalysisWorkspace key={project.id} projectId={project.id} onStatusChange={(status) => setSourceAnalysisStatus({ projectId: project.id, status })} /> : activeStage === "bible" ? <BibleWorkspace
+    /> : activeStage === "source-analysis" ? <SourceAnalysisWorkspace key={project.id} projectId={project.id} onStatusChange={(status) => setSourceAnalysisStatus({ projectId: project.id, status })} /> : activeStage === "adaptation-intent" ? <AdaptationIntentWorkspace key={project.id} projectId={project.id} onStatusChange={(status) => setAdaptationIntentAdopted(status !== "empty")} /> : activeStage === "bible" ? <BibleWorkspace
       projectId={project.id}
       briefApproved={briefWorkflow.status === "approved"}
       creativeDirectionApproved={creativeDirectionWorkflow.status === "approved"}
@@ -472,7 +477,7 @@ export function LongFormWorkspace() {
         await openProject(restoredProjectId);
       }} />}
 
-    {activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
+    {activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "adaptation-intent" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
       key={project.id}
       project={project}
       brief={brief}

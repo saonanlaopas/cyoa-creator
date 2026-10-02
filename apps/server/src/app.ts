@@ -71,6 +71,9 @@ import { SourceAnalysisService } from "./services/source-analysis-service.js";
 import { DeterministicSourceAnalysisProvider, OpenRouterSourceAnalysisProvider } from "./services/source-analysis-provider.js";
 import { registerSourceAnalysisRoutes } from "./routes/source-analysis.js";
 import type { SourceAnalysisProvider } from "@story-to-cyoa/pipeline";
+import { AdaptationIntentService } from "./services/adaptation-intent-service.js";
+import { DeterministicAdaptationIntentProvider, OpenRouterAdaptationIntentProvider, type AdaptationIntentProvider } from "./services/adaptation-intent-provider.js";
+import { registerAdaptationIntentRoutes } from "./routes/adaptation-intent.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -84,6 +87,7 @@ export interface BuildAppOptions {
   narrativeReviewProvider?: NarrativeReviewProvider;
   repairProposalProvider?: RepairProposalProvider;
   sourceAnalysisProvider?: SourceAnalysisProvider;
+  adaptationIntentProvider?: AdaptationIntentProvider;
 }
 
 const webDistPath = resolve(
@@ -234,6 +238,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerAuthorMemoryRoutes(app, projects, authorMemory);
   registerProjectSetupRoutes(app, projectSetupService);
   registerSourceAnalysisRoutes(app, sourceAnalysisService);
+  const adaptationIntentService = new AdaptationIntentService(database, artifacts, workflow,
+    [options.adaptationIntentProvider ?? new DeterministicAdaptationIntentProvider(), new OpenRouterAdaptationIntentProvider(openRouter)]);
+  registerAdaptationIntentRoutes(app, adaptationIntentService);
+  app.addHook("onClose", async () => adaptationIntentService.close());
   registerPassagePlanRoutes(app, passagePlanService);
   registerPassageGenerationRoutes(app, passageGenerationService);
   registerPassageProposalRoutes(app, passageProposalService);

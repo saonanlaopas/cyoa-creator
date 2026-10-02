@@ -7,6 +7,7 @@ export function BriefEditor(props: {
   brief: ProjectBrief;
   busy: boolean;
   presentationOwnedByCreativeDirection?: boolean;
+  fidelityOwnedByAdaptationIntent?: boolean;
   onSave(brief: ProjectBrief): Promise<void>;
 }) {
   const [draft, setDraft] = useState(props.brief);
@@ -37,8 +38,8 @@ export function BriefEditor(props: {
             <option value="third-person">Third person</option>
           </select>
         </label>
-        <label>Adaptation fidelity
-          <select value={draft.adaptationFidelity} onChange={(event) => field("adaptationFidelity", event.target.value as ProjectBrief["adaptationFidelity"])}>
+        <label>Legacy adaptation fidelity
+          <select disabled={props.fidelityOwnedByAdaptationIntent} value={draft.adaptationFidelity} onChange={(event) => field("adaptationFidelity", event.target.value as ProjectBrief["adaptationFidelity"])}>
             <option value="balanced">Balanced</option>
             <option value="canon-centered">Canon-centered</option>
             <option value="expansive">Expansive</option>

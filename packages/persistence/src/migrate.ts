@@ -1,6 +1,7 @@
 import type { StoryDatabase } from "./database.js";
 import { sourceAnalysisMigrationSql } from "./source-analysis-schema.js";
 import { validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
+import { validateAdaptationDatabase } from "./adaptation-intent-validation.js";
 import { assertSetupProposalSource } from "./setup-proposal-repository.js";
 import {
   RepairApplicationRecordSchema,
@@ -352,6 +353,7 @@ function migrateWithinTransaction(database: StoryDatabase): void {
   runMigrationStep(database, "migration_v20", () => {
     database.exec(sourceAnalysisMigrationSql);
     validateSourceAnalysisDatabase(database);
+    validateAdaptationDatabase(database);
     database.prepare("INSERT OR IGNORE INTO schema_migrations (version,applied_at) VALUES (20,?)").run(new Date().toISOString());
   });
 }

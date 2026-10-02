@@ -4,6 +4,7 @@ import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 import { SOURCE_ANALYSIS_TABLES } from "./source-analysis-duplication.js";
 import { validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
+import { validateAdaptationDatabase } from "./adaptation-intent-validation.js";
 
 export const PORTABLE_PROJECT_TABLES = [
   "projects", "artifact_versions", "artifact_workflow_state", "artifact_version_approvals", "artifact_dependencies",
@@ -176,6 +177,7 @@ export class PortableProjectRepository {
     this.validateJsonFields(bundle);
     this.validateExactLineage(bundle.projectId);
     validateSourceAnalysisDatabase(this.database, bundle.projectId);
+    validateAdaptationDatabase(this.database, bundle.projectId);
     validateProject(this.database, bundle.projectId);
   }
 

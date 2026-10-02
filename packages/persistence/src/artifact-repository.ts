@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { CreativeDirectionSchema } from "@story-to-cyoa/domain";
+import { CreativeDirectionSchema, normalizeAdaptationIntent, type AdaptationIntent } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 import { artifactChain } from "./schema.js";
 import { assertDossierHistoryBudget, validateDossierPersistence } from "./source-analysis-validation.js";
+import { assertAdaptationWrite, assertAdaptationProposalBudget, validateAdaptationIntent, validateAdaptationProposal } from "./adaptation-intent-validation.js";
 
 export interface ArtifactVersion<T = unknown> {
   id: string;
@@ -39,6 +40,7 @@ type ArtifactRow = {
 
 function mapArtifact<T>(row: ArtifactRow): ArtifactVersion<T> {
   const parsed = JSON.parse(row.content_json) as unknown;
+  if ((row.artifact_id === "adaptation-intent" || row.artifact_type === "adaptation-intent") && (row.artifact_id !== "adaptation-intent" || row.artifact_type !== "adaptation-intent" || row.schema_version !== 1)) throw new Error("adaptation_identity_invalid");
   const creativeIdentity = row.artifact_id === "creative-direction" || row.artifact_type === "creative-direction";
   if (creativeIdentity && (row.artifact_id !== "creative-direction" || row.artifact_type !== "creative-direction")) {
     throw new Error("Creative Direction artifact identity is invalid");
@@ -67,6 +69,12 @@ export class ArtifactRepository {
 
   saveArtifactInTransaction<T>(input: SaveArtifactInput<T>): ArtifactVersion<T> {
     const artifactType = input.artifactType ?? input.artifactId;
+    const adaptationIdentity = input.artifactId === "adaptation-intent" || artifactType === "adaptation-intent";
+    if (adaptationIdentity && (input.artifactId !== "adaptation-intent" || artifactType !== "adaptation-intent" || (input.schemaVersion ?? 1) !== 1)) throw new Error("adaptation_identity_invalid");
+    const adaptation = adaptationIdentity ? assertAdaptationWrite(this.database, input.projectId, input.content) : undefined;
+    const proposal = artifactType === "adaptation-intent-proposal" ? validateAdaptationProposal(this.database, input.projectId, input.content) : undefined;
+    if (proposal && (!input.artifactId.startsWith("adaptation-intent-proposal-") || (input.schemaVersion ?? 1) !== 1)) throw new Error("adaptation_proposal_identity_invalid");
+    if (proposal) assertAdaptationProposalBudget(this.database, input.projectId, proposal);
     const creativeIdentity = input.artifactId === "creative-direction" || artifactType === "creative-direction";
     if (creativeIdentity && (input.artifactId !== "creative-direction" || artifactType !== "creative-direction")) {
       throw new Error("Creative Direction artifact identity is invalid");
@@ -76,7 +84,7 @@ export class ArtifactRepository {
     if (dossierIdentity && (input.artifactId !== "source-dossier" || artifactType !== "source-dossier" || (input.schemaVersion ?? 1) !== 1)) throw new Error("source_dossier_identity_invalid");
     const dossier = dossierIdentity ? validateDossierPersistence(this.database, input.projectId, input.content) : undefined;
     if (dossier) assertDossierHistoryBudget(this.database, input.projectId, dossier);
-    const content = dossier ?? creativeDirection ?? (input.schema ? input.schema.parse(input.content) : input.content);
+    const content = proposal ?? adaptation ?? dossier ?? creativeDirection ?? (input.schema ? input.schema.parse(input.content) : input.content);
     JSON.stringify(content);
     const latest = this.database.prepare(`
       SELECT COALESCE(MAX(version), 0) AS version
@@ -100,6 +108,12 @@ export class ArtifactRepository {
     for (const upstream of input.dependencies ?? []) {
       this.addDependency(input.projectId, upstream, input.artifactId);
     }
+    if (adaptation) {
+      this.addDependency(input.projectId, "source-dossier", "adaptation-intent");
+      this.database.prepare(`INSERT INTO artifact_workflow_state (project_id,artifact_id,status,approved_version_id,updated_at)
+        VALUES (?,'adaptation-intent','draft',NULL,?) ON CONFLICT(project_id,artifact_id) DO UPDATE SET status='draft',updated_at=excluded.updated_at`)
+        .run(input.projectId, new Date().toISOString());
+    }
     const chainIndex = artifactChain.indexOf(artifactType as typeof artifactChain[number]);
     if (chainIndex > 0) this.addDependency(input.projectId, artifactChain[chainIndex - 1], input.artifactId);
     if (input.markDependentsStale !== false) this.markDependentsStale(input.projectId, input.artifactId);
@@ -121,6 +135,8 @@ export class ArtifactRepository {
     versions.forEach((version) => {
       if (version.artifactId === "creative-direction") this.validateCreativeDirectionProvenance(projectId, artifactId, version.content);
       if (version.artifactId === "source-dossier") validateDossierPersistence(this.database, projectId, version.content);
+      if (version.artifactId === "adaptation-intent") validateAdaptationIntent(this.database, projectId, version.content);
+      if (version.artifactType === "adaptation-intent-proposal") validateAdaptationProposal(this.database, projectId, version.content);
     });
     return versions;
   }
@@ -136,6 +152,8 @@ export class ArtifactRepository {
       this.validateCreativeDirectionProvenance(version.projectId, version.artifactId, version.content);
     }
     if (version?.artifactId === "source-dossier") validateDossierPersistence(this.database, version.projectId, version.content);
+    if (version?.artifactId === "adaptation-intent") validateAdaptationIntent(this.database, version.projectId, version.content);
+    if (version?.artifactType === "adaptation-intent-proposal") validateAdaptationProposal(this.database, version.projectId, version.content);
     return version;
   }
 
@@ -147,6 +165,12 @@ export class ArtifactRepository {
     return transaction(this.database, () => {
       if (artifactId === "source-dossier") assertDossierHistoryBudget(this.database, projectId, source.content);
       const latest = this.getCurrent(projectId, artifactId);
+      if (artifactId === "adaptation-intent") {
+        const content = normalizeAdaptationIntent({ ...(source.content as AdaptationIntent), revision: { kind: "restore", previousVersionId: latest?.id ?? null, restoredFromVersionId: source.id } });
+        const saved = this.saveArtifactInTransaction({ projectId, artifactId, content });
+        this.database.prepare("UPDATE artifact_versions SET restored_from_version_id = ? WHERE id = ?").run(source.id, saved.id);
+        return this.getVersion<T>(saved.id)!;
+      }
       const id = randomUUID();
       this.database.prepare(`
         INSERT INTO artifact_versions
@@ -258,6 +282,7 @@ export class ArtifactRepository {
           ORDER BY version DESC LIMIT 1
         )
       `).run(projectId, dependent);
+      if (dependent === "adaptation-intent") this.database.prepare("UPDATE artifact_workflow_state SET status = 'stale' WHERE project_id = ? AND artifact_id = ?").run(projectId, dependent);
     }
     return [...stale].sort();
   }

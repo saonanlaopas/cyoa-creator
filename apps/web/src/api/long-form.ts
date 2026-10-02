@@ -242,6 +242,7 @@ export interface WorkflowState {
 }
 
 export interface LongFormProjectState {
+  adaptationIntentAdopted?: boolean;
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
   creativeDirection: ArtifactVersion<CreativeDirection> | null;
@@ -395,6 +396,7 @@ export async function createLongFormProject(name: string): Promise<{
 }
 
 export async function loadLongFormProject(projectId: string): Promise<{
+  adaptationIntentAdopted?: boolean;
   project: ProjectRecord;
   brief: ArtifactVersion<ProjectBrief>;
   creativeDirection: ArtifactVersion<CreativeDirection> | null;
