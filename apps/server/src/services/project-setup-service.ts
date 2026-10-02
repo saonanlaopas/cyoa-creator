@@ -72,7 +72,7 @@ export class ProjectSetupService {
   createProject(name: string | undefined) {
     const title = name?.trim() || "Untitled project";
     if (title.length > 200) fail(400, "setup_title_invalid", "Working title must be at most 200 characters");
-    const created = this.longForm.createProject(title);
+    const created = this.longForm.createProject(title, "original-premise");
     const conversation = this.startSession(created.project.id);
     return { ...created, conversation };
   }
@@ -99,7 +99,8 @@ export class ProjectSetupService {
       messagesTruncated: messageCount > messages.length,
       understanding: latestReply ? {
         messageId: latestReply.id,
-        stale: messages.slice(messages.findIndex((message) => message.id === latestReply.id) + 1).some((message) => message.role === "user"),
+        stale: messages.slice(messages.findIndex((message) => message.id === latestReply.id) + 1).some((message) => message.role === "user")
+          || latestReply.metadata.readinessDependencies !== this.readinessDependencies(conversation),
         ...(latestReply.metadata.reply as Omit<SetupAssistantResponse, "message">),
       } : null,
       proposals,
@@ -157,6 +158,7 @@ export class ProjectSetupService {
         metadata: {
           kind: "setup-reply", authority: "non-canonical", reply: structured,
           contextFingerprint: context.built.fingerprint,
+          readinessDependencies: this.readinessDependencies(conversation),
           provider: { model, usage: generation!.usage, cost: generation!.cost, repaired: generation!.repaired },
         },
       });
@@ -176,7 +178,7 @@ export class ProjectSetupService {
       provider: { model: model?.trim() || DEFAULT_MODEL, explicitStartRequired: true },
       diagnostics: context.built.diagnostics,
       withinLimits: context.built.diagnostics.serializedBytes <= PROJECT_SETUP_LIMITS.maximumContextBytes,
-      ready: context.authorMessageIds.size > 0,
+      ready: this.readyToPropose(conversation),
       expectedArtifacts: [
         { artifactId: "brief", precondition: state.brief ? "exact-base" : "must-not-exist", versionId: state.brief?.id ?? null },
         { artifactId: "creative-direction", precondition: state.creativeDirection ? "exact-base" : "must-not-exist", versionId: state.creativeDirection?.id ?? null },
@@ -198,6 +200,7 @@ export class ProjectSetupService {
       fail(409, "setup_context_stale", "The conversation or project changed since the preview. Preview again before drafting.");
     }
     if (!context.authorMessageIds.size) fail(400, "setup_message_required", "Tell Studio about the story first");
+    if (!this.readyToPropose(conversation)) fail(409, "setup_understanding_required", "Ask Studio to refresh a ready understanding before drafting a proposal");
     let generation;
     try {
       generation = await this.client.generateStructuredStream({
@@ -251,10 +254,11 @@ export class ProjectSetupService {
         authority: "non-canonical-setup-proposal",
         schemaVersion: 1,
         messageRange: {
-          firstMessageId: context.built.diagnostics.firstMessageId,
-          lastMessageId: context.built.diagnostics.lastMessageId,
+          firstMessageId: context.built.diagnostics.firstMessageId!,
+          lastMessageId: context.built.diagnostics.lastMessageId!,
           messageCount: context.built.diagnostics.messageCount,
           authorMessageIds: [...context.authorMessageIds],
+          messageIds: context.messageIds,
         },
         summaryVersionId: context.built.diagnostics.summaryVersionId,
         decisionVersionIds: context.built.diagnostics.decisionVersionIds,
@@ -425,7 +429,7 @@ export class ProjectSetupService {
   }
 
   private context(conversation: ConversationRecord, mode: "ask" | "propose", enforceLimit: boolean): {
-    built: SetupContext; authorMessageIds: Set<string>; authorMessages: Map<string, string>;
+    built: SetupContext; authorMessageIds: Set<string>; authorMessages: Map<string, string>; messageIds: string[];
   } {
     const projectId = conversation.projectId;
     const memory = this.authorMemory.buildContext(projectId, conversation.id, this.scope(projectId));
@@ -447,7 +451,26 @@ export class ProjectSetupService {
       fail(413, "setup_context_too_large", "The setup context exceeds its hard limit; nothing was sent to a provider");
     }
     const authorMessages = new Map(messages.filter((message) => message.role === "user").map((message) => [message.id, message.content]));
-    return { built, authorMessageIds: new Set(authorMessages.keys()), authorMessages };
+    return { built, authorMessageIds: new Set(authorMessages.keys()), authorMessages, messageIds: messages.map((message) => message.id) };
+  }
+
+  private readinessDependencies(conversation: ConversationRecord): string {
+    const memory = this.authorMemory.buildContext(conversation.projectId, conversation.id, this.scope(conversation.projectId));
+    return createHash("sha256").update(JSON.stringify({
+      projectName: this.longForm.project(conversation.projectId).name,
+      versions: this.versionContext(conversation.projectId), decisions: memory.decisions.map((decision) => decision.id),
+    })).digest("hex");
+  }
+
+  private readyToPropose(conversation: ConversationRecord): boolean {
+    const row = this.database.prepare(`SELECT rowid AS message_order, metadata_json FROM messages
+      WHERE conversation_id = ? AND role = 'assistant' AND json_extract(metadata_json, '$.kind') = 'setup-reply'
+      ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(conversation.id) as { message_order: number; metadata_json: string } | undefined;
+    if (!row || this.database.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND role = 'user' AND rowid > ?")
+      .get(conversation.id, row.message_order)) return false;
+    const metadata = JSON.parse(row.metadata_json) as { reply?: { readiness?: string }; readinessDependencies?: string };
+    return metadata.reply?.readiness === "ready-to-propose"
+      && metadata.readinessDependencies === this.readinessDependencies(conversation);
   }
 
   /** Post-provider freshness check inside the completion transaction: no late commit over changed context. */

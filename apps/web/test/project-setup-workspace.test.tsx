@@ -34,6 +34,7 @@ it("typing is local and Ask requires an explicit saved idea", async () => {
 });
 
 it("separates local preview, exact authorization and provider start", async () => {
+  vi.mocked(api.loadSetupSession).mockResolvedValue({ ...loaded, understanding: { messageId: "reply-1", stale: false, readiness: "ready-to-propose", understanding: { summary: "A warm mystery", items: [], unresolved: [] }, questions: [] } });
   const user = userEvent.setup(); render(<ProjectSetupWorkspace projectId="p" onApplied={vi.fn()} />);
   await screen.findByText("A detective mystery");
   await user.click(screen.getByRole("button", { name: "Preview proposal context" }));
@@ -42,6 +43,19 @@ it("separates local preview, exact authorization and provider start", async () =
   await user.click(screen.getByLabelText("Authorize this exact proposal request"));
   await user.click(start);
   await waitFor(() => expect(api.draftSetup).toHaveBeenCalledWith("p", "conversation-1", expect.objectContaining({ contextFingerprint: "exact-context", provider: { model: "offline-model" } }), expect.any(AbortSignal)));
+});
+
+it.each([
+  null,
+  { messageId: "reply-1", stale: false, readiness: "needs-input" as const, understanding: { summary: "Something vague", items: [], unresolved: [] }, questions: [] },
+  { messageId: "reply-1", stale: true, readiness: "ready-to-propose" as const, understanding: { summary: "Earlier understanding", items: [], unresolved: [] }, questions: [] },
+])("disables proposal preview without a fresh ready understanding: %j", async (understanding) => {
+  vi.mocked(api.loadSetupSession).mockResolvedValue({ ...loaded, understanding });
+  const user = userEvent.setup(); render(<ProjectSetupWorkspace projectId="p" onApplied={vi.fn()} />);
+  await screen.findByText("A detective mystery");
+  const preview = screen.getByRole("button", { name: "Preview proposal context" });
+  expect((preview as HTMLButtonElement).disabled).toBe(true);
+  await user.click(preview); expect(api.previewSetup).not.toHaveBeenCalled(); expect(api.draftSetup).not.toHaveBeenCalled();
 });
 
 it("announces stale errors and keeps canonical application separate from review", async () => {

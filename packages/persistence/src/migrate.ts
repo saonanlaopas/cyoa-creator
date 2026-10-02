@@ -1,4 +1,5 @@
 import type { StoryDatabase } from "./database.js";
+import { assertSetupProposalSource } from "./setup-proposal-repository.js";
 import {
   RepairApplicationRecordSchema,
   RepairDraftProvenanceSchema,
@@ -330,16 +331,31 @@ function migrateWithinTransaction(database: StoryDatabase): void {
         "TEXT NOT NULL DEFAULT 'planning' CHECK(purpose IN ('planning', 'setup'))");
       database.exec(projectSetupMigrationSql);
       database.exec(projectSetupIntegrityTriggerSql);
+      assertValidSetupProposals(database);
       database.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (19, ?)",
       ).run(new Date().toISOString());
     });
   } else if (!hasTrigger(database, "setup_proposals_conversation_lineage_insert")
-    || !hasTrigger(database, "setup_proposals_immutable_update")) {
+    || !hasTrigger(database, "setup_proposals_immutable_update")
+    || !hasTrigger(database, "setup_proposals_immutable_delete")) {
     runMigrationStep(database, "migration_v19_integrity_patch", () => {
       database.exec(projectSetupIntegrityTriggerSql);
+      assertValidSetupProposals(database);
     });
+  } else {
+    assertValidSetupProposals(database);
   }
+}
+
+function assertValidSetupProposals(database: StoryDatabase): void {
+  const rows = database.prepare(`SELECT proposals.project_id, proposals.conversation_id, proposals.source_json
+    FROM setup_proposals proposals LEFT JOIN conversations conversation ON conversation.id = proposals.conversation_id
+    WHERE conversation.id IS NULL OR conversation.project_id != proposals.project_id OR conversation.purpose != 'setup'`).all();
+  if (rows.length) throw new Error("Cannot open setup proposals with invalid conversation lineage");
+  for (const row of database.prepare("SELECT project_id, conversation_id, source_json FROM setup_proposals").all() as Array<{
+    project_id: string; conversation_id: string; source_json: string;
+  }>) assertSetupProposalSource(database, row.project_id, row.conversation_id, JSON.parse(row.source_json));
 }
 
 const AUTHOR_MEMORY_INTEGRITY_TRIGGERS = [

@@ -1,7 +1,76 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { transaction, type StoryDatabase } from "./database.js";
+import { AUTHOR_MEMORY_BUDGETS } from "./author-memory-repository.js";
 
 export type SetupProposalStatus = "proposed" | "applied" | "rejected" | "superseded";
+
+const SourceId = z.string().min(1).max(240);
+const Usage = z.object({ inputTokens: z.number().nonnegative(), outputTokens: z.number().nonnegative(), totalTokens: z.number().nonnegative() }).strict();
+const Cost = z.object({ currency: z.literal("USD"), input: z.number().nonnegative(), output: z.number().nonnegative(), total: z.number().nonnegative() }).strict().nullable();
+export const SetupProposalSourceSchema = z.object({
+  authority: z.literal("non-canonical-setup-proposal"),
+  schemaVersion: z.literal(1),
+  messageRange: z.object({
+    firstMessageId: SourceId, lastMessageId: SourceId, messageCount: z.number().int().positive().max(200),
+    authorMessageIds: z.array(SourceId).min(1).max(200),
+    // Earlier v19 records have only the range. New records also identify bounded-context omissions exactly.
+    messageIds: z.array(SourceId).min(1).max(200).optional(),
+  }).strict(),
+  summaryVersionId: SourceId.nullable(),
+  decisionVersionIds: z.array(SourceId).max(24),
+  promptVersion: z.string().min(1).max(120),
+  provider: z.object({
+    model: z.string().min(1).max(240), usage: Usage, cost: Cost, repaired: z.boolean(),
+    attemptCount: z.number().int().min(1).max(2),
+    attempts: z.array(z.object({ usage: Usage, cost: Cost, provider: z.string().nullable(), generationId: z.string().nullable(), diagnostic: z.unknown() }).strict()).max(2),
+  }).strict(),
+  omissions: z.array(z.string()).max(100),
+  generatesProse: z.literal(false),
+  revisedFromProposalId: SourceId.optional(),
+  reviewedEditMessageId: SourceId.optional(),
+}).strict();
+export type SetupProposalSource = z.infer<typeof SetupProposalSourceSchema>;
+
+/** Validate durable context evidence, not just the author citations displayed in candidate changes. */
+export function assertSetupProposalSource(database: StoryDatabase, projectId: string, conversationId: string, value: unknown): SetupProposalSource {
+  const source = SetupProposalSourceSchema.parse(value);
+  const range = source.messageRange;
+  const messages = database.prepare(`SELECT id, role, content FROM messages WHERE conversation_id = ?
+    AND rowid BETWEEN (SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?)
+      AND (SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?)
+    ORDER BY created_at, rowid`).all(conversationId, range.firstMessageId, conversationId, range.lastMessageId, conversationId) as Array<{ id: string; role: string; content: string }>;
+  // Reconstruct shipped v19 ranges with the same deterministic 8C byte limits, never guess missing evidence.
+  let bytes = 0;
+  const legacyIds = [...messages.slice(-AUTHOR_MEMORY_BUDGETS.recentMessageCount)].reverse().flatMap((message) => {
+    const size = Buffer.byteLength(message.content, "utf8");
+    if (size > AUTHOR_MEMORY_BUDGETS.recentMessageIndividualBytes || bytes + size > AUTHOR_MEMORY_BUDGETS.recentMessageBytes) return [];
+    bytes += size; return [message.id];
+  }).reverse();
+  const ids = range.messageIds ?? legacyIds;
+  const selected = messages.filter((message) => ids.includes(message.id));
+  if (ids.length !== range.messageCount || new Set(ids).size !== ids.length
+    || ids[0] !== range.firstMessageId || ids.at(-1) !== range.lastMessageId
+    || JSON.stringify(selected.map((message) => message.id)) !== JSON.stringify(ids)
+    || !selected.length) throw new Error("Invalid setup source message range");
+  const authorIds = selected.filter((message) => message.role === "user").map((message) => message.id);
+  if (JSON.stringify(authorIds) !== JSON.stringify(range.authorMessageIds)) throw new Error("Invalid setup author evidence ownership or source range");
+  if (source.summaryVersionId && !database.prepare(`SELECT 1 FROM conversation_summary_versions
+    WHERE id = ? AND project_id = ? AND conversation_id = ?`).get(source.summaryVersionId, projectId, conversationId)) {
+    throw new Error("Invalid setup source summary lineage");
+  }
+  if (new Set(source.decisionVersionIds).size !== source.decisionVersionIds.length
+    || source.decisionVersionIds.some((id) => !database.prepare("SELECT 1 FROM pinned_decision_versions WHERE id = ? AND project_id = ?").get(id, projectId))) {
+    throw new Error("Invalid setup source decision lineage");
+  }
+  if (source.provider.attemptCount !== Math.max(1, source.provider.attempts.length)) throw new Error("Invalid setup provider attempt count");
+  if (Boolean(source.revisedFromProposalId) !== Boolean(source.reviewedEditMessageId)) throw new Error("Invalid setup revision lineage");
+  if (source.revisedFromProposalId && !database.prepare("SELECT 1 FROM setup_proposals WHERE id = ? AND project_id = ? AND conversation_id = ?")
+    .get(source.revisedFromProposalId, projectId, conversationId)) throw new Error("Invalid setup revision proposal lineage");
+  if (source.reviewedEditMessageId && !database.prepare("SELECT 1 FROM messages WHERE id = ? AND conversation_id = ? AND role = 'user'")
+    .get(source.reviewedEditMessageId, conversationId)) throw new Error("Invalid setup revision author lineage");
+  return source;
+}
 
 /** Exact artifact precondition captured when the proposal was generated. */
 export interface SetupProposalBase {
@@ -33,7 +102,7 @@ export interface SetupProposalRecord<T = unknown> {
   schemaVersion: 1;
   status: SetupProposalStatus;
   summary: string;
-  source: Record<string, unknown>;
+  source: SetupProposalSource;
   bases: SetupProposalBase[];
   groups: Array<SetupProposalGroupRecord<T>>;
   validationFindings: unknown[];
@@ -45,7 +114,7 @@ export interface SetupProposalRecord<T = unknown> {
 
 interface SetupProposalInput<T> {
   id?: string; projectId: string; conversationId: string; summary: string;
-  source: Record<string, unknown>; bases: SetupProposalBase[]; groups: Array<SetupProposalGroupRecord<T>>;
+  source: SetupProposalSource; bases: SetupProposalBase[]; groups: Array<SetupProposalGroupRecord<T>>;
   validationFindings?: unknown[]; contextFingerprint: string; beforeInsert?: () => void;
 }
 
@@ -62,7 +131,7 @@ const mapProposal = <T>(row: SetupProposalRow): SetupProposalRecord<T> => ({
   schemaVersion: row.schema_version,
   status: row.status,
   summary: row.summary,
-  source: JSON.parse(row.source_json) as Record<string, unknown>,
+  source: SetupProposalSourceSchema.parse(JSON.parse(row.source_json)),
   bases: JSON.parse(row.bases_json) as SetupProposalBase[],
   groups: JSON.parse(row.groups_json) as Array<SetupProposalGroupRecord<T>>,
   validationFindings: JSON.parse(row.validation_json) as unknown[],
@@ -122,8 +191,8 @@ export class SetupProposalRepository {
       input.groups.find((group) => group.id === id)!.dependsOnGroupIds.forEach((dependency) => visit(dependency, next));
     };
     input.groups.forEach((group) => visit(group.id));
-    const range = input.source.messageRange as { authorMessageIds?: string[] } | undefined;
-    const messageIds = new Set([...(range?.authorMessageIds ?? []), ...input.groups.flatMap((group) =>
+    const source = assertSetupProposalSource(this.database, input.projectId, input.conversationId, input.source);
+    const messageIds = new Set([...source.messageRange.authorMessageIds, ...input.groups.flatMap((group) =>
       group.changes.flatMap((change) => (change as { messageIds?: string[] }).messageIds ?? []))]);
     for (const messageId of messageIds) {
       const message = this.database.prepare("SELECT conversation_id, role FROM messages WHERE id = ?")
@@ -141,7 +210,7 @@ export class SetupProposalRepository {
         validation_json, context_fingerprint, application_json, created_at, updated_at)
       VALUES (?, ?, ?, 1, 'proposed', ?, ?, ?, ?, ?, ?, NULL, ?, ?)`)
       .run(id, input.projectId, input.conversationId, input.summary.trim().slice(0, 1_000),
-        JSON.stringify(input.source), JSON.stringify(input.bases), JSON.stringify(input.groups),
+        JSON.stringify(source), JSON.stringify(input.bases), JSON.stringify(input.groups),
         JSON.stringify(input.validationFindings ?? []), input.contextFingerprint, now, now);
     return this.get<T>(id)!;
   }

@@ -83,14 +83,14 @@ export class LongFormProjectService {
     return project;
   }
 
-  createProject(name: string) {
+  createProject(name: string, sourceMode?: ProjectBrief["sourceMode"]) {
     const project = this.projects.create(name, undefined, "long-form");
     const brief = this.artifacts.saveArtifact({
       projectId: project.id,
       artifactId: "brief",
       artifactType: "brief",
       schema: ProjectBriefSchema,
-      content: defaultProjectBrief(project.name),
+      content: { ...defaultProjectBrief(project.name), ...(sourceMode ? { sourceMode } : {}) },
       dependencies: dependencies.brief,
     });
     const creativeDirection = this.artifacts.saveArtifact({

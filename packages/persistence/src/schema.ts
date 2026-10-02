@@ -2051,4 +2051,9 @@ WHEN OLD.status != 'proposed'
   OR NEW.context_fingerprint IS NOT OLD.context_fingerprint
   OR NEW.created_at IS NOT OLD.created_at
 BEGIN SELECT RAISE(ABORT, 'setup proposals are immutable after review'); END;
+
+CREATE TRIGGER IF NOT EXISTS setup_proposals_immutable_delete
+BEFORE DELETE ON setup_proposals
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN SELECT RAISE(ABORT, 'setup proposals are append-only'); END;
 `;

@@ -108,7 +108,7 @@ export function ProjectSetupWorkspace({ projectId, onApplied }: { projectId: str
         <details><summary>Provider and context</summary><label>Model<input value={model} disabled={busy} onChange={(event) => { setModel(event.target.value); stalePreview(); }} /></label>
           {preview && <pre>{JSON.stringify(preview.diagnostics, null, 2)}</pre>}
         </details>
-        <button disabled={busy || Boolean(content.trim()) || !session.messages.some((message) => message.role === "user")} onClick={() => void run(async () => {
+        <button disabled={busy || Boolean(content.trim()) || !session.understanding || session.understanding.stale || session.understanding.readiness !== "ready-to-propose"} onClick={() => void run(async () => {
           setPreview(await previewSetup(projectId, session.conversation.id, model)); setAuthorized(false);
         })}>Preview proposal context</button>
         {preview && <div className="setup-authorization">

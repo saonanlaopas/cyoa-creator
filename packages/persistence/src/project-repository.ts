@@ -7,6 +7,7 @@ import {
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 import { ArtifactRepository } from "./artifact-repository.js";
+import { assertSetupProposalSource } from "./setup-proposal-repository.js";
 
 export interface ProjectRecord {
   id: string;
@@ -69,8 +70,15 @@ export class ProjectRepository {
   }
 
   remove(id: string): void {
-    const result = this.database.prepare("DELETE FROM projects WHERE id = ?").run(id);
-    if (!result.changes) throw new Error("Project not found");
+    const remove = () => {
+      // Memory heads and superseded versions use RESTRICT; check them after the complete project cascade.
+      // Foreign keys stay enabled and every remaining reference is enforced at transaction commit.
+      this.database.exec("PRAGMA defer_foreign_keys = ON");
+      const result = this.database.prepare("DELETE FROM projects WHERE id = ?").run(id);
+      if (!result.changes) throw new Error("Project not found");
+    };
+    if (this.database.isTransaction) remove();
+    else transaction(this.database, remove);
   }
 
   duplicate(id: string, name?: string): ProjectRecord {
@@ -98,9 +106,16 @@ export class ProjectRepository {
         "SELECT * FROM setup_proposals WHERE project_id = ? ORDER BY created_at, rowid",
       ).all(id) as Array<Record<string, string | number | null>>;
       const setupProposalIdMap = new Map(setupProposals.map((row) => [String(row.id), randomUUID()]));
+      const summarySeries = this.database.prepare("SELECT * FROM conversation_summary_series WHERE project_id = ?").all(id) as Array<Record<string, string | number | null>>;
+      const summaryVersions = this.database.prepare("SELECT * FROM conversation_summary_versions WHERE project_id = ? ORDER BY series_id, version").all(id) as Array<Record<string, string | number | null>>;
+      const summaryHeads = this.database.prepare("SELECT * FROM conversation_summary_heads WHERE project_id = ?").all(id) as Array<Record<string, string | number | null>>;
+      const decisions = this.database.prepare("SELECT * FROM pinned_decisions WHERE project_id = ?").all(id) as Array<Record<string, string | number | null>>;
+      const decisionVersions = this.database.prepare("SELECT * FROM pinned_decision_versions WHERE project_id = ? ORDER BY decision_id, version").all(id) as Array<Record<string, string | number | null>>;
+      const decisionHeads = this.database.prepare("SELECT * FROM pinned_decision_heads WHERE project_id = ?").all(id) as Array<Record<string, string | number | null>>;
+      const memoryIdMap = new Map([...summarySeries, ...summaryVersions, ...decisions, ...decisionVersions].map((row) => [String(row.id), randomUUID()]));
       for (const version of versions) versionIdMap.set(String(version.id), randomUUID());
       const allIds = new Map<string, string>([
-        [id, copy.id], ...versionIdMap, ...conversationIdMap, ...messageIdMap, ...changeSetIdMap, ...setupProposalIdMap,
+        [id, copy.id], ...versionIdMap, ...conversationIdMap, ...messageIdMap, ...changeSetIdMap, ...setupProposalIdMap, ...memoryIdMap,
       ]);
 
       for (const version of versions) {
@@ -173,6 +188,44 @@ export class ProjectRepository {
           remapJsonText(String(change.validation_json), allIds), remapJsonText(String(change.invalidations_json), allIds),
           change.applied_version_id ? requireMapped(versionIdMap, String(change.applied_version_id)) : null,
           change.created_at, change.updated_at);
+      for (const series of summarySeries) this.database.prepare(`INSERT INTO conversation_summary_series
+        (id, project_id, conversation_id, method, method_version, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(requireMapped(memoryIdMap, String(series.id)), copy.id, requireMapped(conversationIdMap, String(series.conversation_id)),
+          series.method, series.method_version, series.created_at);
+      // Replay each historical version and advance its head, preserving 8C's monotonic-history triggers.
+      for (const version of summaryVersions) {
+        const seriesId = requireMapped(memoryIdMap, String(version.series_id));
+        const versionId = requireMapped(memoryIdMap, String(version.id));
+        const head = summaryHeads.find((row) => row.series_id === version.series_id)!;
+        this.database.prepare(`INSERT INTO conversation_summary_versions
+          (id, series_id, project_id, conversation_id, version, scope_json, first_message_id, last_message_id,
+            covered_message_count, source_fingerprint, dependencies_json, content, creation_state, supersedes_version_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(versionId, seriesId, copy.id, requireMapped(conversationIdMap, String(version.conversation_id)), version.version,
+            remapJsonText(String(version.scope_json), allIds), requireMapped(messageIdMap, String(version.first_message_id)),
+            requireMapped(messageIdMap, String(version.last_message_id)), version.covered_message_count, version.source_fingerprint,
+            remapJsonText(String(version.dependencies_json), allIds), version.content, version.creation_state,
+            version.supersedes_version_id ? requireMapped(memoryIdMap, String(version.supersedes_version_id)) : null, version.created_at);
+        this.database.prepare(`INSERT INTO conversation_summary_heads (series_id, project_id, current_version_id, updated_at)
+          VALUES (?, ?, ?, ?) ON CONFLICT(series_id) DO UPDATE SET current_version_id = excluded.current_version_id, updated_at = excluded.updated_at`)
+          .run(seriesId, copy.id, versionId, head.current_version_id === version.id ? head.updated_at : version.created_at);
+      }
+      for (const decision of decisions) this.database.prepare("INSERT INTO pinned_decisions (id, project_id, created_at) VALUES (?, ?, ?)")
+        .run(requireMapped(memoryIdMap, String(decision.id)), copy.id, decision.created_at);
+      for (const version of decisionVersions) {
+        const decisionId = requireMapped(memoryIdMap, String(version.decision_id));
+        const versionId = requireMapped(memoryIdMap, String(version.id));
+        const head = decisionHeads.find((row) => row.decision_id === version.decision_id)!;
+        this.database.prepare(`INSERT INTO pinned_decision_versions
+          (id, decision_id, project_id, version, scope_kind, artifact_id, entity_kind, entity_id, related_ids_json,
+            content, status, provenance_json, supersedes_version_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(versionId, decisionId, copy.id, version.version, version.scope_kind, version.artifact_id, version.entity_kind, version.entity_id,
+            remapJsonText(String(version.related_ids_json), allIds), version.content, version.status, remapJsonText(String(version.provenance_json), allIds),
+            version.supersedes_version_id ? requireMapped(memoryIdMap, String(version.supersedes_version_id)) : null, version.created_at);
+        this.database.prepare(`INSERT INTO pinned_decision_heads (decision_id, project_id, current_version_id, updated_at)
+          VALUES (?, ?, ?, ?) ON CONFLICT(decision_id) DO UPDATE SET current_version_id = excluded.current_version_id, updated_at = excluded.updated_at`)
+          .run(decisionId, copy.id, versionId, head.current_version_id === version.id ? head.updated_at : version.created_at);
+      }
       for (const proposal of setupProposals) {
         const copiedId = requireMapped(setupProposalIdMap, String(proposal.id));
         // Insert as pending, then replay the terminal review state so lineage triggers stay authoritative.
@@ -192,6 +245,11 @@ export class ProjectRepository {
         } else if (proposal.updated_at !== proposal.created_at) {
           this.database.prepare("UPDATE setup_proposals SET updated_at = ? WHERE id = ?").run(proposal.updated_at, copiedId);
         }
+      }
+
+      for (const proposal of setupProposals) {
+        const conversationId = requireMapped(conversationIdMap, String(proposal.conversation_id));
+        assertSetupProposalSource(this.database, copy.id, conversationId, JSON.parse(remapJsonText(String(proposal.source_json), allIds)));
       }
 
       new ArtifactRepository(this.database).listVersions(copy.id, "creative-direction");
