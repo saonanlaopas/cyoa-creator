@@ -558,6 +558,8 @@ body { overflow-wrap: anywhere; }
   .native-player-slot > div button { flex: 1; }
 }
 .source-analysis-workspace { min-width: 0; color: #e6efea; background: #151b19; padding: 20px; }
+.long-form-workspace:has(.source-analysis-workspace) .workflow-nav { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.long-form-workspace:has(.source-analysis-workspace) .workflow-nav ol { min-width: 0; max-width: 100%; overflow-x: auto; }
 .source-analysis-band { padding: 20px 0; border-top: 1px solid #485a51; }
 .source-analysis-workspace label { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; min-width: 0; }
 .source-analysis-workspace input:not([type=checkbox]), .source-analysis-workspace select, .source-analysis-workspace textarea { width: 100%; max-width: 100%; background: #101613; color: #e6efea; border: 1px solid #58675e; border-radius: 4px; padding: 8px; }
