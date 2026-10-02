@@ -67,6 +67,7 @@ export interface PassagePlanningContextInput {
   endings: LongFormEndingPlan;
   mechanics: LongFormMechanicsPlan;
   creativeDirection?: CreativeDirection;
+  adaptationIntentAdopted?: boolean;
   outputSchema: { id: string; version: number };
   requestedMaximumOutputTokens: number;
   maximumEstimatedInputTokens: number;
@@ -204,6 +205,7 @@ export function buildPassagePlanningContext(input: PassagePlanningContextInput):
       },
     },
   };
+  if (input.adaptationIntentAdopted) delete context.upstream.brief.adaptationFidelity;
   const contextFingerprint = fingerprintPassagePlanningContext(context);
   const estimatedInputTokens = Math.max(1, Math.ceil(stableJson(context).length / 4));
   if (estimatedInputTokens > input.maximumEstimatedInputTokens) {

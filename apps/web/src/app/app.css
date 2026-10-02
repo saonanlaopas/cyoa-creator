@@ -613,7 +613,7 @@ body { overflow-wrap: anywhere; }
 .intent-review-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; align-items: start; }
 .adaptation-intent-workspace .intent-check { flex-direction: row; align-items: start; gap: 10px; }
 .intent-check input { flex: 0 0 auto; margin-top: 4px; }
-.intent-items article, .intent-selected article { padding: 14px 0; border-bottom: 1px solid #49534e; }
+.adaptation-intent-workspace article { background: transparent; border: 0; border-bottom: 1px solid #49534e; border-radius: 0; padding: 14px 0; }
 .intent-selected article strong { color: #ebcf83; font-size: 12px; }
 .intent-item-editor strong { color: #c5dfd1; }
 .intent-pages { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin: 12px 0; min-height: 40px; }

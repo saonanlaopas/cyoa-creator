@@ -34,7 +34,7 @@ describe("Adaptation Intent policy contracts", () => {
   it("does not treat dimensions, unrelated aspects or disjoint scopes as contradictory", () => {
     expect(normalizeAdaptationIntent({ ...base(), overrides: [override("alive", "Survives"), { ...override("other", "Dies"), scope: "alternate-ending" }] }).overrides).toHaveLength(2);
   });
-  it.each(["Canon route preserved", "route exists", "ending is reachable", "canon graph preserved", "obligation achieved", "fidelity verified", "generated structure satisfies obligation", "scenes have been faithfully reproduced"])("rejects achieved claim: %s", (claim) => {
+  it.each(["Canon route preserved", "route preserved", "route exists", "ending is reachable", "canon graph preserved", "obligation achieved", "obligation satisfied", "fidelity verified", "generated structure satisfies obligation", "scenes have been faithfully reproduced"])("rejects achieved claim: %s", (claim) => {
     expect(() => assertRequestedSemantics({ effect: claim })).toThrow("adaptation_achieved_claim_forbidden");
     expect(() => normalizeAdaptationIntent({ ...base(), overrides: [override("one", claim)] })).toThrow();
   });
@@ -68,5 +68,21 @@ describe("Adaptation Intent policy contracts", () => {
     const next = applyAdaptationOperations(base(), { schemaVersion: 1, intent: "adaptation-preference", operations: [{ kind: "dimension", dimension: "tone", level: "strict" }] }, sourceDigest("request"));
     expect(next.dimensions.tone).toBe("strict"); expect(next.budget).toEqual(base().budget);
     expect(AdaptationSuggestionSchema.safeParse({ schemaVersion: 1, intent: "adaptation-preference", operations: [{ kind: "budget", target: 140_000 }] }).success).toBe(false);
+  });
+  it("rejects ambiguous repeated operations and missing removes instead of silently picking a winner", () => {
+    expect(() => applyAdaptationOperations(base(), { schemaVersion: 1, intent: "adaptation-preference", operations: [
+      { kind: "dimension", dimension: "tone", level: "strict" }, { kind: "dimension", dimension: "tone", level: "open" },
+    ] }, sourceDigest("request"))).toThrow("adaptation_duplicate_operation");
+    expect(() => applyAdaptationOperations(base(), { schemaVersion: 1, intent: "adaptation-preference", operations: [
+      { kind: "remove", collection: "overrides", id: "missing" },
+    ] }, sourceDigest("request"))).toThrow("adaptation_item_missing");
+  });
+  it("does not depend on host locale or collection order for Unicode IDs", () => {
+    const overrides = ["Z", "a", "\u00e9", "\u4e2d", "\ud83d\ude00"].map((id) => ({ ...override(id, "Survives"), targetIds: [id] }));
+    const original = String.prototype.localeCompare;
+    String.prototype.localeCompare = () => { throw new Error("Host locale must not participate"); };
+    try {
+      expect(normalizeAdaptationIntent({ ...base(), overrides }).materialFingerprint).toBe(normalizeAdaptationIntent({ ...base(), overrides: [...overrides].reverse() }).materialFingerprint);
+    } finally { String.prototype.localeCompare = original; }
   });
 });

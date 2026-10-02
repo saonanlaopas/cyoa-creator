@@ -8,10 +8,19 @@ import {
   defaultProjectBrief,
   enrichOperationGroups,
   planningSection,
+  providerPlanningArtifactView,
   validateLongFormProject,
 } from "../src/index.js";
 
 describe("long-form production foundation", () => {
+  it("omits legacy fidelity from generic planning context after A4 adoption, with or without Creative Direction", () => {
+    const brief = defaultProjectBrief();
+    for (const presentation of [false, true]) {
+      expect(providerPlanningArtifactView("brief", brief, presentation, true)).not.toHaveProperty("adaptationFidelity");
+      expect(providerPlanningArtifactView("brief", brief, presentation, false)).toHaveProperty("adaptationFidelity");
+    }
+    expect(brief.adaptationFidelity).toBe("balanced");
+  });
   it("finds broken references with stable codes and entity IDs", () => {
     const brief = defaultProjectBrief("Reference test");
     const bible = defaultLongFormStoryBible({ title: "Reference test" });

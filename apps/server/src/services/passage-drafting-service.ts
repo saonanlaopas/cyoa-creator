@@ -416,6 +416,7 @@ export class PassageDraftingService {
 
   private exactUpstream(projectId: string, versions: Record<string, string>) {
     return {
+      adaptationIntentAdopted: Boolean(this.artifacts.getCurrent(projectId, "adaptation-intent")),
       brief: this.exactArtifact<ProjectBrief>(projectId, "brief", versions.brief),
       bible: this.exactArtifact<LongFormStoryBible>(projectId, "bible", versions.bible),
       routes: this.exactArtifact<LongFormRoutePlan>(projectId, "routes", versions.routes),

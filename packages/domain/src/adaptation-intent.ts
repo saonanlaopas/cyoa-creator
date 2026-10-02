@@ -85,7 +85,7 @@ export function adaptationOverrideConflicts(overrides: AdaptationIntent["overrid
   return sourceSorted(conflicts);
 }
 export function assertRequestedSemantics(value: unknown): void {
-  const achieved = /\b(?:canon route (?:is )?preserved|route (?:already )?exists|ending (?:is )?reachable|canon graph (?:is )?preserved|obligation (?:is )?achieved|fidelity (?:is )?verified|generated structure satisfies|scenes (?:have been|are) faithfully reproduced|graph reachability (?:is )?(?:verified|proven))\b/i;
+  const achieved = /\b(?:route (?:is )?preserved|route (?:already )?exists|ending (?:is )?reachable|canon graph (?:is )?preserved|obligation (?:is )?(?:achieved|satisfied)|fidelity (?:is )?verified|generated structure satisfies|scenes (?:have been|are) faithfully reproduced|graph reachability (?:is )?(?:verified|proven))\b/i;
   const walk = (item: unknown): boolean => typeof item === "string" ? achieved.test(item)
     : Array.isArray(item) ? item.some(walk) : !!item && typeof item === "object" && Object.values(item).some(walk);
   if (walk(value)) throw new Error("adaptation_achieved_claim_forbidden");
@@ -190,13 +190,22 @@ export const AdaptationProposalSchema = z.object({ schemaId: z.literal("adaptati
 }).strict();
 export type AdaptationProposal = z.infer<typeof AdaptationProposalSchema>;
 export function applyAdaptationOperations(base: AdaptationIntent, suggestion: AdaptationSuggestion, requestDigest: string): AdaptationIntent {
+  suggestion = AdaptationSuggestionSchema.parse(suggestion);
   assertRequestedSemantics(suggestion);
   const next = structuredClone(base);
   const collectionNames = { override: "overrides", invention: "inventions", obligation: "obligations", exception: "exceptions", expansion: "expansion" } as const;
+  const touched = new Set<string>();
   for (const operation of suggestion.operations) {
+    const key = operation.kind === "dimension" ? `dimension:${operation.dimension}` : operation.kind === "preservation" ? "preservation"
+      : operation.kind === "remove" ? `${operation.collection}:${operation.id}` : `${collectionNames[operation.kind]}:${operation.value.id}`;
+    if (touched.has(key)) throw new Error("adaptation_duplicate_operation");
+    touched.add(key);
     if (operation.kind === "dimension") { next.dimensions[operation.dimension] = operation.level; next.preset = null; }
     else if (operation.kind === "preservation") { next.preserveCanonRoute = operation.preserveCanonRoute; next.endingIntent = operation.endingIntent; }
-    else if (operation.kind === "remove") { next[operation.collection] = next[operation.collection].filter((v) => v.id !== operation.id) as never; }
+    else if (operation.kind === "remove") {
+      if (!next[operation.collection].some((v) => v.id === operation.id)) throw new Error("adaptation_item_missing");
+      next[operation.collection] = next[operation.collection].filter((v) => v.id !== operation.id) as never;
+    }
     else {
       const key = collectionNames[operation.kind];
       const item = { ...operation.value, provenance: { origin: "proposal" as const, projectId: next.projectId, requestDigest } };

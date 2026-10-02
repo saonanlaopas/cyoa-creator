@@ -56,15 +56,24 @@ export function validateAdaptationDatabase(database: StoryDatabase, projectId?: 
     WHERE (artifact_id = 'adaptation-intent' OR artifact_type = 'adaptation-intent') ${projectId ? "AND project_id = ?" : ""} ORDER BY project_id,version`)
     .all(...(projectId ? [projectId] : [])) as Array<{ id: string; project_id: string; artifact_id: string; artifact_type: string; schema_version: number; version: number; content_json: string }>;
   const previous = new Map<string, string>();
+  const histories = new Map<string, { count: number; bytes: number }>();
   for (const row of rows) {
     if (row.artifact_id !== "adaptation-intent" || row.artifact_type !== "adaptation-intent" || row.schema_version !== 1) throw new Error("adaptation_identity_invalid");
     const intent = validateAdaptationIntent(database, row.project_id, JSON.parse(row.content_json));
     if (intent.revision.previousVersionId !== (previous.get(row.project_id) ?? null)) throw new Error("adaptation_history_lineage_invalid");
+    const history = histories.get(row.project_id) ?? { count: 0, bytes: 0 };
+    history.count++; history.bytes += Buffer.byteLength(JSON.stringify(row.content_json)) + 1024;
+    if (row.version !== history.count || history.count > ADAPTATION_INTENT_LIMITS.history || history.bytes > ADAPTATION_INTENT_LIMITS.historyBytes) throw new Error("adaptation_history_budget_or_sequence_invalid");
+    histories.set(row.project_id, history);
     previous.set(row.project_id, row.id);
   }
-  const proposals = database.prepare(`SELECT project_id,content_json FROM artifact_versions WHERE artifact_type = 'adaptation-intent-proposal' ${projectId ? "AND project_id = ?" : ""}`)
-    .all(...(projectId ? [projectId] : [])) as Array<{ project_id: string; content_json: string }>;
-  for (const row of proposals) validateAdaptationProposal(database, row.project_id, JSON.parse(row.content_json));
+  const proposals = database.prepare(`SELECT project_id,artifact_id,artifact_type,schema_version,content_json FROM artifact_versions
+    WHERE (artifact_type = 'adaptation-intent-proposal' OR artifact_id LIKE 'adaptation-intent-proposal-%') ${projectId ? "AND project_id = ?" : ""}`)
+    .all(...(projectId ? [projectId] : [])) as Array<{ project_id: string; artifact_id: string; artifact_type: string; schema_version: number; content_json: string }>;
+  for (const row of proposals) {
+    if (!row.artifact_id.startsWith("adaptation-intent-proposal-") || row.artifact_type !== "adaptation-intent-proposal" || row.schema_version !== 1) throw new Error("adaptation_proposal_identity_invalid");
+    validateAdaptationProposal(database, row.project_id, JSON.parse(row.content_json));
+  }
   for (const id of new Set(proposals.map((v) => v.project_id))) assertAdaptationProposalBudget(database, id);
 }
 
@@ -107,6 +116,8 @@ export function validateAdaptationProposal(database: StoryDatabase, projectId: s
     revision: { kind: "proposal", previousVersionId: proposal.baseVersionId, requestDigest: sourceDigest(proposal.input.request) } });
   if (proposal.contextFingerprint !== context.fingerprint || sourceCanonicalJson(expected) !== sourceCanonicalJson(proposal.candidate)) throw new Error("adaptation_proposal_derivation_invalid");
   validateAdaptationIntent(database, projectId, proposal.candidate);
+  const reconciliation = adaptationBudget(proposal.candidate);
+  if (reconciliation.difference !== null && reconciliation.difference < 0) throw new Error("adaptation_provider_budget_exceeded");
   if ((proposal.status === "applied") !== Boolean(proposal.appliedVersionId)) throw new Error("adaptation_proposal_lifecycle_invalid");
   if (proposal.appliedVersionId) {
     const row = database.prepare("SELECT content_json FROM artifact_versions WHERE id = ? AND project_id = ? AND artifact_id = 'adaptation-intent'").get(proposal.appliedVersionId, projectId) as { content_json: string } | undefined;

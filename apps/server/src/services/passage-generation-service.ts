@@ -197,6 +197,7 @@ export class PassageGenerationService {
           endings: exact.endings,
           mechanics: exact.mechanics,
           creativeDirection: exact.creativeDirection,
+          adaptationIntentAdopted: Boolean(this.artifacts.getCurrent(projectId, "adaptation-intent")),
           outputSchema: passagePlanningCandidateSchema,
           requestedMaximumOutputTokens,
           maximumEstimatedInputTokens,
@@ -351,6 +352,9 @@ export class PassageGenerationService {
       throw Object.assign(new Error("Persisted bounded context fingerprint is inconsistent"), {
         code: "bounded_context_inconsistent", retryable: false,
       });
+    }
+    if (this.artifacts.getCurrent(context.identity.projectId, "adaptation-intent") && "adaptationFidelity" in context.upstream.brief) {
+      throw staleGenerationPlanError("Adaptation Intent now owns fidelity; create a new bounded generation plan");
     }
     return context;
   }

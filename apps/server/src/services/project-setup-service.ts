@@ -436,6 +436,7 @@ export class ProjectSetupService {
     const state = this.longForm.getState(projectId);
     const messages = memory.recentMessages.map((message) => ({ id: message.id, role: message.role, content: message.content }));
     const built = buildSetupContext({
+      adaptationIntentAdopted: state.adaptationIntentAdopted,
       mode,
       projectName: state.project.name,
       messages,

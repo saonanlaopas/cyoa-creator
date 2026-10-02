@@ -312,7 +312,7 @@ export function registerLongFormChatRoutes(
       id === "creative-direction"
         ? approvedDirection?.content ?? null
         : snapshot[id]
-          ? providerPlanningArtifactView(id, snapshot[id]!, Boolean(projectState.creativeDirection))
+          ? providerPlanningArtifactView(id, snapshot[id]!, Boolean(projectState.creativeDirection), projectState.adaptationIntentAdopted)
           : null,
     ])) as unknown as ReturnType<LongFormProjectService["snapshot"]>;
     const contextVersions = Object.fromEntries(planningArtifactIds.flatMap((id) => {
@@ -323,6 +323,7 @@ export function registerLongFormChatRoutes(
       artifactId,
       selectedArtifact.content,
       Boolean(projectState.creativeDirection),
+      projectState.adaptationIntentAdopted,
     );
     const selected = planningSection(providerArtifact as PlanningArtifact, sectionId).content;
     const approvedBibleId = projectState.workflow.bible.approvedVersionId;
@@ -369,6 +370,7 @@ export function registerLongFormChatRoutes(
     const expectedDirectionMaterialFingerprint = approvedDirection?.content.materialFingerprint ?? null;
     const assertProviderContextFresh = (): void => {
       const currentState = longFormProjects.getState(request.params.projectId);
+      if (currentState.adaptationIntentAdopted !== projectState.adaptationIntentAdopted) throw Object.assign(new Error("Adaptation fidelity authority changed while the assistant request was running"), { code: "stale_planning_context" });
       const currentApprovedDirectionId = currentState.workflow["creative-direction"].approvedVersionId;
       const currentApprovedDirection = currentApprovedDirectionId
         ? artifacts.getVersion<CreativeDirection>(currentApprovedDirectionId) : undefined;

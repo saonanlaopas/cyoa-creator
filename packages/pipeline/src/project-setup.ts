@@ -183,6 +183,7 @@ export interface SetupContextMessage {
 }
 
 export interface SetupContextInput {
+  adaptationIntentAdopted?: boolean;
   mode: "ask" | "propose";
   projectName: string;
   messages: SetupContextMessage[];
@@ -220,9 +221,9 @@ export interface SetupContext {
 
 const sha256 = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
-function briefView(brief: ProjectBrief) {
-  const { tone: _tone, pointOfView: _pointOfView, ...structural } = brief;
-  return structural;
+function briefView(brief: ProjectBrief, adaptationIntentAdopted = false) {
+  const { tone: _tone, pointOfView: _pointOfView, adaptationFidelity, ...structural } = brief;
+  return { ...structural, ...(adaptationIntentAdopted ? {} : { adaptationFidelity }) };
 }
 
 function directionView(direction: CreativeDirection) {
@@ -290,7 +291,7 @@ export function buildSetupContext(input: SetupContextInput): SetupContext {
     bible: input.bible?.versionId ?? null,
   };
   const current = {
-    brief: input.brief ? briefView(input.brief.content) : null,
+    brief: input.brief ? briefView(input.brief.content, input.adaptationIntentAdopted) : null,
     creativeDirection: input.creativeDirection ? directionView(input.creativeDirection.content) : null,
     storyBible: input.bible ? bibleView(input.bible.content) : null,
   };

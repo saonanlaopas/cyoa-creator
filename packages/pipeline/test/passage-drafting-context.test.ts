@@ -80,6 +80,12 @@ function fixture(): PassageDraftingContextInput {
 }
 
 describe("bounded passage drafting context", () => {
+  it("does not send historical Brief fidelity as authority after A4 adoption", () => {
+    const input = fixture();
+    expect(buildPassageDraftingContext(input).context.upstream.brief).toHaveProperty("adaptationFidelity");
+    expect(buildPassageDraftingContext({ ...input, adaptationIntentAdopted: true }).context.upstream.brief).not.toHaveProperty("adaptationFidelity");
+    expect(input.brief).toHaveProperty("adaptationFidelity");
+  });
   it("is deterministic and includes only exact stable-ID-relevant planning data and accepted local prose", () => {
     const input = fixture();
     const first = buildPassageDraftingContext(input);

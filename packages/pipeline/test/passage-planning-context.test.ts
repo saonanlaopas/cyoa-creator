@@ -102,6 +102,12 @@ function fixture(): PassagePlanningContextInput {
 }
 
 describe("bounded passage-planning context", () => {
+  it("treats Brief fidelity as compatibility input only after explicit A4 adoption", () => {
+    const input = fixture();
+    expect(buildPassagePlanningContext(input).context.upstream.brief.adaptationFidelity).toBe("balanced");
+    expect(buildPassagePlanningContext({ ...input, adaptationIntentAdopted: true }).context.upstream.brief).not.toHaveProperty("adaptationFidelity");
+    expect(input.brief.adaptationFidelity).toBe("balanced");
+  });
   it("is deterministic, includes exact selected/referenced/neighborhood records, and excludes unrelated data", () => {
     const first = buildPassagePlanningContext(fixture());
     const second = buildPassagePlanningContext(fixture());

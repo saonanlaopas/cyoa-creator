@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { newAdaptationIntent, normalizeAdaptationIntent, sourceCanonicalJson, type AdaptationIntent, type SourceDossier } from "@story-to-cyoa/domain";
-import { ArtifactRepository, PortableProjectRepository, WorkflowRepository, openDatabase, validateAdaptationDatabase } from "../src/index.js";
+import { AdaptationIntentSchema, newAdaptationIntent, normalizeAdaptationIntent, sourceCanonicalJson, type AdaptationIntent, type SourceDossier } from "@story-to-cyoa/domain";
+import { ArtifactRepository, ChangeSetRepository, ConversationRepository, PortableProjectRepository, WorkflowRepository, openDatabase, validateAdaptationDatabase } from "../src/index.js";
 import { analysisFixture } from "./source-analysis-fixture.js";
 
 export function intentFixture(approved = true) {
@@ -18,6 +18,16 @@ export function intentFixture(approved = true) {
   return { ...fixture, workflow, dossier, intent, save: (content: AdaptationIntent) => fixture.artifacts.saveArtifact({ projectId: fixture.projectId, artifactId: "adaptation-intent", content }) };
 }
 describe("Adaptation Intent persistence authority", () => {
+  it("prevents generic change-set application from bypassing the reviewed A4 boundary", () => {
+    const f = intentFixture(), first = f.save(f.intent), changes = new ChangeSetRepository(f.database);
+    const conversation = new ConversationRepository(f.database).create(f.projectId, { kind: "project", projectId: f.projectId });
+    const candidate = normalizeAdaptationIntent({ ...f.intent, revision: { kind: "manual", previousVersionId: first.id } });
+    const proposal = changes.create({ projectId: f.projectId, conversationId: conversation.id, artifactId: "adaptation-intent", baseVersionId: first.id, candidate, summary: "Intent", rationale: "Test boundary" });
+    expect(() => changes.apply(proposal.id, AdaptationIntentSchema)).toThrow("adaptation_use_reviewed_proposal_apply");
+    expect(() => changes.applyPrepared(proposal.id, candidate, AdaptationIntentSchema)).toThrow("adaptation_use_reviewed_proposal_apply");
+    expect(() => f.artifacts.saveArtifact({ projectId: f.projectId, artifactId: "adaptation-intent-proposal-fake", artifactType: "bible", content: candidate })).toThrow("adaptation_proposal_identity_invalid");
+    expect(f.artifacts.listVersions(f.projectId, "adaptation-intent")).toHaveLength(1); f.database.close();
+  });
   it("creates, reviews and approves with NO Creative Direction or generated foundations", () => {
     const f = intentFixture(); const before = f.database.prepare("SELECT COUNT(*) n FROM artifact_versions").get() as { n: number };
     const version = f.save(f.intent); f.workflow.markReviewed(f.projectId, "adaptation-intent", version.id); f.workflow.approve(f.projectId, "adaptation-intent", version.id);
@@ -38,7 +48,12 @@ describe("Adaptation Intent persistence authority", () => {
     const f = intentFixture(kind !== "unapproved"); let intent = structuredClone(f.intent);
     if (kind === "foreign-dossier") intent.binding.dossierVersionId = "foreign";
     if (kind === "stale") f.artifacts.markCurrentStale(f.projectId, "source-dossier");
-    if (["foreign-target", "rejected-target"].includes(kind)) intent.overrides = [{ id: "x", authority: "author-override", targetIds: ["missing"], aspect: "state", effect: "Survives", scope: "project", rationale: "Author intent", active: true, reviewed: true, provenance: { origin: "manual", projectId: f.projectId } }];
+    if (kind === "rejected-target") {
+      const rejected = f.repository.correct(f.projectId, f.dossier.id, { kind: "reject", intent: "source-analysis-correction", reason: "Unsupported source claim", previousVersionId: f.dossier.id, recordId: f.dossier.content.records[0]!.id });
+      f.workflow.approve(f.projectId, "source-dossier", rejected.id);
+      intent.binding = { dossierVersionId: rejected.id, dossierMaterialFingerprint: rejected.content.materialFingerprint, source: rejected.content.binding };
+    }
+    if (["foreign-target", "rejected-target"].includes(kind)) intent.overrides = [{ id: "x", authority: "author-override", targetIds: [kind === "rejected-target" ? f.dossier.content.records[0]!.id : "missing"], aspect: "state", effect: "Survives", scope: "project", rationale: "Author intent", active: true, reviewed: true, provenance: { origin: "manual", projectId: f.projectId } }];
     if (kind === "foreign-provenance") intent.overrides = [{ id: "x", authority: "author-override", targetIds: [f.dossier.content.records[0]!.id], aspect: "state", effect: "Survives", scope: "project", rationale: "Author intent", active: true, reviewed: true, provenance: { origin: "manual", projectId: "foreign" } }];
     if (kind === "bad-base") intent.revision.previousVersionId = "missing";
     if (kind !== "foreign-provenance") intent = normalizeAdaptationIntent(intent);

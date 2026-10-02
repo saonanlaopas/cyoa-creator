@@ -86,6 +86,7 @@ export interface PassageDraftingContextInput {
   endings: LongFormEndingPlan;
   mechanics: LongFormMechanicsPlan;
   creativeDirection?: CreativeDirection;
+  adaptationIntentAdopted?: boolean;
   acceptedDrafts: AcceptedNeighborDraftInput[];
   requiredNeighborPassageIds?: string[];
   maximumEstimatedInputTokens: number;
@@ -284,6 +285,7 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
   if (estimatedInputTokens > input.maximumEstimatedInputTokens) {
     throw new BoundedPassageDraftingContextError("Required accepted neighboring prose exceeds the drafting context limit");
   }
+  if (input.adaptationIntentAdopted) delete base.upstream.brief.adaptationFidelity;
   const contextFingerprint = fingerprintPassageDraftingContext(base);
   const serializedBytes = Buffer.byteLength(stableJson(base), "utf8");
   const diagnostics: PassageDraftingContextDiagnostics = {

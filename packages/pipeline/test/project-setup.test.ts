@@ -11,6 +11,15 @@ const context = {
   summary: null, decisions: [], brief: null, creativeDirection: null, bible: null, omittedMessageCount: 0,
 };
 
+it("omits legacy Brief fidelity from setup provider context after A4 adoption without altering history", () => {
+  const brief = { versionId: "brief-1", content: defaultProjectBrief() };
+  expect(buildSetupContext({ ...context, brief }).prompt).toContain("adaptationFidelity");
+  const adopted = buildSetupContext({ ...context, brief, adaptationIntentAdopted: true });
+  expect(adopted.prompt).not.toContain("adaptationFidelity");
+  expect(adopted.fingerprint).not.toBe(buildSetupContext({ ...context, brief }).fingerprint);
+  expect(brief.content.adaptationFidelity).toBe("balanced");
+});
+
 it("fingerprints messages, summaries, pinned versions and exact artifact bases", () => {
   const first = buildSetupContext(context);
   expect(buildSetupContext(context).fingerprint).toBe(first.fingerprint);

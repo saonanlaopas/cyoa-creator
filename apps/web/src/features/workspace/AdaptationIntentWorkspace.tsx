@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FIDELITY_DIMENSIONS, FIDELITY_LEVELS, FIDELITY_PRESETS, TRANSFORMATIONS, expandFidelityPreset, type AdaptationIntent, type AdaptationSuggestion, type FidelityPreset, type PlannedWords, type SourceRecord } from "@story-to-cyoa/domain";
-import { AdaptationIntentApi, type IntentCollection, type IntentHistory, type IntentPreview, type IntentProposal, type IntentState } from "../../api/adaptation-intent.js";
+import { AdaptationIntentApi, type IntentCollection, type IntentHistory, type IntentPreview, type IntentProposal, type IntentState, type IntentItemSummary } from "../../api/adaptation-intent.js";
 import { SourceAnalysisApi } from "../../api/source-analysis.js";
 
 const presets: Record<FidelityPreset, string> = { faithful: "Faithful", "meaningful-divergence": "Faithful with meaningful divergence", loose: "Loose adaptation", inspired: "Inspired by source" };
@@ -13,11 +13,11 @@ export function AdaptationIntentWorkspace({ projectId, onStatusChange }: { proje
   const [state, setState] = useState<IntentState | null>(null), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const [conflicts, setConflicts] = useState<Array<{ id: string; overrideIds: string[] }>>([]);
   const [tab, setTab] = useState<"fidelity" | IntentCollection | "history" | "director">("fidelity");
-  const [preset, setPreset] = useState<FidelityPreset>("meaningful-divergence"), [items, setItems] = useState<Item[]>([]), [total, setTotal] = useState(0), [offset, setOffset] = useState(0), [search, setSearch] = useState("");
+  const [preset, setPreset] = useState<FidelityPreset>("meaningful-divergence"), [items, setItems] = useState<IntentItemSummary[]>([]), [total, setTotal] = useState(0), [offset, setOffset] = useState(0), [search, setSearch] = useState("");
   const [sourceSearch, setSourceSearch] = useState(""), [sourceOffset, setSourceOffset] = useState(0), [sourceTotal, setSourceTotal] = useState(0), [sourceRecords, setSourceRecords] = useState<Array<Pick<SourceRecord, "id" | "identityKey" | "field" | "claim" | "classification">>>([]);
   const [selected, setSelected] = useState<SourceRecord[]>([]), [evidence, setEvidence] = useState("");
   const selection = useRef(new Set<string>()), [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [editing, setEditing] = useState<Item | null>(null), [history, setHistory] = useState<IntentHistory[]>([]), [historicalId, setHistoricalId] = useState(""), [comparison, setComparison] = useState<{ materialEqual: boolean; provenanceEqual: boolean; changedIds: string[] } | null>(null);
+  const [editing, setEditing] = useState<Item | null>(null), [history, setHistory] = useState<IntentHistory[]>([]), [historicalId, setHistoricalId] = useState(""), [comparison, setComparison] = useState<{ materialEqual: boolean; provenanceEqual: boolean; changedIds: string[]; dimensions: { from: AdaptationIntent["dimensions"]; to: AdaptationIntent["dimensions"] }; budget: { from: AdaptationIntent["budget"]; to: AdaptationIntent["budget"] } } | null>(null);
   const [request, setRequest] = useState(""), [providerId, setProviderId] = useState("offline-adaptation-intent"), [modelId, setModelId] = useState("offline-a4-v1"), [preview, setPreview] = useState<IntentPreview | null>(null), [authorized, setAuthorized] = useState(false), [proposal, setProposal] = useState<IntentProposal | null>(null);
   const [proposals, setProposals] = useState<Array<{ versionId: string; status: string; request: string }>>([]), [proposalOffset, setProposalOffset] = useState(0);
   const current = state?.current, binding = current?.policy.binding ?? state?.approvedDossier;
@@ -63,7 +63,7 @@ export function AdaptationIntentWorkspace({ projectId, onStatusChange }: { proje
     {evidence && <blockquote aria-label="Durable source evidence">{evidence}</blockquote>}
   </section>;
   const changeTab = (next: typeof tab) => { setTab(next); setOffset(0); setSearch(""); setEditing(null); };
-  const reviewItem = async (item: Item) => {
+  const reviewItem = async (item: IntentItemSummary) => {
     setBusy(true);
     try {
       const detail = await api.request<Item>(`/collections/${tab}/${encodeURIComponent(item.id)}`);
@@ -83,6 +83,7 @@ export function AdaptationIntentWorkspace({ projectId, onStatusChange }: { proje
     {message && <p role="status" className={message.includes(".") ? "status" : "error"}>{message}</p>}
     {conflicts.length > 0 && <section role="alert" aria-label="Conflicting active overrides"><h2>Conflicting active overrides</h2>{conflicts.map((c) => <p key={c.id}>{c.id}: {c.overrideIds.join(" / ")}</p>)}</section>}
     {current?.stale && <p className="error" role="alert">Exact approved Source Dossier has changed. Historical intent remains readable.</p>}
+    {current?.stale && state.approvedDossier && <section aria-label="Fresh dossier adoption"><p>Approved dossier {state.approvedDossier.dossierVersionId}</p><button disabled={busy} onClick={() => void act(() => api.request("/create", { baseVersionId: current.id, preset }), "Fresh intent draft created; earlier policy remains in history.")}>Start fresh intent draft for approved dossier</button></section>}
     <h2>Canon route requested</h2>
     {!current ? <section className="intent-adoption"><label>Fidelity preset<select value={preset} onChange={(e) => setPreset(e.target.value as FidelityPreset)}>{FIDELITY_PRESETS.map((p) => <option key={p} value={p}>{presets[p]}</option>)}</select></label>
       <DimensionSummary dimensions={expandFidelityPreset(preset)} />
@@ -111,7 +112,7 @@ export function AdaptationIntentWorkspace({ projectId, onStatusChange }: { proje
           <button disabled={busy || current.stale} onClick={() => void patch({ operations: [{ kind: "remove", collection: tab, id: item.id }] }, "Intent item removed.")}>Remove</button></div>
       </article>)}</div><Pages offset={offset} total={total} onChange={setOffset} label="Intent item pages" />
       <IntentItemEditor key={`${tab}:${editing?.id ?? "new"}`} collection={tab as IntentCollection} item={editing} selected={selected} disabled={busy || current.stale || selectedIds.length !== selected.length}
-        onSave={async (operation) => { await patch({ operations: [operation] }, "Intent item saved."); setEditing(null); }} onCancel={() => setEditing(null)} />
+        onSave={(operation) => act(async () => { await api.edit({ baseVersionId: current.id, operations: [operation] }); setEditing(null); }, "Intent item saved.")} onCancel={() => setEditing(null)} />
     </div>{sourcePicker}</div>}
     {tab === "director" && <div className="intent-review-layout"><section aria-label="Adaptation Director"><h2>Director suggestions</h2>
       {proposals.length > 0 && <details><summary>Suggestion history</summary>{proposals.map((p) => <article key={p.versionId}><p>{p.status} · {p.request}</p><button disabled={busy} onClick={() => void api.request<IntentProposal>(`/proposals/${p.versionId}`).then(setProposal).catch((e: Error) => setMessage(e.message))}>Review stored suggestion</button></article>)}<nav aria-label="Suggestion history pages"><button disabled={proposalOffset === 0} onClick={() => setProposalOffset(Math.max(0, proposalOffset - 20))}>Previous</button><button disabled={proposals.length < 20} onClick={() => setProposalOffset(proposalOffset + 20)}>Next</button></nav></details>}
@@ -129,7 +130,7 @@ export function AdaptationIntentWorkspace({ projectId, onStatusChange }: { proje
     {current && tab === "history" && <section><h2>Intent version history</h2><label>Historical intent<select value={historicalId} onChange={(e) => { setHistoricalId(e.target.value); setComparison(null); }}><option value="">Select version</option>{history.map((v) => <option key={v.id} value={v.id}>v{v.version} / {v.revision.kind}</option>)}</select></label><Pages offset={offset} total={total} onChange={setOffset} label="Intent history pages" />
       <button disabled={busy || !historicalId} onClick={async () => { setBusy(true); try { setComparison(await api.request("/compare", { from: historicalId, to: current.id })); } catch (e) { setMessage((e as Error).message); } finally { setBusy(false); } }}>Compare with current</button>
       <button disabled={busy || !historicalId || current.stale} onClick={() => void act(() => api.request("/restore", { versionId: historicalId }), "Historical intent restored as a new draft.")}>Restore as new draft</button>
-      {comparison && <div><p>Material {comparison.materialEqual ? "unchanged" : "changed"}; provenance {comparison.provenanceEqual ? "unchanged" : "changed"}</p><p>Changed IDs: {comparison.changedIds.slice(0, 100).join(", ") || "none"}</p></div>}
+      {comparison && <div><p>Material {comparison.materialEqual ? "unchanged" : "changed"}; provenance {comparison.provenanceEqual ? "unchanged" : "changed"}</p><dl className="intent-dimensions">{FIDELITY_DIMENSIONS.map((d) => <div key={d}><dt>{dimensionLabels[d]}</dt><dd>{comparison.dimensions.from[d]} to {comparison.dimensions.to[d]}</dd></div>)}</dl><details><summary>Length budget comparison</summary><pre>{JSON.stringify(comparison.budget, null, 2)}</pre></details><p>Changed IDs: {comparison.changedIds.slice(0, 100).join(", ") || "none"}</p></div>}
       {historicalId && <a download href={`${api.root}/export?versionId=${encodeURIComponent(historicalId)}`}>Export historical intent</a>}
     </section>}
   </section>;

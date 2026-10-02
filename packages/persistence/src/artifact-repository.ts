@@ -41,6 +41,8 @@ type ArtifactRow = {
 function mapArtifact<T>(row: ArtifactRow): ArtifactVersion<T> {
   const parsed = JSON.parse(row.content_json) as unknown;
   if ((row.artifact_id === "adaptation-intent" || row.artifact_type === "adaptation-intent") && (row.artifact_id !== "adaptation-intent" || row.artifact_type !== "adaptation-intent" || row.schema_version !== 1)) throw new Error("adaptation_identity_invalid");
+  if ((row.artifact_id.startsWith("adaptation-intent-proposal-") || row.artifact_type === "adaptation-intent-proposal")
+    && (!row.artifact_id.startsWith("adaptation-intent-proposal-") || row.artifact_type !== "adaptation-intent-proposal" || row.schema_version !== 1)) throw new Error("adaptation_proposal_identity_invalid");
   const creativeIdentity = row.artifact_id === "creative-direction" || row.artifact_type === "creative-direction";
   if (creativeIdentity && (row.artifact_id !== "creative-direction" || row.artifact_type !== "creative-direction")) {
     throw new Error("Creative Direction artifact identity is invalid");
@@ -72,6 +74,8 @@ export class ArtifactRepository {
     const adaptationIdentity = input.artifactId === "adaptation-intent" || artifactType === "adaptation-intent";
     if (adaptationIdentity && (input.artifactId !== "adaptation-intent" || artifactType !== "adaptation-intent" || (input.schemaVersion ?? 1) !== 1)) throw new Error("adaptation_identity_invalid");
     const adaptation = adaptationIdentity ? assertAdaptationWrite(this.database, input.projectId, input.content) : undefined;
+    if ((input.artifactId.startsWith("adaptation-intent-proposal-") || artifactType === "adaptation-intent-proposal")
+      && (!input.artifactId.startsWith("adaptation-intent-proposal-") || artifactType !== "adaptation-intent-proposal" || (input.schemaVersion ?? 1) !== 1)) throw new Error("adaptation_proposal_identity_invalid");
     const proposal = artifactType === "adaptation-intent-proposal" ? validateAdaptationProposal(this.database, input.projectId, input.content) : undefined;
     if (proposal && (!input.artifactId.startsWith("adaptation-intent-proposal-") || (input.schemaVersion ?? 1) !== 1)) throw new Error("adaptation_proposal_identity_invalid");
     if (proposal) assertAdaptationProposalBudget(this.database, input.projectId, proposal);

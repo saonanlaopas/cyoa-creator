@@ -56,6 +56,10 @@ test("A4 explicit adoption, dimensions, source/override separation, evidence and
   await page.getByLabel("Reviewed exact effect and evidence").check(); await page.getByRole("button", { name: "Add intent item" }).click();
   await expect(page.getByText("Intent v4: draft", { exact: true })).toBeVisible();
   expect(await (await request.get(`${f.source}/export`)).json()).toEqual(sourceBefore);
+  await expect(page.locator(".intent-items article").first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(page.locator(".intent-selected article").first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await page.locator(".adaptation-intent-workspace").click({ position: { x: 2, y: 2 } });
+  await page.evaluate(() => scrollTo(0, 0));
   await page.screenshot({ path: info.outputPath("a4-desktop-override.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: info.outputPath("a4-mobile-override.png"), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

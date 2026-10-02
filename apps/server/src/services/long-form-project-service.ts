@@ -184,10 +184,6 @@ export class LongFormProjectService {
     if (!this.artifacts.getCurrent(projectId, artifactId)) throw new Error(`Create ${artifactId} first`);
     if (artifactId === "creative-direction") return this.saveCreativeDirection(projectId, content);
     const parsed = schemas[artifactId].parse(content) as PlanningArtifact;
-    if (artifactId === "brief" && this.artifacts.getCurrent(projectId, "adaptation-intent")) {
-      const current = this.artifacts.getCurrent<ProjectBrief>(projectId, "brief")!;
-      if ((parsed as ProjectBrief).adaptationFidelity !== current.content.adaptationFidelity) throw new Error("Adaptation Intent owns fidelity; the historical Brief value is compatibility input only");
-    }
     this.assertPresentationAuthorityWrite(projectId, artifactId, parsed);
     const version = this.artifacts.saveArtifact({
       projectId,
@@ -329,6 +325,10 @@ export class LongFormProjectService {
     artifactId: PlanningArtifactId,
     candidate: PlanningArtifact,
   ): void {
+    if (artifactId === "brief" && this.artifacts.getCurrent(projectId, "adaptation-intent")) {
+      const current = this.artifacts.getCurrent<ProjectBrief>(projectId, "brief");
+      if (current && (candidate as ProjectBrief).adaptationFidelity !== current.content.adaptationFidelity) throw new Error("Adaptation Intent owns fidelity; the historical Brief value is compatibility input only");
+    }
     if (!this.artifacts.getCurrent(projectId, "creative-direction")) return;
     if (artifactId === "brief") {
       const current = this.artifacts.getCurrent<ProjectBrief>(projectId, "brief");

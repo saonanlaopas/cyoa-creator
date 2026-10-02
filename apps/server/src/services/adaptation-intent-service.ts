@@ -4,9 +4,9 @@ import { ADAPTATION_INTENT_LIMITS, AdaptationIntentSchema, AdaptationPreviewInpu
   FIDELITY_PRESETS, adaptationBudget, adaptationOverrideConflicts, applyAdaptationOperations, assertRequestedSemantics, expandFidelityPreset, legacyFidelityPreset,
   newAdaptationIntent, normalizeAdaptationIntent, sourceCanonicalJson, sourceDigest, type AdaptationIntent, type AdaptationProposal } from "@story-to-cyoa/domain";
 import { ArtifactRepository, WorkflowRepository, adaptationSuggestionContext, assertAdaptationFresh, assertAdaptationProposalBudget, transaction, validateAdaptationIntent, type ArtifactVersion, type StoryDatabase } from "@story-to-cyoa/persistence";
-import type { AdaptationIntentProvider } from "./adaptation-intent-provider.js";
+import type { AdaptationIntentProvider, AdaptationProviderRequest } from "./adaptation-intent-provider.js";
 
-const createSchema = z.object({ preset: z.enum(FIDELITY_PRESETS).default("meaningful-divergence"), legacyBriefVersionId: z.string().min(1).optional() }).strict();
+const createSchema = z.object({ preset: z.enum(FIDELITY_PRESETS).default("meaningful-divergence"), legacyBriefVersionId: z.string().min(1).optional(), baseVersionId: z.string().min(1).optional() }).strict();
 const patchSchema = z.object({ baseVersionId: z.string().min(1), preset: z.enum(FIDELITY_PRESETS).optional(), dimensions: FidelityPolicySchema.optional(),
   preserveCanonRoute: z.boolean().optional(), endingIntent: z.enum(["preserve-ending", "preserve-result-alter-mechanism", "allow-alternates", "not-required", "specific-state"]).optional(),
   budget: z.object({ sourceEquivalent: PlannedWordsSchema, target: PlannedWordsSchema, discrepancyReviewed: z.boolean() }).strict().optional(),
@@ -43,13 +43,16 @@ export class AdaptationIntentService {
   }
   create(projectId: string, value: unknown) {
     const input = createSchema.parse(value);
-    if (this.artifacts.getCurrent(projectId, "adaptation-intent")) throw new Error("adaptation_already_exists");
+    const current = this.artifacts.getCurrent(projectId, "adaptation-intent");
+    if (current && (current.id !== input.baseVersionId || !this.state(projectId).current?.stale)) throw new Error("adaptation_already_exists");
+    if (!current && input.baseVersionId) throw new Error("adaptation_base_stale");
     const intent = newAdaptationIntent(projectId, this.binding(projectId), input.preset);
+    intent.revision.previousVersionId = current?.id ?? null;
     if (input.legacyBriefVersionId) {
       const brief = this.artifacts.getCurrent<{ adaptationFidelity: "canon-centered" | "balanced" | "expansive" }>(projectId, "brief");
       if (!brief || brief.id !== input.legacyBriefVersionId) throw new Error("adaptation_legacy_brief_stale");
       intent.preset = legacyFidelityPreset(brief.content.adaptationFidelity); intent.dimensions = expandFidelityPreset(intent.preset);
-      intent.revision = { kind: "legacy-adoption", previousVersionId: null, legacyBriefVersionId: brief.id, legacyFidelity: brief.content.adaptationFidelity };
+      intent.revision = { kind: "legacy-adoption", previousVersionId: current?.id ?? null, legacyBriefVersionId: brief.id, legacyFidelity: brief.content.adaptationFidelity };
     }
     this.artifacts.saveArtifact({ projectId, artifactId: "adaptation-intent", content: normalizeAdaptationIntent(intent) });
     return this.state(projectId);
@@ -156,6 +159,16 @@ export class AdaptationIntentService {
     if (context.fingerprint !== preview.fingerprint) throw new Error("adaptation_proposal_stale");
     return context;
   }
+  private async invoke(provider: AdaptationIntentProvider, request: AdaptationProviderRequest): Promise<string> {
+    if (request.signal.aborted) throw new Error("adaptation_generation_cancelled");
+    let abort!: () => void;
+    const cancelled = new Promise<never>((_, reject) => {
+      abort = () => reject(new Error("adaptation_generation_cancelled"));
+      request.signal.addEventListener("abort", abort, { once: true });
+    });
+    try { return await Promise.race([provider.generate(request), cancelled]); }
+    finally { request.signal.removeEventListener("abort", abort); }
+  }
   async generate(projectId: string, previewId: string, fingerprint: string) {
     const preview = this.previews.get(previewId);
     if (!preview || preview.projectId !== projectId || preview.fingerprint !== fingerprint) throw new Error("adaptation_preview_invalid");
@@ -170,13 +183,13 @@ export class AdaptationIntentService {
     };
     try {
       this.fresh(preview);
-      const raw = await provider.generate({ context: preview.context, modelId: preview.input.modelId, mode: "suggest", signal: controller.signal });
+      const raw = await this.invoke(provider, { context: preview.context, modelId: preview.input.modelId, mode: "suggest", signal: controller.signal });
       this.fresh(preview);
       let suggestion;
       try { suggestion = parse(raw); } catch (error) {
         if ((error as Error).message.startsWith("adaptation_")) throw error;
         this.fresh(preview);
-        const repaired = await provider.generate({ context: preview.context, modelId: preview.input.modelId, mode: "repair", malformedOutput: raw, signal: controller.signal });
+        const repaired = await this.invoke(provider, { context: preview.context, modelId: preview.input.modelId, mode: "repair", malformedOutput: raw, signal: controller.signal });
         this.fresh(preview);
         try { suggestion = parse(repaired); } catch { throw new Error("adaptation_repair_exhausted"); }
       }

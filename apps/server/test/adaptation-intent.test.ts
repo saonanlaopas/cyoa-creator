@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,6 +33,21 @@ async function preview(f: Awaited<ReturnType<typeof fixture>>, extra: Record<str
   expect(response.statusCode, response.body).toBe(200); return response.json();
 }
 describe("A4 manual and conversational boundary", () => {
+  it("times out even an abort-ignoring provider without a late or partial write", async () => {
+    let release!: (raw: string) => void;
+    const provider = new DeterministicAdaptationIntentProvider({ respond: () => new Promise((r) => { release = r; }) }), f = await fixture(provider);
+    const p = await preview(f);
+    vi.useFakeTimers();
+    try {
+      const generation = f.call("/generate", { previewId: p.id, fingerprint: p.fingerprint });
+      await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+      await vi.advanceTimersByTimeAsync(60_001);
+      const result = await generation; expect(result.json().code).toBe("adaptation_generation_cancelled");
+      release(JSON.stringify({ schemaVersion: 1, intent: "adaptation-preference", operations: [{ kind: "dimension", dimension: "tone", level: "strict" }] }));
+      expect((await f.call("")).json().current).toBeNull();
+      expect((await f.call("/proposals")).json().items).toEqual([]);
+    } finally { vi.useRealTimers(); }
+  });
   it("supports successful API creation/review/approval in a legacy project without any Creative Direction artifact", async () => {
     const directory = mkdtempSync(join(tmpdir(), "cyoa-a4-no-direction-")); directories.push(directory); const path = join(directory, "project.sqlite");
     const f = analysisFixture(openDatabase(path)); completeFixture(f); const dossier = f.artifacts.getCurrent(f.projectId, "source-dossier")!;
@@ -63,6 +78,32 @@ describe("A4 manual and conversational boundary", () => {
     const removed = await f.call("/edit", { baseVersionId: added.json().current.id, operations: [{ kind: "remove", collection: "overrides", id: value.id }] });
     expect(removed.statusCode).toBe(200); expect((await f.call("/collections/overrides")).json().items).toEqual([]);
     expect((await f.app.inject({ url: `${f.source}/export` })).json()).toEqual(f.dossier); expect(f.provider.calls).toHaveLength(0);
+  });
+  it.each(["base", "dossier"])("rejects Apply after %s changes without a partial canonical write", async (kind) => {
+    const f = await fixture(); await create(f); const p = await preview(f);
+    const generated = await f.call("/generate", { previewId: p.id, fingerprint: p.fingerprint });
+    expect(generated.statusCode, generated.body).toBe(200);
+    if (kind === "base") { const state = (await f.call("")).json(); await f.call("/edit", { baseVersionId: state.current.id, preset: "faithful" }); }
+    else await f.app.inject({ method: "POST", url: `${f.source}/restore`, payload: { versionId: f.metadata.id } });
+    const before = (await f.call("/history")).json();
+    expect((await f.call("/apply", { versionId: generated.json().versionId })).statusCode).toBeGreaterThanOrEqual(400);
+    expect((await f.call("/history")).json()).toEqual(before);
+    expect((await f.call(`/proposals/${generated.json().versionId}`)).json().status).toBe("pending");
+  });
+  it("recovers stale intent through explicit fresh-dossier adoption while preserving immutable policy history", async () => {
+    const f = await fixture(), first = await create(f);
+    await f.app.inject({ method: "POST", url: `${f.source}/restore`, payload: { versionId: f.metadata.id } });
+    expect((await f.call("/create", { baseVersionId: first.current.id })).statusCode).toBeGreaterThanOrEqual(400);
+    const dossier = (await f.app.inject({ url: `${f.source}/dossier` })).json();
+    expect((await f.app.inject({ method: "POST", url: `${f.source}/approve`, payload: { versionId: dossier.id } })).statusCode).toBe(200);
+    expect((await f.call("/create", {})).statusCode).toBe(409);
+    const fresh = await f.call("/create", { baseVersionId: first.current.id }); expect(fresh.statusCode, fresh.body).toBe(200);
+    expect(fresh.json().current.policy.binding.dossierVersionId).toBe(dossier.id);
+    expect(fresh.json().current.policy.revision.previousVersionId).toBe(first.current.id);
+    expect(fresh.json().workflow.status).toBe("draft");
+    expect((await f.call(`/export?versionId=${first.current.id}`)).json().content.binding.dossierVersionId).toBe(f.metadata.id);
+    expect((await f.call("/approve", { versionId: fresh.json().current.id })).statusCode).toBe(200);
+    expect(f.provider.calls).toHaveLength(0);
   });
   it("preview is local, bounded, exact and excludes both manuscript and legacy fidelity authority; Apply is explicit and provider-free", async () => {
     const f = await fixture(), p = await preview(f);

@@ -354,7 +354,10 @@ export function providerPlanningArtifactView(
   artifactId: PlanningArtifactId,
   artifact: PlanningArtifact,
   creativeDirectionOwnsPresentation: boolean,
+  adaptationIntentAdopted = false,
 ): unknown {
+  artifact = structuredClone(artifact);
+  if (artifactId === "brief" && adaptationIntentAdopted) delete (artifact as Partial<ProjectBrief>).adaptationFidelity;
   if (!creativeDirectionOwnsPresentation) return structuredClone(artifact);
   if (artifactId === "brief") {
     const { tone: _legacyTone, pointOfView: _legacyPointOfView, ...structuralBrief } = artifact as ProjectBrief;

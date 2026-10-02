@@ -1,6 +1,9 @@
-import type { AdaptationIntent, AdaptationProposal, AdaptationSuggestion, SourceRecord } from "@story-to-cyoa/domain";
+import type { AdaptationIntent, AdaptationProposal, AdaptationSuggestion } from "@story-to-cyoa/domain";
 export type IntentCollection = "overrides" | "inventions" | "obligations" | "exceptions" | "expansion";
 export type IntentPolicy = Omit<AdaptationIntent, IntentCollection>;
+export type IntentItemSummary = { id: string; scope: string; rationale: string } & (
+  { effect: string; active: boolean; reviewed: boolean } | { requirement: string; kind: string }
+  | { permission: string; reviewed: boolean } | { description: string; origin: string });
 export interface IntentState {
   current: { id: string; version: number; stale: boolean; policy: IntentPolicy; counts: Record<IntentCollection, number>;
     reconciliation: { planned: number | null; target: number | null; difference: number | null; status: string } } | null;
@@ -22,9 +25,8 @@ export class AdaptationIntentApi {
     return response.json() as Promise<T>;
   }
   state() { return this.request<IntentState>(""); }
-  collection(collection: IntentCollection, offset: number, search: string) { return this.request<{ total: number; items: Array<AdaptationIntent[IntentCollection][number]> }>(`/collections/${collection}?offset=${offset}&search=${encodeURIComponent(search)}`); }
+  collection(collection: IntentCollection, offset: number, search: string) { return this.request<{ total: number; items: IntentItemSummary[] }>(`/collections/${collection}?offset=${offset}&search=${encodeURIComponent(search)}`); }
   edit(value: unknown) { return this.request<IntentState>("/edit", value); }
   history(offset: number) { return this.request<{ total: number; items: IntentHistory[] }>(`/history?offset=${offset}`); }
   preview(input: AdaptationProposal["input"]) { return this.request<IntentPreview>("/preview", input); }
 }
-export type IntentSourceRecord = SourceRecord;
