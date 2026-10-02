@@ -24,9 +24,9 @@ export function registerSourceAnalysisRoutes(app: FastifyInstance, service: Sour
   app.get<{ Params: RecordParams; Querystring: unknown }>(`${root}/records/:recordId`, (r, reply) => respond(reply, () => { const q = page.parse(r.query); return service.record(r.params.projectId, r.params.recordId, q.versionId, q.offset, q.limit); }));
   app.post<{ Params: ProjectParams; Body: unknown }>(`${root}/evidence`, (r, reply) => respond(reply, () => service.evidence(r.params.projectId, r.body)));
   app.get<{ Params: ProjectParams; Querystring: unknown }>(`${root}/evidence/options`, (r, reply) => respond(reply, () => { const q = page.parse(r.query); return service.evidenceOptions(r.params.projectId, q.offset, q.limit, q.search); }));
-  app.post<{ Params: ProjectParams; Body: unknown }>(`${root}/corrections`, (r, reply) => respond(reply, () => service.correct(r.params.projectId, r.body), 201));
+  app.post<{ Params: ProjectParams; Body: unknown }>(`${root}/corrections`, { bodyLimit: 32 * 1024 * 1024 }, (r, reply) => respond(reply, () => service.correct(r.params.projectId, r.body), 201));
   app.post<{ Params: ProjectParams; Body: unknown }>(`${root}/approve`, (r, reply) => respond(reply, () => service.approve(r.params.projectId, version.parse(r.body).versionId)));
-  app.get<{ Params: ProjectParams; Querystring: unknown }>(`${root}/history`, (r, reply) => respond(reply, () => { const q = page.parse(r.query); return { items: service.history(r.params.projectId, q.offset, q.limit) }; }));
+  app.get<{ Params: ProjectParams; Querystring: unknown }>(`${root}/history`, (r, reply) => respond(reply, () => { const q = page.parse(r.query); return service.history(r.params.projectId, q.offset, q.limit); }));
   app.post<{ Params: ProjectParams; Body: unknown }>(`${root}/compare`, (r, reply) => respond(reply, () => { const input = z.object({ from: z.string().min(1), to: z.string().min(1) }).strict().parse(r.body); return service.compare(r.params.projectId, input.from, input.to); }));
   app.post<{ Params: ProjectParams; Body: unknown }>(`${root}/restore`, (r, reply) => respond(reply, () => service.restore(r.params.projectId, version.parse(r.body).versionId)));
   app.get<{ Params: ProjectParams; Querystring: unknown }>(`${root}/export`, (r, reply) => {

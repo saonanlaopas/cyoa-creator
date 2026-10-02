@@ -103,13 +103,15 @@ describe("A3 durable source analysis", () => {
     try {
       const job = completeFixture(f), initial = f.artifacts.getVersion<SourceDossier>(job.dossierVersionId!)!;
       const record = initial.content.records[0]!;
-      const corrected = f.repository.correct(f.projectId, initial.id, { kind: "evidence", intent: "source-analysis-correction", reason: "Exact excerpt", previousVersionId: initial.id, recordId: record.id, evidence: record.evidence });
+      const corrected = f.repository.correct(f.projectId, initial.id, { kind: "field", intent: "source-analysis-correction", reason: f.projectId, changes: { claim: f.projectId }, previousVersionId: initial.id, recordId: record.id, evidence: record.evidence });
       new WorkflowRepository(f.database).approve(f.projectId, "source-dossier", corrected.id);
       const copy = f.projects.duplicate(f.projectId);
       const dossier = f.artifacts.getCurrent<SourceDossier>(copy.id, "source-dossier")!;
       expect(dossier.content.projectId).toBe(copy.id);
       expect(dossier.content.binding.sourceVersionId).not.toBe(initial.content.binding.sourceVersionId);
       expect(dossier.content.provenance[0]?.jobId).not.toBe(job.id);
+      expect(dossier.content.corrections[0]?.reason).toBe(f.projectId);
+      expect(dossier.content.records.some((r) => r.claim === f.projectId)).toBe(true);
       assertSourceDossier(dossier.content, f.source, dossier.content.binding);
       f.repository.validateProject(copy.id);
       const exported = new PortableProjectRepository(f.database).exportRows(copy.id);
@@ -141,6 +143,32 @@ describe("A3 durable source analysis", () => {
       repository.validateProject(f.projectId); database.close();
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
+  it("duplicates merge/split correction lineage with project-owned identities and every dependent remapped", () => {
+    const f = analysisFixture();
+    try {
+      const job = f.repository.createJob(f.projectId, f.plan.id, f.plan.fingerprint), unit = f.plan.units[0]!;
+      const output = fixtureOutput(f.plan, 0);
+      output.observations.push({ ...output.observations[0]!, id: "alexander", identityKey: "Alexander", claim: "Alexander", aliases: ["Alex"] });
+      const attempt = f.repository.beginAttempt(f.projectId, job.id, unit.id);
+      f.repository.finishAttempt(f.projectId, job.id, unit.id, attempt.id, { status: "completed", output });
+      const done = completeFixture(f, job.id), initial = f.artifacts.getVersion<SourceDossier>(done.dossierVersionId!)!;
+      const identities = initial.content.records.filter((r) => r.category === "character" && r.field === "identity"), target = identities.find((r) => r.identityKey === "Alex")!;
+      const merged = f.repository.correct(f.projectId, initial.id, { kind: "merge", intent: "source-analysis-correction", reason: "Confirmed alias", previousVersionId: initial.id,
+        targetId: target.id, recordIds: identities.map((r) => r.id) });
+      const parent = (merged.content as SourceDossier).records.find((r) => r.id === target.id)!;
+      const children = [{ id: "split-alex", identityKey: "Alex", claim: "Alex", evidence: parent.evidence }, { id: "split-alexander", identityKey: "Alexander", claim: "Alexander", evidence: parent.evidence }];
+      const split = f.repository.correct(f.projectId, merged.id, { kind: "split", intent: "source-analysis-correction", reason: "Explicit source distinction", previousVersionId: merged.id,
+        recordId: parent.id, children, assignments: (merged.content as SourceDossier).records.filter((r) => r.references.includes(parent.id)).map((r) => ({ recordId: r.id, replacementIds: [children[0]!.id] })) });
+      const duplicate = f.projects.duplicate(f.projectId), copied = f.artifacts.getCurrent<SourceDossier>(duplicate.id, "source-dossier")!;
+      const foreignIds = [f.projectId, f.plan.id, job.id, initial.id, merged.id, split.id, ...initial.content.records.map((r) => r.id), ...children.map((c) => c.id),
+        ...initial.content.provenance.flatMap((p) => [p.observationId, p.attemptId, p.unitId])];
+      const serialized = sourceCanonicalJson(copied.content);
+      for (const foreignId of foreignIds) expect(serialized).not.toContain(`"${foreignId}"`);
+      expect(copied.content.corrections.map((c) => c.kind)).toEqual(["merge", "split"]);
+      expect(copied.content.records.filter((r) => r.status === "supported" && r.field === "identity")).toHaveLength(2);
+      f.repository.validateProject(duplicate.id);
+    } finally { f.database.close(); }
+  });
   it("rolls back migration/trigger repair on corrupt analysis without modifying source bytes", () => {
     const directory = mkdtempSync(join(tmpdir(), "cyoa-a3-corrupt-")), path = join(directory, "corrupt.sqlite");
     try {
@@ -154,5 +182,38 @@ describe("A3 durable source analysis", () => {
       const db = new DatabaseSync(path);
       expect(db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'source_analysis_units_terminal_immutable'").get()).toBeUndefined(); db.close();
     } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+  it("rolls back a failed v19 migration and rejects future v21 without altering fixture copies", () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-a3-rollback-"));
+    try {
+      for (const mode of ["conflicting-table", "future"] as const) {
+        const path = join(directory, `${mode}.sqlite`);
+        copyFileSync(new URL("./fixtures/schema-v19.sqlite", import.meta.url), path);
+        const raw = new DatabaseSync(path);
+        raw.exec(mode === "future" ? "PRAGMA user_version = 21" : "CREATE TABLE source_analysis_units (bad_column TEXT)"); raw.close();
+        const before = createHash("sha256").update(readFileSync(path)).digest("hex");
+        expect(() => openDatabase(path)).toThrow();
+        expect(createHash("sha256").update(readFileSync(path)).digest("hex")).toBe(before);
+        const after = new DatabaseSync(path);
+        expect((after.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(mode === "future" ? 21 : 19);
+        expect(after.prepare("SELECT 1 FROM sqlite_master WHERE name = 'source_analysis_plans'").get()).toBeUndefined(); after.close();
+      }
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+  it("produces identical material and provenance fingerprints after different durable unit completion orders", () => {
+    const f = analysisFixture();
+    try {
+      const first = completeFixture(f), firstDossier = f.artifacts.getVersion<SourceDossier>(first.dossierVersionId!)!.content;
+      const second = f.repository.createJob(f.projectId, f.plan.id, f.plan.fingerprint);
+      for (const unit of [...f.plan.units].reverse()) {
+        const attempt = f.repository.beginAttempt(f.projectId, second.id, unit.id);
+        f.repository.finishAttempt(f.projectId, second.id, unit.id, attempt.id, { status: "completed", output: fixtureOutput(f.plan, f.plan.units.indexOf(unit)) });
+      }
+      const done = f.repository.settle(f.projectId, second.id), dossier = f.artifacts.getVersion<SourceDossier>(done.dossierVersionId!)!.content;
+      expect(dossier.materialFingerprint).toBe(firstDossier.materialFingerprint);
+      expect(dossier.records).toEqual(firstDossier.records);
+      // Run/attempt IDs intentionally differ; the material identity is independent of completion order.
+      expect(dossier.provenance.map((p) => p.original)).toEqual(firstDossier.provenance.map((p) => p.original));
+    } finally { f.database.close(); }
   });
 });

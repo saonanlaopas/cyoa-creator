@@ -43,10 +43,13 @@ export function prepareSourceAnalysisDuplicate(database: StoryDatabase, projectI
   }
 }
 
-export function remapSourceAnalysisValue(value: unknown, ids: Map<string, string>): unknown {
-  if (typeof value === "string") return ids.get(value) ?? value;
-  if (Array.isArray(value)) return value.map((v) => remapSourceAnalysisValue(v, ids));
-  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, remapSourceAnalysisValue(v, ids)]));
+const projectOwnedKeys = new Set(["id", "projectId", "sourceVersionId", "scopeVersionId", "scopeFingerprint", "planId", "jobId", "unitId", "attemptId",
+  "inputFingerprint", "contextFingerprint", "fingerprint", "observationId", "recordId", "recordIds", "targetId", "previousVersionId", "references", "observationIds", "replacementIds"]);
+export function remapSourceAnalysisValue(value: unknown, ids: Map<string, string>, key = ""): unknown {
+  // Claims, aliases, reasons and content-owned chapter/excerpt IDs are not project references.
+  if (typeof value === "string") return projectOwnedKeys.has(key) ? ids.get(value) ?? value : value;
+  if (Array.isArray(value)) return value.map((v) => remapSourceAnalysisValue(v, ids, key));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, remapSourceAnalysisValue(v, ids, k)]));
   return value;
 }
 

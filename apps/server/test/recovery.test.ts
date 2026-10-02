@@ -16,6 +16,9 @@ import { defaultProjectBrief } from "@story-to-cyoa/pipeline";
 import { stableFingerprint } from "@story-to-cyoa/runtime";
 import { PublicationExportService } from "../src/services/publication-export-service.js";
 import { RecoveryOperationError, RecoveryService, parseBackup } from "../src/services/recovery-service.js";
+import { analysisFixture, completeFixture } from "../../../packages/persistence/test/source-analysis-fixture.js";
+import { SourceAnalysisRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
+import type { SourceDossier } from "@story-to-cyoa/domain";
 
 function backupWithPortable(originalBackup: Uint8Array, portableBytes: Uint8Array): Uint8Array {
   const outer = unzipSync(originalBackup);
@@ -36,6 +39,26 @@ function context(database: StoryDatabase = openDatabase(), options: ConstructorP
 }
 
 describe("Foundation 8A verified project recovery", () => {
+  it("verifies and restores A3 source bodies, exact evidence, attempts, corrected dossier history and approval", async () => {
+    const source = context(), target = context();
+    try {
+      const f = analysisFixture(source.database), job = completeFixture(f);
+      const initial = f.artifacts.getVersion<SourceDossier>(job.dossierVersionId!)!, record = initial.content.records[0]!;
+      const corrected = f.repository.correct(f.projectId, initial.id, { kind: "field", intent: "source-analysis-correction", previousVersionId: initial.id,
+        reason: "Reviewer evidence clarification", recordId: record.id, changes: { uncertainty: "Reviewed against the source" }, evidence: record.evidence });
+      new WorkflowRepository(source.database).approve(f.projectId, "source-dossier", corrected.id);
+      const backup = await source.recovery.createVerifiedBackup(f.projectId);
+      expect(backup.record.verificationStatus).toBe("verified");
+      await target.recovery.restoreBackup(backup.bytes);
+      const artifacts = new ArtifactRepository(target.database);
+      expect(artifacts.getCurrent(f.projectId, "source")?.content).toEqual(f.source);
+      expect(artifacts.getVersion(initial.id)?.content).toEqual(initial.content);
+      expect(artifacts.getVersion(corrected.id)?.content).toEqual(corrected.content);
+      expect(new SourceAnalysisRepository(target.database).getJob(f.projectId, job.id)).toEqual(f.repository.getJob(f.projectId, job.id));
+      expect(new WorkflowRepository(target.database).get(f.projectId, "source-dossier").approvedVersionId).toBe(corrected.id);
+      new SourceAnalysisRepository(target.database).validateProject(f.projectId);
+    } finally { source.database.close(); target.database.close(); }
+  });
   it("normalizes a failed canonical export before any verification metadata exists", async () => {
     const source = context();
     try {

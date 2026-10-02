@@ -70,7 +70,8 @@ export class SourceAnalysisService {
   start(projectId: string, jobId: string) {
     this.project(projectId);
     if (this.closing || this.running.has(jobId)) throw new Error("source_analysis_already_active");
-    const job = this.repository.getJob(projectId, jobId);
+    let job = this.repository.getJob(projectId, jobId);
+    if (job.status === "running") { this.repository.recoverInterrupted(projectId, jobId); job = this.repository.getJob(projectId, jobId); }
     this.repository.fresh(projectId, job.planId);
     if (job.status === "failed") this.repository.retry(projectId, jobId);
     else if (job.status !== "pending") throw new Error("source_analysis_resume_not_allowed");
@@ -87,6 +88,8 @@ export class SourceAnalysisService {
   }
   job(projectId: string, jobId: string, offset = 0, limit = 50) {
     this.project(projectId);
+    // Backups or duplicates can restore a running row without a live worker. Recover only that orphan, never another active run.
+    if (!this.running.has(jobId)) this.repository.recoverInterrupted(projectId, jobId);
     const job = this.repository.getJob(projectId, jobId);
     const counts = Object.fromEntries(["pending", "running", "completed", "failed", "cancelled"].map((status) => [status, job.units.filter((u) => u.status === status).length]));
     return { ...job, executing: this.running.has(jobId), counts, unitCount: job.units.length, units: job.units.slice(offset, offset + limit) };
@@ -214,8 +217,15 @@ export class SourceAnalysisService {
   approve(projectId: string, versionId: string) { this.project(projectId); return this.workflow.approve(projectId, "source-dossier", versionId); }
   history(projectId: string, offset = 0, limit = 50) {
     this.project(projectId);
-    return this.artifacts.listVersions<SourceDossier>(projectId, "source-dossier").slice(offset, offset + limit).map(({ content, ...version }) => ({ ...version,
-      materialFingerprint: content.materialFingerprint, provenanceFingerprint: content.provenanceFingerprint, correctionCount: content.corrections.length }));
+    const rows = this.database.prepare(`SELECT id,version,created_at,stale,restored_from_version_id,
+      json_extract(content_json,'$.materialFingerprint') AS material_fingerprint,
+      json_extract(content_json,'$.provenanceFingerprint') AS provenance_fingerprint,
+      json_array_length(content_json,'$.corrections') AS correction_count
+      FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source-dossier' ORDER BY version DESC LIMIT ? OFFSET ?`)
+      .all(projectId, limit, offset) as Array<{ id: string; version: number; created_at: string; stale: number; restored_from_version_id: string | null; material_fingerprint: string; provenance_fingerprint: string; correction_count: number }>;
+    const count = this.database.prepare("SELECT COUNT(*) AS total FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source-dossier'").get(projectId) as { total: number };
+    return { total: count.total, items: rows.map((r) => ({ id: r.id, version: r.version, createdAt: r.created_at, stale: Boolean(r.stale), restoredFromVersionId: r.restored_from_version_id,
+      materialFingerprint: r.material_fingerprint, provenanceFingerprint: r.provenance_fingerprint, correctionCount: r.correction_count })) };
   }
   compare(projectId: string, from: string, to: string) {
     const a = this.dossier(projectId, from), b = this.dossier(projectId, to);

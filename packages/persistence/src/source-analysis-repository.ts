@@ -155,8 +155,9 @@ export class SourceAnalysisRepository {
       this.setJob(projectId, jobId, "cancelled"); return this.getJob(projectId, jobId);
     });
   }
-  recoverInterrupted(): void {
-    const rows = this.database.prepare("SELECT project_id,id FROM source_analysis_jobs WHERE status = 'running'").all() as Array<{ project_id: string; id: string }>;
+  recoverInterrupted(projectId?: string, jobId?: string): void {
+    const rows = this.database.prepare(`SELECT project_id,id FROM source_analysis_jobs WHERE status = 'running'${projectId ? " AND project_id = ?" : ""}${jobId ? " AND id = ?" : ""}`)
+      .all(...(projectId ? [projectId] : []), ...(jobId ? [jobId] : [])) as Array<{ project_id: string; id: string }>;
     for (const row of rows) this.atomic(() => {
       const job = this.getJob(row.project_id, row.id);
       for (const unit of job.units.filter((u) => u.status === "running")) this.finishAttempt(row.project_id, row.id, unit.id, unit.attempts.at(-1)!.id, { status: "failed", diagnostic: "interrupted" });

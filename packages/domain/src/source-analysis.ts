@@ -190,23 +190,25 @@ export function sourceConflicts(records: SourceRecord[]): SourceDossier["conflic
   const groups = new Map<string, SourceRecord[]>();
   for (const record of active) {
     const key = sourceCanonicalJson([record.category, record.identityKey, record.field]);
-    groups.set(key, [...(groups.get(key) ?? []), record]);
+    const values = groups.get(key) ?? [];
+    values.push(record); groups.set(key, values);
   }
   const conflicts: SourceDossier["conflicts"] = [];
   for (const values of groups.values()) if (new Set(values.map((v) => v.claim)).size > 1) {
     const recordIds = values.map((v) => v.id).sort(compare);
     conflicts.push({ id: `sc_${sourceDigest(recordIds).slice(0, 32)}`, kind: "contradiction", recordIds, reason: "Different claims for the same analytical identity and field" });
   }
-  const identities = active.filter((r) => r.category === "character");
-  for (let i = 0; i < identities.length; i++) for (let j = i + 1; j < identities.length; j++) {
-    const a = identities[i]!, b = identities[j]!;
-    if (a.identityKey === b.identityKey) continue;
-    const namesA = [a.identityKey, ...a.aliases].map((v) => v.normalize("NFC").toLowerCase());
-    const namesB = [b.identityKey, ...b.aliases].map((v) => v.normalize("NFC").toLowerCase());
-    if (namesA.some((v) => namesB.includes(v)) || a.uncertainty || b.uncertainty) {
-      const recordIds = [a.id, b.id].sort(compare);
-      conflicts.push({ id: `sa_${sourceDigest(recordIds).slice(0, 32)}`, kind: "ambiguity", recordIds, reason: "Unconfirmed identity match; separate identities retained" });
+  const names = new Map<string, SourceRecord[]>(), seen = new Set<string>();
+  for (const identity of active.filter((r) => r.category === "character" && r.field === "identity")) {
+    for (const name of new Set([identity.identityKey, ...identity.aliases].map((v) => v.normalize("NFC").toLowerCase()))) {
+      const values = names.get(name) ?? []; values.push(identity); names.set(name, values);
     }
+  }
+  for (const values of names.values()) {
+    if (new Set(values.map((v) => v.identityKey)).size < 2) continue;
+    const recordIds = values.map((v) => v.id).sort(compare), key = sourceCanonicalJson(recordIds);
+    if (seen.has(key)) continue; seen.add(key);
+    conflicts.push({ id: `sa_${sourceDigest(recordIds).slice(0, 32)}`, kind: "ambiguity", recordIds, reason: "Unconfirmed identity match; separate identities retained" });
   }
   return sourceSorted(conflicts);
 }

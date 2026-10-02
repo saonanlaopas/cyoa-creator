@@ -64,11 +64,23 @@ export function validateDossierPersistence(database: StoryDatabase, projectId: s
   return dossier;
 }
 export function validateSourceAnalysisDatabase(database: StoryDatabase, projectId?: string): void {
-  const plans = database.prepare(`SELECT project_id,id,content_json FROM source_analysis_plans ${projectId ? "WHERE project_id = ?" : ""}`)
-    .all(...(projectId ? [projectId] : [])) as Array<{ project_id: string; id: string; content_json: string }>;
+  const requiredColumns = {
+    source_analysis_plans: ["id", "project_id", "source_version_id", "scope_version_id", "content_json", "created_at"],
+    source_analysis_jobs: ["id", "project_id", "plan_id", "status", "authorized_fingerprint", "dossier_version_id", "created_at", "updated_at"],
+    source_analysis_units: ["project_id", "job_id", "unit_id", "status"],
+    source_analysis_attempts: ["id", "project_id", "job_id", "unit_id", "number", "status", "context_fingerprint", "repair_count", "usage_json", "diagnostic", "started_at", "finished_at"],
+    source_analysis_outputs: ["id", "project_id", "job_id", "unit_id", "attempt_id", "content_json"],
+  };
+  for (const [table, required] of Object.entries(requiredColumns)) {
+    const columns = new Set((database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name));
+    if (required.some((column) => !columns.has(column))) throw new Error("source_analysis_schema_invalid");
+  }
+  const plans = database.prepare(`SELECT project_id,id,source_version_id,scope_version_id,content_json FROM source_analysis_plans ${projectId ? "WHERE project_id = ?" : ""}`)
+    .all(...(projectId ? [projectId] : [])) as Array<{ project_id: string; id: string; source_version_id: string; scope_version_id: string; content_json: string }>;
   for (const row of plans) {
     const plan = validateAnalysisPlan(database, JSON.parse(row.content_json));
-    if (row.id !== plan.id || row.project_id !== plan.binding.projectId) throw new Error("source_analysis_plan_lineage_invalid");
+    if (row.id !== plan.id || row.project_id !== plan.binding.projectId || row.source_version_id !== plan.binding.sourceVersionId
+      || row.scope_version_id !== plan.binding.scopeVersionId) throw new Error("source_analysis_plan_lineage_invalid");
     const jobs = database.prepare("SELECT * FROM source_analysis_jobs WHERE project_id = ? AND plan_id = ?").all(row.project_id, row.id) as Array<{ id: string; status: string; authorized_fingerprint: string; dossier_version_id: string | null }>;
     for (const job of jobs) {
       if (job.authorized_fingerprint !== plan.fingerprint) throw new Error("source_analysis_authorization_invalid");
@@ -87,6 +99,7 @@ export function validateSourceAnalysisDatabase(database: StoryDatabase, projectI
         if ((unit.status === "completed") !== Boolean(output) || (output && output.attempt_id !== latest?.id)) throw new Error("source_analysis_output_lifecycle_invalid");
       }
       if (job.status === "completed" && units.some((u) => u.status !== "completed")) throw new Error("source_analysis_job_lifecycle_invalid");
+      if (job.status === "cancelled" && units.some((u) => !["completed", "cancelled"].includes(u.status))) throw new Error("source_analysis_job_lifecycle_invalid");
       analysisProvenance(database, plan, job.id);
       if (job.dossier_version_id) {
         const dossier = database.prepare("SELECT content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source-dossier' AND id = ?")

@@ -41,7 +41,7 @@ export function registerImportRoutes(
   app.post<{
     Params: Params;
     Body: { text?: string; filename?: string };
-  }>("/api/projects/:projectId/source/text", async (request, reply) => {
+  }>("/api/projects/:projectId/source/text", { bodyLimit: maxImportBytes * 6 + 4096 }, async (request, reply) => {
     if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
     if (typeof request.body?.text !== "string") return reply.code(400).send({ error: "text is required" });
     try {

@@ -125,6 +125,29 @@ describe("A3 source-analysis lifecycle API", () => {
     const evidence = (await f.app.inject({ method: "POST", url: `${f.root}/evidence`, payload: record.evidence[0] })).json();
     expect(evidence.text.length).toBeLessThanOrEqual(4000);
   }, 20_000);
+  it("recovers a running verified backup and duplicate without interrupting the original worker or auto-calling providers", async () => {
+    const f = await fixture(new DeterministicSourceAnalysisProvider({ delayMs: 1000 })), plan = await preview(f), job = await start(f, plan);
+    while (f.provider.calls.length < 2) await new Promise((resolve) => setTimeout(resolve, 3));
+    const backup = await f.app.inject({ method: "POST", url: `/api/projects/${f.projectId}/recovery/backups` });
+    expect(backup.statusCode, backup.body).toBe(200);
+    const targetProvider = new DeterministicSourceAnalysisProvider(), target = buildApp({ sourceAnalysisProvider: targetProvider }); apps.push(target);
+    const boundary = "source-analysis-recovery";
+    const payload = Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="source.cyoa-backup.zip"\r\nContent-Type: application/zip\r\n\r\n`), backup.rawPayload, Buffer.from(`\r\n--${boundary}--\r\n`)]);
+    const restore = await target.inject({ method: "POST", url: "/api/recovery/backups/restore", headers: { "content-type": `multipart/form-data; boundary=${boundary}` }, payload });
+    expect(restore.statusCode, restore.body).toBe(201);
+    const recovered = (await target.inject({ method: "GET", url: `${f.root}/jobs/${job.id}` })).json();
+    expect(recovered.status).toBe("failed"); expect(recovered.counts.completed).toBe(1); expect(targetProvider.calls).toHaveLength(0);
+    expect((await target.inject({ method: "POST", url: `${f.root}/jobs/${job.id}/resume` })).statusCode).toBe(200);
+    expect((await settle({ app: target, root: f.root }, job.id)).status).toBe("completed"); expect(targetProvider.calls).toHaveLength(plan.unitCount - 1);
+    const copyResponse = await f.app.inject({ method: "POST", url: `/api/projects/${f.projectId}/duplicate`, payload: {} });
+    expect(copyResponse.statusCode, copyResponse.body).toBe(201);
+    const copiedRoot = `/api/long-form/projects/${copyResponse.json().id}/source-analysis`;
+    const copiedJob = (await f.app.inject({ method: "GET", url: `${copiedRoot}/jobs` })).json().items[0];
+    const copyStatus = (await f.app.inject({ method: "GET", url: `${copiedRoot}/jobs/${copiedJob.id}` })).json();
+    expect(copyStatus.status).toBe("failed"); expect(copyStatus.counts.completed).toBe(1);
+    expect(f.provider.calls).toHaveLength(2);
+    expect((await settle(f, job.id)).status).toBe("completed");
+  }, 10_000);
   it("wires production structured output to a stub only, forwarding exact bounded evidence and abort signal", async () => {
     let request: unknown;
     const client = new OpenRouterClient({ fetch: async () => { throw new Error("No network allowed"); } });

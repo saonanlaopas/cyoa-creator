@@ -34,18 +34,20 @@ import { ProjectHealthWorkspace } from "./ProjectHealthWorkspace.js";
 import { ResumeWorkWorkspace } from "./ResumeWorkWorkspace.js";
 import { ProjectSetupWorkspace } from "./ProjectSetupWorkspace.js";
 import { createSetupProject } from "../../api/project-setup.js";
+import { SourceAnalysisWorkspace } from "./SourceAnalysisWorkspace.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
 const navigationKey = (projectId: string) => `story-to-cyoa.navigation.${projectId}`;
-type LongFormStage = "setup" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
-const stageIds: LongFormStage[] = ["setup", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
+type LongFormStage = "setup" | "source-analysis" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
+const stageIds: LongFormStage[] = ["setup", "source-analysis", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
 const isLongFormStage = (value: unknown): value is LongFormStage => typeof value === "string" && stageIds.includes(value as LongFormStage);
-const stages = ["Project brief", "Creative Direction", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Repair planning", "Publication", "Resume work", "Project health", "Backup & recovery"];
-const navigationStageIds: Array<LongFormStage | null> = ["brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", null, "simulation", "repair", "publication", "resume", "health", "recovery"];
+const stages = ["Source analysis", "Project brief", "Creative Direction", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Repair planning", "Publication", "Resume work", "Project health", "Backup & recovery"];
+const navigationStageIds: Array<LongFormStage | null> = ["source-analysis", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", null, "simulation", "repair", "publication", "resume", "health", "recovery"];
 type NavigationHint = { stage: LongFormStage; entityId: string | null };
 const stageLabels: Record<LongFormStage, string> = {
   setup: "Talk it through",
+  "source-analysis": "Source analysis",
   brief: "Project brief", "creative-direction": "Creative Direction", bible: "Story bible", routes: "Routes", endings: "Endings", mechanics: "Mechanics",
   "passage-plan": "Passage plan", simulation: "Playtest & analysis", repair: "Repair planning",
   publication: "Publication", resume: "Resume work", health: "Project health", recovery: "Backup & recovery",
@@ -147,7 +149,7 @@ export function LongFormWorkspace() {
     }).catch((error: Error) => setMessage(error.message));
   }, []);
 
-  const create = async () => {
+  const create = async (initialStage: LongFormStage = "brief") => {
     if (!newName.trim()) return;
     setBusy(true);
     setMessage(null);
@@ -185,8 +187,8 @@ export function LongFormWorkspace() {
       });
       setMechanics(null);
       setMechanicsWorkflow({ projectId: created.project.id, artifactId: "mechanics", status: "empty", approvedVersionId: null, updatedAt: "" });
-      setActiveStage("brief");
-      localStorage.setItem(activeStageKey, "brief");
+      setActiveStage(initialStage);
+      localStorage.setItem(activeStageKey, initialStage);
       setNewName("");
       localStorage.setItem(activeProjectKey, created.project.id);
     } catch (error) {
@@ -207,6 +209,7 @@ export function LongFormWorkspace() {
         <h2>New long-form project</h2>
         <label>Working title<input value={newName} onChange={(event) => setNewName(event.target.value)} /></label>
         <button className="primary" disabled={busy || !newName.trim()} onClick={() => void create()}>Create project</button>
+        <button disabled={busy || !newName.trim()} onClick={() => void create("source-analysis")}>Analyze a supplied story</button>
         <button disabled={busy} onClick={async () => {
           setBusy(true); setMessage(null);
           try {
@@ -231,7 +234,7 @@ export function LongFormWorkspace() {
     </main>;
   }
 
-  return <main id="main-content" className={`long-form-workspace${activeStage === "setup" ? " setup-active" : ""}`} tabIndex={-1}>
+  return <main id="main-content" className={`long-form-workspace${activeStage === "setup" || activeStage === "source-analysis" ? " setup-active" : ""}`} tabIndex={-1}>
     <nav className="workflow-nav" aria-label="Long-form workflow">
       <p className="eyebrow">Long-form project</p>
       <h2>{project.name}</h2>
@@ -260,7 +263,7 @@ export function LongFormWorkspace() {
       <details open={activeStage !== "setup"}><summary>Advanced workspace</summary><ol>
         {stages.map((stage, index) => {
           const stageId = navigationStageIds[index] ?? null;
-          const enabled = stageId === "brief" || stageId === "creative-direction"
+          const enabled = stageId === "source-analysis" || stageId === "brief" || stageId === "creative-direction"
             || (stageId === "bible" && (briefWorkflow.status === "approved" || Boolean(bible)))
             || (stageId === "routes" && (bibleWorkflow.status === "approved" || Boolean(routes)));
           const available = enabled
@@ -334,7 +337,7 @@ export function LongFormWorkspace() {
       </details>
     </nav>
 
-    {activeStage !== "setup" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
+    {activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
       <ArtifactHistory
         projectId={project.id}
         artifactId={activeStage}
@@ -393,7 +396,7 @@ export function LongFormWorkspace() {
       projectId={project.id} direction={creativeDirection} workflow={creativeDirectionWorkflow}
       busy={busy} message={message} setBusy={setBusy} setMessage={setMessage}
       onChanged={() => openProject(project.id)}
-    /> : activeStage === "bible" ? <BibleWorkspace
+    /> : activeStage === "source-analysis" ? <SourceAnalysisWorkspace key={project.id} projectId={project.id} /> : activeStage === "bible" ? <BibleWorkspace
       projectId={project.id}
       briefApproved={briefWorkflow.status === "approved"}
       creativeDirectionApproved={creativeDirectionWorkflow.status === "approved"}
@@ -468,7 +471,7 @@ export function LongFormWorkspace() {
         await openProject(restoredProjectId);
       }} />}
 
-    {activeStage !== "setup" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
+    {activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
       key={project.id}
       project={project}
       brief={brief}
