@@ -8,17 +8,17 @@ const common = { intent: z.literal("source-analysis-correction"), reason: z.stri
 export const SourceCorrectionOperationSchema = z.discriminatedUnion("kind", [
   z.object({ ...common, kind: z.literal("field"), recordId: id,
     changes: SourceObservationSchema.pick({ category: true, identityKey: true, field: true, claim: true, aliases: true, references: true, uncertainty: true }).partial().strict(),
-    evidence: z.array(SourceEvidenceSchema).min(1).max(32) }).strict(),
+    evidence: z.array(SourceEvidenceSchema).min(1).max(100_000) }).strict(),
   z.object({ ...common, kind: z.literal("merge"), recordIds: z.array(id).min(2).max(32), targetId: id }).strict(),
   z.object({ ...common, kind: z.literal("split"), recordId: id,
     children: z.array(z.object({ id, identityKey: z.string().min(1).max(1_000), claim: z.string().min(1).max(1_000),
-      evidence: z.array(SourceEvidenceSchema).min(1).max(32) }).strict()).min(2).max(32),
+      evidence: z.array(SourceEvidenceSchema).min(1).max(100_000) }).strict()).min(2).max(32),
     assignments: z.array(z.object({ recordId: id, replacementIds: z.array(id).min(1).max(32) }).strict()).max(10_000) }).strict(),
   z.object({ ...common, kind: z.literal("reject"), recordId: id }).strict(),
   z.object({ ...common, kind: z.literal("evidence"), recordId: id,
-    evidence: z.array(SourceEvidenceSchema).min(1).max(32) }).strict(),
+    evidence: z.array(SourceEvidenceSchema).min(1).max(100_000) }).strict(),
   z.object({ ...common, kind: z.literal("classification"), recordId: id,
-    classification: z.enum(["source-canon", "inference"]), evidence: z.array(SourceEvidenceSchema).min(1).max(32) }).strict(),
+    classification: z.enum(["source-canon", "inference"]), evidence: z.array(SourceEvidenceSchema).min(1).max(100_000) }).strict(),
 ]);
 export type SourceCorrectionOperation = z.infer<typeof SourceCorrectionOperationSchema>;
 
@@ -33,7 +33,7 @@ export function correctSourceDossier(previous: SourceDossier, value: unknown, so
   if (operation.kind === "merge") {
     if (new Set(operation.recordIds).size !== operation.recordIds.length || !operation.recordIds.includes(operation.targetId)) throw new Error("source_merge_mapping_invalid");
     const records = operation.recordIds.map(lookup);
-    if (records.some((r) => r.category !== "character")) throw new Error("source_merge_requires_identities");
+    if (records.some((r) => r.category !== "character" || r.field !== "identity")) throw new Error("source_merge_requires_identities");
     const target = lookup(operation.targetId);
     target.aliases = sourceUnique(records.flatMap((r) => [r.identityKey, ...r.aliases]));
     target.observationIds = sourceUnique(records.flatMap((r) => r.observationIds));
@@ -46,7 +46,7 @@ export function correctSourceDossier(previous: SourceDossier, value: unknown, so
     }
   } else if (operation.kind === "split") {
     const parent = lookup(operation.recordId);
-    if (parent.category !== "character") throw new Error("source_split_requires_identity");
+    if (parent.category !== "character" || parent.field !== "identity") throw new Error("source_split_requires_identity");
     const childIds = operation.children.map((c) => c.id);
     if (new Set(childIds).size !== childIds.length || childIds.some((child) => dossier.records.some((r) => r.id === child))) throw new Error("source_split_duplicate_identity");
     const originalEvidence = new Set(parent.evidence.map(sourceCanonicalJson));

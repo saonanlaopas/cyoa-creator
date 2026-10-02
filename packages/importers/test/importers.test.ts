@@ -41,4 +41,15 @@ describe("source importers", () => {
     });
     await expect(importSource({ data: encrypted, filename: "bad.epub" })).rejects.toThrow("Encrypted");
   });
+  it("rejects unsupported, invalid UTF-8, over-limit and incomplete/expanded EPUB sources without silently dropping chapters", async () => {
+    await expect(importSource({ data: "story", filename: "story.pdf" })).rejects.toThrow();
+    await expect(importSource({ data: new Uint8Array([0xff]), filename: "story.txt" })).rejects.toThrow();
+    await expect(importSource({ data: "too long", filename: "story.txt", maxBytes: 2 })).rejects.toThrow(/limit/);
+    const base = {
+      "META-INF/container.xml": strToU8('<container><rootfile full-path="book.opf"/></container>'),
+      "book.opf": strToU8('<package><manifest><item id="missing" href="missing.xhtml"/></manifest><spine><itemref idref="missing"/></spine></package>'),
+    };
+    await expect(importSource({ data: zipSync(base), filename: "missing.epub" })).rejects.toThrow(/chapter is missing/);
+    await expect(importSource({ data: zipSync({ ...base, "big.xhtml": strToU8("a".repeat(50_000)) }), filename: "big.epub", maxBytes: 1000 })).rejects.toThrow();
+  });
 });

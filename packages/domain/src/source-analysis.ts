@@ -4,6 +4,7 @@ import { compareCreativeDirectionStrings as compare, sha256 } from "./creative-d
 export const SOURCE_ANALYSIS_POLICY = Object.freeze({
   id: "source-analysis-v1", schemaVersion: 1, promptVersion: "source-analysis-v1",
   maxSourceCharacters: 4_000, maxContextBytes: 24_000, maxOutputBytes: 24_000,
+  maxRangesPerUnit: 6, maxEncodedSourceBytes: 8_000,
   maxOutputTokens: 4_000, maxObservationsPerUnit: 32, maxAttempts: 3, maxRepairs: 1,
 });
 export const SOURCE_CATEGORIES = ["premise", "protagonist", "point-of-view", "character", "relationship",
@@ -104,18 +105,23 @@ export function planSourceAnalysis(binding: SourceBinding, source: AnalysisSourc
   for (const chapter of source.chapters.filter((c) => binding.chapterIds.includes(c.id))) {
     let ranges: SourceEvidence[] = [];
     let characters = 0;
+    let encodedBytes = 0;
     for (const block of chapter.blocks) {
       let start = 0;
       while (start < block.text.length) {
         let end = Math.min(start + SOURCE_ANALYSIS_POLICY.maxSourceCharacters, block.text.length);
         if (splitsSurrogate(block.text, end)) end -= 1;
-        const range = sourceEvidence(binding, chapter.id, block.excerptId, block.text, start, end);
-        const candidate = [...ranges, range];
-        if (characters + end - start > SOURCE_ANALYSIS_POLICY.maxSourceCharacters
-          || new TextEncoder().encode(sourceCanonicalJson(sourceUnitContext(source, binding, { ranges: candidate }))).length > SOURCE_ANALYSIS_POLICY.maxContextBytes) {
-          append(ranges); ranges = []; characters = 0;
+        while (new TextEncoder().encode(JSON.stringify(block.text.slice(start, end))).length > SOURCE_ANALYSIS_POLICY.maxEncodedSourceBytes) {
+          end = start + Math.floor((end - start) / 2);
+          if (splitsSurrogate(block.text, end)) end -= 1;
         }
-        ranges.push(range); characters += end - start; start = end;
+        const rangeBytes = new TextEncoder().encode(JSON.stringify(block.text.slice(start, end))).length;
+        const range = sourceEvidence(binding, chapter.id, block.excerptId, block.text, start, end);
+        if (characters + end - start > SOURCE_ANALYSIS_POLICY.maxSourceCharacters
+          || ranges.length >= SOURCE_ANALYSIS_POLICY.maxRangesPerUnit || encodedBytes + rangeBytes > SOURCE_ANALYSIS_POLICY.maxEncodedSourceBytes) {
+          append(ranges); ranges = []; characters = 0; encodedBytes = 0;
+        }
+        ranges.push(range); characters += end - start; encodedBytes += rangeBytes; start = end;
       }
     }
     append(ranges);

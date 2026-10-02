@@ -67,6 +67,10 @@ import { ProjectHealthService } from "./services/project-health-service.js";
 import { registerAuthorMemoryRoutes } from "./routes/author-memory.js";
 import { ProjectSetupService } from "./services/project-setup-service.js";
 import { registerProjectSetupRoutes } from "./routes/project-setup.js";
+import { SourceAnalysisService } from "./services/source-analysis-service.js";
+import { DeterministicSourceAnalysisProvider, OpenRouterSourceAnalysisProvider } from "./services/source-analysis-provider.js";
+import { registerSourceAnalysisRoutes } from "./routes/source-analysis.js";
+import type { SourceAnalysisProvider } from "@story-to-cyoa/pipeline";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -79,6 +83,7 @@ export interface BuildAppOptions {
   passageDraftingProvider?: PassageDraftingProvider;
   narrativeReviewProvider?: NarrativeReviewProvider;
   repairProposalProvider?: RepairProposalProvider;
+  sourceAnalysisProvider?: SourceAnalysisProvider;
 }
 
 const webDistPath = resolve(
@@ -200,11 +205,17 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     longFormProjects, passagePlans, openRouter,
   );
   const diagnostics = new GenerationDiagnosticStore();
+  const sourceAnalysisService = new SourceAnalysisService(database, projects, artifacts, workflow,
+    [options.sourceAnalysisProvider ?? new DeterministicSourceAnalysisProvider({
+      delayMs: process.env.E2E_SOURCE_ANALYSIS_DELAY_MS ? Number(process.env.E2E_SOURCE_ANALYSIS_DELAY_MS) : undefined,
+      failFirst: process.env.E2E_SOURCE_ANALYSIS_FAIL_FIRST === "1", malformedFirst: process.env.E2E_SOURCE_ANALYSIS_MALFORMED === "1",
+    }), new OpenRouterSourceAnalysisProvider(openRouter)]);
   const runner = new JobRunner(new JobRepository(database));
   void app.register(fastifyMultipart, {
     limits: { files: 1 },
   });
   app.addHook("onClose", async () => {
+    await sourceAnalysisService.shutdown();
     await passageDraftingService.shutdown();
     await narrativeReviewService.shutdown();
     await repairProposalService.shutdown();
@@ -222,6 +233,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, authorMemory, changeSets, longFormProjects);
   registerAuthorMemoryRoutes(app, projects, authorMemory);
   registerProjectSetupRoutes(app, projectSetupService);
+  registerSourceAnalysisRoutes(app, sourceAnalysisService);
   registerPassagePlanRoutes(app, passagePlanService);
   registerPassageGenerationRoutes(app, passageGenerationService);
   registerPassageProposalRoutes(app, passageProposalService);

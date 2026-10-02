@@ -1,7 +1,7 @@
 import { posix } from "node:path";
-import { strFromU8, unzipSync } from "fflate";
+import { unzipSync } from "fflate";
 import { importHtml } from "./html.js";
-import { assertSize, normalizeSource, type RawChapter } from "./normalize.js";
+import { assertSize, decodeUtf8, normalizeSource, type RawChapter } from "./normalize.js";
 import type { ImportInput, NormalizedSource } from "./types.js";
 
 function attribute(tag: string, name: string): string | undefined {
@@ -12,8 +12,13 @@ export function importEpub(input: ImportInput): NormalizedSource {
   assertSize(input.data, input.maxBytes);
   if (typeof input.data === "string") throw new Error("EPUB input must be binary");
   let files: Record<string, Uint8Array>;
+  let expandedBytes = 0;
   try {
-    files = unzipSync(input.data);
+    files = unzipSync(input.data, { filter: (entry) => {
+      expandedBytes += entry.originalSize;
+      if (expandedBytes > (input.maxBytes ?? 25 * 1024 * 1024)) throw new Error("EPUB expanded size exceeds import limit");
+      return true;
+    } });
   } catch {
     throw new Error("Invalid EPUB archive");
   }
@@ -22,9 +27,9 @@ export function importEpub(input: ImportInput): NormalizedSource {
   }
   const container = files["META-INF/container.xml"];
   if (!container) throw new Error("EPUB container is missing");
-  const rootPath = strFromU8(container).match(/\bfull-path=["']([^"']+)["']/i)?.[1];
+  const rootPath = decodeUtf8(container).match(/\bfull-path=["']([^"']+)["']/i)?.[1];
   if (!rootPath || !files[rootPath]) throw new Error("EPUB package document is missing");
-  const opf = strFromU8(files[rootPath]);
+  const opf = decodeUtf8(files[rootPath]);
   const base = posix.dirname(rootPath);
   const manifest = new Map<string, string>();
   for (const match of opf.matchAll(/<item\b[^>]*>/gi)) {
@@ -41,8 +46,8 @@ export function importEpub(input: ImportInput): NormalizedSource {
   const chapters: RawChapter[] = spine.flatMap((id, order) => {
     const path = manifest.get(id);
     const entry = path ? files[path] : undefined;
-    if (!entry) return [];
-    const parsed = importHtml({ data: entry, format: "html" });
+    if (!entry) throw new Error("EPUB spine chapter is missing");
+    const parsed = importHtml({ data: entry, format: "html", maxBytes: input.maxBytes });
     return parsed.chapters.map((chapter) => ({
       title: chapter.title === "Chapter 1" ? `Chapter ${order + 1}` : chapter.title,
       blocks: chapter.blocks.map(({ type, text }) => ({ type, text })),

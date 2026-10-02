@@ -178,6 +178,13 @@ export class SourceAnalysisRepository {
     });
   }
   validateProject(projectId: string): void { validateSourceAnalysisDatabase(this.database, projectId); }
+  failJob(projectId: string, jobId: string): void {
+    this.atomic(() => {
+      const job = this.getJob(projectId, jobId);
+      if (["completed", "cancelled"].includes(job.status) || job.units.some((u) => u.status === "running")) throw new Error("source_analysis_failure_transition_invalid");
+      this.setJob(projectId, jobId, "failed");
+    });
+  }
   private setJob(projectId: string, jobId: string, status: SourceAnalysisStatus): void {
     this.database.prepare("UPDATE source_analysis_jobs SET status = ?,updated_at = ? WHERE project_id = ? AND id = ?").run(status, new Date().toISOString(), projectId, jobId);
   }
