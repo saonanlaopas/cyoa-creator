@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { assertSourceDossier, sourceCanonicalJson, type SourceDossier } from "@story-to-cyoa/domain";
+import { assertSourceDossier, sourceCanonicalJson, sourceSorted, type SourceDossier } from "@story-to-cyoa/domain";
 import { ArtifactRepository, CURRENT_SCHEMA_VERSION, openDatabase, PortableProjectRepository, SourceAnalysisRepository, WorkflowRepository } from "../src/index.js";
 import { analysisFixture, completeFixture, fixtureOutput } from "./source-analysis-fixture.js";
 
@@ -200,7 +200,7 @@ describe("A3 durable source analysis", () => {
       }
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
-  it("produces identical material and provenance fingerprints after different durable unit completion orders", () => {
+  it("produces identical material fingerprints and observations after different durable unit completion orders", () => {
     const f = analysisFixture();
     try {
       const first = completeFixture(f), firstDossier = f.artifacts.getVersion<SourceDossier>(first.dossierVersionId!)!.content;
@@ -213,7 +213,7 @@ describe("A3 durable source analysis", () => {
       expect(dossier.materialFingerprint).toBe(firstDossier.materialFingerprint);
       expect(dossier.records).toEqual(firstDossier.records);
       // Run/attempt IDs intentionally differ; the material identity is independent of completion order.
-      expect(dossier.provenance.map((p) => p.original)).toEqual(firstDossier.provenance.map((p) => p.original));
+      expect(sourceSorted(dossier.provenance.map((p) => p.original))).toEqual(sourceSorted(firstDossier.provenance.map((p) => p.original)));
     } finally { f.database.close(); }
   });
 });

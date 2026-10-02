@@ -55,6 +55,14 @@ describe("A3 source-analysis lifecycle API", () => {
     expect((await f.app.inject({ method: "POST", url: `${f.root}/evidence`, payload: { ...record.evidence[0], projectId: "other-project" } })).statusCode).toBe(400);
     const callCount = f.provider.calls.length;
     expect((await f.app.inject({ method: "POST", url: `${f.root}/approve`, payload: { versionId: metadata.id } })).statusCode).toBe(200);
+    const correction = await f.app.inject({ method: "POST", url: `${f.root}/corrections`, payload: { kind: "classification", intent: "source-analysis-correction", reason: "Reviewed interpretation", previousVersionId: metadata.id,
+      recordId: record.id, classification: "inference", evidence: record.evidence } });
+    expect(correction.statusCode, correction.body).toBe(201);
+    const history = (await f.app.inject({ method: "GET", url: `${f.root}/history` })).json();
+    expect(history.total).toBe(2); expect(history.items[0].content).toBeUndefined();
+    expect((await f.app.inject({ method: "POST", url: `${f.root}/compare`, payload: { from: metadata.id, to: correction.json().id } })).statusCode).toBe(200);
+    expect((await f.app.inject({ method: "POST", url: `${f.root}/restore`, payload: { versionId: metadata.id } })).statusCode).toBe(200);
+    expect((await f.app.inject({ method: "GET", url: `${f.root}/export` })).statusCode).toBe(200);
     expect(f.provider.calls).toHaveLength(callCount);
     const project = (await f.app.inject({ method: "GET", url: `/api/long-form/projects/${f.projectId}` })).json();
     expect(project.bible).toBeNull(); expect(project.routes).toBeNull();
@@ -94,6 +102,20 @@ describe("A3 source-analysis lifecycle API", () => {
     const f = await fixture(new DeterministicSourceAnalysisProvider(options)), plan = await preview(f), job = await start(f, plan);
     const stopped = await settle(f, job.id); expect(stopped.status).toBe("failed"); expect(stopped.counts.completed).toBe(0);
     expect((await f.app.inject({ method: "GET", url: `${f.root}/dossier` })).statusCode).toBe(404);
+  });
+  it.each(["source", "scope", "cancel"])("rechecks freshness after in-flight structural repair on %s change", async (mutation) => {
+    const f = await fixture(new DeterministicSourceAnalysisProvider({ delayMs: 60, malformedFirst: true })), plan = await preview(f), job = await start(f, plan);
+    while (!f.provider.calls.some((c) => c.mode === "repair")) await new Promise((r) => setTimeout(r, 2));
+    if (mutation === "source") await f.app.inject({ method: "POST", url: `/api/projects/${f.projectId}/source/text`, payload: { text: "Different source" } });
+    if (mutation === "scope") await f.app.inject({ method: "POST", url: `${f.root}/scope`, payload: { entireWork: true } });
+    if (mutation === "cancel") await f.app.inject({ method: "POST", url: `${f.root}/jobs/${job.id}/cancel` });
+    const stopped = await settle(f, job.id); expect(stopped.counts.completed).toBe(0);
+    expect((await f.app.inject({ method: "GET", url: `${f.root}/dossier` })).statusCode).toBe(404);
+  });
+  it("imports a pasted manuscript above Fastify's default body limit without any provider calls", async () => {
+    const text = "A quiet harbor. ".repeat(80_000), f = await fixture(undefined, text);
+    expect((await f.app.inject({ method: "GET", url: `${f.root}/source` })).json().chapters[0].characters).toBe(text.trim().length);
+    expect(f.provider.calls).toHaveLength(0);
   });
   it("preserves completed units across shutdown/reopen and resumes only remaining units on explicit action", async () => {
     const directory = mkdtempSync(join(tmpdir(), "cyoa-source-analysis-restart-")); directories.push(directory);
@@ -155,5 +177,9 @@ describe("A3 source-analysis lifecycle API", () => {
     const provider = new OpenRouterSourceAnalysisProvider(client), controller = new AbortController();
     await provider.generate({ mode: "analyze", modelId: "stubbed-model", context: { schemaVersion: 1, evidence: [] }, maximumOutputTokens: 100, signal: controller.signal });
     expect(request).toMatchObject({ model: "stubbed-model", signal: controller.signal, maxTokens: 100, temperature: 0 });
+    request = undefined;
+    await expect(provider.generate({ mode: "repair", modelId: "stubbed-model", context: { schemaVersion: 1, evidence: [] }, maximumOutputTokens: 100, signal: controller.signal,
+      malformedOutput: "x".repeat(SOURCE_ANALYSIS_POLICY.maxContextBytes) })).rejects.toThrow(/overflow/);
+    expect(request).toBeUndefined();
   });
 });

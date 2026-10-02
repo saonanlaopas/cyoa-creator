@@ -51,7 +51,7 @@ export class PublicationExportService {
   exportPortable(projectId: string): { bytes: Uint8Array; manifest: PortableManifest } {
     const rows = this.portable.exportRows(projectId);
     enforcePortableRows(rows);
-    const analysis = rows.tables.source_analysis_plans.length > 0;
+    const analysis = rows.tables.source_analysis_plans.length > 0 || rows.tables.artifact_versions.some((row) => row.artifact_id === "source");
     const sections = analysis ? [...PORTABLE_PROJECT_TABLES] : rows.tables.artifact_version_approvals.length
       ? [...PRE_ANALYSIS_TABLES] : [...LEGACY_PORTABLE_PROJECT_TABLES];
     const serializedRows = { projectId: rows.projectId, tables: Object.fromEntries(

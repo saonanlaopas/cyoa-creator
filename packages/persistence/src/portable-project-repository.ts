@@ -1,4 +1,4 @@
-import { CreativeDirectionSchema, normalizeCreativeDirection } from "@story-to-cyoa/domain";
+import { AnalysisSourceSchema, CreativeDirectionSchema, normalizeCreativeDirection } from "@story-to-cyoa/domain";
 import { stableFingerprint } from "@story-to-cyoa/runtime";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
@@ -111,7 +111,8 @@ export class PortableProjectRepository {
     const project = this.database.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as PortableRow | undefined;
     if (!project) throw new Error("Portable project does not exist");
     const tables = {} as Record<PortableProjectTable, PortableRow[]>;
-    const retainSourceEvidence = Boolean(this.database.prepare("SELECT 1 FROM source_analysis_plans WHERE project_id = ? LIMIT 1").get(projectId));
+    const sourceRows = project.mode === "long-form" ? this.database.prepare("SELECT content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source'").all(projectId) as Array<{ content_json: string }> : [];
+    const retainSourceEvidence = sourceRows.some((row) => AnalysisSourceSchema.safeParse(JSON.parse(row.content_json)).success);
     for (const table of PORTABLE_PROJECT_TABLES) {
       let rows: PortableRow[];
       if (table === "projects") rows = [project];

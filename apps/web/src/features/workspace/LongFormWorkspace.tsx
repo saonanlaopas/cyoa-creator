@@ -54,6 +54,7 @@ const stageLabels: Record<LongFormStage, string> = {
 };
 
 export function LongFormWorkspace() {
+  const [sourceAnalysisStatus, setSourceAnalysisStatus] = useState<{ projectId: string; status: string } | null>(null);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [brief, setBrief] = useState<ArtifactVersion<ProjectBrief> | null>(null);
@@ -271,7 +272,7 @@ export function LongFormWorkspace() {
             || (stageId === "mechanics" && (endingsWorkflow.status === "approved" || Boolean(mechanics)))
             || stageId === "recovery" || stageId === "health" || stageId === "resume"
             || ((stageId === "passage-plan" || stageId === "simulation" || stageId === "repair" || stageId === "publication") && mechanicsWorkflow.status === "approved");
-          const status = stageId === "brief"
+          const status = stageId === "source-analysis" ? sourceAnalysisStatus?.projectId === project.id ? sourceAnalysisStatus.status : "Available" : stageId === "brief"
             ? briefWorkflow.status
             : stageId === "creative-direction"
               ? creativeDirectionWorkflow.status === "empty" ? "Adoption needed" : creativeDirectionWorkflow.status
@@ -396,7 +397,7 @@ export function LongFormWorkspace() {
       projectId={project.id} direction={creativeDirection} workflow={creativeDirectionWorkflow}
       busy={busy} message={message} setBusy={setBusy} setMessage={setMessage}
       onChanged={() => openProject(project.id)}
-    /> : activeStage === "source-analysis" ? <SourceAnalysisWorkspace key={project.id} projectId={project.id} /> : activeStage === "bible" ? <BibleWorkspace
+    /> : activeStage === "source-analysis" ? <SourceAnalysisWorkspace key={project.id} projectId={project.id} onStatusChange={(status) => setSourceAnalysisStatus({ projectId: project.id, status })} /> : activeStage === "bible" ? <BibleWorkspace
       projectId={project.id}
       briefApproved={briefWorkflow.status === "approved"}
       creativeDirectionApproved={creativeDirectionWorkflow.status === "approved"}

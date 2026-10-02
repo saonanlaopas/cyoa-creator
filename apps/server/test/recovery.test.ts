@@ -16,7 +16,7 @@ import { defaultProjectBrief } from "@story-to-cyoa/pipeline";
 import { stableFingerprint } from "@story-to-cyoa/runtime";
 import { PublicationExportService } from "../src/services/publication-export-service.js";
 import { RecoveryOperationError, RecoveryService, parseBackup } from "../src/services/recovery-service.js";
-import { analysisFixture, completeFixture } from "../../../packages/persistence/test/source-analysis-fixture.js";
+import { analysisFixture, completeFixture, smallSource } from "../../../packages/persistence/test/source-analysis-fixture.js";
 import { SourceAnalysisRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
 import type { SourceDossier } from "@story-to-cyoa/domain";
 
@@ -39,6 +39,18 @@ function context(database: StoryDatabase = openDatabase(), options: ConstructorP
 }
 
 describe("Foundation 8A verified project recovery", () => {
+  it.each([false, true])("preserves an imported normalized story before provider preview, scoped=%s", async (scoped) => {
+    const source = context(), target = context();
+    try {
+      source.projects.create("Imported manuscript", "before-analysis", "long-form");
+      const artifacts = new ArtifactRepository(source.database), imported = artifacts.saveArtifact({ projectId: "before-analysis", artifactId: "source", content: smallSource });
+      if (scoped) artifacts.saveArtifact({ projectId: "before-analysis", artifactId: "source-scope", content: { sourceVersionId: imported.id, chapterIds: [smallSource.chapters[0]!.id] }, dependencies: ["source"] });
+      const backup = await source.recovery.createVerifiedBackup("before-analysis");
+      await target.recovery.restoreBackup(backup.bytes);
+      expect(new ArtifactRepository(target.database).getVersion(imported.id)?.content).toEqual(smallSource);
+      expect(Boolean(new ArtifactRepository(target.database).getCurrent("before-analysis", "source-scope"))).toBe(scoped);
+    } finally { source.database.close(); target.database.close(); }
+  });
   it("verifies and restores A3 source bodies, exact evidence, attempts, corrected dossier history and approval", async () => {
     const source = context(), target = context();
     try {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SOURCE_CATEGORIES, type SourceEvidence, type SourceCorrectionOperation } from "@story-to-cyoa/domain";
 import { SourceAnalysisApi, type SourceMetadata, type SourcePreview, type AnalysisJob, type DossierMetadata, type RecordSummary, type RecordDetails } from "../../api/source-analysis.js";
 
-export function SourceAnalysisWorkspace({ projectId }: { projectId: string }) {
+export function SourceAnalysisWorkspace({ projectId, onStatusChange }: { projectId: string; onStatusChange?(status: string): void }) {
   const api = useMemo(() => new SourceAnalysisApi(projectId), [projectId]);
   const [source, setSource] = useState<SourceMetadata | null>(null), [chapterOffset, setChapterOffset] = useState(0);
   const [selected, setSelected] = useState<string[]>([]), [pasted, setPasted] = useState("");
@@ -25,12 +25,12 @@ export function SourceAnalysisWorkspace({ projectId }: { projectId: string }) {
   };
   const refreshDossier = async () => {
     try {
-      const next = await api.dossier(); setDossier(next);
+      const next = await api.dossier(); setDossier(next); onStatusChange?.(next.stale ? "stale" : next.workflow.status);
       const history = await api.request<{ items: Array<{ id: string; version: number; correctionCount: number }>; total: number }>(`/history?offset=${historyOffset}`);
       setHistory(history.items); setHistoryTotal(history.total);
     } catch (error) {
       if ((error as { status?: number }).status !== 404) throw error;
-      setDossier(null);
+      setDossier(null); onStatusChange?.("Not started");
     }
   };
   const refreshSource = async () => {

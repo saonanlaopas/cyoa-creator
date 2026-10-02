@@ -78,6 +78,7 @@ test("A3 import, exact scope, bounded analysis, evidence, correction, history an
   await expect(page.getByText("Dossier v3: draft", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Approve dossier", exact: true }).click();
   await expect(page.getByText("Dossier v3: approved", { exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Long-form workflow" }).getByRole("button", { name: "Source analysis approved", exact: true })).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: testInfo.outputPath("a3-desktop-dossier.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: testInfo.outputPath("a3-mobile-dossier.png"), fullPage: true });

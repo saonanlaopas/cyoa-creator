@@ -145,7 +145,7 @@ function validateArtifactRow(input: {
   native: NativeCompilationService;
 }): void {
   const { row, projectId, database, content, simulation, playtest, native } = input;
-  if (["source", "source-scope"].includes(row.artifact_id) && database.prepare("SELECT 1 FROM source_analysis_plans WHERE project_id = ? LIMIT 1").get(projectId)) {
+  if (["source", "source-scope"].includes(row.artifact_id) && (database.prepare("SELECT mode FROM projects WHERE id = ?").get(projectId) as { mode?: string } | undefined)?.mode === "long-form") {
     exactIdentity(row, row.artifact_id, [1]);
     if (row.artifact_id === "source") canonical(AnalysisSourceSchema.parse(content), content, row);
     else {
