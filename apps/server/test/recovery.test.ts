@@ -18,7 +18,7 @@ import { PublicationExportService } from "../src/services/publication-export-ser
 import { RecoveryOperationError, RecoveryService, parseBackup } from "../src/services/recovery-service.js";
 import { analysisFixture, completeFixture, smallSource } from "../../../packages/persistence/test/source-analysis-fixture.js";
 import { SourceAnalysisRepository, WorkflowRepository } from "@story-to-cyoa/persistence";
-import type { SourceDossier } from "@story-to-cyoa/domain";
+import { SOURCE_ANALYSIS_POLICY, type SourceDossier } from "@story-to-cyoa/domain";
 
 function backupWithPortable(originalBackup: Uint8Array, portableBytes: Uint8Array): Uint8Array {
   const outer = unzipSync(originalBackup);
@@ -39,6 +39,51 @@ function context(database: StoryDatabase = openDatabase(), options: ConstructorP
 }
 
 describe("Foundation 8A verified project recovery", () => {
+  it("verifies backup and restores a high-density A3 dossier built from many full valid unit outputs", async () => {
+    const source = context(), target = context();
+    try {
+      const corpus = { ...smallSource, chapters: Array.from({ length: SOURCE_ANALYSIS_POLICY.maxUnits }, (_, i) => ({ id: `dense_ch_${i}`,
+        title: `Chapter ${i}`, order: i, blocks: [{ type: "paragraph" as const, excerptId: `dense_ex_${i}`, text: "Exact source." }] })) };
+      const f = analysisFixture(source.database, corpus), job = f.repository.createJob(f.projectId, f.plan.id, f.plan.fingerprint);
+      for (const [index, unit] of f.plan.units.entries()) {
+        const attempt = f.repository.beginAttempt(f.projectId, job.id, unit.id);
+        f.repository.finishAttempt(f.projectId, job.id, unit.id, attempt.id, { status: "completed", output: { schemaVersion: 1,
+          observations: Array.from({ length: 32 }, (_, i) => ({ id: `fact_${i}`, category: "event", identityKey: `Event ${index}-${i}`,
+            field: "result", claim: "Source claim. ".repeat(4), classification: "source-canon", aliases: [], references: [], evidence: unit.ranges, uncertainty: "" })) } });
+      }
+      const completed = f.repository.settle(f.projectId, job.id), dossier = f.artifacts.getVersion<SourceDossier>(completed.dossierVersionId!)!;
+      expect(dossier.content.provenance).toHaveLength(SOURCE_ANALYSIS_POLICY.maxProvenance);
+      const backup = await source.recovery.createVerifiedBackup(f.projectId);
+      expect(backup.record.verificationStatus).toBe("verified");
+      await target.recovery.restoreBackup(backup.bytes);
+      expect(new ArtifactRepository(target.database).getVersion(dossier.id)?.content).toEqual(dossier.content);
+      new SourceAnalysisRepository(target.database).validateProject(f.projectId);
+    } finally { source.database.close(); target.database.close(); }
+  }, 90_000);
+  it.each(["completed-without-dossier", "failed-with-dossier"])("rejects a checksummed current-format A3 portable archive with %s atomically", (mode) => {
+    const source = context(), target = context();
+    try {
+      const f = analysisFixture(source.database); completeFixture(f);
+      const files = unzipSync(source.publication.exportPortable(f.projectId).bytes);
+      const payload = JSON.parse(new TextDecoder().decode(files["project.json"]!));
+      const manifest = JSON.parse(new TextDecoder().decode(files["manifest.json"]!));
+      if (mode === "completed-without-dossier") {
+        payload.tables.source_analysis_jobs[0].dossier_version_id = null;
+        for (const table of ["artifact_versions", "artifact_workflow_state"]) payload.tables[table] = payload.tables[table].filter((r: { artifact_id: string }) => r.artifact_id !== "source-dossier");
+        payload.tables.artifact_dependencies = payload.tables.artifact_dependencies.filter((r: { dependent_artifact_id: string }) => r.dependent_artifact_id !== "source-dossier");
+      } else payload.tables.source_analysis_jobs[0].status = "failed";
+      payload.projectFingerprint = stableFingerprint({ schemaId: "cyoa.portable-project", schemaVersion: 1, historyMode: "immutable-authoring-history-v1",
+        rows: { projectId: payload.projectId, tables: payload.tables } });
+      manifest.projectFingerprint = payload.projectFingerprint;
+      manifest.counts = Object.fromEntries(manifest.includedSections.map((table: string) => [table, payload.tables[table].length]));
+      const bytes = strToU8(JSON.stringify(payload));
+      manifest.files = [{ path: "project.json", sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.byteLength }];
+      const archive = zipSync({ "manifest.json": strToU8(JSON.stringify(manifest)), "project.json": bytes });
+      expect(() => target.publication.importPortable(archive)).toThrow(/dossier_publication_invalid/);
+      expect(target.projects.list({ includeArchived: true })).toEqual([]);
+      expect((target.database.prepare("SELECT COUNT(*) AS count FROM source_analysis_jobs").get() as { count: number }).count).toBe(0);
+    } finally { source.database.close(); target.database.close(); }
+  });
   it.each([false, true])("preserves an imported normalized story before provider preview, scoped=%s", async (scoped) => {
     const source = context(), target = context();
     try {

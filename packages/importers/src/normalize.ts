@@ -25,7 +25,7 @@ export function normalizeSource(
 ): NormalizedSource {
   const normalizedChapters: NormalizedChapter[] = chapters.map((chapter, chapterIndex) => {
     const title = normalizeText(chapter.title) || `Chapter ${chapterIndex + 1}`;
-    const chapterIdentity = `${chapterIndex}:${stableHash(title.toLocaleLowerCase())}`;
+    const chapterIdentity = `${chapterIndex}:${stableHash(title.toLowerCase())}`;
     const blocks: NormalizedBlock[] = chapter.blocks
       .map((block) => ({ ...block, text: normalizeText(block.text) }))
       .filter((block) => block.text.length > 0)

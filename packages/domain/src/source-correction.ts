@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { SourceEvidenceSchema, SourceObservationSchema, SourceDossierSchema, assertSourceDossier,
-  sourceCanonicalJson, sourceConflicts, sourceDigest, sourceDossierFingerprints, sourceSorted, sourceUnique,
+  sourceCanonicalJson, sourceConflicts, sourceDigest, sourceDossierFingerprints, sourceSorted, sourceUnique, SOURCE_ANALYSIS_POLICY, assertSourceDossierBudget,
   type AnalysisSource, type SourceDossier, type SourceRecord } from "./source-analysis.js";
 
 const id = z.string().min(1).max(240).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
@@ -23,6 +23,9 @@ export const SourceCorrectionOperationSchema = z.discriminatedUnion("kind", [
 export type SourceCorrectionOperation = z.infer<typeof SourceCorrectionOperationSchema>;
 
 export function correctSourceDossier(previous: SourceDossier, value: unknown, source: AnalysisSource): SourceDossier {
+  if (previous.corrections.length >= SOURCE_ANALYSIS_POLICY.maxCorrections) throw new Error("source_correction_count_budget_exceeded: review a new analysis draft");
+  if (new TextEncoder().encode(JSON.stringify(value)).length > SOURCE_ANALYSIS_POLICY.maxCorrectionBytes - 1024)
+    throw new Error("source_correction_byte_budget_exceeded: use a smaller correction with exact evidence");
   const operation = SourceCorrectionOperationSchema.parse(value);
   const dossier: SourceDossier = structuredClone(previous);
   const lookup = (target: string): SourceRecord => {
@@ -65,16 +68,23 @@ export function correctSourceDossier(previous: SourceDossier, value: unknown, so
   } else {
     const record = lookup(operation.recordId);
     if (operation.kind === "reject") record.status = "rejected";
-    if (operation.kind === "field") Object.assign(record, operation.changes, { evidence: operation.evidence });
+    if (operation.kind === "field") {
+      if (operation.changes.references && (new Set(operation.changes.references).size !== operation.changes.references.length
+        || operation.changes.references.some((ref) => dossier.records.find((r) => r.id === ref)?.status !== "supported")))
+        throw new Error("source_correction_reference_invalid");
+      Object.assign(record, operation.changes, { evidence: operation.evidence });
+    }
     if (operation.kind === "evidence") record.evidence = operation.evidence;
     if (operation.kind === "classification") Object.assign(record, { classification: operation.classification, evidence: operation.evidence });
   }
   dossier.records = sourceSorted(dossier.records);
   dossier.conflicts = sourceConflicts(dossier.records);
+  assertSourceDossierBudget(dossier);
   const afterFingerprint = sourceDossierFingerprints(dossier).materialFingerprint;
   dossier.corrections.push({ id: `src_${sourceDigest(operation).slice(0, 32)}`, kind: operation.kind,
     intent: operation.intent, reason: operation.reason, previousVersionId: operation.previousVersionId,
     operation, beforeFingerprint: previous.materialFingerprint, afterFingerprint });
+  assertSourceDossierBudget(dossier);
   Object.assign(dossier, sourceDossierFingerprints(dossier));
   assertSourceDossier(dossier, source, dossier.binding);
   return SourceDossierSchema.parse(dossier);

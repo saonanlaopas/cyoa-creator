@@ -4,7 +4,7 @@ import { CreativeDirectionSchema } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 import { artifactChain } from "./schema.js";
-import { validateDossierPersistence } from "./source-analysis-validation.js";
+import { assertDossierHistoryBudget, validateDossierPersistence } from "./source-analysis-validation.js";
 
 export interface ArtifactVersion<T = unknown> {
   id: string;
@@ -75,6 +75,7 @@ export class ArtifactRepository {
     const dossierIdentity = input.artifactId === "source-dossier" || artifactType === "source-dossier";
     if (dossierIdentity && (input.artifactId !== "source-dossier" || artifactType !== "source-dossier" || (input.schemaVersion ?? 1) !== 1)) throw new Error("source_dossier_identity_invalid");
     const dossier = dossierIdentity ? validateDossierPersistence(this.database, input.projectId, input.content) : undefined;
+    if (dossier) assertDossierHistoryBudget(this.database, input.projectId, dossier);
     const content = dossier ?? creativeDirection ?? (input.schema ? input.schema.parse(input.content) : input.content);
     JSON.stringify(content);
     const latest = this.database.prepare(`
@@ -144,6 +145,7 @@ export class ArtifactRepository {
       throw new Error("Artifact version not found");
     }
     return transaction(this.database, () => {
+      if (artifactId === "source-dossier") assertDossierHistoryBudget(this.database, projectId, source.content);
       const latest = this.getCurrent(projectId, artifactId);
       const id = randomUUID();
       this.database.prepare(`

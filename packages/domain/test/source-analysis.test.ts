@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { planSourceAnalysis, sourceBinding, sourceUnitContext, resolveSourceEvidence, consolidateSourceDossier,
-  correctSourceDossier, validateSourceOutput, SOURCE_ANALYSIS_POLICY, type SourceProvenance, type AnalysisSource } from "../src/index.js";
+  correctSourceDossier, validateSourceOutput, SOURCE_ANALYSIS_POLICY, SourceDossierSchema, assertSourceDossierBudget, type SourceProvenance, type AnalysisSource } from "../src/index.js";
 
 const source: AnalysisSource = { metadata: { sourceFormat: "txt" }, chapters: [{ id: "ch", title: "Chapter 1", order: 0,
   blocks: [{ type: "paragraph", excerptId: "ex", text: "Alex and Alexander met. Alex is twenty. He was twenty-one. Perhaps they are different people." }] }] };
@@ -19,6 +19,38 @@ function fixture() {
   return { plan, evidence, observations, provenance, dossier: consolidateSourceDossier(plan, "job", provenance) };
 }
 describe("A3 deterministic analysis contracts", () => {
+  it("preflights dense worst-case scope, accepts many full valid outputs and bounds final provenance/counts/bytes", () => {
+    const large: AnalysisSource = { ...source, chapters: Array.from({ length: SOURCE_ANALYSIS_POLICY.maxUnits }, (_, i) => ({
+      id: `ch_${i}`, order: i, title: `Chapter ${i}`, blocks: [{ type: "paragraph", excerptId: `ex_${i}`, text: "Exact source." }] })) };
+    const binding = sourceBinding("project", "source-v1", "scope-v1", large, large.chapters.map((c) => c.id));
+    const plan = planSourceAnalysis(binding, large, "offline-source-analysis", "fixture");
+    const provenance = plan.units.flatMap((unit, index) => {
+      const output = validateSourceOutput(large, plan, unit, { schemaVersion: 1, observations: Array.from({ length: 32 }, (_, i) => ({
+        id: `obs_${index}_${i}`, category: "event", identityKey: `Event ${index}-${i}`, field: "result", claim: "Source fact. ".repeat(12),
+        classification: "source-canon", aliases: [], references: [], evidence: unit.ranges, uncertainty: "" })) });
+      return output.observations.map((original) => ({ observationId: original.id, jobId: "job", unitId: unit.id, attemptId: `attempt_${index}`,
+        providerId: plan.providerId, modelId: plan.modelId, contextFingerprint: unit.contextFingerprint, original }));
+    });
+    const dossier = consolidateSourceDossier(plan, "job", provenance);
+    expect(dossier.provenance).toHaveLength(SOURCE_ANALYSIS_POLICY.maxProvenance);
+    expect(dossier.records).toHaveLength(SOURCE_ANALYSIS_POLICY.maxProvenance);
+    expect(new TextEncoder().encode(JSON.stringify(dossier)).length).toBeLessThan(SOURCE_ANALYSIS_POLICY.maxDossierBytes);
+    expect(() => consolidateSourceDossier(plan, "job", [...provenance, provenance[0]!])).toThrow(/provenance_budget/);
+    const oversized = { ...large, chapters: [...large.chapters, { ...large.chapters[0]!, id: "overflow", order: large.chapters.length, blocks: [{ type: "paragraph" as const, excerptId: "overflow", text: "More source." }] }] };
+    expect(() => planSourceAnalysis(sourceBinding("project", "v", "s", oversized, oversized.chapters.map((c) => c.id)), oversized, "offline-source-analysis", "fixture")).toThrow(/scope_budget.*fewer chapters/);
+    expect(() => assertSourceDossierBudget({ ...dossier, records: Array(SOURCE_ANALYSIS_POLICY.maxRecords + 1).fill(dossier.records[0]) })).toThrow(/count_budget/);
+    expect(() => assertSourceDossierBudget({ ...dossier, records: [{ text: "x".repeat(SOURCE_ANALYSIS_POLICY.maxDossierBytes) }] })).toThrow(/byte_budget/);
+    expect(() => SourceDossierSchema.parse({ ...dossier, records: [{ ...dossier.records[0]!, aliases: Array(45_000).fill("z".repeat(1000)) }] })).toThrow(/byte_budget/);
+    expect(() => SourceDossierSchema.parse({ ...dossier, corrections: Array(SOURCE_ANALYSIS_POLICY.maxCorrections + 1).fill({}) })).toThrow();
+  }, 20_000);
+  it("rejects oversized and exhausted corrections without changing original dossier history", () => {
+    const f = fixture(), record = f.dossier.records[0]!;
+    const operation = { kind: "field", intent: "source-analysis-correction", reason: "Source review", previousVersionId: "v1", recordId: record.id,
+      changes: { claim: record.claim }, evidence: Array(200).fill(record.evidence[0]) };
+    expect(() => correctSourceDossier(f.dossier, operation, source)).toThrow(/correction_byte_budget/);
+    expect(() => correctSourceDossier({ ...f.dossier, corrections: Array(SOURCE_ANALYSIS_POLICY.maxCorrections).fill({}) }, operation, source)).toThrow(/correction_count_budget/);
+    expect(f.dossier.corrections).toHaveLength(0);
+  });
   it("plans deterministically, preserves every large block character and avoids surrogate splits", () => {
     const text = "A\u{1F600}e\u0301".repeat(9_000);
     const large = { ...source, chapters: [{ ...source.chapters[0]!, blocks: [{ type: "paragraph" as const, excerptId: "large", text }] }] };

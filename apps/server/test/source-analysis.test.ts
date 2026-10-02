@@ -35,6 +35,46 @@ async function settle(f: Pick<Awaited<ReturnType<typeof fixture>>, "app" | "root
   throw new Error("Offline source analysis did not settle");
 }
 describe("A3 source-analysis lifecycle API", () => {
+  it("rejects over-budget scope at preview with an actionable error and zero provider calls", async () => {
+    const text = Array.from({ length: SOURCE_ANALYSIS_POLICY.maxUnits + 1 }, (_, i) => `Chapter ${i + 1}\n\nExact source.`).join("\n\n");
+    const f = await fixture(undefined, text);
+    await f.app.inject({ method: "POST", url: `${f.root}/scope`, payload: { entireWork: true } });
+    const rejected = await f.app.inject({ method: "POST", url: `${f.root}/preview`, payload: {} });
+    expect(rejected.statusCode).toBe(400); expect(rejected.body).toContain("select fewer chapters");
+    expect(f.provider.calls).toHaveLength(0);
+    const source = (await f.app.inject({ method: "GET", url: `${f.root}/source` })).json();
+    await f.app.inject({ method: "POST", url: `${f.root}/scope`, payload: { chapterIds: [source.chapters[0].id] } });
+    expect((await f.app.inject({ method: "POST", url: `${f.root}/preview`, payload: {} })).statusCode).toBe(200);
+    expect(f.provider.calls).toHaveLength(0);
+  });
+  it("corrects ordinary associations to exact supported record IDs and preserves original analysis without provider calls", async () => {
+    const f = await fixture(), plan = await preview(f), job = await start(f, plan);
+    await settle(f, job.id);
+    const original = (await f.app.inject({ method: "GET", url: `${f.root}/export` })).json() as SourceDossier;
+    const metadata = (await f.app.inject({ method: "GET", url: `${f.root}/dossier` })).json();
+    const relationship = original.records.find((r) => r.category === "relationship" && r.claim === "friendship")!;
+    const target = original.records.find((r) => r.category === "character" && r.identityKey === "Alexander" && r.field === "identity")!;
+    const callCount = f.provider.calls.length;
+    const operation = { kind: "field", intent: "source-analysis-correction", reason: "Correct participant association", previousVersionId: metadata.id,
+      recordId: relationship.id, changes: { references: [target.id] }, evidence: relationship.evidence };
+    for (const references of [["not-a-record"], [`foreign_${target.id}`], [target.id, target.id]]) {
+      const invalid = await f.app.inject({ method: "POST", url: `${f.root}/corrections`, payload: { ...operation, changes: { references } } });
+      expect(invalid.statusCode).toBe(400); expect(invalid.body).toContain("reference_invalid");
+    }
+    const corrected = await f.app.inject({ method: "POST", url: `${f.root}/corrections`, payload: operation });
+    expect(corrected.statusCode, corrected.body).toBe(201);
+    const effective = (await f.app.inject({ method: "GET", url: `${f.root}/export` })).json() as SourceDossier;
+    expect(effective.records.find((r) => r.id === relationship.id)?.references).toEqual([target.id]);
+    expect(effective.provenance).toEqual(original.provenance);
+    const rejected = await f.app.inject({ method: "POST", url: `${f.root}/corrections`, payload: { kind: "reject", intent: "source-analysis-correction", reason: "Unsupported identity", previousVersionId: corrected.json().id, recordId: target.id } });
+    expect(rejected.statusCode).toBe(201);
+    const invalid = await f.app.inject({ method: "POST", url: `${f.root}/corrections`, payload: { ...operation, previousVersionId: rejected.json().id } });
+    expect(invalid.statusCode).toBe(400); expect(invalid.body).toContain("reference_invalid");
+    const options = (await f.app.inject({ method: "GET", url: `${f.root}/reference-options?limit=2` })).json();
+    expect(options.items).toHaveLength(2); expect(options.total).toBeGreaterThan(2); expect(options.items[0].evidence).toBeUndefined();
+    expect((await f.app.inject({ method: "GET", url: `${f.root}/reference-options?search=Alexander` })).json().items).toEqual([]);
+    expect(f.provider.calls).toHaveLength(callCount);
+  });
   it("requires explicit scope and exact authorization, analyzes offline, reviews evidence and explicitly approves without foundations", async () => {
     const f = await fixture();
     expect((await f.app.inject({ method: "POST", url: `${f.root}/preview`, payload: {} })).statusCode).toBe(400);

@@ -1,8 +1,27 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { strToU8, zipSync } from "fflate";
 import { importSource } from "../src/index.js";
 
 describe("source importers", () => {
+  it("keeps golden chapter/excerpt IDs independent of English or Turkish host casing", () => {
+    const moduleUrl = new URL("../src/normalize.ts", import.meta.url).href;
+    const script = `import { normalizeSource } from ${JSON.stringify(moduleUrl)};
+      const locale = Intl.DateTimeFormat().resolvedOptions().locale;
+      const lower = String.prototype.toLocaleLowerCase;
+      // Model host-default casing explicitly even on runtimes that cache a different LC category.
+      String.prototype.toLocaleLowerCase = function () { return lower.call(this, locale); };
+      console.log(JSON.stringify({ locale, casing: 'I'.toLocaleLowerCase(), source: normalizeSource('txt', [{ title: 'I İ Istanbul', blocks: [{ type: 'paragraph', text: 'Exact source.' }] }]) }));`;
+    const results = ["en_US.UTF-8", "tr_TR.UTF-8"].map((locale) => JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script],
+      { env: { ...process.env, LANG: locale, LC_ALL: locale, LC_CTYPE: locale }, encoding: "utf8" })));
+    expect(results.map((r) => r.casing)).toEqual(["i", "ı"]);
+    expect(results.map((r) => r.locale)).toEqual(["en-US", "tr-TR"]);
+    for (const { source } of results) {
+      expect(source.chapters[0].id).toBe("ch_3979bf4c2f7c44d3f67e");
+      expect(source.chapters[0].blocks[0].excerptId).toBe("ex_578ed2f0c8b9b1637ec5");
+    }
+    expect(results[0].source).toEqual(results[1].source);
+  });
   it("normalizes text with stable excerpt identifiers", async () => {
     const input = { data: "Chapter 1\n\nFirst  paragraph.\n\nChapter 2\n\nSecond.", filename: "story.txt", mimeType: "text/plain" };
     const first = await importSource(input);

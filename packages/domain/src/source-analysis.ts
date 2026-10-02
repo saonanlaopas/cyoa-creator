@@ -5,8 +5,20 @@ export const SOURCE_ANALYSIS_POLICY = Object.freeze({
   id: "source-analysis-v1", schemaVersion: 1, promptVersion: "source-analysis-v1",
   maxSourceCharacters: 4_000, maxContextBytes: 24_000, maxOutputBytes: 24_000,
   maxRangesPerUnit: 6, maxEncodedSourceBytes: 8_000,
+  maxStoredOutputBytes: 64_000,
   maxOutputTokens: 4_000, maxObservationsPerUnit: 32, maxAttempts: 3, maxRepairs: 1,
+  maxUnits: 96, maxProvenance: 3_072, maxRecords: 8_192, maxConflicts: 69_632,
+  maxCorrections: 128, maxCorrectionBytes: 64 * 1024, maxDossierBytes: 40 * 1024 * 1024,
+  maxDossierVersions: 256, maxDossierHistoryBytes: 64 * 1024 * 1024,
 });
+// Reserve worst-case unit duplication/audit overhead and the complete correction budget before execution.
+const maxUnitDossierBytes = 2 * SOURCE_ANALYSIS_POLICY.maxStoredOutputBytes
+  + SOURCE_ANALYSIS_POLICY.maxObservationsPerUnit * (8 * 240 + 1024 + 17 * 200);
+const maxInitialDossierBytes = SOURCE_ANALYSIS_POLICY.maxDossierBytes
+  - SOURCE_ANALYSIS_POLICY.maxCorrections * SOURCE_ANALYSIS_POLICY.maxCorrectionBytes - 64 * 1024;
+export function estimateSourceDossierBytes(plan: Pick<SourceAnalysisPlan, "units" | "binding">): number {
+  return plan.units.length * maxUnitDossierBytes + new TextEncoder().encode(JSON.stringify(plan.binding)).length + 64 * 1024;
+}
 export const SOURCE_CATEGORIES = ["premise", "protagonist", "point-of-view", "character", "relationship",
   "location", "institution", "world-fact", "rule", "chronology", "event", "turning-point", "theme",
   "tone", "style", "prose", "object", "knowledge", "unresolved-thread", "ambiguity", "contradiction"] as const;
@@ -82,7 +94,7 @@ export const SourceUnitSchema = z.object({ id, order: z.number().int().nonnegati
 export type SourceUnit = z.infer<typeof SourceUnitSchema>;
 export const SourceAnalysisPlanSchema = z.object({ schemaVersion: z.literal(1), id, binding: SourceBindingSchema,
   providerId: id, modelId: z.string().min(1).max(240), policyId: z.literal("source-analysis-v1"), promptVersion: z.literal("source-analysis-v1"),
-  units: z.array(SourceUnitSchema).min(1).max(20_000), fingerprint: digest,
+  units: z.array(SourceUnitSchema).min(1).max(SOURCE_ANALYSIS_POLICY.maxUnits), fingerprint: digest,
   sourceCharacters: z.number().int().nonnegative(), sourceBytes: z.number().int().nonnegative(),
   cost: z.union([z.literal(0), z.null()]),
 }).strict();
@@ -92,8 +104,11 @@ export function sourceUnitContext(source: AnalysisSource, binding: SourceBinding
 }
 export function planSourceAnalysis(binding: SourceBinding, source: AnalysisSource, providerId: string, modelId: string): SourceAnalysisPlan {
   const units: SourceUnit[] = [];
+  const bindingBytes = new TextEncoder().encode(JSON.stringify(binding)).length;
   const append = (ranges: SourceEvidence[]) => {
     if (!ranges.length) return;
+    if (units.length >= SOURCE_ANALYSIS_POLICY.maxUnits || (units.length + 1) * maxUnitDossierBytes + bindingBytes > maxInitialDossierBytes)
+      throw new Error("source_dossier_scope_budget_exceeded: select fewer chapters and preview a new analysis");
     const context = sourceUnitContext(source, binding, { ranges });
     const contextBytes = new TextEncoder().encode(sourceCanonicalJson(context)).length;
     if (contextBytes > SOURCE_ANALYSIS_POLICY.maxContextBytes) throw new Error("source_context_overflow: select smaller source ranges");
@@ -145,9 +160,9 @@ export const SourceObservationSchema = z.object({
 export type SourceObservation = z.infer<typeof SourceObservationSchema>;
 export const SourceUnitOutputSchema = z.object({ schemaVersion: z.literal(1), observations: z.array(SourceObservationSchema).max(32) }).strict();
 export type SourceUnitOutput = z.infer<typeof SourceUnitOutputSchema>;
-export function validateSourceOutput(source: AnalysisSource, plan: SourceAnalysisPlan, unit: SourceUnit, value: unknown): SourceUnitOutput {
+export function validateSourceOutput(source: AnalysisSource, plan: SourceAnalysisPlan, unit: SourceUnit, value: unknown, stored = false): SourceUnitOutput {
   const output = SourceUnitOutputSchema.parse(value);
-  if (new TextEncoder().encode(sourceCanonicalJson(output)).length > SOURCE_ANALYSIS_POLICY.maxOutputBytes) throw new Error("source_output_oversized");
+  if (new TextEncoder().encode(sourceCanonicalJson(output)).length > (stored ? SOURCE_ANALYSIS_POLICY.maxStoredOutputBytes : SOURCE_ANALYSIS_POLICY.maxOutputBytes)) throw new Error("source_output_oversized");
   const ids = new Set(output.observations.map((o) => o.id));
   if (ids.size !== output.observations.length) throw new Error("source_observation_duplicate_id");
   for (const observation of output.observations) {
@@ -162,9 +177,9 @@ export function validateSourceOutput(source: AnalysisSource, plan: SourceAnalysi
 }
 
 export const SourceRecordSchema = SourceObservationSchema.extend({
-  status: z.enum(["supported", "rejected"]), observationIds: z.array(id).min(1),
+  status: z.enum(["supported", "rejected"]), observationIds: z.array(id).min(1).max(SOURCE_ANALYSIS_POLICY.maxProvenance),
   evidence: z.array(SourceEvidenceSchema).min(1).max(100_000),
-  aliases: z.array(text).max(1_000), references: z.array(id).max(100_000),
+  aliases: z.array(text).max(SOURCE_ANALYSIS_POLICY.maxProvenance * 16), references: z.array(id).max(SOURCE_ANALYSIS_POLICY.maxRecords),
 }).strict();
 export type SourceRecord = z.infer<typeof SourceRecordSchema>;
 export const SourceConflictSchema = z.object({ id, kind: z.enum(["ambiguity", "contradiction"]), recordIds: z.array(id).min(2), reason: text }).strict();
@@ -175,11 +190,22 @@ export const SourceCorrectionSchema = z.object({ id, kind: z.enum(["field", "mer
   intent: z.literal("source-analysis-correction"), reason: text, previousVersionId: id,
   operation: z.record(z.unknown()), beforeFingerprint: digest, afterFingerprint: digest,
 }).strict();
+export function assertSourceDossierBudget<T extends { records: unknown[]; conflicts: unknown[]; provenance: unknown[]; corrections: unknown[] }>(dossier: T): void {
+  if (dossier.records.length > SOURCE_ANALYSIS_POLICY.maxRecords || dossier.conflicts.length > SOURCE_ANALYSIS_POLICY.maxConflicts
+    || dossier.provenance.length > SOURCE_ANALYSIS_POLICY.maxProvenance || dossier.corrections.length > SOURCE_ANALYSIS_POLICY.maxCorrections)
+    throw new Error("source_dossier_count_budget_exceeded: select a smaller scope or review a new analysis draft");
+  if (dossier.corrections.some((c) => new TextEncoder().encode(JSON.stringify(c)).length > SOURCE_ANALYSIS_POLICY.maxCorrectionBytes))
+    throw new Error("source_correction_byte_budget_exceeded: use a smaller correction with exact evidence");
+  if (new TextEncoder().encode(JSON.stringify(dossier)).length > SOURCE_ANALYSIS_POLICY.maxDossierBytes)
+    throw new Error("source_dossier_byte_budget_exceeded: select fewer chapters and preview a new analysis");
+}
 export const SourceDossierSchema = z.object({ schemaVersion: z.literal(1), projectId: id, planId: id, jobId: id,
-  binding: SourceBindingSchema, records: z.array(SourceRecordSchema).max(100_000),
-  conflicts: z.array(SourceConflictSchema), provenance: z.array(SourceProvenanceSchema),
-  corrections: z.array(SourceCorrectionSchema), materialFingerprint: digest, provenanceFingerprint: digest,
-}).strict();
+  binding: SourceBindingSchema, records: z.array(SourceRecordSchema).max(SOURCE_ANALYSIS_POLICY.maxRecords),
+  conflicts: z.array(SourceConflictSchema).max(SOURCE_ANALYSIS_POLICY.maxConflicts), provenance: z.array(SourceProvenanceSchema).max(SOURCE_ANALYSIS_POLICY.maxProvenance),
+  corrections: z.array(SourceCorrectionSchema).max(SOURCE_ANALYSIS_POLICY.maxCorrections), materialFingerprint: digest, provenanceFingerprint: digest,
+}).strict().superRefine((dossier, ctx) => {
+  try { assertSourceDossierBudget(dossier); } catch (error) { ctx.addIssue({ code: "custom", message: (error as Error).message }); }
+});
 export type SourceDossier = z.infer<typeof SourceDossierSchema>;
 export function sourceDossierFingerprints(dossier: Pick<SourceDossier, "binding" | "records" | "conflicts" | "provenance" | "corrections">) {
   return { materialFingerprint: sourceDigest({ binding: dossier.binding, records: sourceSorted(dossier.records), conflicts: sourceSorted(dossier.conflicts) }),
@@ -213,6 +239,7 @@ export function sourceConflicts(records: SourceRecord[]): SourceDossier["conflic
   return sourceSorted(conflicts);
 }
 export function consolidateSourceDossier(plan: SourceAnalysisPlan, jobId: string, provenance: SourceProvenance[]): SourceDossier {
+  if (provenance.length > SOURCE_ANALYSIS_POLICY.maxProvenance) throw new Error("source_dossier_provenance_budget_exceeded: select fewer chapters");
   const map = new Map<string, SourceRecord>();
   const observationToRecord = new Map<string, string>();
   for (const origin of sourceSorted(provenance)) {
@@ -234,6 +261,7 @@ export function consolidateSourceDossier(plan: SourceAnalysisPlan, jobId: string
     })) })));
   const dossier = { schemaVersion: 1 as const, projectId: plan.binding.projectId, planId: plan.id, jobId,
     binding: plan.binding, records, conflicts: sourceConflicts(records), provenance: sourceSorted(provenance), corrections: [] };
+  assertSourceDossierBudget({ ...dossier, materialFingerprint: "0".repeat(64), provenanceFingerprint: "0".repeat(64) });
   return SourceDossierSchema.parse({ ...dossier, ...sourceDossierFingerprints(dossier) });
 }
 export function assertSourceDossier(dossier: SourceDossier, source: AnalysisSource, binding: SourceBinding): void {

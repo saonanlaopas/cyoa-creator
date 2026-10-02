@@ -202,6 +202,20 @@ function SourceCorrectionForm({ record, dossier, records, api, busy, onApply }: 
   const [identityMatches, setIdentityMatches] = useState<RecordSummary[]>(records.filter((r) => r.category === "character" && r.id !== record.id));
   const [mergeSearch, setMergeSearch] = useState("");
   const [open, setOpen] = useState(false), [evidenceRetry, setEvidenceRetry] = useState(0);
+  const [references, setReferences] = useState(record.references), [referencesChanged, setReferencesChanged] = useState(false);
+  const [referenceOptions, setReferenceOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [referenceOffset, setReferenceOffset] = useState(0), [referenceTotal, setReferenceTotal] = useState(0), [referenceSearch, setReferenceSearch] = useState("");
+  const [loadingReferences, setLoadingReferences] = useState(false), [referenceError, setReferenceError] = useState("");
+  const [referenceRetry, setReferenceRetry] = useState(0);
+  useEffect(() => {
+    if (!open || kind !== "field") return;
+    let cancelled = false;
+    setLoadingReferences(true); setReferenceError("");
+    void api.request<{ total: number; items: typeof referenceOptions }>(`/reference-options?limit=20&offset=${referenceOffset}&search=${encodeURIComponent(referenceSearch)}`)
+      .then((result) => { if (!cancelled) { setReferenceOptions(result.items); setReferenceTotal(result.total); setLoadingReferences(false); } })
+      .catch((e: Error) => { if (!cancelled) { setReferenceError(e.message); setLoadingReferences(false); } });
+    return () => { cancelled = true; };
+  }, [open, kind, api, referenceOffset, referenceSearch, referenceRetry]);
   useEffect(() => {
     if (!open || record.evidenceCount <= completeEvidence.length) return;
     let cancelled = false;
@@ -250,7 +264,7 @@ function SourceCorrectionForm({ record, dossier, records, api, busy, onApply }: 
       else if (kind === "reject") operation = { ...common, kind, recordId: record.id };
       else if (kind === "classification") operation = { ...common, kind, recordId: record.id, classification, evidence: selectedEvidence };
       else if (kind === "evidence") operation = { ...common, kind, recordId: record.id, evidence: selectedEvidence };
-      else operation = { ...common, kind, recordId: record.id, changes: { claim, identityKey, field }, evidence: selectedEvidence };
+      else operation = { ...common, kind, recordId: record.id, changes: { claim, identityKey, field, ...(referencesChanged ? { references } : {}) }, evidence: selectedEvidence };
       await onApply(operation);
     } catch (error) { setError((error as Error).message); }
   };
@@ -258,6 +272,15 @@ function SourceCorrectionForm({ record, dossier, records, api, busy, onApply }: 
     <label>Review action<select aria-label="Review action" value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
       <option value="field">Correct field</option><option value="merge">Merge identities</option><option value="split">Split identity</option><option value="reject">Reject as unsupported</option><option value="evidence">Repair evidence</option><option value="classification">Change canon / inference</option></select></label>
     {kind === "field" && <><label>Identity<input value={identityKey} onChange={(e) => setIdentity(e.target.value)} /></label><label>Field<input value={field} onChange={(e) => setField(e.target.value)} /></label><label>Corrected source claim<textarea value={claim} onChange={(e) => setClaim(e.target.value)} /></label></>}
+    {kind === "field" && <fieldset><legend>Associated records ({references.length} selected)</legend>
+      <label>Find associated record<input type="search" value={referenceSearch} onChange={(e) => { setReferenceSearch(e.target.value); setReferenceOffset(0); }} /></label>
+      <button type="button" disabled={busy || !references.length} onClick={() => { setReferences([]); setReferencesChanged(true); }}>Clear associations</button>
+      {loadingReferences ? <p role="status">Loading associated records...</p> : referenceError ? <p role="alert">{referenceError} <button type="button" onClick={() => setReferenceRetry((n) => n + 1)}>Retry associated records</button></p> : referenceOptions.map((option) => <label key={option.id} className="source-check">
+        <input type="checkbox" checked={references.includes(option.id)} disabled={busy || (!references.includes(option.id) && references.length >= 32)} onChange={(e) => {
+          setReferences((current) => e.target.checked ? [...current, option.id] : current.filter((id) => id !== option.id)); setReferencesChanged(true);
+        }} />{option.label}</label>)}
+      <PageControls offset={referenceOffset} total={referenceTotal} step={20} onChange={setReferenceOffset} label="Associated record pages" />
+    </fieldset>}
     {kind === "classification" && <label>Classification<select aria-label="Classification" value={classification} onChange={(e) => setClassification(e.target.value as typeof classification)}><option value="source-canon">Source canon</option><option value="inference">Inference</option></select></label>}
     {kind === "merge" && <><label>Find identity<input type="search" value={mergeSearch} onChange={(e) => setMergeSearch(e.target.value)} /></label><label>Identity to merge into this record<select aria-label="Identity to merge into this record" value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)}><option value="">Select identity</option>{identityMatches.map((r) => <option key={r.id} value={r.id}>{r.identityKey}: {r.field}</option>)}</select></label></>}
     {kind === "split" && <>
@@ -283,6 +306,6 @@ function SourceCorrectionForm({ record, dossier, records, api, busy, onApply }: 
     <label className="source-check"><input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I am correcting the source analysis, not choosing changes for an adaptation.</label>
     {error && <p className="error" role="alert">{error}</p>}
     {loadingEvidence && <p role="status">Loading evidence metadata... {error && <button onClick={() => { setError(""); setEvidenceRetry((n) => n + 1); }}>Retry evidence metadata</button>}</p>}
-    <button disabled={busy || loadingEvidence || (kind === "split" && loadingDependents) || record.status !== "supported" || !confirmed || !reason.trim()} onClick={() => void submit()}>Save analysis correction</button>
+    <button disabled={busy || loadingEvidence || (kind === "field" && (loadingReferences || Boolean(referenceError) || (referencesChanged && references.length > 32))) || (kind === "split" && loadingDependents) || record.status !== "supported" || !confirmed || !reason.trim()} onClick={() => void submit()}>Save analysis correction</button>
   </details>;
 }

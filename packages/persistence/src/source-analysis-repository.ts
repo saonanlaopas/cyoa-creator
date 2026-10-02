@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { SOURCE_ANALYSIS_POLICY, SourceAnalysisPlanSchema, SourceUnitOutputSchema, consolidateSourceDossier, correctSourceDossier,
-  sourceDigest, validateSourceOutput, type AnalysisSource, type SourceAnalysisPlan, type SourceUnitOutput } from "@story-to-cyoa/domain";
+  sourceDigest, estimateSourceDossierBytes, validateSourceOutput, type AnalysisSource, type SourceAnalysisPlan, type SourceUnitOutput } from "@story-to-cyoa/domain";
 import { ArtifactRepository } from "./artifact-repository.js";
 import { WorkflowRepository } from "./workflow-repository.js";
 import { transaction, type StoryDatabase } from "./database.js";
-import { analysisBindingSource, analysisProvenance, assertAnalysisFresh, validateAnalysisPlan, validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
+import { analysisBindingSource, analysisProvenance, assertAnalysisFresh, assertDossierHistoryBudget, validateAnalysisPlan, validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
 
 export type SourceAnalysisStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 export interface SourceAnalysisAttempt {
@@ -31,6 +31,7 @@ export class SourceAnalysisRepository {
     return this.atomic(() => {
       const plan = validateAnalysisPlan(this.database, value);
       assertAnalysisFresh(this.database, plan);
+      assertDossierHistoryBudget(this.database, plan.binding.projectId, undefined, 2 * estimateSourceDossierBytes(plan));
       this.database.prepare(`INSERT OR IGNORE INTO source_analysis_plans
         (id,project_id,source_version_id,scope_version_id,content_json,created_at) VALUES (?,?,?,?,?,?)`)
         .run(plan.id, plan.binding.projectId, plan.binding.sourceVersionId, plan.binding.scopeVersionId, JSON.stringify(plan), new Date().toISOString());
@@ -51,6 +52,7 @@ export class SourceAnalysisRepository {
     return this.atomic(() => {
       const plan = this.getPlan(projectId, planId);
       this.fresh(projectId, planId);
+      assertDossierHistoryBudget(this.database, projectId, undefined, 2 * estimateSourceDossierBytes(plan));
       if (authorizedFingerprint !== plan.fingerprint) throw new Error("source_analysis_authorization_invalid");
       if (this.database.prepare("SELECT 1 FROM source_analysis_jobs WHERE project_id = ? AND plan_id = ? AND status IN ('pending','running')").get(projectId, planId)) throw new Error("source_analysis_already_active");
       const id = randomUUID(), now = new Date().toISOString();
@@ -109,6 +111,7 @@ export class SourceAnalysisRepository {
         output = validateSourceOutput(this.source(plan), plan, definition, outcome.output);
         const ids = new Map(output.observations.map((o) => [o.id, `so_${sourceDigest({ unitId, id: o.id }).slice(0, 32)}`]));
         output = SourceUnitOutputSchema.parse({ ...output, observations: output.observations.map((o) => ({ ...o, id: ids.get(o.id)!, references: o.references.map((r) => ids.get(r)!) })) });
+        validateSourceOutput(this.source(plan), plan, definition, output, true);
       } else if (outcome.output) throw new Error("source_analysis_terminal_output_invalid");
       const repairs = z.number().int().min(0).max(1).parse(outcome.repairCount ?? 0);
       const diagnostic = z.enum(["", "provider_failed", "invalid_output", "cancelled", "interrupted", "stale"]).parse(outcome.diagnostic ?? "");
@@ -121,6 +124,7 @@ export class SourceAnalysisRepository {
   retry(projectId: string, jobId: string): SourceAnalysisJob {
     return this.atomic(() => {
       const job = this.getJob(projectId, jobId); this.fresh(projectId, job.planId);
+      assertDossierHistoryBudget(this.database, projectId, undefined, 2 * estimateSourceDossierBytes(this.getPlan(projectId, job.planId)));
       if (!["failed", "pending"].includes(job.status)) throw new Error("source_analysis_retry_not_allowed");
       const retryable = job.units.filter((u) => u.status === "failed" && u.attempts.length < SOURCE_ANALYSIS_POLICY.maxAttempts);
       if (job.units.some((u) => u.status === "failed" && !retryable.includes(u))) throw new Error("source_analysis_attempts_exhausted: preview a new run");

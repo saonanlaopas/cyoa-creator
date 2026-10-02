@@ -119,6 +119,40 @@ test("A3 explicit identity merge and split remap dependent references, without a
   expect(split.provenance).toEqual(merged.provenance);
 });
 
+test("A3 field review reassigns ordinary associations through paginated supported-record controls", async ({ page, request }, testInfo) => {
+  const created = await (await request.post("/api/long-form/projects", { data: { name: "Association review" } })).json(); createdProjects.push(created.project.id);
+  const root = `/api/long-form/projects/${created.project.id}/source-analysis`;
+  const text = manuscript + Array.from({ length: 24 }, (_, i) => `\n\nChapter ${i + 3}\n\nThe harbor changed on day ${i + 1}.`).join("");
+  await request.post(`/api/projects/${created.project.id}/source/text`, { data: { text } }); await request.post(`${root}/scope`, { data: { entireWork: true } });
+  const plan = await (await request.post(`${root}/preview`, { data: {} })).json(); const job = await (await request.post(`${root}/plans/${plan.id}/start`, { data: { fingerprint: plan.fingerprint } })).json();
+  await expect.poll(async () => (await (await request.get(`${root}/jobs/${job.id}`)).json()).status, { timeout: 10_000 }).toBe("completed");
+  const original = await (await request.get(`${root}/export`)).json();
+  const target = original.records.find((r: { category: string; identityKey: string; field: string }) => r.category === "character" && r.identityKey === "Alexander" && r.field === "identity");
+  const relationship = original.records.find((r: { category: string; claim: string }) => r.category === "relationship" && r.claim === "friendship");
+  await page.goto("/"); await page.evaluate((id) => { localStorage.setItem("story-to-cyoa.long-form-project-id", id); localStorage.setItem("story-to-cyoa.long-form-stage", "source-analysis"); }, created.project.id);
+  await page.getByRole("button", { name: "Long-form workspace" }).click(); await page.getByLabel("Category", { exact: true }).selectOption("relationship");
+  await page.getByRole("region", { name: "Dossier records" }).getByRole("button").filter({ hasText: "friendship" }).click();
+  await page.getByText("Correct source analysis", { exact: true }).click();
+  const associations = page.getByRole("group", { name: /Associated records/ });
+  await expect(associations.getByRole("checkbox")).toHaveCount(20);
+  await page.getByRole("navigation", { name: "Associated record pages" }).getByRole("button", { name: "Next" }).click();
+  await expect(associations.getByRole("checkbox")).not.toHaveCount(20);
+  await page.getByRole("button", { name: "Clear associations" }).click();
+  await page.getByLabel("Find associated record").fill("Alexander");
+  await page.getByRole("checkbox", { name: "Alexander: identity: Alexander", exact: true }).check();
+  await page.getByLabel("Correction reason").fill("The participant association points to Alexander in this reviewed source passage.");
+  await page.getByLabel("I am correcting the source analysis, not choosing changes for an adaptation.").check();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath("a3-mobile-association-correction.png"), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole("button", { name: "Save analysis correction" }).click();
+  await expect(page.getByText("Dossier v2: draft", { exact: true })).toBeVisible();
+  const corrected = await (await request.get(`${root}/export`)).json();
+  expect(corrected.records.find((r: { id: string }) => r.id === relationship.id).references).toEqual([target.id]);
+  expect(corrected.provenance).toEqual(original.provenance);
+  await page.reload(); await expect(page.getByText("Dossier v2: draft", { exact: true })).toBeVisible();
+});
+
 test("A3 large-source metadata stays paginated and cancellation cannot publish a late dossier", async ({ page, request }, testInfo) => {
   const created = await (await request.post("/api/long-form/projects", { data: { name: "Large source" } })).json(); createdProjects.push(created.project.id);
   const text = Array.from({ length: 60 }, (_, i) => `Chapter ${i + 1}\n\n${"A quiet harbor. ".repeat(150)}`).join("\n\n");

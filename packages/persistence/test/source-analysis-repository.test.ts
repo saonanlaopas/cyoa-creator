@@ -4,11 +4,82 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { assertSourceDossier, sourceCanonicalJson, sourceSorted, type SourceDossier } from "@story-to-cyoa/domain";
+import { SOURCE_ANALYSIS_POLICY, assertSourceDossier, sourceCanonicalJson, sourceSorted, type SourceDossier } from "@story-to-cyoa/domain";
 import { ArtifactRepository, CURRENT_SCHEMA_VERSION, openDatabase, PortableProjectRepository, SourceAnalysisRepository, WorkflowRepository } from "../src/index.js";
 import { analysisFixture, completeFixture, fixtureOutput } from "./source-analysis-fixture.js";
 
 describe("A3 durable source analysis", () => {
+  it("reserves bytes for normalized IDs when a valid dense provider output has many short references", () => {
+    const f = analysisFixture();
+    try {
+      const job = f.repository.createJob(f.projectId, f.plan.id, f.plan.fingerprint), unit = f.plan.units[0]!;
+      const ids = Array.from({ length: 24 }, (_, i) => `f${i}`);
+      const output = { schemaVersion: 1 as const, observations: ids.map((id) => ({ id, category: "event" as const, identityKey: id, field: "result",
+        claim: "Source fact", classification: "source-canon" as const, aliases: [], references: ids, evidence: [unit.ranges[0]!], uncertainty: "" })) };
+      expect(Buffer.byteLength(JSON.stringify(output))).toBeLessThan(SOURCE_ANALYSIS_POLICY.maxOutputBytes);
+      const attempt = f.repository.beginAttempt(f.projectId, job.id, unit.id);
+      f.repository.finishAttempt(f.projectId, job.id, unit.id, attempt.id, { status: "completed", output });
+      const stored = f.database.prepare("SELECT content_json FROM source_analysis_outputs WHERE job_id = ? AND unit_id = ?").get(job.id, unit.id) as { content_json: string };
+      expect(Buffer.byteLength(stored.content_json)).toBeGreaterThan(SOURCE_ANALYSIS_POLICY.maxOutputBytes);
+      expect(Buffer.byteLength(stored.content_json)).toBeLessThan(SOURCE_ANALYSIS_POLICY.maxStoredOutputBytes);
+      expect(completeFixture(f, job.id).status).toBe("completed");
+      f.repository.validateProject(f.projectId);
+      const copy = f.projects.duplicate(f.projectId); f.repository.validateProject(copy.id);
+    } finally { f.database.close(); }
+  });
+  it("bounds aggregate immutable dossier versions and rejects restore atomically at the history ceiling", () => {
+    const f = analysisFixture();
+    try {
+      const job = completeFixture(f), initial = f.artifacts.getVersion<SourceDossier>(job.dossierVersionId!)!;
+      for (let i = 1; i < SOURCE_ANALYSIS_POLICY.maxDossierVersions; i++) f.database.prepare(`INSERT INTO artifact_versions
+        SELECT ?,project_id,artifact_id,artifact_type,?,schema_version,content_json,stale,restored_from_version_id,created_at
+        FROM artifact_versions WHERE id = ?`).run(`history_${i}`, i + 1, initial.id);
+      f.repository.validateProject(f.projectId);
+      expect(() => f.repository.savePlan(f.plan)).toThrow(/history_budget/);
+      expect(() => f.repository.createJob(f.projectId, f.plan.id, f.plan.fingerprint)).toThrow(/history_budget/);
+      expect(() => f.artifacts.restore(f.projectId, "source-dossier", initial.id)).toThrow(/history_budget/);
+      expect((f.database.prepare("SELECT COUNT(*) AS count FROM artifact_versions WHERE artifact_id = 'source-dossier'").get() as { count: number }).count).toBe(SOURCE_ANALYSIS_POLICY.maxDossierVersions);
+      expect(f.artifacts.getVersion(initial.id)?.content).toEqual(initial.content);
+    } finally { f.database.close(); }
+  });
+  it.each(["missing-publication", "nonterminal-publication", "wrong-job-publication", "foreign-project-publication"])("rejects impossible %s on direct validation and reopen without modifying bytes", (mode) => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-a3-publication-")), path = join(directory, "invalid.sqlite");
+    try {
+      const f = analysisFixture(openDatabase(path)), first = completeFixture(f);
+      if (mode === "missing-publication") f.database.prepare("UPDATE source_analysis_jobs SET dossier_version_id = NULL WHERE id = ?").run(first.id);
+      if (mode === "nonterminal-publication") f.database.prepare("UPDATE source_analysis_jobs SET status = 'failed' WHERE id = ?").run(first.id);
+      if (mode === "wrong-job-publication") {
+        const second = completeFixture(f);
+        f.database.prepare("UPDATE source_analysis_jobs SET dossier_version_id = ? WHERE id = ?").run(second.dossierVersionId, first.id);
+      }
+      if (mode === "foreign-project-publication") {
+        const copy = f.projects.duplicate(f.projectId);
+        const version = f.artifacts.getCurrent(copy.id, "source-dossier")!;
+        f.database.prepare("UPDATE source_analysis_jobs SET dossier_version_id = ? WHERE id = ?").run(version.id, first.id);
+      }
+      expect(() => f.repository.validateProject(f.projectId)).toThrow(/dossier_(publication|lineage)_invalid/);
+      f.database.close();
+      const before = createHash("sha256").update(readFileSync(path)).digest("hex");
+      expect(() => openDatabase(path)).toThrow(/Migration/);
+      expect(createHash("sha256").update(readFileSync(path)).digest("hex")).toBe(before);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+  it.each(["completed-without-dossier", "failed-with-dossier"])("atomically rejects current portable rows with %s", (mode) => {
+    const f = analysisFixture(), target = openDatabase();
+    try {
+      completeFixture(f);
+      const rows = new PortableProjectRepository(f.database).exportRows(f.projectId);
+      if (mode === "completed-without-dossier") {
+        rows.tables.source_analysis_jobs[0]!.dossier_version_id = null;
+        rows.tables.artifact_versions = rows.tables.artifact_versions.filter((r) => r.artifact_id !== "source-dossier");
+        rows.tables.artifact_workflow_state = rows.tables.artifact_workflow_state.filter((r) => r.artifact_id !== "source-dossier");
+        rows.tables.artifact_dependencies = rows.tables.artifact_dependencies.filter((r) => r.dependent_artifact_id !== "source-dossier");
+      } else rows.tables.source_analysis_jobs[0]!.status = "failed";
+      expect(() => new PortableProjectRepository(target).importRows(rows, () => {})).toThrow(/dossier_publication_invalid/);
+      for (const table of ["projects", "artifact_versions", "source_analysis_jobs", "source_analysis_outputs"])
+        expect((target.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count).toBe(0);
+    } finally { f.database.close(); target.close(); }
+  });
   it("binds authorization, append-only attempts, terminal outcomes and explicit retry preparation", () => {
     const f = analysisFixture();
     try {

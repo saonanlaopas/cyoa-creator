@@ -190,6 +190,12 @@ export class SourceAnalysisService {
       conflicts: dossier.conflicts.filter((c) => c.recordIds.includes(recordId)).slice(offset, offset + limit),
       corrections: dossier.corrections.slice(offset, offset + limit) };
   }
+  referenceOptions(projectId: string, offset = 0, limit = 20, search = "") {
+    const records = this.dossier(projectId).content.records.filter((r) => r.status === "supported"
+      && (!search || `${r.identityKey} ${r.field} ${r.claim}`.toLowerCase().includes(search.toLowerCase())));
+    return { total: records.length, items: records.slice(offset, offset + limit).map((r) => ({ id: r.id,
+      label: `${r.identityKey}: ${r.field}: ${r.claim}` })) };
+  }
   evidence(projectId: string, value: unknown) {
     this.project(projectId); const reference = SourceEvidenceSchema.parse(value);
     if (reference.projectId !== projectId) throw new Error("source_evidence_project_invalid");

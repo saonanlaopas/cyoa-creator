@@ -39,7 +39,7 @@ export function analysisProvenance(database: StoryDatabase, plan: SourceAnalysis
   return rows.flatMap((row) => {
     const unit = plan.units.find((u) => u.id === row.unit_id);
     if (!unit || row.status !== "completed" || row.context_fingerprint !== unit.contextFingerprint) throw new Error("source_output_lineage_invalid");
-    const output = validateSourceOutput(source, plan, unit, SourceUnitOutputSchema.parse(JSON.parse(row.content_json)));
+    const output = validateSourceOutput(source, plan, unit, SourceUnitOutputSchema.parse(JSON.parse(row.content_json)), true);
     return output.observations.map((original) => ({ observationId: original.id, jobId, unitId: unit.id,
       attemptId: row.attempt_id, providerId: plan.providerId, modelId: plan.modelId, contextFingerprint: unit.contextFingerprint, original }));
   });
@@ -62,6 +62,16 @@ export function validateDossierPersistence(database: StoryDatabase, projectId: s
   }
   if (sourceCanonicalJson(expected) !== sourceCanonicalJson(dossier)) throw new Error("source_dossier_not_derived_from_immutable_observations");
   return dossier;
+}
+export function assertDossierHistoryBudget(database: StoryDatabase, projectId: string, additional?: unknown, reservedBytes = 0): void {
+  const rows = database.prepare("SELECT content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source-dossier'")
+    .all(projectId) as Array<{ content_json: string }>;
+  // Count the escaped content strings as they appear in a portable archive, not just their in-memory JSON.
+  const contents = rows.map((r) => r.content_json);
+  if (additional !== undefined) contents.push(JSON.stringify(additional));
+  const bytes = contents.reduce((sum, content) => sum + new TextEncoder().encode(JSON.stringify(content)).length + 1024, reservedBytes);
+  if (contents.length + (reservedBytes ? 1 : 0) > SOURCE_ANALYSIS_POLICY.maxDossierVersions || bytes > SOURCE_ANALYSIS_POLICY.maxDossierHistoryBytes)
+    throw new Error("source_dossier_history_budget_exceeded: preserve this project and continue analysis in a new project");
 }
 export function validateSourceAnalysisDatabase(database: StoryDatabase, projectId?: string): void {
   const requiredColumns = {
@@ -99,10 +109,11 @@ export function validateSourceAnalysisDatabase(database: StoryDatabase, projectI
         if ((unit.status === "completed") !== Boolean(output) || (output && output.attempt_id !== latest?.id)) throw new Error("source_analysis_output_lifecycle_invalid");
       }
       if (job.status === "completed" && units.some((u) => u.status !== "completed")) throw new Error("source_analysis_job_lifecycle_invalid");
+      if ((job.status === "completed") !== (job.dossier_version_id !== null)) throw new Error("source_analysis_dossier_publication_invalid");
       if (job.status === "cancelled" && units.some((u) => !["completed", "cancelled"].includes(u.status))) throw new Error("source_analysis_job_lifecycle_invalid");
       analysisProvenance(database, plan, job.id);
       if (job.dossier_version_id) {
-        const dossier = database.prepare("SELECT content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source-dossier' AND id = ?")
+        const dossier = database.prepare("SELECT content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source-dossier' AND artifact_type = 'source-dossier' AND schema_version = 1 AND id = ?")
           .get(row.project_id, job.dossier_version_id) as { content_json: string } | undefined;
         if (!dossier || JSON.parse(dossier.content_json).jobId !== job.id) throw new Error("source_analysis_dossier_lineage_invalid");
       }
@@ -111,4 +122,5 @@ export function validateSourceAnalysisDatabase(database: StoryDatabase, projectI
   const dossiers = database.prepare(`SELECT project_id,content_json FROM artifact_versions WHERE artifact_id = 'source-dossier' ${projectId ? "AND project_id = ?" : ""}`)
     .all(...(projectId ? [projectId] : [])) as Array<{ project_id: string; content_json: string }>;
   for (const row of dossiers) validateDossierPersistence(database, row.project_id, JSON.parse(row.content_json));
+  for (const id of new Set(dossiers.map((row) => row.project_id))) assertDossierHistoryBudget(database, id);
 }
