@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AdaptationIntentSchema, AdaptationSuggestionSchema, FIDELITY_PRESETS, adaptationBudget, adaptationIntentFingerprints, adaptationOverrideConflicts,
-  applyAdaptationOperations, assertRequestedSemantics, expandFidelityPreset, newAdaptationIntent, normalizeAdaptationIntent, sourceDigest } from "../src/index.js";
+  applyAdaptationOperations, assertRequestedSemantics, expandFidelityPreset, newAdaptationIntent, normalizeAdaptationIntent, sourceDigest, sourceEvidence } from "../src/index.js";
 
 const binding = { dossierVersionId: "dossier", dossierMaterialFingerprint: "a".repeat(64), source: { projectId: "project", sourceVersionId: "source", sourceFingerprint: "b".repeat(64), scopeVersionId: "scope", scopeFingerprint: "c".repeat(64), chapterIds: ["ch"] } };
 const base = () => newAdaptationIntent("project", binding);
@@ -34,7 +34,8 @@ describe("Adaptation Intent policy contracts", () => {
   it("does not treat dimensions, unrelated aspects or disjoint scopes as contradictory", () => {
     expect(normalizeAdaptationIntent({ ...base(), overrides: [override("alive", "Survives"), { ...override("other", "Dies"), scope: "alternate-ending" }] }).overrides).toHaveLength(2);
   });
-  it.each(["Canon route preserved", "route preserved", "route exists", "ending is reachable", "canon graph preserved", "obligation achieved", "obligation satisfied", "fidelity verified", "generated structure satisfies obligation", "scenes have been faithfully reproduced"])("rejects achieved claim: %s", (claim) => {
+  it.each(["Canon route preserved", "route preserved", "route exists", "ending is reachable", "canon graph preserved", "obligation achieved", "obligation satisfied", "fidelity verified", "generated structure satisfies obligation", "scenes have been faithfully reproduced",
+    "Canon route achieved", "Source ending preserved", "Route is reachable", "Canon preservation verified", "The ending has been preserved", "The canon route has already been achieved", "Source ending was preserved", "Graph reachability proven"])("rejects achieved claim: %s", (claim) => {
     expect(() => assertRequestedSemantics({ effect: claim })).toThrow("adaptation_achieved_claim_forbidden");
     expect(() => normalizeAdaptationIntent({ ...base(), overrides: [override("one", claim)] })).toThrow();
   });
@@ -42,6 +43,17 @@ describe("Adaptation Intent policy contracts", () => {
     expect(() => assertRequestedSemantics("Request that the source ending remain reachable")).not.toThrow();
     expect(AdaptationSuggestionSchema.safeParse({ schemaVersion: 1, intent: "source-analysis-correction", operations: [{ kind: "dimension", dimension: "tone", level: "strict" }] }).success).toBe(false);
     expect(AdaptationIntentSchema.safeParse({ ...base(), routePreserved: true }).success).toBe(false);
+    for (const flag of ["routeAchieved", "endingReachable", "canonPreservationVerified", "achieved", "status"]) {
+      expect(AdaptationIntentSchema.safeParse({ ...base(), [flag]: true }).success).toBe(false);
+      expect(AdaptationSuggestionSchema.safeParse({ schemaVersion: 1, intent: "adaptation-preference", operations: [{ kind: "invention", value: {
+        id: "new", scope: "project", rationale: "Requested", origin: "adaptation-only", kind: "scene", description: "A new scene", dependencyIds: [], [flag]: true,
+      } }] }).success).toBe(false);
+    }
+    const value = { id: "ending", scope: "project", rationale: "Requested", status: "requested", kind: "ending", targetIds: ["record"],
+      evidence: [sourceEvidence(binding.source, "ch", "excerpt", "Ending")], requirement: "Retain ending", strength: "required", transformations: [] };
+    const suggestion = { schemaVersion: 1, intent: "adaptation-preference", operations: [{ kind: "obligation", value }] };
+    expect(AdaptationSuggestionSchema.safeParse(suggestion).success).toBe(true);
+    expect(AdaptationSuggestionSchema.safeParse({ ...suggestion, operations: [{ kind: "obligation", value: { ...value, status: "achieved" } }] }).success).toBe(false);
   });
   it("separates adaptation-only invention and rejects source-mislabeled inventions and orphan dependencies", () => {
     const invention = { ...common, id: "new", origin: "adaptation-only" as const, kind: "scene" as const, description: "A new scene", dependencyIds: [] };

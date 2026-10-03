@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { DeterministicPassagePlanningProvider } from "../src/services/passage-planning-provider.js";
 import type { PassagePlanningProviderRequest } from "@story-to-cyoa/pipeline";
+import { adoptPassageAdaptation } from "./adaptation-passage-fixture.js";
 
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
@@ -117,6 +118,34 @@ const completeGeneration = async (
 };
 
 describe("passage generation kernel API", () => {
+  it("blocks new and old legacy-fidelity passage plans after A4 adoption without provider calls", async () => {
+    const provider = new DeterministicPassagePlanningProvider(), app = buildApp({ passagePlanningProvider: provider });
+    try {
+      const { projectId } = await approvedPassagePlan(app, 2), root = `/api/long-form/projects/${projectId}/passage-generation`;
+      const payload = { scope: { kind: "sequence", sequenceId: "sequence-main" }, providerId: provider.id, modelId: "fixture-v1" };
+      const plan = (await app.inject({ method: "POST", url: `${root}/plans`, payload })).json();
+      expect(plan.units[0].context.upstream.brief).toHaveProperty("adaptationFidelity");
+      await app.inject({ method: "POST", url: `${root}/plans/${plan.id}/authorize`, payload: { fingerprint: plan.fingerprint } });
+      await adoptPassageAdaptation(app, projectId);
+      for (const [url, body] of [[`${root}/plans/preview`, payload], [`${root}/plans`, payload], [`${root}/plans/${plan.id}/authorize`, { fingerprint: plan.fingerprint }], [`${root}/jobs/${plan.jobId}/start`, {}], [`${root}/jobs/${plan.jobId}/units/${plan.units[0].id}/retry`, {}]] as const) {
+        const response = await app.inject({ method: "POST", url, payload: body }); expect(response.statusCode, response.body).toBe(409); expect(response.json().error).toContain("A5 foundation bootstrap");
+      }
+      expect(provider.calls).toHaveLength(0); expect((await app.inject({ url: `${root}/plans` })).json()).toHaveLength(1);
+    } finally { await app.close(); }
+  });
+  it.each(["generate", "repair"] as const)("rejects late %s output after A4 adoption with no candidate commit", async (mode) => {
+    const provider = new BlockingPassagePlanningProvider(mode, mode === "repair"), app = buildApp({ passagePlanningProvider: provider });
+    try {
+      const { projectId } = await approvedPassagePlan(app, 2), root = `/api/long-form/projects/${projectId}/passage-generation`;
+      const plan = (await app.inject({ method: "POST", url: `${root}/plans`, payload: { scope: { kind: "sequence", sequenceId: "sequence-main" }, providerId: provider.id, modelId: "fixture-v1" } })).json();
+      await app.inject({ method: "POST", url: `${root}/plans/${plan.id}/authorize`, payload: { fingerprint: plan.fingerprint } });
+      await app.inject({ method: "POST", url: `${root}/jobs/${plan.jobId}/start` }); await provider.started;
+      await adoptPassageAdaptation(app, projectId); provider.release();
+      const failed = await waitForTerminal(app, projectId, plan.jobId);
+      expect(failed).toMatchObject({ status: "failed", units: [{ status: "failed", candidate: null, normalizedError: { code: "adaptation_foundation_bootstrap_required", retryable: false } }] });
+      expect(provider.calls.map((c) => c.mode)).toEqual(mode === "repair" ? ["generate", "repair"] : ["generate"]);
+    } finally { provider.release(); await app.close(); }
+  });
   it("rejects a generated candidate when Creative Direction changes materially during the provider call", async () => {
     const provider = new BlockingPassagePlanningProvider("generate"); const app = buildApp({ passagePlanningProvider: provider });
     const { projectId } = await approvedPassagePlan(app, 2);

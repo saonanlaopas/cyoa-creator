@@ -10,7 +10,7 @@ const status = (error: unknown): 400 | 404 | 409 => {
   const item = error as Error & { code?: string };
   const message = item.message;
   if (message.includes("not found")) return 404;
-  if (["stale_drafting_plan", "bounded_drafting_context_missing", "bounded_drafting_context_inconsistent"].includes(item.code ?? "")) return 409;
+  if (["adaptation_foundation_bootstrap_required", "stale_drafting_plan", "bounded_drafting_context_missing", "bounded_drafting_context_inconsistent"].includes(item.code ?? "")) return 409;
   if (message.includes("transition") || message.includes("authorized") || message.includes("Approve")
     || message.includes("running") || message.includes("failed") || message.includes("unfinished")) return 409;
   return 400;

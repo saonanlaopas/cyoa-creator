@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ADAPTATION_INTENT_LIMITS, AdaptationIntentSchema, AdaptationPreviewInputSchema, AdaptationSuggestionSchema, FidelityPolicySchema, PlannedWordsSchema,
   FIDELITY_PRESETS, adaptationBudget, adaptationOverrideConflicts, applyAdaptationOperations, assertRequestedSemantics, expandFidelityPreset, legacyFidelityPreset,
   newAdaptationIntent, normalizeAdaptationIntent, sourceCanonicalJson, sourceDigest, type AdaptationIntent, type AdaptationProposal } from "@story-to-cyoa/domain";
-import { ArtifactRepository, WorkflowRepository, adaptationSuggestionContext, assertAdaptationFresh, assertAdaptationProposalBudget, transaction, validateAdaptationIntent, type ArtifactVersion, type StoryDatabase } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, WorkflowRepository, adaptationSuggestionContext, assertAdaptationFresh, assertAdaptationMutationScope, assertAdaptationProposalBudget, transaction, validateAdaptationIntent, type ArtifactVersion, type StoryDatabase } from "@story-to-cyoa/persistence";
 import type { AdaptationIntentProvider, AdaptationProviderRequest } from "./adaptation-intent-provider.js";
 
 const createSchema = z.object({ preset: z.enum(FIDELITY_PRESETS).default("meaningful-divergence"), legacyBriefVersionId: z.string().min(1).optional(), baseVersionId: z.string().min(1).optional() }).strict();
@@ -146,7 +146,7 @@ export class AdaptationIntentService {
     this.previews.set(preview.id, preview);
     return { id: preview.id, fingerprint: preview.fingerprint, baseVersionId: preview.baseVersionId, precondition: preview.baseVersionId ? "exact-base" : "must-not-exist",
       binding, providerId: input.providerId, modelId: input.modelId, promptVersion: "adaptation-intent-v1", schemaVersion: 1,
-      records: context.context.records, budget: context.context.budget, bytes: preview.bytes, maximumContextBytes: ADAPTATION_INTENT_LIMITS.contextBytes,
+      records: context.context.records, mutationScope: context.mutationScope, budget: context.context.budget, bytes: preview.bytes, maximumContextBytes: ADAPTATION_INTENT_LIMITS.contextBytes,
       maximumOutputBytes: ADAPTATION_INTENT_LIMITS.outputBytes, maximumOutputTokens: 4000, estimatedInputTokens: Math.ceil(preview.bytes / 4),
       cost: input.providerId === "offline-adaptation-intent" ? 0 : null, costStatus: input.providerId === "offline-adaptation-intent" ? "known" : "unknown" };
   }
@@ -195,6 +195,7 @@ export class AdaptationIntentService {
       }
       if (controller.signal.aborted) throw new Error("adaptation_generation_cancelled");
       const context = this.fresh(preview);
+      assertAdaptationMutationScope(context.base, suggestion, context.mutationScope);
       const candidate = normalizeAdaptationIntent({ ...applyAdaptationOperations(context.base, suggestion, sourceDigest(preview.input.request)),
         revision: { kind: "proposal", previousVersionId: preview.baseVersionId, requestDigest: sourceDigest(preview.input.request) } });
       validateAdaptationIntent(this.database, projectId, candidate);

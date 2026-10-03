@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { assertPassageFidelityAuthority } from "./adaptation-passage-authority.js";
 import {
   buildPassageDraftingContext,
   buildPassageDraftingPlan,
@@ -99,6 +100,7 @@ export class PassageDraftingService {
 
   authorize(projectId: string, planId: string, fingerprint: string): DraftingPlanRecord {
     this.requireProject(projectId);
+    assertPassageFidelityAuthority(this.artifacts, projectId);
     return this.drafting.authorize(projectId, planId, fingerprint);
   }
 
@@ -128,6 +130,7 @@ export class PassageDraftingService {
 
   retryUnit(projectId: string, jobId: string, unitId: string): DraftingJobRecord {
     this.requireProject(projectId);
+    assertPassageFidelityAuthority(this.artifacts, projectId);
     return this.drafting.retryUnit(projectId, jobId, unitId);
   }
 
@@ -144,6 +147,7 @@ export class PassageDraftingService {
 
   private build(projectId: string, request: PassageDraftingPlanRequest) {
     this.requireProject(projectId);
+    assertPassageFidelityAuthority(this.artifacts, projectId);
     const state = this.passagePlans.state(projectId);
     if (state.status !== "approved" || !state.approvedSnapshotId) {
       throw new Error("Approve the passage-plan snapshot before creating a drafting plan");
@@ -347,6 +351,7 @@ export class PassageDraftingService {
   }
 
   private assertPlanFresh(plan: DraftingPlanRecord, unitId?: string): void {
+    assertPassageFidelityAuthority(this.artifacts, plan.projectId);
     const passagePlanState = this.passagePlans.state(plan.projectId);
     if (passagePlanState.status !== "approved"
       || passagePlanState.approvedSnapshotId !== plan.snapshotId) {
@@ -411,6 +416,7 @@ export class PassageDraftingService {
         code: "bounded_drafting_context_inconsistent", retryable: false,
       });
     }
+    assertPassageFidelityAuthority(this.artifacts, context.identity.projectId);
     return context;
   }
 

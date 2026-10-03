@@ -1,14 +1,20 @@
-import { describe, expect, it } from "vitest";
-import { AdaptationIntentSchema, newAdaptationIntent, normalizeAdaptationIntent, sourceCanonicalJson, type AdaptationIntent, type SourceDossier } from "@story-to-cyoa/domain";
-import { ArtifactRepository, ChangeSetRepository, ConversationRepository, PortableProjectRepository, WorkflowRepository, openDatabase, validateAdaptationDatabase } from "../src/index.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { AdaptationIntentSchema, adaptationIntentFingerprints, applyAdaptationOperations, newAdaptationIntent, normalizeAdaptationIntent, sourceCanonicalJson, sourceDigest, type AdaptationIntent, type AdaptationProposal, type SourceDossier } from "@story-to-cyoa/domain";
+import { ArtifactRepository, ChangeSetRepository, ConversationRepository, PortableProjectRepository, WorkflowRepository, adaptationSuggestionContext, assertAdaptationMutationScope, openDatabase, validateAdaptationDatabase, type StoryDatabase } from "../src/index.js";
 import { analysisFixture } from "./source-analysis-fixture.js";
 
-export function intentFixture(approved = true) {
-  const fixture = analysisFixture(openDatabase(), { metadata: { title: "Harbor", sourceFormat: "txt" }, chapters: [{ id: "chapter", title: "Finale", order: 0, blocks: [{ type: "paragraph", excerptId: "collapse", text: "Ren dies during the harbor collapse. Mira leaves the harbor at the ending." }] }] });
+const directories: string[] = [];
+afterEach(() => directories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
+
+export function intentFixture(approved = true, category: SourceDossier["records"][number]["category"] = "event", database: StoryDatabase = openDatabase()) {
+  const fixture = analysisFixture(database, { metadata: { title: "Harbor", sourceFormat: "txt" }, chapters: [{ id: "chapter", title: "Finale", order: 0, blocks: [{ type: "paragraph", excerptId: "collapse", text: "Ren dies during the harbor collapse. Mira leaves the harbor at the ending." }] }] });
   const job = fixture.repository.createJob(fixture.projectId, fixture.plan.id, fixture.plan.fingerprint);
   for (const unit of fixture.plan.units) {
     const attempt = fixture.repository.beginAttempt(fixture.projectId, job.id, unit.id);
-    fixture.repository.finishAttempt(fixture.projectId, job.id, unit.id, attempt.id, { status: "completed", output: { schemaVersion: 1, observations: [{ id: "death", category: "event", identityKey: "Harbor collapse", field: "outcome", claim: "Ren dies during the harbor collapse.", classification: "source-canon", aliases: [], references: [], evidence: [unit.ranges[0]!], uncertainty: "" }] } });
+    fixture.repository.finishAttempt(fixture.projectId, job.id, unit.id, attempt.id, { status: "completed", output: { schemaVersion: 1, observations: [{ id: "death", category, identityKey: "Harbor collapse", field: "outcome", claim: "Ren dies during the harbor collapse.", classification: "source-canon", aliases: [], references: [], evidence: [unit.ranges[0]!], uncertainty: "" }] } });
   }
   fixture.repository.settle(fixture.projectId, job.id);
   const workflow = new WorkflowRepository(fixture.database);
@@ -18,6 +24,68 @@ export function intentFixture(approved = true) {
   return { ...fixture, workflow, dossier, intent, save: (content: AdaptationIntent) => fixture.artifacts.saveArtifact({ projectId: fixture.projectId, artifactId: "adaptation-intent", content }) };
 }
 describe("Adaptation Intent persistence authority", () => {
+  it.each([["ending", "turning-point"], ["reveal", "unresolved-thread"], ["world", "world-fact"]] as const)("accepts requested %s targeting an actual A3 %s record", (kind, category) => {
+    const f = intentFixture(true, category), record = f.dossier.content.records[0]!;
+    const version = f.save(normalizeAdaptationIntent({ ...f.intent, obligations: [{ id: "requested", status: "requested", kind,
+      targetIds: [record.id], evidence: record.evidence, requirement: "Retain this source commitment", strength: "required", transformations: [],
+      scope: "project", rationale: "Author request", provenance: { origin: "manual", projectId: f.projectId } }] }));
+    f.workflow.approve(f.projectId, "adaptation-intent", version.id); expect(version.content.obligations[0]?.kind).toBe(kind); f.database.close();
+  });
+  it.each(["effect", "requirement", "permission", "description", "rationale"])("rejects achieved claims in durable %s at write and portable-import boundaries", (field) => {
+    const f = intentFixture(), record = f.dossier.content.records[0]!, common = { scope: "project", rationale: "Author request", provenance: { origin: "manual" as const, projectId: f.projectId } };
+    const valid = normalizeAdaptationIntent({ ...f.intent,
+      overrides: [{ ...common, id: "override", authority: "author-override", targetIds: [record.id], aspect: "state", effect: "Survives", active: true, reviewed: true }],
+      obligations: [{ ...common, id: "obligation", status: "requested", kind: "ending", targetIds: [record.id], evidence: record.evidence, requirement: "Retain the ending", strength: "required", transformations: [] }],
+      exceptions: [{ ...common, id: "exception", obligationId: "obligation", targetIds: [record.id], evidence: record.evidence, permission: "Compress delivery", reviewed: true }],
+      inventions: [{ ...common, id: "invention", origin: "adaptation-only", kind: "scene", description: "New scene", dependencyIds: [] }],
+    });
+    f.save(valid); const bundle = new PortableProjectRepository(f.database).exportRows(f.projectId), invalid = structuredClone(valid);
+    if (field === "effect") invalid.overrides[0]!.effect = "Canon route achieved";
+    if (field === "requirement") invalid.obligations[0]!.requirement = "Source ending preserved";
+    if (field === "permission") invalid.exceptions[0]!.permission = "Route is reachable";
+    if (field === "description") invalid.inventions[0]!.description = "Canon preservation verified";
+    if (field === "rationale") invalid.expansion = [{ ...common, id: "expansion", origin: "branching", description: "New branches", rationale: "The ending has been preserved", sourceRecordIds: [], overrideIds: [], inventionIds: [], dependencyIds: [], allocation: { kind: "unknown" } }];
+    Object.assign(invalid, adaptationIntentFingerprints(invalid));
+    expect(() => f.save(invalid)).toThrow("adaptation_achieved_claim_forbidden");
+    bundle.tables.artifact_versions.find((row) => row.artifact_id === "adaptation-intent")!.content_json = JSON.stringify(invalid);
+    const target = openDatabase(); expect(() => new PortableProjectRepository(target).importRows(bundle, validateAdaptationDatabase)).toThrow("adaptation_achieved_claim_forbidden");
+    expect(target.prepare("SELECT id FROM projects").all()).toEqual([]); expect(f.artifacts.listVersions(f.projectId, "adaptation-intent")).toHaveLength(1);
+    target.close(); f.database.close();
+  });
+  it.each(["overwrite", "remove"])("rejects unseen invention %s in direct writes, stored-history validation and atomic import", (kind) => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-a4-scope-")); directories.push(directory); const path = join(directory, "project.sqlite");
+    const f = intentFixture(true, "event", openDatabase(path)), invention = { id: "unseen", scope: "project", rationale: "Author request", origin: "adaptation-only" as const, kind: "scene" as const, description: "Original scene", dependencyIds: [] };
+    const base = f.save(normalizeAdaptationIntent({ ...f.intent, inventions: [{ ...invention, provenance: { origin: "manual", projectId: f.projectId } }] }));
+    const input = { request: "Adjust tone", recordIds: [f.dossier.content.records[0]!.id], providerId: "offline-adaptation-intent", modelId: "offline-a4-v1" };
+    const context = adaptationSuggestionContext(f.database, f.projectId, f.intent.binding, base.id, input);
+    const validSuggestion = { schemaVersion: 1 as const, intent: "adaptation-preference" as const, operations: [{ kind: "dimension" as const, dimension: "tone" as const, level: "strict" as const }] };
+    const suggestion: AdaptationProposal["suggestion"] = { ...validSuggestion, operations: kind === "remove" ? [{ kind: "remove", collection: "inventions", id: invention.id }] : [{ kind: "invention", value: { ...invention, description: "Replacement scene" } }] };
+    const proposal = (suggestion: AdaptationProposal["suggestion"]): AdaptationProposal => ({ schemaId: "adaptation-intent-proposal", schemaVersion: 1,
+      projectId: f.projectId, baseVersionId: base.id, input, binding: f.intent.binding, contextFingerprint: context.fingerprint, promptVersion: "adaptation-intent-v1",
+      suggestion, candidate: normalizeAdaptationIntent({ ...applyAdaptationOperations(base.content, suggestion, sourceDigest(input.request)), revision: { kind: "proposal", previousVersionId: base.id, requestDigest: sourceDigest(input.request) } }), status: "pending", appliedVersionId: null });
+    const hostile = proposal(suggestion), artifactId = "adaptation-intent-proposal-scope";
+    expect(() => f.artifacts.saveArtifact({ projectId: f.projectId, artifactId, artifactType: "adaptation-intent-proposal", content: hostile })).toThrow("adaptation_mutation_scope_invalid");
+    const saved = f.artifacts.saveArtifact({ projectId: f.projectId, artifactId, artifactType: "adaptation-intent-proposal", content: proposal(validSuggestion) });
+    const bundle = new PortableProjectRepository(f.database).exportRows(f.projectId);
+    bundle.tables.artifact_versions.find((row) => row.id === saved.id)!.content_json = JSON.stringify(hostile);
+    const target = openDatabase(); expect(() => new PortableProjectRepository(target).importRows(bundle, validateAdaptationDatabase)).toThrow("adaptation_mutation_scope_invalid");
+    expect(target.prepare("SELECT id FROM projects").all()).toEqual([]); target.close();
+    f.database.prepare("UPDATE artifact_versions SET content_json = ? WHERE id = ?").run(JSON.stringify(hostile), saved.id);
+    expect(() => validateAdaptationDatabase(f.database)).toThrow("adaptation_mutation_scope_invalid"); f.database.close();
+    expect(() => openDatabase(path)).toThrow(expect.objectContaining({ cause: expect.objectContaining({ message: "adaptation_mutation_scope_invalid" }) }));
+  });
+  it("permits previewed-item edits and new IDs, but not cross-collection collisions or unseen references", () => {
+    const f = intentFixture(), record = f.dossier.content.records[0]!, value = { id: "visible", authority: "author-override" as const, targetIds: [record.id], aspect: "state", effect: "Survives", scope: "project", rationale: "Author request", active: true, reviewed: true };
+    const base = f.save(normalizeAdaptationIntent({ ...f.intent, overrides: [{ ...value, provenance: { origin: "manual", projectId: f.projectId } }] }));
+    const context = adaptationSuggestionContext(f.database, f.projectId, f.intent.binding, base.id, { request: "Adjust", recordIds: [record.id], providerId: "offline", modelId: "fixture" });
+    const suggestion = (operations: AdaptationProposal["suggestion"]["operations"]): AdaptationProposal["suggestion"] => ({ schemaVersion: 1, intent: "adaptation-preference", operations });
+    for (const operations of [[{ kind: "override" as const, value: { ...value, effect: "Leaves" } }], [{ kind: "remove" as const, collection: "overrides" as const, id: value.id }], [{ kind: "invention" as const, value: { id: "new", origin: "adaptation-only" as const, kind: "scene" as const, scope: "project", rationale: "Requested", description: "New scene", dependencyIds: [value.id] } }]]) {
+      expect(() => assertAdaptationMutationScope(base.content, suggestion(operations), context.mutationScope)).not.toThrow();
+    }
+    expect(() => assertAdaptationMutationScope(base.content, suggestion([{ kind: "invention", value: { id: value.id, origin: "adaptation-only", kind: "scene", scope: "project", rationale: "Requested", description: "New scene", dependencyIds: [] } }]), context.mutationScope)).toThrow("adaptation_mutation_scope_invalid");
+    expect(() => assertAdaptationMutationScope(base.content, suggestion([{ kind: "invention", value: { id: "new", origin: "adaptation-only", kind: "scene", scope: "project", rationale: "Requested", description: "New scene", dependencyIds: ["unseen"] } }]), context.mutationScope)).toThrow("adaptation_mutation_scope_invalid");
+    f.database.close();
+  });
   it("prevents generic change-set application from bypassing the reviewed A4 boundary", () => {
     const f = intentFixture(), first = f.save(f.intent), changes = new ChangeSetRepository(f.database);
     const conversation = new ConversationRepository(f.database).create(f.projectId, { kind: "project", projectId: f.projectId });

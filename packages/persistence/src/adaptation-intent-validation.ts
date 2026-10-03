@@ -1,5 +1,5 @@
 import { ADAPTATION_INTENT_LIMITS, AdaptationIntentSchema, AdaptationProposalSchema, adaptationBudget, assertAdaptationDossier, applyAdaptationOperations, newAdaptationIntent, normalizeAdaptationIntent,
-  sourceCanonicalJson, sourceDigest, resolveSourceEvidence, type AdaptationIntent, type AdaptationProposal } from "@story-to-cyoa/domain";
+  sourceCanonicalJson, sourceDigest, resolveSourceEvidence, type AdaptationIntent, type AdaptationProposal, type AdaptationSuggestion } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
 import { analysisBindingSource, assertAnalysisFresh, validateAnalysisPlan, validateDossierPersistence } from "./source-analysis-validation.js";
 
@@ -106,12 +106,45 @@ export function adaptationSuggestionContext(database: StoryDatabase, projectId: 
   const serialized = sourceCanonicalJson(context);
   // Reserve half the request budget for instructions, schema, and one bounded structural repair.
   if (Buffer.byteLength(serialized) > 20_000) throw new Error("adaptation_context_overflow");
-  return { base, dossier, context, serialized, fingerprint: sourceDigest(context) };
+  // Derive scope from the exact fingerprinted v1 context without changing historical fingerprints.
+  const mutationScope = { sourceRecordIds: records.map((r) => r.id), existingItems: [
+    ...context.activeOverrides.map((r) => ({ collection: "overrides" as const, id: r.id })),
+    ...context.obligations.map((r) => ({ collection: "obligations" as const, id: r.id })),
+  ] };
+  return { base, dossier, context, mutationScope, serialized, fingerprint: sourceDigest(context) };
+}
+export function assertAdaptationMutationScope(base: AdaptationIntent, suggestion: AdaptationSuggestion,
+  scope: ReturnType<typeof adaptationSuggestionContext>["mutationScope"]): void {
+  const collections = { override: "overrides", invention: "inventions", obligation: "obligations", exception: "exceptions", expansion: "expansion" } as const;
+  const existing = new Map(["overrides", "inventions", "obligations", "exceptions", "expansion"].flatMap((collection) =>
+    base[collection as "overrides"].map((item) => [item.id, collection] as const)));
+  const authorized = new Set(scope.existingItems.map((item) => `${item.collection}:${item.id}`));
+  const proposed = new Set(suggestion.operations.flatMap((op) => "value" in op && !existing.has(op.value.id) ? [op.value.id] : []));
+  const sourceIds = new Set(scope.sourceRecordIds);
+  for (const op of suggestion.operations) {
+    if (op.kind === "dimension" || op.kind === "preservation") continue;
+    const collection = op.kind === "remove" ? op.collection : collections[op.kind];
+    const id = op.kind === "remove" ? op.id : op.value.id;
+    if (op.kind === "remove" || existing.has(id)) {
+      if (existing.get(id) !== collection || !authorized.has(`${collection}:${id}`)) throw new Error("adaptation_mutation_scope_invalid");
+    }
+    if (op.kind === "remove") continue;
+    const item = op.value;
+    const targets = "targetIds" in item ? item.targetIds : "sourceRecordIds" in item ? item.sourceRecordIds : [];
+    if (targets.some((id) => !sourceIds.has(id))) throw new Error("adaptation_source_scope_invalid");
+    const references = [
+      ...("dependencyIds" in item ? item.dependencyIds : []),
+      ...("obligationId" in item ? [item.obligationId] : []),
+      ...("overrideIds" in item ? [...item.overrideIds, ...item.inventionIds] : []),
+    ];
+    if (references.some((id) => !proposed.has(id) && !scope.existingItems.some((item) => item.id === id))) throw new Error("adaptation_mutation_scope_invalid");
+  }
 }
 export function validateAdaptationProposal(database: StoryDatabase, projectId: string, value: unknown): AdaptationProposal {
   const proposal = AdaptationProposalSchema.parse(value);
   if (proposal.projectId !== projectId || proposal.candidate.projectId !== projectId || sourceCanonicalJson(proposal.binding) !== sourceCanonicalJson(proposal.candidate.binding)) throw new Error("adaptation_proposal_project_invalid");
   const context = adaptationSuggestionContext(database, projectId, proposal.binding, proposal.baseVersionId, proposal.input);
+  assertAdaptationMutationScope(context.base, proposal.suggestion, context.mutationScope);
   const expected = normalizeAdaptationIntent({ ...applyAdaptationOperations(context.base, proposal.suggestion, sourceDigest(proposal.input.request)),
     revision: { kind: "proposal", previousVersionId: proposal.baseVersionId, requestDigest: sourceDigest(proposal.input.request) } });
   if (proposal.contextFingerprint !== context.fingerprint || sourceCanonicalJson(expected) !== sourceCanonicalJson(proposal.candidate)) throw new Error("adaptation_proposal_derivation_invalid");

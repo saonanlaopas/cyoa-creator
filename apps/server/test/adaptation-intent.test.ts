@@ -33,6 +33,61 @@ async function preview(f: Awaited<ReturnType<typeof fixture>>, extra: Record<str
   expect(response.statusCode, response.body).toBe(200); return response.json();
 }
 describe("A4 manual and conversational boundary", () => {
+  it.each(["effect", "requirement", "permission", "description", "rationale"])("rejects achieved %s claims from manual edits and provider output without durable writes", async (field) => {
+    let operations: unknown[] = [];
+    const provider = new DeterministicAdaptationIntentProvider({ respond: () => JSON.stringify({ schemaVersion: 1, intent: "adaptation-preference", operations }) });
+    const f = await fixture(provider), created = await create(f), record = f.dossier.records.find((r: { category: string }) => r.category === "event");
+    const common = { scope: "project", rationale: "Author request" };
+    const obligation = { ...common, id: "requested", status: "requested", kind: "event", targetIds: [record.id], evidence: record.evidence, requirement: "Keep the event", strength: "required", transformations: [] };
+    if (field === "effect") operations = [{ kind: "override", value: { ...common, id: "override", authority: "author-override", targetIds: [record.id], aspect: "state", effect: "Canon route achieved", active: true, reviewed: true } }];
+    if (field === "requirement") operations = [{ kind: "obligation", value: { ...obligation, requirement: "Source ending preserved" } }];
+    if (field === "permission") operations = [{ kind: "obligation", value: obligation }, { kind: "exception", value: { ...common, id: "exception", obligationId: obligation.id, targetIds: [record.id], evidence: record.evidence, permission: "Route is reachable", reviewed: true } }];
+    if (field === "description" || field === "rationale") operations = [{ kind: "invention", value: { ...common, id: "invention", origin: "adaptation-only", kind: "scene", description: "New scene", dependencyIds: [], [field]: field === "description" ? "Canon preservation verified" : "The ending has been preserved" } }];
+    const manual = await f.call("/edit", { baseVersionId: created.current.id, operations }); expect(manual.statusCode).toBeGreaterThanOrEqual(400);
+    const p = await preview(f, { recordIds: [record.id] });
+    const generated = await f.call("/generate", { previewId: p.id, fingerprint: p.fingerprint }); expect(generated.json().code).toBe("adaptation_achieved_claim_forbidden");
+    expect(provider.calls).toHaveLength(1); expect((await f.call("/history")).json().total).toBe(1); expect((await f.call("/proposals")).json().items).toEqual([]);
+  });
+  it.each(["overrides", "inventions", "obligations", "exceptions", "expansion"] as const)("rejects unseen %s overwrite and removal outside preview scope", async (collection) => {
+    let operations: unknown[] = [];
+    const provider = new DeterministicAdaptationIntentProvider({ respond: () => JSON.stringify({ schemaVersion: 1, intent: "adaptation-preference", operations }) });
+    const f = await fixture(provider), created = await create(f), record = f.dossier.records.find((r: { category: string }) => r.category === "event"), common = { scope: "project", rationale: "Author request" };
+    const initial = [
+      { kind: "override", value: { ...common, id: "override", authority: "author-override", targetIds: [record.id], aspect: "state", effect: "Survives", active: true, reviewed: true } },
+      { kind: "invention", value: { ...common, id: "invention", origin: "adaptation-only", kind: "scene", description: "Original scene", dependencyIds: [] } },
+      { kind: "obligation", value: { ...common, id: "obligation", status: "requested", kind: "event", targetIds: [record.id], evidence: record.evidence, requirement: "Keep the event", strength: "required", transformations: [] } },
+      { kind: "exception", value: { ...common, id: "exception", obligationId: "obligation", targetIds: [record.id], evidence: record.evidence, permission: "Compress delivery", reviewed: true } },
+      { kind: "expansion", value: { ...common, id: "expansion", origin: "branching", description: "New branches", sourceRecordIds: [], overrideIds: [], inventionIds: [], dependencyIds: [], allocation: { kind: "unknown" } } },
+    ];
+    const added = await f.call("/edit", { baseVersionId: created.current.id, operations: initial }); expect(added.statusCode, added.body).toBe(200);
+    const before = (await f.call("/export")).json(), item = initial.find((op) => collection === `${op.kind}s` || (collection === "expansion" && op.kind === "expansion"))!;
+    for (const hostile of [item, { kind: "remove", collection, id: item.value.id }]) {
+      operations = [hostile]; const p = await preview(f, { recordIds: [] }); expect(p.mutationScope).toEqual({ sourceRecordIds: [], existingItems: [] });
+      const generated = await f.call("/generate", { previewId: p.id, fingerprint: p.fingerprint }); expect(generated.json().code).toBe("adaptation_mutation_scope_invalid");
+    }
+    expect((await f.call("/export")).json()).toEqual(before); expect((await f.call("/proposals")).json().items).toEqual([]);
+  });
+  it("rejects valid same-dossier source IDs that were not supplied to the provider", async () => {
+    let recordId = "";
+    const provider = new DeterministicAdaptationIntentProvider({ respond: () => JSON.stringify({ schemaVersion: 1, intent: "adaptation-preference", operations: [{ kind: "override", value: {
+      id: "new", authority: "author-override", targetIds: [recordId], aspect: "state", effect: "Survives", scope: "project", rationale: "Requested", active: true, reviewed: true,
+    } }] }) });
+    const f = await fixture(provider); await create(f); expect(f.dossier.records.length).toBeGreaterThan(1); recordId = f.dossier.records[1].id;
+    const p = await preview(f), generated = await f.call("/generate", { previewId: p.id, fingerprint: p.fingerprint }); expect(generated.json().code).toBe("adaptation_source_scope_invalid");
+    expect((await f.call("/proposals")).json().items).toEqual([]); expect((await f.call("/history")).json().total).toBe(1);
+  });
+  it("accepts an explicitly previewed override update and noncolliding invention, with provider-free Apply", async () => {
+    let operations: unknown[] = [];
+    const provider = new DeterministicAdaptationIntentProvider({ respond: () => JSON.stringify({ schemaVersion: 1, intent: "adaptation-preference", operations }) }), f = await fixture(provider);
+    const created = await create(f), record = f.dossier.records.find((r: { category: string }) => r.category === "event");
+    const value = { id: "visible", authority: "author-override", targetIds: [record.id], aspect: "state", effect: "Survives", scope: "project", rationale: "Author request", active: true, reviewed: true };
+    expect((await f.call("/edit", { baseVersionId: created.current.id, operations: [{ kind: "override", value }] })).statusCode).toBe(200);
+    operations = [{ kind: "override", value: { ...value, effect: "Leaves" } }, { kind: "invention", value: { id: "new", scope: "project", rationale: "Requested", origin: "adaptation-only", kind: "scene", description: "New scene", dependencyIds: [value.id] } }];
+    const p = await preview(f, { recordIds: [record.id] }); expect(p.mutationScope).toEqual({ sourceRecordIds: [record.id], existingItems: [{ collection: "overrides", id: value.id }] });
+    const generated = await f.call("/generate", { previewId: p.id, fingerprint: p.fingerprint }); expect(generated.statusCode, generated.body).toBe(200);
+    expect((await f.call("/apply", { versionId: generated.json().versionId })).statusCode).toBe(200);
+    expect((await f.call("/collections/overrides")).json().items[0].effect).toBe("Leaves"); expect((await f.call("/collections/inventions")).json().items).toHaveLength(1); expect(provider.calls).toHaveLength(1);
+  });
   it("times out even an abort-ignoring provider without a late or partial write", async () => {
     let release!: (raw: string) => void;
     const provider = new DeterministicAdaptationIntentProvider({ respond: () => new Promise((r) => { release = r; }) }), f = await fixture(provider);

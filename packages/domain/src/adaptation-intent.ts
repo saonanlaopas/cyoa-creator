@@ -85,7 +85,8 @@ export function adaptationOverrideConflicts(overrides: AdaptationIntent["overrid
   return sourceSorted(conflicts);
 }
 export function assertRequestedSemantics(value: unknown): void {
-  const achieved = /\b(?:route (?:is )?preserved|route (?:already )?exists|ending (?:is )?reachable|canon graph (?:is )?preserved|obligation (?:is )?(?:achieved|satisfied)|fidelity (?:is )?verified|generated structure satisfies|scenes (?:have been|are) faithfully reproduced|graph reachability (?:is )?(?:verified|proven))\b/i;
+  // A4 can request preservation, but cannot certify any downstream outcome.
+  const achieved = /\b(?:(?:(?:canon|canonical|source)\s+)?(?:route|ending|graph|preservation|fidelity|obligation|graph\s+reachability)\s+(?:(?:(?:is|are|was|were)\s+(?:already\s+)?|(?:has|have)\s+(?:already\s+)?been\s+|already\s+))?(?:preserved|achieved|satisfied|reachable|verified|proven|exists)|generated\s+structure\s+satisfies|scenes\s+(?:have\s+been|are)\s+faithfully\s+reproduced)\b/i;
   const walk = (item: unknown): boolean => typeof item === "string" ? achieved.test(item)
     : Array.isArray(item) ? item.some(walk) : !!item && typeof item === "object" && Object.values(item).some(walk);
   if (walk(value)) throw new Error("adaptation_achieved_claim_forbidden");
@@ -157,8 +158,8 @@ export function assertAdaptationDossier(intent: AdaptationIntent, dossier: Sourc
   for (const item of [...intent.obligations, ...intent.exceptions]) {
     const records = targets(item.targetIds);
     if ("kind" in item) {
-      const categories: Record<typeof item.kind, string[]> = { event: ["event", "turningpoint"], relationship: ["relationship"], reveal: ["event", "knowledge", "unresolvedthread"],
-        "character-state": ["character"], chronology: ["chronology", "event", "turningpoint"], ending: ["event", "turningpoint", "chronology"], world: ["worldfact", "rule", "location", "institution"], tone: ["tone", "style", "theme"] };
+      const categories: Record<typeof item.kind, SourceDossier["records"][number]["category"][]> = { event: ["event", "turning-point"], relationship: ["relationship"], reveal: ["event", "knowledge", "unresolved-thread"],
+        "character-state": ["character"], chronology: ["chronology", "event", "turning-point"], ending: ["event", "turning-point", "chronology"], world: ["world-fact", "rule", "location", "institution"], tone: ["tone", "style", "theme"] };
       if (records.some((r) => !categories[item.kind].includes(r.category))) throw new Error("adaptation_obligation_kind_unsupported");
     }
     if (item.evidence.some((e) => !records.some((r) => r.evidence.some((actual) => sourceCanonicalJson(e) === sourceCanonicalJson(actual))))) throw new Error("adaptation_obligation_evidence_invalid");

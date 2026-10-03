@@ -25,6 +25,7 @@ import {
 } from "@story-to-cyoa/pipeline";
 import { redactSecret } from "@story-to-cyoa/openrouter";
 import { createHash } from "node:crypto";
+import { assertPassageFidelityAuthority } from "./adaptation-passage-authority.js";
 import type {
   ArtifactRepository,
   GenerationJobRecord,
@@ -98,6 +99,7 @@ export class PassageGenerationService {
 
   authorize(projectId: string, planId: string, fingerprint: string): GenerationPlanRecord {
     this.requireProject(projectId);
+    assertPassageFidelityAuthority(this.artifacts, projectId);
     return this.generations.authorize(projectId, planId, fingerprint);
   }
 
@@ -134,6 +136,7 @@ export class PassageGenerationService {
 
   retry(projectId: string, jobId: string, unitId: string): GenerationJobRecord {
     this.requireProject(projectId);
+    assertPassageFidelityAuthority(this.artifacts, projectId);
     return this.generations.retryUnit(projectId, jobId, unitId);
   }
 
@@ -144,6 +147,7 @@ export class PassageGenerationService {
 
   private build(projectId: string, request: PassageGenerationPlanRequest) {
     this.requireProject(projectId);
+    assertPassageFidelityAuthority(this.artifacts, projectId);
     const state = this.passagePlans.state(projectId);
     if (state.status !== "approved" || !state.approvedSnapshotId) {
       throw new Error("Approve a passage-plan snapshot before creating a generation plan");
@@ -328,6 +332,7 @@ export class PassageGenerationService {
   }
 
   private assertPlanFresh(plan: GenerationPlanRecord): void {
+    assertPassageFidelityAuthority(this.artifacts, plan.projectId);
     const expectedVersionId = plan.upstreamVersions["creative-direction"];
     if (!expectedVersionId) return;
     const current = this.workflow.get(plan.projectId, "creative-direction");
@@ -353,9 +358,7 @@ export class PassageGenerationService {
         code: "bounded_context_inconsistent", retryable: false,
       });
     }
-    if (this.artifacts.getCurrent(context.identity.projectId, "adaptation-intent") && "adaptationFidelity" in context.upstream.brief) {
-      throw staleGenerationPlanError("Adaptation Intent now owns fidelity; create a new bounded generation plan");
-    }
+    assertPassageFidelityAuthority(this.artifacts, context.identity.projectId);
     return context;
   }
 

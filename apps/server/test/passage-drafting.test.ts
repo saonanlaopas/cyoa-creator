@@ -8,6 +8,7 @@ import { stableFingerprint } from "@story-to-cyoa/runtime";
 import { buildApp } from "../src/app.js";
 import { DeterministicPassagePlanningProvider } from "../src/services/passage-planning-provider.js";
 import { DeterministicPassageDraftingProvider } from "../src/services/passage-drafting-provider.js";
+import { adoptPassageAdaptation } from "./adaptation-passage-fixture.js";
 
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
@@ -163,6 +164,40 @@ function expectNoCompletedRacePersistence(databasePath: string, jobId: string): 
 }
 
 describe("Foundation 4B-1 draft architecture API", () => {
+  it("blocks new and old legacy-fidelity drafting contexts after A4 adoption, while manual prose remains available", async () => {
+    const provider = new DeterministicPassageDraftingProvider(), app = buildApp({ passageDraftingProvider: provider });
+    try {
+      const { projectId, plan: passagePlan } = await createApprovedFixture(app), root = `/api/long-form/projects/${projectId}/drafting`;
+      const passageId = passagePlan.passages[0].entityId, payload = { scope: { kind: "passages", passageIds: [passageId] }, providerId: provider.id, modelId: "deterministic-prose-v1" };
+      const plan = (await app.inject({ method: "POST", url: `${root}/plans`, payload })).json();
+      expect(plan.units[0].context.upstream.brief).toHaveProperty("adaptationFidelity");
+      await app.inject({ method: "POST", url: `${root}/plans/${plan.id}/authorize`, payload: { fingerprint: plan.fingerprint } });
+      await adoptPassageAdaptation(app, projectId);
+      for (const [url, body] of [[`${root}/plans/preview`, payload], [`${root}/plans`, payload], [`${root}/plans/${plan.id}/authorize`, { fingerprint: plan.fingerprint }], [`${root}/jobs/${plan.jobId}/start`, {}], [`${root}/jobs/${plan.jobId}/units/${plan.units[0].id}/retry`, {}]] as const) {
+        const response = await app.inject({ method: "POST", url, payload: body }); expect(response.statusCode, response.body).toBe(409);
+        expect(response.json()).toMatchObject({ code: "adaptation_foundation_bootstrap_required", retryable: false }); expect(response.json().error).toContain("A5 foundation bootstrap");
+      }
+      expect(provider.calls).toHaveLength(0); expect((await app.inject({ url: `${root}/plans` })).json()).toHaveLength(1);
+      const manual = await app.inject({ method: "PUT", url: `/api/long-form/projects/${projectId}/drafts/passages/${passageId}`, payload: { proseMarkdown: "Ren crosses the harbor.", authorNote: "Manual work remains available" } });
+      expect(manual.statusCode, manual.body).toBe(201);
+    } finally { await app.close(); }
+  });
+  it.each(["generate", "repair"] as const)("rejects late drafting %s after A4 adoption without generated prose", async (mode) => {
+    const provider = new BlockingPassageDraftingProvider({ malformedFirstSuccessfulRequest: mode === "repair" }), app = buildApp({ passageDraftingProvider: provider });
+    try {
+      const { projectId, plan: passagePlan } = await createApprovedFixture(app), root = `/api/long-form/projects/${projectId}/drafting`;
+      const passageId = passagePlan.passages[0].entityId;
+      const plan = (await app.inject({ method: "POST", url: `${root}/plans`, payload: { scope: { kind: "passages", passageIds: [passageId] }, providerId: provider.id, modelId: "deterministic-prose-v1" } })).json();
+      await app.inject({ method: "POST", url: `${root}/plans/${plan.id}/authorize`, payload: { fingerprint: plan.fingerprint } });
+      await app.inject({ method: "POST", url: `${root}/jobs/${plan.jobId}/start` }); await provider.waitForCall(0);
+      if (mode === "repair") { provider.releaseCall(0); await provider.waitForCall(1); }
+      await adoptPassageAdaptation(app, projectId); provider.releaseCall(mode === "repair" ? 1 : 0);
+      const failed = await waitForDrafting(app, projectId, plan.jobId);
+      expect(failed.units[0]).toMatchObject({ status: "failed", generatedCandidates: [], normalizedError: { code: "adaptation_foundation_bootstrap_required", retryable: false } });
+      expect(provider.calls.map((c) => c.mode)).toEqual(mode === "repair" ? ["generate", "repair"] : ["generate"]);
+      expect((await app.inject({ url: `/api/long-form/projects/${projectId}/drafts/summary` })).json().currentDraftCount).toBe(0);
+    } finally { for (let i = 0; i < provider.calls.length; i++) provider.releaseCall(i); await app.close(); }
+  });
   it("saves Unicode manual candidates with exact provenance, immutable history, and restore", async () => {
     const app = buildApp();
     const { projectId, plan } = await createApprovedFixture(app);

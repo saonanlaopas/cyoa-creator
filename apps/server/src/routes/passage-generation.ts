@@ -8,6 +8,7 @@ interface UnitParams extends JobParams { unitId: string }
 
 const status = (error: unknown): 400 | 404 | 409 => {
   const message = (error as Error).message;
+  if ((error as { code?: string }).code === "adaptation_foundation_bootstrap_required") return 409;
   if (message.includes("not found")) return 404;
   if (message.includes("transition") || message.includes("authorized") || message.includes("Approve")
     || message.includes("running") || message.includes("failed")) return 409;
