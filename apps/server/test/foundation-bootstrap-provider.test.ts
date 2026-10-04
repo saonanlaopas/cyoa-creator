@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { EnvironmentCredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
-import { assertFoundationBootstrapContext, contentFingerprint, defaultCreativeDirection, defaultProjectBrief, FOUNDATION_ARTIFACT_IDS,
+import { assertFoundationBootstrapContext, contentFingerprint, creativeDirectionFingerprints, defaultCreativeDirection, defaultProjectBrief, FOUNDATION_ARTIFACT_IDS,
   foundationFieldPaths, LongFormStoryBibleSchema, newAdaptationIntent, normalizeAdaptationIntent, normalizeCreativeDirection, parseFoundationBootstrapCandidate, sourceDossierFingerprints,
   sourceEvidence, type FoundationBootstrapCandidate, type FoundationBootstrapContext, type SourceDossier } from "@story-to-cyoa/domain";
 import { DeterministicFoundationBootstrapProvider, deterministicFoundationBootstrapCandidate, OpenRouterFoundationBootstrapProvider } from "../src/services/foundation-bootstrap-provider.js";
@@ -21,6 +21,17 @@ function context(): FoundationBootstrapContext {
     baseVersionIds: { brief: null, "creative-direction": null, bible: null, routes: null, endings: null, mechanics: null },
     baseArtifacts: { brief: null, "creative-direction": null, bible: null, routes: null, endings: null, mechanics: null },
     request: "Bootstrap six draft foundations", providerId: "offline-foundation-bootstrap", modelId: "offline-foundation-v1" };
+}
+
+function providerInput(candidate: FoundationBootstrapCandidate) {
+  const { materialFingerprint: _material, provenanceFingerprint: _provenance, ...direction } = candidate.artifacts["creative-direction"];
+  return { ...candidate, artifacts: { ...candidate.artifacts, "creative-direction": direction } };
+}
+
+function stubProvider(output: unknown) {
+  const client = new OpenRouterClient({ credentialStore: new EnvironmentCredentialStore({ environment: { OPENROUTER_API_KEY: "offline-key" } }), fetch: async () =>
+    new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(output) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), { status: 200 }) });
+  return new OpenRouterFoundationBootstrapProvider(client);
 }
 
 describe("Foundation bootstrap candidate and provider contracts", () => {
@@ -185,11 +196,44 @@ describe("Foundation bootstrap candidate and provider contracts", () => {
     input.baseVersionIds.brief = "absent-content";
     expect(() => assertFoundationBootstrapContext(input)).toThrow("bootstrap_base_precondition_invalid");
   });
+  it.each(["absent", "explicit-update", "unchanged"])("derives Creative Direction hashes locally for %s provider output", async (scenario) => {
+    const input = context();
+    if (scenario !== "absent") {
+      const base = defaultCreativeDirection(); base.tone.descriptors = ["restrained", "quiet"]; Object.assign(base, creativeDirectionFingerprints(base));
+      input.baseVersionIds["creative-direction"] = "direction"; input.baseArtifacts["creative-direction"] = base;
+    }
+    if (scenario === "explicit-update") input.request = "Update Creative Direction tone to hopeful; preserve every other field.";
+    const candidate = deterministicFoundationBootstrapCandidate(input), output = providerInput(candidate);
+    if (scenario === "explicit-update") {
+      output.artifacts["creative-direction"].tone.descriptors = ["hopeful"];
+      const attribution = candidate.provenance.find((entry) => entry.artifactId === "creative-direction" && entry.fieldPath.startsWith("/tone/descriptors/"))!;
+      output.provenance = candidate.provenance.filter((entry) => entry.artifactId !== "creative-direction" || !entry.fieldPath.startsWith("/tone/descriptors/"));
+      output.provenance.push({ ...attribution, fieldPath: "/tone/descriptors/0" });
+    }
+    expect(output.artifacts["creative-direction"]).not.toHaveProperty("materialFingerprint");
+    expect(output.artifacts["creative-direction"]).not.toHaveProperty("provenanceFingerprint");
+    const raw = await stubProvider(output).generate({ context: input, modelId: "offline-stub", mode: "generate", signal: new AbortController().signal });
+    const parsed = parseFoundationBootstrapCandidate(JSON.parse(raw), input), direction = parsed.artifacts["creative-direction"];
+    expect(direction).toEqual({ ...output.artifacts["creative-direction"], ...creativeDirectionFingerprints(output.artifacts["creative-direction"]) });
+    if (scenario === "explicit-update") expect(direction.materialFingerprint).not.toBe(input.baseArtifacts["creative-direction"]!.materialFingerprint);
+    if (scenario === "unchanged") expect(direction).toEqual(input.baseArtifacts["creative-direction"]);
+    expect(() => parseFoundationBootstrapCandidate({ ...parsed, artifacts: { ...parsed.artifacts, "creative-direction": { ...direction, materialFingerprint: "a".repeat(64) } } }, input)).toThrow("Material fingerprint does not match canonical content");
+  });
+  it.each(["unknown-field", "missing-provenance", "foreign-provenance", "invalid-direction-provenance", "invalid-material", "provider-hash"])("does not heal %s while deriving provider fingerprints", async (issue) => {
+    const input = context(), output = providerInput(deterministicFoundationBootstrapCandidate(input));
+    if (issue === "unknown-field") Object.assign(output.artifacts["creative-direction"].tone, { invented: true });
+    if (issue === "missing-provenance") output.provenance.pop();
+    if (issue === "foreign-provenance") output.provenance[0]!.sourceRecordIds = ["foreign"];
+    if (issue === "invalid-direction-provenance") output.artifacts["creative-direction"].fieldProvenance.push({ fieldPath: "/missing", reference: { kind: "manual-edit" } });
+    if (issue === "invalid-material") Object.assign(output.artifacts["creative-direction"].tone, { descriptors: [7] });
+    if (issue === "provider-hash") Object.assign(output.artifacts["creative-direction"], { materialFingerprint: "a".repeat(64) });
+    await expect(stubProvider(output).generate({ context: input, modelId: "offline-stub", mode: "generate", signal: new AbortController().signal })).rejects.toThrow();
+  });
   it("uses a stubbed OpenRouter structured boundary without a live or paid call", async () => {
     const input = context(), output = deterministicFoundationBootstrapCandidate(input), requests: Record<string, unknown>[] = [];
     const client = new OpenRouterClient({ credentialStore: new EnvironmentCredentialStore({ environment: { OPENROUTER_API_KEY: "offline-key" } }), fetch: async (_url, init) => {
       requests.push(JSON.parse(String(init?.body)));
-      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(output) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), { status: 200 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(providerInput(output)) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), { status: 200 });
     } });
     const raw = await new OpenRouterFoundationBootstrapProvider(client).generate({ context: input, modelId: "offline-stub", mode: "generate", signal: new AbortController().signal });
     expect(parseFoundationBootstrapCandidate(JSON.parse(raw), input)).toEqual(output);
@@ -201,6 +245,8 @@ describe("Foundation bootstrap candidate and provider contracts", () => {
     expect(schema.properties.artifacts.properties.brief.properties.totalWordTarget).toMatchObject({ type: "integer", minimum: 50_000, maximum: 1_000_000 });
     expect(schema.properties.artifacts.properties.brief.required).toContain("totalWordTarget");
     expect(schema.properties.artifacts.properties["creative-direction"].required).toContain("tone");
+    expect(schema.properties.artifacts.properties["creative-direction"].properties).not.toHaveProperty("materialFingerprint");
+    expect(schema.properties.artifacts.properties["creative-direction"].properties).not.toHaveProperty("provenanceFingerprint");
     expect(schema.properties.provenance).toMatchObject({ type: "array", minItems: 1, maxItems: 2_000 });
     expect(schema.properties.canonAssessment.items.required).toContain("structuralEvidence");
     expect(schema.properties.canonAssessment.items.properties.structuralEvidence.items.properties.fieldPath).toMatchObject({ type: "string", maxLength: 1_000 });

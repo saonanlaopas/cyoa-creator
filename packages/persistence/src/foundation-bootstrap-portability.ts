@@ -1,13 +1,15 @@
-import { FOUNDATION_ARTIFACT_IDS, CreativeDirectionSchema, normalizeCreativeDirection, sourceCanonicalJson, sourceDigest,
+import { FOUNDATION_ARTIFACT_IDS, CreativeDirectionSchema, creativeDirectionFingerprints, sourceCanonicalJson, sourceDigest,
   type CreativeDirection, type FoundationArtifactId, type FoundationBootstrapCandidate } from "@story-to-cyoa/domain";
 import { FoundationBootstrapApplicationSchema, FoundationBootstrapJobSchema, FoundationBootstrapPlanSchema, orderFoundationBootstrapApplications } from "./foundation-bootstrap-repository.js";
 import type { PortableProjectRows } from "./portable-project-repository.js";
 
 export function unavailableConversationEvidence(direction: CreativeDirection): CreativeDirection {
   direction = CreativeDirectionSchema.parse(direction);
-  return normalizeCreativeDirection({ ...direction, fieldProvenance: direction.fieldProvenance.map((entry) =>
+  const fieldProvenance = direction.fieldProvenance.map((entry) =>
     entry.reference && ["user-message", "proposal"].includes(entry.reference.kind)
-      ? { ...entry, reference: { ...entry.reference, unavailable: true } } : entry) });
+      ? { ...entry, reference: { ...entry.reference, unavailable: true } } : entry);
+  // Availability changes provenance only; retain exact authored material and array order for lineage.
+  return CreativeDirectionSchema.parse({ ...direction, fieldProvenance, ...creativeDirectionFingerprints({ ...direction, fieldProvenance }) });
 }
 
 /** Transform only the exported copy, consistently resealing all exact references to redacted evidence. */

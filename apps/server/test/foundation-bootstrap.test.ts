@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, ProjectBriefSchema, defaultCreativeDirection, newAdaptationIntent, normalizeAdaptationIntent, type SourceDossier } from "@story-to-cyoa/domain";
+import { FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, ProjectBriefSchema, creativeDirectionFingerprints, defaultCreativeDirection, newAdaptationIntent, normalizeAdaptationIntent, type SourceDossier } from "@story-to-cyoa/domain";
+import { EnvironmentCredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { ArtifactRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
 import { analysisFixture, completeFixture } from "../../../packages/persistence/test/source-analysis-fixture.js";
 import { buildApp } from "../src/app.js";
@@ -12,7 +13,7 @@ import { assertPassageFidelityAuthority } from "../src/services/adaptation-passa
 
 const apps: ReturnType<typeof buildApp>[] = [], directories: string[] = [];
 afterEach(async () => { vi.useRealTimers(); for (const app of apps.splice(0)) await app.close(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
-function fixture(provider = new DeterministicFoundationBootstrapProvider(), existingDirection = true) {
+function fixture(provider = new DeterministicFoundationBootstrapProvider(), existingDirection = true, openRouterClient = createOfflineSetupClient()) {
   const directory = mkdtempSync(join(tmpdir(), "cyoa-a5-server-")); directories.push(directory); const path = join(directory, "project.sqlite");
   const f = analysisFixture(openDatabase(path)); completeFixture(f);
   const dossier = f.artifacts.getCurrent<SourceDossier>(f.projectId, "source-dossier")!, workflow = new WorkflowRepository(f.database);
@@ -24,7 +25,7 @@ function fixture(provider = new DeterministicFoundationBootstrapProvider(), exis
   f.artifacts.saveArtifact({ projectId: f.projectId, artifactId: "brief", content: ProjectBriefSchema.parse({ workingTitle: "Harbor adaptation" }) });
   if (existingDirection) f.artifacts.saveArtifact({ projectId: f.projectId, artifactId: "creative-direction", content: defaultCreativeDirection() });
   f.database.close();
-  const app = buildApp({ databasePath: path, foundationBootstrapProvider: provider, openRouterClient: createOfflineSetupClient() }); apps.push(app);
+  const app = buildApp({ databasePath: path, foundationBootstrapProvider: provider, openRouterClient }); apps.push(app);
   const projectId = f.projectId, project = `/api/long-form/projects/${projectId}`, root = `${project}/foundation-bootstrap`;
   const call = (suffix: string, payload?: unknown) => app.inject({ method: payload === undefined ? "GET" : "POST", url: root + suffix, ...(payload === undefined ? {} : { payload }) });
   return { app, path, provider, projectId, project, root, call };
@@ -52,6 +53,34 @@ async function assertNoFoundationWrite(f: Fixture, before: any) {
 }
 
 describe("A5 exact foundation generation and review boundary", () => {
+  it.each([false, true])("completes and applies hash-free OpenRouter output with existing Creative Direction=%s", async (existingDirection) => {
+    let calls = 0;
+    const client = new OpenRouterClient({ credentialStore: new EnvironmentCredentialStore({ environment: { OPENROUTER_API_KEY: "offline-key" } }), fetch: async (_url, init) => {
+      calls++;
+      const request = JSON.parse(String(init?.body)), input = JSON.parse(request.messages[1].content).context;
+      const candidate = deterministicFoundationBootstrapCandidate(input);
+      const { materialFingerprint: _material, provenanceFingerprint: _provenance, ...direction } = candidate.artifacts["creative-direction"];
+      direction.tone.descriptors = ["hopeful"];
+      const attribution = candidate.provenance.find((entry) => entry.artifactId === "creative-direction" && entry.fieldPath.startsWith("/tone/descriptors"))!;
+      const output = { ...candidate, artifacts: { ...candidate.artifacts, "creative-direction": direction },
+        provenance: [...candidate.provenance.filter((entry) => entry.artifactId !== "creative-direction" || !entry.fieldPath.startsWith("/tone/descriptors")), { ...attribution, fieldPath: "/tone/descriptors/0" }] };
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(output) } }] }), { status: 200 });
+    } });
+    const f = fixture(undefined, existingDirection, client), before = (await f.app.inject({ url: f.project })).json();
+    const response = await f.call("/preview", { message: "Create draft foundations and explicitly update Creative Direction tone to hopeful.", providerId: "openrouter-foundation-bootstrap", modelId: "openai/gpt-4.1-mini" });
+    expect(response.statusCode, response.body).toBe(200); expect(calls).toBe(0);
+    const plan = response.json(), started = await f.call("/start", { planId: plan.id, fingerprint: plan.fingerprint });
+    expect(started.statusCode, started.body).toBe(200);
+    const job = await terminal(f, started.json().id); expect(job.status).toBe("completed"); expect(calls).toBe(1);
+    await assertNoFoundationWrite(f, before);
+    const review = (await f.call(`/jobs/${job.id}/review`)).json(), direction = review.candidates.find((entry: any) => entry.artifactId === "creative-direction").content;
+    expect(direction.tone.descriptors).toEqual(["hopeful"]); expect(direction).toMatchObject(creativeDirectionFingerprints(direction));
+    if (existingDirection) expect(direction.materialFingerprint).not.toBe(before.creativeDirection.content.materialFingerprint);
+    const selection = (await f.call(`/jobs/${job.id}/preview-apply`, { artifactIds: [...FOUNDATION_ARTIFACT_IDS] })).json();
+    const applied = await f.call(`/jobs/${job.id}/apply`, { artifactIds: selection.effectiveArtifactIds, fingerprint: selection.previewFingerprint });
+    expect(applied.statusCode, applied.body).toBe(200); expect(calls).toBe(1);
+    expect((await f.app.inject({ url: f.project })).json().creativeDirection.content).toEqual(direction);
+  });
   it("reuses exact previews and retires only the explicitly archived unused selection without provider use", async () => {
     const f = fixture(), first = await preview(f), repeated = await preview(f);
     expect(repeated.id).toBe(first.id); expect((await f.call("")).json().plans).toHaveLength(1);

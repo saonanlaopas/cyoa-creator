@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FOUNDATION_ARTIFACT_IDS, FoundationBootstrapContextSchema, defaultCreativeDirection, defaultProjectBrief, newAdaptationIntent,
-  foundationFieldPaths, LongFormStoryBibleSchema, normalizeCreativeDirection, normalizeAdaptationIntent, sourceCanonicalJson, sourceDigest, type FoundationArtifactId, type SourceDossier } from "@story-to-cyoa/domain";
+  creativeDirectionFingerprints, foundationFieldPaths, LongFormStoryBibleSchema, normalizeCreativeDirection, normalizeAdaptationIntent, sourceCanonicalJson, sourceDigest, type FoundationArtifactId, type SourceDossier } from "@story-to-cyoa/domain";
 import { ArtifactRepository, FoundationBootstrapRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository,
   ConversationRepository, openDatabase, validateFoundationBootstrapDatabase, type FoundationBootstrapJob, type StoryDatabase } from "../src/index.js";
 import { analysisFixture, completeFixture } from "./source-analysis-fixture.js";
@@ -205,6 +205,31 @@ describe("Foundation bootstrap persistence lifecycle", () => {
 });
 
 describe("Foundation bootstrap atomic application and recovery", () => {
+  it.each(["before-generation", "applied"])("preserves valid unsorted material through portable import and backup restore at %s", async (stage) => {
+    for (const conversational of [false, true]) {
+      const f = fixture();
+      if (conversational) directionProvenance(f, "user-message");
+      const direction = structuredClone(f.artifacts.getCurrent<ReturnType<typeof defaultCreativeDirection>>(f.projectId, "creative-direction")?.content ?? defaultCreativeDirection());
+      direction.tone.descriptors = ["restrained", "quiet"];
+      Object.assign(direction, creativeDirectionFingerprints(direction));
+      const version = f.artifacts.saveArtifact({ projectId: f.projectId, artifactId: "creative-direction", content: direction }); replan(f);
+      if (stage === "applied") apply(f, completed(f).id);
+      const portable = new PortableProjectRepository(f.database), bundle = portable.exportRows(f.projectId), target = database();
+      const exportedVersion = JSON.parse(String(bundle.tables.artifact_versions.find((row) => row.id === version.id)!.content_json));
+      const exportedPlan = JSON.parse(String(bundle.tables.foundation_bootstrap_plans.find((row) => row.id === f.plan.id)!.content_json));
+      expect(exportedVersion.tone.descriptors).toEqual(["restrained", "quiet"]);
+      expect(exportedPlan.context.baseArtifacts["creative-direction"]).toEqual(exportedVersion);
+      new PortableProjectRepository(target).importRows(bundle, validateFoundationBootstrapDatabase);
+      expect(new PortableProjectRepository(target).exportRows(f.projectId)).toEqual(bundle);
+      expect(f.artifacts.getVersion(version.id)!.content).toEqual(direction);
+      const publication = new PublicationExportService(portable, undefined);
+      const backup = await new RecoveryService(f.database, portable, publication, { applicationVersion: "A5-rereview" }).createVerifiedBackup(f.projectId);
+      expect(backup.record.verificationStatus).toBe("verified");
+      const restored = database(), restoredPortable = new PortableProjectRepository(restored);
+      await new RecoveryService(restored, restoredPortable, new PublicationExportService(restoredPortable, undefined), { applicationVersion: "A5-rereview" }).restoreBackup(backup.bytes);
+      expect(restoredPortable.exportRows(f.projectId)).toEqual(bundle);
+    }
+  }, 30_000);
   it("does not heal a forged original plan fingerprint while resealing portable conversation evidence", () => {
     const f = fixture(); directionProvenance(f, "user-message");
     const forged = { ...f.plan, id: randomUUID(), contextFingerprint: "a".repeat(64) };
