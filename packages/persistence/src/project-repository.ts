@@ -11,6 +11,8 @@ import { assertSetupProposalSource } from "./setup-proposal-repository.js";
 import { prepareSourceAnalysisDuplicate, copySourceAnalysisRows, remapSourceAnalysisValue, remapSourceDossierContent } from "./source-analysis-duplication.js";
 import { prepareAdaptationDuplicate, remapAdaptationIntent, remapAdaptationProposal } from "./adaptation-intent-duplication.js";
 import { validateAdaptationDatabase } from "./adaptation-intent-validation.js";
+import { copyFoundationBootstrapRows } from "./foundation-bootstrap-duplication.js";
+import { FoundationBootstrapRepository, validateFoundationBootstrapDatabase } from "./foundation-bootstrap-repository.js";
 import { validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
 import type { SourceDossier } from "@story-to-cyoa/domain";
 
@@ -271,6 +273,9 @@ export class ProjectRepository {
       new ArtifactRepository(this.database).listVersions(copy.id, "creative-direction");
       validateSourceAnalysisDatabase(this.database, copy.id);
       validateAdaptationDatabase(this.database, copy.id);
+      copyFoundationBootstrapRows(this.database, id, allIds);
+      validateFoundationBootstrapDatabase(this.database, copy.id);
+      new FoundationBootstrapRepository(this.database).recoverInterrupted(copy.id);
       return copy;
     });
   }

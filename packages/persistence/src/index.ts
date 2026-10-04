@@ -29,3 +29,5 @@ export * from "./author-memory-repository.js";
 export * from "./portable-project-repository.js";
 export * from "./setup-proposal-repository.js";
 export * from "./adaptation-intent-validation.js";
+export * from "./foundation-bootstrap-repository.js";
+export * from "./foundation-bootstrap-schema.js";

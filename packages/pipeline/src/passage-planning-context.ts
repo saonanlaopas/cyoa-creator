@@ -26,6 +26,7 @@ export interface PassagePlanningContextDiagnostics {
 }
 
 export interface PassagePlanningContextPack {
+  foundationAuthority?: unknown;
   schemaId: typeof passagePlanningContextSchema.id;
   schemaVersion: typeof passagePlanningContextSchema.version;
   identity: {
@@ -68,6 +69,7 @@ export interface PassagePlanningContextInput {
   mechanics: LongFormMechanicsPlan;
   creativeDirection?: CreativeDirection;
   adaptationIntentAdopted?: boolean;
+  foundationAuthority?: unknown;
   outputSchema: { id: string; version: number };
   requestedMaximumOutputTokens: number;
   maximumEstimatedInputTokens: number;
@@ -206,6 +208,7 @@ export function buildPassagePlanningContext(input: PassagePlanningContextInput):
     },
   };
   if (input.adaptationIntentAdopted) delete context.upstream.brief.adaptationFidelity;
+  if (input.foundationAuthority) context.foundationAuthority = input.foundationAuthority;
   const contextFingerprint = fingerprintPassagePlanningContext(context);
   const estimatedInputTokens = Math.max(1, Math.ceil(stableJson(context).length / 4));
   if (estimatedInputTokens > input.maximumEstimatedInputTokens) {

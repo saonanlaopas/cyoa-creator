@@ -5,6 +5,8 @@ import { transaction } from "./database.js";
 import { SOURCE_ANALYSIS_TABLES } from "./source-analysis-duplication.js";
 import { validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
 import { validateAdaptationDatabase } from "./adaptation-intent-validation.js";
+import { FOUNDATION_BOOTSTRAP_TABLES } from "./foundation-bootstrap-schema.js";
+import { validateFoundationBootstrapDatabase } from "./foundation-bootstrap-repository.js";
 
 export const PORTABLE_PROJECT_TABLES = [
   "projects", "artifact_versions", "artifact_workflow_state", "artifact_version_approvals", "artifact_dependencies",
@@ -17,6 +19,7 @@ export const PORTABLE_PROJECT_TABLES = [
   "passage_draft_acceptance_items", "repair_applications", "repair_application_draft_links",
   "repair_application_result_versions",
   ...SOURCE_ANALYSIS_TABLES,
+  ...FOUNDATION_BOOTSTRAP_TABLES,
 ] as const;
 
 export type PortableProjectTable = typeof PORTABLE_PROJECT_TABLES[number];
@@ -178,6 +181,7 @@ export class PortableProjectRepository {
     this.validateExactLineage(bundle.projectId);
     validateSourceAnalysisDatabase(this.database, bundle.projectId);
     validateAdaptationDatabase(this.database, bundle.projectId);
+    validateFoundationBootstrapDatabase(this.database, bundle.projectId);
     validateProject(this.database, bundle.projectId);
   }
 

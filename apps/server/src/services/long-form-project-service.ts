@@ -232,7 +232,9 @@ export class LongFormProjectService {
     if (materialChanged) {
       this.passageDrafts?.markStaleForUpstreamVersion(projectId, artifactId, versionId);
       if (artifactId === "creative-direction") {
-        if (this.artifacts.getCurrent(projectId, "bible")) {
+        let coherentBootstrap = false;
+        try { coherentBootstrap = Boolean(this.artifacts.foundationAuthority(projectId, false)); } catch { /* Ordinary manual approval retains its existing invalidation behavior. */ }
+        if (this.artifacts.getCurrent(projectId, "bible") && !coherentBootstrap) {
           this.artifacts.markCurrentStale(projectId, "bible");
           this.workflow.markStale(projectId, "bible");
         }

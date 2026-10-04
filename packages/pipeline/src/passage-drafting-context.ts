@@ -26,6 +26,7 @@ export interface AcceptedNeighborDraftInput {
 }
 
 export interface PassageDraftingContextPack {
+  foundationAuthority?: unknown;
   schemaId: typeof passageDraftingContextSchema.id;
   schemaVersion: typeof passageDraftingContextSchema.version;
   identity: {
@@ -87,6 +88,7 @@ export interface PassageDraftingContextInput {
   mechanics: LongFormMechanicsPlan;
   creativeDirection?: CreativeDirection;
   adaptationIntentAdopted?: boolean;
+  foundationAuthority?: unknown;
   acceptedDrafts: AcceptedNeighborDraftInput[];
   requiredNeighborPassageIds?: string[];
   maximumEstimatedInputTokens: number;
@@ -286,6 +288,7 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
     throw new BoundedPassageDraftingContextError("Required accepted neighboring prose exceeds the drafting context limit");
   }
   if (input.adaptationIntentAdopted) delete base.upstream.brief.adaptationFidelity;
+  if (input.foundationAuthority) base.foundationAuthority = input.foundationAuthority;
   const contextFingerprint = fingerprintPassageDraftingContext(base);
   const serializedBytes = Buffer.byteLength(stableJson(base), "utf8");
   const diagnostics: PassageDraftingContextDiagnostics = {

@@ -7,6 +7,7 @@ import {
   PortableProjectRepository,
   PORTABLE_PROJECT_TABLES,
   SOURCE_ANALYSIS_TABLES,
+  FOUNDATION_BOOTSTRAP_TABLES,
   reconstructLegacyArtifactApprovalHistory,
   type PortableProjectRows,
 } from "@story-to-cyoa/persistence";
@@ -37,7 +38,8 @@ export interface PortableManifest {
 
 export type PortableApprovalHistoryMode = "current" | "legacy-reconstructed";
 
-const PRE_ANALYSIS_TABLES = PORTABLE_PROJECT_TABLES.filter((table) => !(SOURCE_ANALYSIS_TABLES as readonly string[]).includes(table));
+const PRE_BOOTSTRAP_TABLES = PORTABLE_PROJECT_TABLES.filter((table) => !(FOUNDATION_BOOTSTRAP_TABLES as readonly string[]).includes(table));
+const PRE_ANALYSIS_TABLES = PRE_BOOTSTRAP_TABLES.filter((table) => !(SOURCE_ANALYSIS_TABLES as readonly string[]).includes(table));
 const LEGACY_PORTABLE_PROJECT_TABLES = PRE_ANALYSIS_TABLES.filter((table) => table !== "artifact_version_approvals");
 
 export class PublicationExportService {
@@ -52,7 +54,8 @@ export class PublicationExportService {
     const rows = this.portable.exportRows(projectId);
     enforcePortableRows(rows);
     const analysis = rows.tables.source_analysis_plans.length > 0 || rows.tables.artifact_versions.some((row) => row.artifact_id === "source");
-    const sections = analysis ? [...PORTABLE_PROJECT_TABLES] : rows.tables.artifact_version_approvals.length
+    const bootstrap = rows.tables.foundation_bootstrap_plans.length > 0;
+    const sections = bootstrap ? [...PORTABLE_PROJECT_TABLES] : analysis ? [...PRE_BOOTSTRAP_TABLES] : rows.tables.artifact_version_approvals.length
       ? [...PRE_ANALYSIS_TABLES] : [...LEGACY_PORTABLE_PROJECT_TABLES];
     const serializedRows = { projectId: rows.projectId, tables: Object.fromEntries(
       sections.map((table) => [table, rows.tables[table]]),
@@ -199,7 +202,7 @@ export class PublicationExportService {
     if (!parsed.tables || !isSupportedPortableSections(sections)) throw new Error("portable_project_sections_invalid");
     const hasApprovalHistory = sections.includes("artifact_version_approvals");
     const hasAnalysis = sections.includes("source_analysis_plans");
-    const expectedSections = hasAnalysis ? [...PORTABLE_PROJECT_TABLES] : hasApprovalHistory
+    const expectedSections = sections.includes("foundation_bootstrap_plans") ? [...PORTABLE_PROJECT_TABLES] : hasAnalysis ? [...PRE_BOOTSTRAP_TABLES] : hasApprovalHistory
       ? [...PRE_ANALYSIS_TABLES] : [...LEGACY_PORTABLE_PROJECT_TABLES];
     if (manifest.includedSections.join("\0") !== expectedSections.join("\0")) throw new Error("portable_project_sections_invalid");
     let rowCount = 0;
@@ -220,6 +223,7 @@ export class PublicationExportService {
       ...parsed.tables,
       artifact_version_approvals: parsed.tables.artifact_version_approvals ?? [],
       ...Object.fromEntries(SOURCE_ANALYSIS_TABLES.map((table) => [table, parsed.tables[table] ?? []])),
+      ...Object.fromEntries(FOUNDATION_BOOTSTRAP_TABLES.map((table) => [table, parsed.tables[table] ?? []])),
     } } as PortableProjectRows;
     enforcePortableRows(rows);
     const expected = stableFingerprint({ schemaId: SCHEMA_ID, schemaVersion: 1, historyMode: HISTORY_MODE, rows: serializedRows });
@@ -244,6 +248,7 @@ export class PublicationExportService {
 function isSupportedPortableSections(sections: readonly string[]): boolean {
   const exact = [...sections].sort().join("\0");
   return exact === [...PORTABLE_PROJECT_TABLES].sort().join("\0")
+    || exact === [...PRE_BOOTSTRAP_TABLES].sort().join("\0")
     || exact === [...PRE_ANALYSIS_TABLES].sort().join("\0")
     || exact === [...LEGACY_PORTABLE_PROJECT_TABLES].sort().join("\0");
 }

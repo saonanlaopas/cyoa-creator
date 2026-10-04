@@ -2,6 +2,8 @@ import type { StoryDatabase } from "./database.js";
 import { sourceAnalysisMigrationSql } from "./source-analysis-schema.js";
 import { validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
 import { validateAdaptationDatabase } from "./adaptation-intent-validation.js";
+import { foundationBootstrapMigrationSql } from "./foundation-bootstrap-schema.js";
+import { validateFoundationBootstrapDatabase } from "./foundation-bootstrap-repository.js";
 import { assertSetupProposalSource } from "./setup-proposal-repository.js";
 import {
   RepairApplicationRecordSchema,
@@ -33,7 +35,7 @@ import {
 } from "./schema.js";
 
 export const EARLIEST_SUPPORTED_SCHEMA_VERSION = 4;
-export const CURRENT_SCHEMA_VERSION = 20;
+export const CURRENT_SCHEMA_VERSION = 21;
 
 export const SCHEMA_VERSION_HISTORY = Object.freeze([
   { version: 4, introducedBy: "Foundations 1-3 baseline", frozenFixture: "schema-v4.sqlite" },
@@ -53,6 +55,7 @@ export const SCHEMA_VERSION_HISTORY = Object.freeze([
   { version: 18, introducedBy: "A1 durable artifact approval history", frozenFixture: "schema-v18.sqlite" },
   { version: 19, introducedBy: "A2 conversational project setup", frozenFixture: "schema-v19.sqlite" },
   { version: 20, introducedBy: "A3 source analysis", frozenFixture: null },
+  { version: 21, introducedBy: "A5 foundation bootstrap", frozenFixture: null },
 ] as const);
 
 export function migrate(database: StoryDatabase): void {
@@ -355,6 +358,11 @@ function migrateWithinTransaction(database: StoryDatabase): void {
     validateSourceAnalysisDatabase(database);
     validateAdaptationDatabase(database);
     database.prepare("INSERT OR IGNORE INTO schema_migrations (version,applied_at) VALUES (20,?)").run(new Date().toISOString());
+  });
+  runMigrationStep(database, "migration_v21", () => {
+    database.exec(foundationBootstrapMigrationSql);
+    validateFoundationBootstrapDatabase(database);
+    database.prepare("INSERT OR IGNORE INTO schema_migrations (version,applied_at) VALUES (21,?)").run(new Date().toISOString());
   });
 }
 

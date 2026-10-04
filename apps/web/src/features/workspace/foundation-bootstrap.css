@@ -1,0 +1,21 @@
+.bootstrap-workspace { min-width: 0; overflow-wrap: anywhere; }
+.bootstrap-workspace h1 { font-size: 1.6rem; }
+.bootstrap-workspace h2 { font-size: 1.2rem; }
+.bootstrap-workspace h3 { font-size: 1.05rem; }
+.bootstrap-workspace .brief-section { padding: 1rem 0; border: 0; border-top: 1px solid #364258; border-radius: 0; box-shadow: none; background: transparent; }
+.bootstrap-workspace .simulation-metadata > div { padding: .5rem 0; border: 0; border-radius: 0; background: transparent; }
+.bootstrap-workspace details { margin: .75rem 0; }
+.bootstrap-workspace pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; font-size: .8rem; }
+.bootstrap-provider, .bootstrap-diff { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.bootstrap-group, .bootstrap-detail { padding: .75rem 0; border-top: 1px solid #364258; }
+.bootstrap-artifact { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .35rem 0; }
+.bootstrap-workspace .bootstrap-check { display: flex; align-items: center; gap: .5rem; }
+.bootstrap-workspace .bootstrap-check input { width: 1rem; height: 1rem; flex: 0 0 1rem; }
+.bootstrap-workspace button, .bootstrap-workspace select { max-width: 100%; white-space: normal; }
+.bootstrap-workspace button { margin: .25rem 0; }
+.long-form-workspace:has(.bootstrap-workspace) .workflow-nav { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.long-form-workspace:has(.bootstrap-workspace) .workflow-nav ol { min-width: 0; max-width: 100%; overflow-x: auto; }
+@media (max-width: 640px) {
+  .bootstrap-provider, .bootstrap-diff { grid-template-columns: minmax(0, 1fr); }
+  .bootstrap-artifact { align-items: flex-start; flex-direction: column; }
+}

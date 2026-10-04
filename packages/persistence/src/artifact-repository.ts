@@ -6,6 +6,7 @@ import { transaction } from "./database.js";
 import { artifactChain } from "./schema.js";
 import { assertDossierHistoryBudget, validateDossierPersistence } from "./source-analysis-validation.js";
 import { assertAdaptationWrite, assertAdaptationProposalBudget, validateAdaptationIntent, validateAdaptationProposal } from "./adaptation-intent-validation.js";
+import { foundationBootstrapAuthority } from "./foundation-bootstrap-repository.js";
 
 export interface ArtifactVersion<T = unknown> {
   id: string;
@@ -64,6 +65,7 @@ function mapArtifact<T>(row: ArtifactRow): ArtifactVersion<T> {
 
 export class ArtifactRepository {
   constructor(private readonly database: StoryDatabase) {}
+  foundationAuthority(projectId: string, requireApprovals = true) { return foundationBootstrapAuthority(this.database, projectId, requireApprovals); }
 
   saveArtifact<T>(input: SaveArtifactInput<T>): ArtifactVersion<T> {
     return transaction(this.database, () => this.saveArtifactInTransaction(input));

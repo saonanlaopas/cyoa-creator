@@ -74,6 +74,9 @@ import type { SourceAnalysisProvider } from "@story-to-cyoa/pipeline";
 import { AdaptationIntentService } from "./services/adaptation-intent-service.js";
 import { DeterministicAdaptationIntentProvider, OpenRouterAdaptationIntentProvider, type AdaptationIntentProvider } from "./services/adaptation-intent-provider.js";
 import { registerAdaptationIntentRoutes } from "./routes/adaptation-intent.js";
+import { FoundationBootstrapService } from "./services/foundation-bootstrap-service.js";
+import { DeterministicFoundationBootstrapProvider, OpenRouterFoundationBootstrapProvider, type FoundationBootstrapProvider } from "./services/foundation-bootstrap-provider.js";
+import { registerFoundationBootstrapRoutes } from "./routes/foundation-bootstrap.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -88,6 +91,7 @@ export interface BuildAppOptions {
   repairProposalProvider?: RepairProposalProvider;
   sourceAnalysisProvider?: SourceAnalysisProvider;
   adaptationIntentProvider?: AdaptationIntentProvider;
+  foundationBootstrapProvider?: FoundationBootstrapProvider;
 }
 
 const webDistPath = resolve(
@@ -215,10 +219,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       failFirst: process.env.E2E_SOURCE_ANALYSIS_FAIL_FIRST === "1", malformedFirst: process.env.E2E_SOURCE_ANALYSIS_MALFORMED === "1",
     }), new OpenRouterSourceAnalysisProvider(openRouter)]);
   const runner = new JobRunner(new JobRepository(database));
+  const foundationBootstrapService = new FoundationBootstrapService(database,
+    [options.foundationBootstrapProvider ?? new DeterministicFoundationBootstrapProvider(), new OpenRouterFoundationBootstrapProvider(openRouter)], longFormProjects);
   void app.register(fastifyMultipart, {
     limits: { files: 1 },
   });
   app.addHook("onClose", async () => {
+    await foundationBootstrapService.shutdown();
     await sourceAnalysisService.shutdown();
     await passageDraftingService.shutdown();
     await narrativeReviewService.shutdown();
@@ -238,6 +245,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerAuthorMemoryRoutes(app, projects, authorMemory);
   registerProjectSetupRoutes(app, projectSetupService);
   registerSourceAnalysisRoutes(app, sourceAnalysisService);
+  registerFoundationBootstrapRoutes(app, foundationBootstrapService);
   const adaptationIntentService = new AdaptationIntentService(database, artifacts, workflow,
     [options.adaptationIntentProvider ?? new DeterministicAdaptationIntentProvider(), new OpenRouterAdaptationIntentProvider(openRouter)]);
   registerAdaptationIntentRoutes(app, adaptationIntentService);

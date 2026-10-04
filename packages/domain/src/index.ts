@@ -14,6 +14,7 @@ export * from "./creative-direction.js";
 export * from "./source-analysis.js";
 export * from "./source-correction.js";
 export * from "./adaptation-intent.js";
+export * from "./foundation-bootstrap.js";
 export * from "./project-brief.js";
 export * from "./long-form-story-bible.js";
 export * from "./long-form-route-plan.js";

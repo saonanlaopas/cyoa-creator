@@ -202,6 +202,7 @@ export class PassageGenerationService {
           mechanics: exact.mechanics,
           creativeDirection: exact.creativeDirection,
           adaptationIntentAdopted: Boolean(this.artifacts.getCurrent(projectId, "adaptation-intent")),
+          foundationAuthority: assertPassageFidelityAuthority(this.artifacts, projectId),
           outputSchema: passagePlanningCandidateSchema,
           requestedMaximumOutputTokens,
           maximumEstimatedInputTokens,
@@ -358,7 +359,7 @@ export class PassageGenerationService {
         code: "bounded_context_inconsistent", retryable: false,
       });
     }
-    assertPassageFidelityAuthority(this.artifacts, context.identity.projectId);
+    assertPassageFidelityAuthority(this.artifacts, context.identity.projectId, context.foundationAuthority, true);
     return context;
   }
 

@@ -416,13 +416,14 @@ export class PassageDraftingService {
         code: "bounded_drafting_context_inconsistent", retryable: false,
       });
     }
-    assertPassageFidelityAuthority(this.artifacts, context.identity.projectId);
+    assertPassageFidelityAuthority(this.artifacts, context.identity.projectId, context.foundationAuthority, true);
     return context;
   }
 
   private exactUpstream(projectId: string, versions: Record<string, string>) {
     return {
       adaptationIntentAdopted: Boolean(this.artifacts.getCurrent(projectId, "adaptation-intent")),
+      foundationAuthority: assertPassageFidelityAuthority(this.artifacts, projectId),
       brief: this.exactArtifact<ProjectBrief>(projectId, "brief", versions.brief),
       bible: this.exactArtifact<LongFormStoryBible>(projectId, "bible", versions.bible),
       routes: this.exactArtifact<LongFormRoutePlan>(projectId, "routes", versions.routes),
