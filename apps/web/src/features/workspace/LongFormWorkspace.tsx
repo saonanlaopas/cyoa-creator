@@ -37,12 +37,13 @@ import { createSetupProject } from "../../api/project-setup.js";
 import { SourceAnalysisWorkspace } from "./SourceAnalysisWorkspace.js";
 import { AdaptationIntentWorkspace } from "./AdaptationIntentWorkspace.js";
 import { FoundationBootstrapWorkspace } from "./FoundationBootstrapWorkspace.js";
+import { ConversationalEditWorkspace } from "./ConversationalEditWorkspace.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
 const navigationKey = (projectId: string) => `story-to-cyoa.navigation.${projectId}`;
-type LongFormStage = "setup" | "source-analysis" | "adaptation-intent" | "foundation-bootstrap" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
-const stageIds: LongFormStage[] = ["setup", "source-analysis", "adaptation-intent", "foundation-bootstrap", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
+type LongFormStage = "setup" | "source-analysis" | "adaptation-intent" | "foundation-bootstrap" | "editing" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
+const stageIds: LongFormStage[] = ["setup", "source-analysis", "adaptation-intent", "foundation-bootstrap", "editing", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
 const isLongFormStage = (value: unknown): value is LongFormStage => typeof value === "string" && stageIds.includes(value as LongFormStage);
 const stages = ["Source analysis", "Project brief", "Creative Direction", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Repair planning", "Publication", "Resume work", "Project health", "Backup & recovery"];
 const navigationStageIds: Array<LongFormStage | null> = ["source-analysis", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", null, "simulation", "repair", "publication", "resume", "health", "recovery"];
@@ -52,6 +53,7 @@ const stageLabels: Record<LongFormStage, string> = {
   "source-analysis": "Source analysis",
   "adaptation-intent": "Adaptation Intent",
   "foundation-bootstrap": "Foundation bootstrap",
+  editing: "Conversational editing",
   brief: "Project brief", "creative-direction": "Creative Direction", bible: "Story bible", routes: "Routes", endings: "Endings", mechanics: "Mechanics",
   "passage-plan": "Passage plan", simulation: "Playtest & analysis", repair: "Repair planning",
   publication: "Publication", resume: "Resume work", health: "Project health", recovery: "Backup & recovery",
@@ -269,6 +271,7 @@ export function LongFormWorkspace() {
       <button aria-current={activeStage === "setup" ? "step" : undefined} onClick={() => navigate("setup")}>Talk it through</button>
       <button aria-current={activeStage === "adaptation-intent" ? "step" : undefined} onClick={() => navigate("adaptation-intent")}>Adaptation Intent</button>
       <button aria-current={activeStage === "foundation-bootstrap" ? "step" : undefined} onClick={() => navigate("foundation-bootstrap")}>Foundation bootstrap</button>
+      <button aria-current={activeStage === "editing" ? "step" : undefined} onClick={() => navigate("editing")}>Conversational editing</button>
       <details open={activeStage !== "setup"}><summary>Advanced workspace</summary><ol>
         {stages.map((stage, index) => {
           const stageId = navigationStageIds[index] ?? null;
@@ -346,7 +349,7 @@ export function LongFormWorkspace() {
       </details>
     </nav>
 
-    {activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "adaptation-intent" && activeStage !== "foundation-bootstrap" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
+    {activeStage !== "editing" && activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "adaptation-intent" && activeStage !== "foundation-bootstrap" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
       <ArtifactHistory
         projectId={project.id}
         artifactId={activeStage}
@@ -362,7 +365,7 @@ export function LongFormWorkspace() {
       </details>}
     </section>}
 
-    {activeStage === "setup" ? <ProjectSetupWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id)} /> : activeStage === "foundation-bootstrap" ? <FoundationBootstrapWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id)} /> : activeStage === "brief" ? <section className="artifact-pane">
+    {activeStage === "editing" ? <ConversationalEditWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id)} onDraftRoute={(id) => { setPassagePlanJump(id); navigate("passage-plan", id); }} /> : activeStage === "setup" ? <ProjectSetupWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id)} /> : activeStage === "foundation-bootstrap" ? <FoundationBootstrapWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id)} /> : activeStage === "brief" ? <section className="artifact-pane">
       <header className="artifact-header">
         <div>
           <p className="eyebrow">Stage 1</p>
@@ -480,7 +483,7 @@ export function LongFormWorkspace() {
         await openProject(restoredProjectId);
       }} />}
 
-    {activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "adaptation-intent" && activeStage !== "foundation-bootstrap" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
+    {activeStage !== "editing" && activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "adaptation-intent" && activeStage !== "foundation-bootstrap" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
       key={project.id}
       project={project}
       brief={brief}

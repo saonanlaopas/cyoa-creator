@@ -46,6 +46,7 @@ import {
 } from "@story-to-cyoa/runtime";
 import type { RepairPlanningService } from "./repair-planning-service.js";
 import type { SimulationRunRecord } from "./simulation-service.js";
+import { StructuredMutationService } from "./structured-mutation-service.js";
 
 export interface RepairApplicationPreview {
   projectId: string;
@@ -255,10 +256,11 @@ export class RepairApplicationService {
     const resultingVersions: RepairApplicationRecord["resultingVersions"] = [];
     const preApplyVersions = { ...preview.currentBases };
     const passageResults = new Map<string, string>();
+    const writer = new StructuredMutationService(this.artifacts, this.workflow, this.passagePlans);
 
     for (const operation of operations.filter((item) => item.kind !== "create-passage-draft-candidate"
       && ["passage", "choice", "thread"].includes(item.entityKind))) {
-      const version = this.passagePlans.insertEntityVersionInTransaction(
+      const version = writer.entity(
         proposal.projectId,
         operation.entityKind as "passage" | "choice" | "thread",
         operation.entityId,
@@ -285,19 +287,10 @@ export class RepairApplicationService {
     const artifactResults = new Map<string, string>();
     for (const artifactId of affectedArtifacts) {
       const item = Object.values(artifactByKind).find((candidate) => candidate.artifactId === artifactId)!;
-      const version = this.artifacts.saveArtifactInTransaction({
-        projectId: proposal.projectId,
-        artifactId,
-        artifactType: artifactId,
-        content: item.content,
-        schema: item.schema as never,
-        dependencies: [...REPAIR_APPLICATION_ARTIFACT_DEPENDENCIES[artifactId]],
-      });
+      const version = writer.artifact(
+        proposal.projectId, artifactId, item.content, item.schema as never, [...REPAIR_APPLICATION_ARTIFACT_DEPENDENCIES[artifactId]],
+      );
       artifactResults.set(artifactId, version.id);
-      this.workflow.markDraft(proposal.projectId, artifactId);
-      this.artifacts.markDependentsStale(proposal.projectId, artifactId)
-        .forEach((dependent) => this.workflow.markStale(proposal.projectId, dependent));
-      this.passagePlans.markStale(proposal.projectId);
     }
     for (const operation of artifactOperations) {
       const artifactId = artifactByKind[operation.entityKind]!.artifactId;

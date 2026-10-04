@@ -278,6 +278,7 @@ export class LongFormProjectService {
       throw new Error("Proposal not found");
     }
     const artifactId = changeSet.artifactId as PlanningArtifactId;
+    if ((changeSet.proposal as { kind?: string }).kind === "conversational-edit-v1") throw new Error("conversational_edit_use_reviewed_apply");
     const proposal = changeSet.proposal as { groups: Array<{
       id: string; dependsOnGroupIds: string[]; safeToApplyIndependently: boolean;
     }> };

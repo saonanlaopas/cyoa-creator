@@ -77,6 +77,10 @@ import { registerAdaptationIntentRoutes } from "./routes/adaptation-intent.js";
 import { FoundationBootstrapService } from "./services/foundation-bootstrap-service.js";
 import { DeterministicFoundationBootstrapProvider, OpenRouterFoundationBootstrapProvider, type FoundationBootstrapProvider } from "./services/foundation-bootstrap-provider.js";
 import { registerFoundationBootstrapRoutes } from "./routes/foundation-bootstrap.js";
+import { ConversationalEditService } from "./services/conversational-edit-service.js";
+import { OfflineEditProvider, OpenRouterEditProvider } from "./services/conversational-edit-provider.js";
+import type { EditProvider } from "./services/conversational-edit-contract.js";
+import { registerConversationalEditRoutes } from "./routes/conversational-edit.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -92,6 +96,7 @@ export interface BuildAppOptions {
   sourceAnalysisProvider?: SourceAnalysisProvider;
   adaptationIntentProvider?: AdaptationIntentProvider;
   foundationBootstrapProvider?: FoundationBootstrapProvider;
+  conversationalEditProvider?: EditProvider;
 }
 
 const webDistPath = resolve(
@@ -221,10 +226,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const runner = new JobRunner(new JobRepository(database));
   const foundationBootstrapService = new FoundationBootstrapService(database,
     [options.foundationBootstrapProvider ?? new DeterministicFoundationBootstrapProvider(), new OpenRouterFoundationBootstrapProvider(openRouter)], longFormProjects);
+  const conversationalEdits = new ConversationalEditService(database, longFormProjects, [options.conversationalEditProvider ?? new OfflineEditProvider(), new OpenRouterEditProvider(openRouter)]);
   void app.register(fastifyMultipart, {
     limits: { files: 1 },
   });
   app.addHook("onClose", async () => {
+    conversationalEdits.shutdown();
     await foundationBootstrapService.shutdown();
     await sourceAnalysisService.shutdown();
     await passageDraftingService.shutdown();
@@ -242,6 +249,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerProjectRoutes(app, projects, artifacts, longFormProjects);
   registerLongFormRoutes(app, projects, artifacts, workflow, longFormProjects);
   registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, authorMemory, changeSets, longFormProjects);
+  registerConversationalEditRoutes(app, conversationalEdits);
   registerAuthorMemoryRoutes(app, projects, authorMemory);
   registerProjectSetupRoutes(app, projectSetupService);
   registerSourceAnalysisRoutes(app, sourceAnalysisService);

@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - checkpoint/**
+      - codex/a6-conversational-editing
   pull_request:
 
 permissions:

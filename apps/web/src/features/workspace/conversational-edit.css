@@ -1,0 +1,10 @@
+.edit-workspace .edit-scope-list { max-height: 18rem; overflow: auto; margin: .75rem 0; border-block: 1px solid #60708a; }
+.edit-workspace .edit-scope-list label { padding: .4rem 0; min-height: 2.75rem; }
+.edit-workspace .edit-scope-list small { display: block; font-size: .75rem; color: #b8c6c8; }
+.edit-workspace .edit-intent { display: flex; flex-wrap: wrap; gap: 1rem; border: 0; padding: .75rem 0; }
+.edit-workspace code { overflow-wrap: anywhere; font-size: .8rem; }
+.edit-workspace .brief-section > label { display: grid; gap: .4rem; }
+.edit-workspace .brief-section > .bootstrap-check { display: flex; }
+.edit-workspace input, .edit-workspace textarea { min-width: 0; width: 100%; box-sizing: border-box; }
+.edit-workspace textarea { min-height: 6rem; resize: vertical; }
+.edit-workspace .bootstrap-check input { width: 1rem; }

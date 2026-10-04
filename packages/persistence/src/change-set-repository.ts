@@ -165,6 +165,7 @@ export class ChangeSetRepository {
   apply<T>(id: string, schema: z.ZodType<T>): { changeSet: ChangeSetRecord<T>; version: ArtifactVersion<T> } {
     const current = this.get<T>(id);
     if (!current) throw new Error("Proposal not found");
+    if ((current.proposal as { kind?: string } | null)?.kind === "conversational-edit-v1") throw new Error("conversational_edit_use_reviewed_apply");
     if (current.artifactId === "adaptation-intent" || current.artifactId.startsWith("adaptation-intent-proposal-")) throw new Error("adaptation_use_reviewed_proposal_apply");
     if (current.status !== "proposed") throw new Error("Only pending proposals can be applied");
     const candidate = schema.parse(current.candidate);
@@ -230,6 +231,7 @@ export class ChangeSetRepository {
   ): { changeSet: ChangeSetRecord<T>; version: ArtifactVersion<T> } {
     const current = this.get<T>(id);
     if (!current) throw new Error("Proposal not found");
+    if ((current.proposal as { kind?: string } | null)?.kind === "conversational-edit-v1") throw new Error("conversational_edit_use_reviewed_apply");
     if (current.artifactId === "adaptation-intent" || current.artifactId.startsWith("adaptation-intent-proposal-")) throw new Error("adaptation_use_reviewed_proposal_apply");
     if (current.status !== "proposed") throw new Error("Only pending proposals can be applied");
     const candidate = schema.parse(content);

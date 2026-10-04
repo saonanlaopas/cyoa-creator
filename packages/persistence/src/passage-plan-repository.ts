@@ -389,6 +389,10 @@ export class PassagePlanRepository {
     return this.insertEntity(projectId, kind, entityId, content);
   }
 
+  insertStructureVersionInTransaction<T>(projectId: string, content: T): StructureVersion<T> {
+    return this.insertStructure(projectId, content);
+  }
+
   markDraftInTransaction(projectId: string): PassagePlanState {
     return this.setState(projectId, "draft");
   }
