@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FOUNDATION_ARTIFACT_IDS, FoundationBootstrapContextSchema, defaultCreativeDirection, defaultProjectBrief, newAdaptationIntent,
   foundationFieldPaths, LongFormStoryBibleSchema, normalizeCreativeDirection, normalizeAdaptationIntent, sourceCanonicalJson, sourceDigest, type FoundationArtifactId, type SourceDossier } from "@story-to-cyoa/domain";
 import { ArtifactRepository, FoundationBootstrapRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository,
-  openDatabase, validateFoundationBootstrapDatabase, type FoundationBootstrapJob, type StoryDatabase } from "../src/index.js";
+  ConversationRepository, openDatabase, validateFoundationBootstrapDatabase, type FoundationBootstrapJob, type StoryDatabase } from "../src/index.js";
 import { analysisFixture, completeFixture } from "./source-analysis-fixture.js";
 import { deterministicFoundationBootstrapCandidate } from "../../../apps/server/src/services/foundation-bootstrap-provider.js";
+import { PublicationExportService } from "../../../apps/server/src/services/publication-export-service.js";
+import { RecoveryService } from "../../../apps/server/src/services/recovery-service.js";
 
 const databases: StoryDatabase[] = [];
 afterEach(() => { for (const database of databases.splice(0)) database.close(); });
@@ -35,6 +37,31 @@ function fixture() {
   return { ...f, workflow, repository, plan };
 }
 type Fixture = ReturnType<typeof fixture>;
+function replan(f: Fixture, request = f.plan.context.request) {
+  const context = structuredClone(f.plan.context);
+  context.request = request;
+  for (const artifactId of FOUNDATION_ARTIFACT_IDS) {
+    const current = f.artifacts.getCurrent(f.projectId, artifactId);
+    context.baseVersionIds[artifactId] = current?.id ?? null; Object.assign(context.baseArtifacts, { [artifactId]: current?.content ?? null });
+  }
+  const intent = f.artifacts.getCurrent(f.projectId, "adaptation-intent")!;
+  context.intentVersionId = intent.id; context.intent = intent.content as typeof context.intent;
+  const contextFingerprint = sourceDigest(context), contextBytes = Buffer.byteLength(sourceCanonicalJson(context));
+  f.plan = f.repository.savePlan({ ...f.plan, id: randomUUID(), context, contextFingerprint, contextBytes, estimatedInputTokens: Math.ceil(contextBytes / 4),
+    fingerprint: sourceDigest({ contextFingerprint, units: f.plan.units, providerId: context.providerId, modelId: context.modelId }) });
+  return f.plan;
+}
+function directionProvenance(f: Fixture, kind: "migration-derived" | "user-message") {
+  let reference: { kind: typeof kind; targetId: string; versionId?: string; excerpt?: string } = { kind, targetId: "brief", versionId: f.plan.context.baseVersionIds.brief! };
+  if (kind === "user-message") {
+    const conversations = new ConversationRepository(f.database), scope = { kind: "project" as const, projectId: f.projectId };
+    const conversation = conversations.create(f.projectId, scope, "Setup", "setup");
+    const message = conversations.addMessage({ conversationId: conversation.id, role: "user", content: "Keep a quiet tone.", intent: "discuss", scope, context: {}, metadata: {} });
+    reference = { kind, targetId: message.id, excerpt: message.content };
+  }
+  f.artifacts.saveArtifact({ projectId: f.projectId, artifactId: "creative-direction", content: normalizeCreativeDirection({ ...defaultCreativeDirection(), fieldProvenance: [{ fieldPath: "/tone", reference }] }) });
+  replan(f);
+}
 function running(f: Fixture) {
   const job = f.repository.createJob(f.projectId, f.plan.id, f.plan.fingerprint);
   return f.repository.begin(f.projectId, job.id);
@@ -52,6 +79,39 @@ function rewrite(f: Fixture, job: FoundationBootstrapJob) {
 }
 
 describe("Foundation bootstrap persistence lifecycle", () => {
+  it.each(["invented", "contradictory"])("rejects an appended %s sentence under genuine source-canon provenance", (kind) => {
+    const f = fixture(), job = running(f), candidate = deterministicFoundationBootstrapCandidate(f.plan.context);
+    candidate.artifacts.bible.canonFacts[0]!.statement += kind === "invented" ? "\nAlex rules the moon." : "\nAlex does not exist.";
+    expect(() => f.repository.finish(f.projectId, job.id, job.units[0].attempts[0]!.id, "completed", candidate)).toThrow("bootstrap_canon_fact_ungrounded");
+    expect(f.repository.getJob(f.projectId, job.id)).toEqual(job);
+    expect(() => apply(f, job.id)).toThrow("bootstrap_candidate_missing");
+    expect(f.artifacts.getCurrent(f.projectId, "bible")).toBeUndefined();
+  });
+  it("requires every independent active override outside canon obligations and carries them downstream", () => {
+    const f = fixture(), intent = structuredClone(f.plan.context.intent);
+    const target = f.plan.context.dossier.records.find((record) => record.status === "supported" && !intent.obligations.some((obligation) => obligation.targetIds.includes(record.id)))!;
+    const common = { scope: "project", rationale: "Reviewed author policy", provenance: { origin: "manual" as const, projectId: f.projectId }, authority: "author-override" as const, targetIds: [target.id], active: true, reviewed: true };
+    intent.overrides = [{ ...common, id: "occupation", aspect: "occupation", effect: "Alex is a librarian and has never sailed." },
+      { ...common, id: "memory", aspect: "memory", effect: "Alex remembers every visitor." }];
+    intent.revision = { kind: "manual", previousVersionId: f.plan.context.intentVersionId };
+    const version = f.artifacts.saveArtifact({ projectId: f.projectId, artifactId: "adaptation-intent", content: normalizeAdaptationIntent(intent) });
+    f.workflow.approve(f.projectId, "adaptation-intent", version.id); replan(f);
+    const job = running(f), candidate = deterministicFoundationBootstrapCandidate(f.plan.context);
+    for (const override of intent.overrides) {
+      const forged = structuredClone(candidate), entry = forged.provenance.find((entry) => entry.overrideIds.includes(override.id))!;
+      const index = Number(entry.fieldPath.split("/")[2]);
+      forged.artifacts.bible.adaptationOpportunities[index]!.description = "The old source account is unchanged.";
+      expect(() => f.repository.finish(f.projectId, job.id, job.units[0].attempts[0]!.id, "completed", forged)).toThrow("bootstrap_active_override_ungrounded");
+    }
+    const omitted = structuredClone(candidate);
+    omitted.artifacts.bible.adaptationOpportunities = [];
+    omitted.provenance = omitted.provenance.filter((entry) => !entry.fieldPath.startsWith("/adaptationOpportunities/"));
+    omitted.provenance.push({ artifactId: "bible", fieldPath: "/adaptationOpportunities", origin: "adaptation-only", sourceRecordIds: [], correctionIds: [], overrideIds: [], inventionIds: [], rationale: "Empty proposed adaptation opportunities." });
+    expect(() => f.repository.finish(f.projectId, job.id, job.units[0].attempts[0]!.id, "completed", omitted)).toThrow("bootstrap_active_override_ungrounded");
+    f.repository.finish(f.projectId, job.id, job.units[0].attempts[0]!.id, "completed", candidate); apply(f, job.id);
+    for (const id of FOUNDATION_ARTIFACT_IDS) f.workflow.approve(f.projectId, id, f.artifacts.getCurrent(f.projectId, id)!.id);
+    expect(f.artifacts.foundationAuthority(f.projectId)?.activeOverrides).toEqual(f.plan.context.intent.overrides);
+  });
   it("binds pending, running and completed to one immutable authorized attempt", () => {
     const f = fixture(), pending = f.repository.createJob(f.projectId, f.plan.id, f.plan.fingerprint);
     expect(pending.units[0].attempts).toEqual([]);
@@ -145,6 +205,86 @@ describe("Foundation bootstrap persistence lifecycle", () => {
 });
 
 describe("Foundation bootstrap atomic application and recovery", () => {
+  it("does not heal a forged original plan fingerprint while resealing portable conversation evidence", () => {
+    const f = fixture(); directionProvenance(f, "user-message");
+    const forged = { ...f.plan, id: randomUUID(), contextFingerprint: "a".repeat(64) };
+    f.database.prepare("INSERT INTO foundation_bootstrap_plans VALUES(?,?,?)").run(forged.id, f.projectId, JSON.stringify(forged));
+    expect(() => new PortableProjectRepository(f.database).exportRows(f.projectId)).toThrow("bootstrap_plan_fingerprint_invalid");
+  });
+  it.each(["migration-derived", "user-message"] as const)("duplicates unapplied/partially applied bundles with real %s direction provenance", (kind) => {
+    for (const partial of [false, true]) {
+      const f = fixture(); directionProvenance(f, kind); const job = completed(f);
+      if (partial) apply(f, job.id, ["brief"]);
+      const copy = f.projects.duplicate(f.projectId); f.projects.remove(f.projectId);
+      validateFoundationBootstrapDatabase(f.database, copy.id);
+      const repository = new FoundationBootstrapRepository(f.database), copied = repository.listJobs(copy.id)[0]!;
+      const direction = repository.candidate(copy.id, copied.id).candidate.artifacts["creative-direction"];
+      expect(direction.fieldProvenance).toHaveLength(1);
+      const originalReference = f.plan.context.baseArtifacts["creative-direction"]!.fieldProvenance[0]!.reference!;
+      if (kind === "migration-derived") expect(direction.fieldProvenance[0]!.reference?.versionId).not.toBe(originalReference.versionId);
+      else expect(direction.fieldProvenance[0]!.reference?.targetId).not.toBe(originalReference.targetId);
+      const remaining = FOUNDATION_ARTIFACT_IDS.filter((id) => !repository.appliedVersions(copy.id, copied.id)[id]);
+      const preview = repository.previewApply(copy.id, copied.id, remaining); repository.apply(copy.id, copied.id, preview.effectiveArtifactIds, preview.previewFingerprint);
+      validateFoundationBootstrapDatabase(f.database, copy.id);
+    }
+  });
+  it("round-trips four partial applications with equal timestamps and arbitrary serialized order", () => {
+    const clock = vi.spyOn(Date.prototype, "toISOString").mockReturnValue("2026-10-04T00:00:00.000Z");
+    try {
+      const f = fixture(), job = completed(f); apply(f, job.id, ["brief"]); apply(f, job.id, ["creative-direction"]); apply(f, job.id, ["bible"]); apply(f, job.id, ["routes"]);
+      const before = f.repository.applications(f.projectId, job.id), bundle = new PortableProjectRepository(f.database).exportRows(f.projectId);
+      bundle.tables.foundation_bootstrap_applications.reverse();
+      const target = database(); new PortableProjectRepository(target).importRows(bundle, validateFoundationBootstrapDatabase);
+      expect(new FoundationBootstrapRepository(target).applications(f.projectId, job.id)).toEqual(before);
+      expect(new PortableProjectRepository(target).exportRows(f.projectId)).toEqual(new PortableProjectRepository(f.database).exportRows(f.projectId));
+      const forged = structuredClone(bundle); const row = forged.tables.foundation_bootstrap_applications[0]!;
+      row.content_json = JSON.stringify({ ...JSON.parse(String(row.content_json)), fingerprint: "a".repeat(64) });
+      expect(() => new PortableProjectRepository(database()).importRows(forged, validateFoundationBootstrapDatabase)).toThrow("bootstrap_application_sequence_invalid");
+    } finally { clock.mockRestore(); }
+  });
+  it.each(["before-generation", "pending-review", "applied"])("round-trips conversational direction and verified backup at %s", async (stage) => {
+    const f = fixture(); directionProvenance(f, "user-message");
+    const before = new ArtifactRepository(f.database).getCurrent(f.projectId, "creative-direction")!;
+    let job: FoundationBootstrapJob | undefined;
+    if (stage !== "before-generation") job = completed(f);
+    if (stage === "applied") { apply(f, job!.id, ["brief"]); apply(f, job!.id, ["creative-direction"]); apply(f, job!.id, ["bible"]); apply(f, job!.id, ["routes"]); }
+    const portable = new PortableProjectRepository(f.database), bundle = portable.exportRows(f.projectId), target = database();
+    new PortableProjectRepository(target).importRows(bundle, validateFoundationBootstrapDatabase);
+    expect(new ArtifactRepository(f.database).getVersion(before.id)?.content).toEqual(before.content);
+    const imported = new ArtifactRepository(target).getVersion<ReturnType<typeof defaultCreativeDirection>>(before.id)!;
+    expect(imported.content.materialFingerprint).toBe((before.content as ReturnType<typeof defaultCreativeDirection>).materialFingerprint);
+    expect(imported.content.fieldProvenance[0]!.reference?.unavailable).toBe(true);
+    expect(target.prepare("SELECT id FROM messages").all()).toEqual([]);
+    const publication = new PublicationExportService(portable, undefined), recovery = new RecoveryService(f.database, portable, publication, { applicationVersion: "A5-review" });
+    const backup = await recovery.createVerifiedBackup(f.projectId); expect(backup.record.verificationStatus).toBe("verified");
+    const restored = database(), restoredPortable = new PortableProjectRepository(restored), restoredPublication = new PublicationExportService(restoredPortable, undefined);
+    await new RecoveryService(restored, restoredPortable, restoredPublication, { applicationVersion: "A5-review" }).restoreBackup(backup.bytes);
+    validateFoundationBootstrapDatabase(restored, f.projectId);
+    expect(restoredPortable.exportRows(f.projectId)).toEqual(bundle);
+    if (job && stage === "pending-review") {
+      const repository = new FoundationBootstrapRepository(restored), preview = repository.previewApply(f.projectId, job.id, [...FOUNDATION_ARTIFACT_IDS]);
+      repository.apply(f.projectId, job.id, preview.effectiveArtifactIds, preview.previewFingerprint);
+    }
+  }, 30_000);
+  it("reuses equivalent previews and archives only unused previews to recover at the bounded cache limit", () => {
+    const f = fixture(), initial = f.plan;
+    expect(replan(f).id).toBe(initial.id); expect(f.repository.listPlans(f.projectId)).toHaveLength(1);
+    const job = completed(f); apply(f, job.id, ["brief"]);
+    const artifactsBefore = f.artifacts.listVersions(f.projectId, "brief"), applicationsBefore = f.repository.applications(f.projectId, job.id);
+    for (let i = 0; i < 64; i++) replan(f, `Preview ${i}`);
+    expect(() => replan(f, "Overflow")).toThrow("bootstrap_preview_budget_exceeded_archive_unused_previews");
+    f.artifacts.saveArtifact({ projectId: f.projectId, artifactId: "brief", content: defaultProjectBrief("Fresh author work") });
+    expect(() => f.repository.createJob(f.projectId, f.plan.id, f.plan.fingerprint)).toThrow("bootstrap_base_stale");
+    const archive = f.repository.archiveUnusedPreviews(f.projectId); expect(archive.plans).toHaveLength(64);
+    expect(archive.plans.some((plan) => plan.id === initial.id)).toBe(false);
+    expect(() => f.repository.retireUnusedPreviews(f.projectId, "a".repeat(64))).toThrow("bootstrap_preview_archive_stale");
+    expect(f.repository.retireUnusedPreviews(f.projectId, archive.fingerprint)).toEqual({ retired: 64 });
+    const fresh = replan(f, "Fresh reviewed request"); expect(f.repository.createJob(f.projectId, fresh.id, fresh.fingerprint).status).toBe("pending");
+    expect(f.artifacts.listVersions(f.projectId, "brief").slice(1)).toEqual(artifactsBefore);
+    expect(f.repository.applications(f.projectId, job.id)).toEqual(applicationsBefore);
+    expect(() => f.database.prepare("DELETE FROM foundation_bootstrap_plans WHERE id=?").run(initial.id)).toThrow("immutable");
+    expect(archive.fingerprint).toBe(sourceDigest({ projectId: f.projectId, plans: archive.plans }));
+  }, 30_000);
   it("keeps honestly blocked required obligations reviewable but does not restore AI passage authority", () => {
     const f = fixture(), job = running(f), candidate = deterministicFoundationBootstrapCandidate(f.plan.context);
     candidate.canonAssessment[0] = { ...candidate.canonAssessment[0]!, status: "blocked", routeIds: [], actIds: [], endingIds: [], structuralEvidence: [], rationale: "Required identity needs structural placement." };

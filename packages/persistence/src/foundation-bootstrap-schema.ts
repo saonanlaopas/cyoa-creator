@@ -21,9 +21,11 @@ CREATE TABLE IF NOT EXISTS foundation_bootstrap_applications (
  content_json TEXT NOT NULL CHECK(json_valid(content_json)),
  FOREIGN KEY(project_id,job_id) REFERENCES foundation_bootstrap_jobs(project_id,id)
 );
+DROP TRIGGER IF EXISTS foundation_bootstrap_plans_immutable_delete;
 ${FOUNDATION_BOOTSTRAP_TABLES.map((table) => `
 CREATE TRIGGER IF NOT EXISTS ${table}_immutable_delete BEFORE DELETE ON ${table}
  WHEN EXISTS(SELECT 1 FROM projects WHERE id=OLD.project_id)
+ ${table === "foundation_bootstrap_plans" ? "AND EXISTS(SELECT 1 FROM foundation_bootstrap_jobs WHERE project_id=OLD.project_id AND plan_id=OLD.id)" : ""}
  BEGIN SELECT RAISE(ABORT,'Foundation bootstrap history is immutable'); END;
 ${table === "foundation_bootstrap_jobs" ? "" : `CREATE TRIGGER IF NOT EXISTS ${table}_immutable_update BEFORE UPDATE ON ${table}
  BEGIN SELECT RAISE(ABORT,'Foundation bootstrap records are immutable'); END;`}`).join("\n")}

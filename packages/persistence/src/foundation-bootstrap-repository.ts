@@ -28,6 +28,21 @@ export const FoundationBootstrapApplicationSchema = z.object({ id, projectId: id
   artifactVersionIds: z.record(z.enum(FOUNDATION_ARTIFACT_IDS), id), previousVersionIds: FoundationArtifactVersionsSchema,
   fingerprint: digest, createdAt: z.string() }).strict();
 export type FoundationBootstrapApplication = z.infer<typeof FoundationBootstrapApplicationSchema>;
+export function orderFoundationBootstrapApplications(applications: FoundationBootstrapApplication[], planFingerprint: string): FoundationBootstrapApplication[] {
+  const remaining = [...applications], ordered: FoundationBootstrapApplication[] = [], applied: Partial<Record<FoundationArtifactId, string>> = {};
+  // Each fingerprinted preview binds the complete prior selection, so chronology survives row/archive reordering.
+  while (remaining.length) {
+    const matches = remaining.filter((application) => {
+      const selected = FOUNDATION_ARTIFACT_IDS.filter((artifactId) => application.artifactVersionIds[artifactId]);
+      return selected.length && selected.every((artifactId) => !applied[artifactId]) && application.fingerprint === sourceDigest({
+        plan: planFingerprint, candidateId: application.candidateId, applied, effectiveArtifactIds: selected,
+      });
+    });
+    if (matches.length !== 1) throw new Error("bootstrap_application_sequence_invalid");
+    const next = matches[0]!; ordered.push(next); Object.assign(applied, next.artifactVersionIds); remaining.splice(remaining.indexOf(next), 1);
+  }
+  return ordered;
+}
 export const FOUNDATION_DEPENDENCIES: Record<FoundationArtifactId, FoundationArtifactId[]> = {
   brief: [], "creative-direction": ["brief"], bible: ["brief", "creative-direction"],
   routes: ["brief", "creative-direction", "bible", "mechanics", "endings"],
@@ -51,12 +66,18 @@ export class FoundationBootstrapRepository {
   private atomic<T>(run: () => T): T { return this.database.isTransaction ? run() : transaction(this.database, run); }
   private rows(table: string, projectId: string) { return this.database.prepare(`SELECT * FROM ${table} WHERE project_id=? ORDER BY rowid DESC`).all(projectId) as JsonRow[]; }
   private budget(projectId: string, additional = 0) {
-    const rows = this.rows("foundation_bootstrap_plans", projectId);
-    if (rows.length >= 64 || rows.reduce((sum, row) => sum + Buffer.byteLength(row.content_json), additional) > 8_000_000) throw new Error("bootstrap_history_budget_exceeded");
+    const rows = this.unusedPlanRows(projectId);
+    if (rows.length >= 64 || rows.reduce((sum, row) => sum + Buffer.byteLength(row.content_json), additional) > 8_000_000)
+      throw new Error("bootstrap_preview_budget_exceeded_archive_unused_previews");
   }
   savePlan(value: unknown): FoundationBootstrapPlan {
     return this.atomic(() => {
-      const plan = this.validatePlan(value); this.assertFresh(plan); this.budget(plan.projectId, Buffer.byteLength(JSON.stringify(plan)));
+      const plan = this.validatePlan(value); this.assertFresh(plan);
+      const equivalent = this.database.prepare(`SELECT id FROM foundation_bootstrap_plans p WHERE project_id=?
+        AND json_extract(content_json,'$.fingerprint')=? AND (SELECT COUNT(*) FROM foundation_bootstrap_jobs j WHERE j.plan_id=p.id) < 4
+        ORDER BY rowid DESC LIMIT 1`).get(plan.projectId, plan.fingerprint) as { id: string } | undefined;
+      if (equivalent) return this.getPlan(plan.projectId, equivalent.id);
+      this.budget(plan.projectId, Buffer.byteLength(JSON.stringify(plan)));
       this.database.prepare("INSERT INTO foundation_bootstrap_plans(id,project_id,content_json) VALUES(?,?,?)").run(plan.id, plan.projectId, JSON.stringify(plan)); return plan;
     });
   }
@@ -91,6 +112,22 @@ export class FoundationBootstrapRepository {
     return plan;
   }
   listPlans(projectId: string) { return this.rows("foundation_bootstrap_plans", projectId).map((row) => this.getPlan(projectId, row.id)); }
+  private unusedPlanRows(projectId: string) {
+    return this.database.prepare(`SELECT * FROM foundation_bootstrap_plans p WHERE project_id=?
+      AND NOT EXISTS(SELECT 1 FROM foundation_bootstrap_jobs j WHERE j.plan_id=p.id) ORDER BY id`).all(projectId) as JsonRow[];
+  }
+  archiveUnusedPreviews(projectId: string) {
+    const plans = this.unusedPlanRows(projectId).map((row) => this.getPlan(projectId, row.id));
+    return { schemaVersion: 1 as const, projectId, plans, fingerprint: sourceDigest({ projectId, plans }) };
+  }
+  retireUnusedPreviews(projectId: string, fingerprint: string) {
+    return this.atomic(() => {
+      const archive = this.archiveUnusedPreviews(projectId);
+      if (!archive.plans.length || archive.fingerprint !== fingerprint) throw new Error("bootstrap_preview_archive_stale");
+      for (const plan of archive.plans) this.database.prepare("DELETE FROM foundation_bootstrap_plans WHERE id=? AND project_id=?").run(plan.id, projectId);
+      return { retired: archive.plans.length };
+    });
+  }
   assertFresh(plan: FoundationBootstrapPlan, applied: Partial<Record<FoundationArtifactId, string>> = {}): void {
     const artifacts = new ArtifactRepository(this.database), workflow = new WorkflowRepository(this.database);
     for (const [artifactId, versionId] of [["source-dossier", plan.context.dossierVersionId], ["adaptation-intent", plan.context.intentVersionId]]) {
@@ -199,11 +236,12 @@ export class FoundationBootstrapRepository {
     return { id: row.id, candidate: parseFoundationBootstrapCandidate(JSON.parse(row.content_json), plan.context) };
   }
   applications(projectId: string, jobId: string) {
-    return this.rows("foundation_bootstrap_applications", projectId).map((row) => {
+    const applications = this.rows("foundation_bootstrap_applications", projectId).map((row) => {
       const application = FoundationBootstrapApplicationSchema.parse(JSON.parse(row.content_json));
       if (application.id !== row.id || application.projectId !== projectId) throw new Error("bootstrap_application_identity_invalid");
       return application;
     }).filter((application) => application.jobId === jobId);
+    return orderFoundationBootstrapApplications(applications, this.getJob(projectId, jobId).authorizedFingerprint).reverse();
   }
   appliedVersions(projectId: string, jobId: string) { return Object.assign({}, ...this.applications(projectId, jobId).reverse().map((application) => application.artifactVersionIds)) as Partial<Record<FoundationArtifactId, string>>; }
   previewApply(projectId: string, jobId: string, selected: FoundationArtifactId[]) {
@@ -302,7 +340,8 @@ export function foundationBootstrapAuthority(database: StoryDatabase, projectId:
         throw new Error("bootstrap_required_obligation_blocked");
       return { fingerprint: sourceDigest({ plan: plan.fingerprint, applied, candidateId: candidate.id }), dossierVersionId: plan.context.dossierVersionId,
         intentVersionId: plan.context.intentVersionId, dimensions: plan.context.intent.dimensions, preserveCanonRoute: plan.context.intent.preserveCanonRoute,
-        endingIntent: plan.context.intent.endingIntent, canonAssessment: candidate.candidate.canonAssessment };
+        endingIntent: plan.context.intent.endingIntent, activeOverrides: plan.context.intent.overrides.filter((override) => override.active && override.reviewed),
+        canonAssessment: candidate.candidate.canonAssessment };
     } catch { /* An older application is not authority for changed foundations. */ }
   }
   throw new Error("bootstrap_approved_compatible_foundations_required");

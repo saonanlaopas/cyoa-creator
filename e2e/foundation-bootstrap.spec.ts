@@ -79,3 +79,28 @@ test("A5 offline preview, generation, provenance review and dependency-safe draf
   const drafts = await (await request.get(`${f.project}/drafts/review-queue`)).json(); expect(drafts.items ?? drafts).toHaveLength(0);
   await page.reload(); await expect(page.getByRole("heading", { name: "Foundation bootstrap", exact: true })).toBeVisible();
 });
+
+test("A5 unused-preview archive recovery requires a real download and leaves canonical work untouched", async ({ page, request }) => {
+  const f = await adaptedProject(request), root = `${f.project}/foundation-bootstrap`, before = await (await request.get(f.project)).json();
+  await page.goto("/"); await page.evaluate((id) => { localStorage.setItem("story-to-cyoa.long-form-project-id", id); localStorage.setItem("story-to-cyoa.long-form-stage", "foundation-bootstrap"); }, f.id);
+  await page.getByRole("button", { name: "Long-form workspace" }).click();
+  await page.getByLabel("Foundation request").fill("Unused reviewed foundation preview.");
+  await page.getByRole("button", { name: "Preview foundation generation" }).click();
+  await expect(page.getByRole("region", { name: "Foundation generation preview" })).toBeVisible();
+  await page.getByRole("button", { name: "Preview foundation generation" }).click();
+  await expect.poll(async () => (await (await request.get(root)).json()).plans.length).toBe(1);
+  await page.getByText("Saved generation previews", { exact: true }).click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download unused preview archive" }).click();
+  const download = await downloadPromise; expect(download.suggestedFilename()).toBe(`foundation-previews-${f.id}.json`);
+  const stream = await download.createReadStream(); expect(stream).not.toBeNull();
+  const chunks = []; for await (const chunk of stream!) chunks.push(chunk);
+  const archive = JSON.parse(Buffer.concat(chunks).toString()); expect(archive.plans).toHaveLength(1); expect(archive.projectId).toBe(f.id);
+  const retire = page.getByRole("button", { name: "Retire archived unused previews" }); await expect(retire).toBeDisabled();
+  await page.getByLabel("Archive saved; retire only unused previews").check(); await retire.click();
+  await expect(page.getByText("1 unused previews archived. Job and artifact history retained.", { exact: true })).toBeVisible();
+  const state = await (await request.get(root)).json(); expect(state.plans).toHaveLength(0); expect(state.jobs).toHaveLength(0);
+  expect(await (await request.get(f.project)).json()).toEqual(before);
+  await page.getByLabel("Foundation request").fill("Fresh foundation request after archived previews."); await page.getByRole("button", { name: "Preview foundation generation" }).click();
+  await expect(page.getByRole("region", { name: "Foundation generation preview" })).toContainText("Fresh foundation request after archived previews.");
+});

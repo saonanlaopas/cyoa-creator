@@ -28,6 +28,7 @@ export interface BootstrapApplyPreview {
   effectiveArtifactIds: FoundationArtifactId[]; requiredDependencies: FoundationArtifactId[];
   previewFingerprint: string; wouldStale: string[];
 }
+export interface BootstrapPreviewArchive { schemaVersion: 1; projectId: string; plans: BootstrapPlan[]; fingerprint: string }
 export class FoundationBootstrapApi {
   readonly root: string;
   constructor(projectId: string) { this.root = `/api/long-form/projects/${encodeURIComponent(projectId)}/foundation-bootstrap`; }
@@ -38,6 +39,8 @@ export class FoundationBootstrapApi {
   }
   state() { return this.request<BootstrapState>(""); }
   preview(input: { message: string; providerId: string; modelId: string }) { return this.request<BootstrapPlan>("/preview", input); }
+  archiveUnusedPreviews() { return this.request<BootstrapPreviewArchive>("/preview-history/archive"); }
+  retireUnusedPreviews(fingerprint: string) { return this.request<{ retired: number }>("/preview-history/retire", { fingerprint, archiveSaved: true }); }
   start(plan: BootstrapPlan) { return this.request<BootstrapJob>("/start", { planId: plan.id, fingerprint: plan.fingerprint }); }
   job(id: string) { return this.request<BootstrapJob>(`/jobs/${encodeURIComponent(id)}`); }
   cancel(id: string) { return this.request<BootstrapJob>(`/jobs/${encodeURIComponent(id)}/cancel`, {}); }

@@ -52,6 +52,22 @@ async function assertNoFoundationWrite(f: Fixture, before: any) {
 }
 
 describe("A5 exact foundation generation and review boundary", () => {
+  it("reuses exact previews and retires only the explicitly archived unused selection without provider use", async () => {
+    const f = fixture(), first = await preview(f), repeated = await preview(f);
+    expect(repeated.id).toBe(first.id); expect((await f.call("")).json().plans).toHaveLength(1);
+    const archive = (await f.call("/preview-history/archive")).json();
+    expect(archive.plans).toHaveLength(1); expect(f.provider.calls).toHaveLength(0);
+    expect((await f.call("/preview-history/retire", { fingerprint: archive.fingerprint, archiveSaved: false })).statusCode).toBe(400);
+    const changed = await f.call("/preview", { message: "An independent second preview", providerId: f.provider.id, modelId: "offline-foundation-v1" });
+    expect(changed.statusCode).toBe(200);
+    expect((await f.call("/preview-history/retire", { fingerprint: archive.fingerprint, archiveSaved: true })).statusCode).toBe(409);
+    const current = (await f.call("/preview-history/archive")).json();
+    expect((await f.call("/preview-history/retire", { fingerprint: current.fingerprint, archiveSaved: true })).json()).toEqual({ retired: 2 });
+    expect((await f.call("")).json().plans).toEqual([]); expect(f.provider.calls).toHaveLength(0);
+    const started = await start(f); await terminal(f, started.job.id);
+    expect((await f.call("/preview-history/archive")).json().plans).toEqual([]);
+    expect((await f.call("")).json().jobs).toHaveLength(1);
+  });
   it.each([true, false])("generates all six ordinary unapproved drafts with existing Creative Direction=%s", async (existingDirection) => {
     const f = fixture(undefined, existingDirection), before = (await f.app.inject({ url: f.project })).json();
     expect((await f.call("")).json().availability.allowed).toBe(true);

@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { FOUNDATION_ARTIFACT_IDS, sourceCanonicalJson, sourceDigest, type FoundationBootstrapContext, type FoundationArtifactId, type SourceDossier } from "@story-to-cyoa/domain";
+import { FOUNDATION_ARTIFACT_IDS, normalizeCreativeDirection, sourceCanonicalJson, sourceDigest, type FoundationBootstrapContext, type FoundationArtifactId, type SourceDossier } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
 import { FOUNDATION_BOOTSTRAP_TABLES } from "./foundation-bootstrap-schema.js";
-import { FoundationBootstrapJobSchema, FoundationBootstrapPlanSchema, FoundationBootstrapApplicationSchema } from "./foundation-bootstrap-repository.js";
+import { FoundationBootstrapJobSchema, FoundationBootstrapPlanSchema, FoundationBootstrapApplicationSchema, FoundationBootstrapRepository } from "./foundation-bootstrap-repository.js";
 
 export function copyFoundationBootstrapRows(database: StoryDatabase, projectId: string, ids: Map<string, string>) {
   const copyId = ids.get(projectId)!;
   type Row = Record<string, string | number | null>;
   const tables = Object.fromEntries(FOUNDATION_BOOTSTRAP_TABLES.map((table) => [table, database.prepare(`SELECT * FROM ${table} WHERE project_id=? ORDER BY rowid`).all(projectId) as Row[]]));
+  const repository = new FoundationBootstrapRepository(database), applicationRows = new Map(tables.foundation_bootstrap_applications!.map((row) => [String(row.id), row]));
+  tables.foundation_bootstrap_applications = tables.foundation_bootstrap_jobs!.flatMap((row) => repository.applications(projectId, String(row.id)).reverse().map((application) => applicationRows.get(application.id)!));
   for (const rows of Object.values(tables)) for (const row of rows) ids.set(String(row.id), randomUUID());
   for (const row of tables.foundation_bootstrap_jobs!) for (const attempt of FoundationBootstrapJobSchema.parse(JSON.parse(String(row.content_json))).units[0].attempts) ids.set(attempt.id, randomUUID());
   const remapKeys = new Set(["id", "projectId", "planId", "jobId", "candidateId", "attemptId", "conversationId", "messageIds", "decisionIds", "dossierVersionId", "intentVersionId", "sourceRecordIds", "correctionIds", "overrideIds", "inventionIds", "obligationId", "versionId", "targetId"]);
@@ -19,6 +21,7 @@ export function copyFoundationBootstrapRows(database: StoryDatabase, projectId: 
   };
   for (const row of tables.foundation_bootstrap_plans!) {
     const previous = FoundationBootstrapPlanSchema.parse(JSON.parse(String(row.content_json))), plan = remap(previous) as typeof previous;
+    const staticInputTokens = previous.estimatedInputTokens - Math.ceil(previous.contextBytes / 4);
     plan.context.dossier = artifact(plan.context.dossierVersionId) as SourceDossier;
     previous.context.dossier.corrections.forEach((correction, index) => ids.set(correction.id, plan.context.dossier.corrections[index]!.id));
     plan.context.intent = artifact(plan.context.intentVersionId);
@@ -28,7 +31,7 @@ export function copyFoundationBootstrapRows(database: StoryDatabase, projectId: 
     }
     plan.contextFingerprint = sourceDigest(plan.context);
     plan.fingerprint = sourceDigest({ contextFingerprint: plan.contextFingerprint, units: plan.units, providerId: plan.providerId, modelId: plan.modelId });
-    plan.contextBytes = Buffer.byteLength(sourceCanonicalJson(plan.context)); plan.estimatedInputTokens = Math.ceil(plan.contextBytes / 4);
+    plan.contextBytes = Buffer.byteLength(sourceCanonicalJson(plan.context)); plan.estimatedInputTokens = Math.ceil(plan.contextBytes / 4) + staticInputTokens;
     ids.set(previous.contextFingerprint, plan.contextFingerprint); ids.set(previous.fingerprint, plan.fingerprint);
     database.prepare("INSERT INTO foundation_bootstrap_plans VALUES(?,?,?)").run(plan.id, copyId, JSON.stringify(plan));
   }
@@ -40,6 +43,7 @@ export function copyFoundationBootstrapRows(database: StoryDatabase, projectId: 
   }
   for (const row of tables.foundation_bootstrap_candidates!) {
     const candidate = remap(JSON.parse(String(row.content_json))) as { artifacts: FoundationBootstrapContext["baseArtifacts"] };
+    candidate.artifacts["creative-direction"] = normalizeCreativeDirection(candidate.artifacts["creative-direction"]!);
     const applicationRows = tables.foundation_bootstrap_applications!.filter((application) => application.job_id === row.job_id);
     for (const applicationRow of applicationRows) {
       const application = FoundationBootstrapApplicationSchema.parse(JSON.parse(String(applicationRow.content_json)));

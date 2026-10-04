@@ -1,4 +1,4 @@
-import { AnalysisSourceSchema, CreativeDirectionSchema, normalizeCreativeDirection } from "@story-to-cyoa/domain";
+import { AnalysisSourceSchema, CreativeDirectionSchema } from "@story-to-cyoa/domain";
 import { stableFingerprint } from "@story-to-cyoa/runtime";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
@@ -7,6 +7,7 @@ import { validateSourceAnalysisDatabase } from "./source-analysis-validation.js"
 import { validateAdaptationDatabase } from "./adaptation-intent-validation.js";
 import { FOUNDATION_BOOTSTRAP_TABLES } from "./foundation-bootstrap-schema.js";
 import { validateFoundationBootstrapDatabase } from "./foundation-bootstrap-repository.js";
+import { redactFoundationBootstrapRows, unavailableConversationEvidence } from "./foundation-bootstrap-portability.js";
 
 export const PORTABLE_PROJECT_TABLES = [
   "projects", "artifact_versions", "artifact_workflow_state", "artifact_version_approvals", "artifact_dependencies",
@@ -99,12 +100,7 @@ function redactConversationEvidence(row: PortableRow): PortableRow {
   if (!records.some((record) => CONVERSATION_EVIDENCE_KINDS.has(record.reference?.kind ?? "") && record.reference?.unavailable !== true)) {
     return row;
   }
-  const redacted = normalizeCreativeDirection({
-    ...(content as Parameters<typeof normalizeCreativeDirection>[0]),
-    fieldProvenance: records.map((record) => CONVERSATION_EVIDENCE_KINDS.has(record.reference?.kind ?? "")
-      ? { ...record, reference: { ...record.reference, unavailable: true } }
-      : record) as Parameters<typeof normalizeCreativeDirection>[0]["fieldProvenance"],
-  });
+  const redacted = unavailableConversationEvidence(CreativeDirectionSchema.parse(content));
   return { ...row, content_json: JSON.stringify(redacted) };
 }
 
@@ -114,6 +110,7 @@ export class PortableProjectRepository {
   exportRows(projectId: string): PortableProjectRows {
     const project = this.database.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as PortableRow | undefined;
     if (!project) throw new Error("Portable project does not exist");
+    validateFoundationBootstrapDatabase(this.database, projectId);
     const tables = {} as Record<PortableProjectTable, PortableRow[]>;
     const sourceRows = project.mode === "long-form" ? this.database.prepare("SELECT content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source'").all(projectId) as Array<{ content_json: string }> : [];
     const retainSourceEvidence = sourceRows.some((row) => AnalysisSourceSchema.safeParse(JSON.parse(row.content_json)).success);
@@ -136,7 +133,10 @@ export class PortableProjectRepository {
       else rows = this.database.prepare(`SELECT * FROM ${table} WHERE project_id = ?`).all(projectId) as PortableRow[];
       tables[table] = rows.sort((a, b) => rowFingerprint(a).localeCompare(rowFingerprint(b)));
     }
-    return { projectId, tables };
+    const bundle = { projectId, tables };
+    redactFoundationBootstrapRows(bundle);
+    for (const table of FOUNDATION_BOOTSTRAP_TABLES) tables[table].sort((a, b) => rowFingerprint(a).localeCompare(rowFingerprint(b)));
+    return bundle;
   }
 
   importRows(bundle: PortableProjectRows, validateProject: PortableProjectValidator): void {

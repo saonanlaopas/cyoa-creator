@@ -12,6 +12,7 @@ export function FoundationBootstrapWorkspace({ projectId, onApplied }: { project
   const [plan, setPlan] = useState<BootstrapPlan | null>(null), [authorized, setAuthorized] = useState(false), [job, setJob] = useState<BootstrapJob | null>(null);
   const [review, setReview] = useState<BootstrapReview | null>(null), [selected, setSelected] = useState<FoundationArtifactId[]>([]), [detail, setDetail] = useState<FoundationArtifactId | null>(null);
   const [applyPreview, setApplyPreview] = useState<BootstrapApplyPreview | null>(null);
+  const [archiveFingerprint, setArchiveFingerprint] = useState(""), [archiveSaved, setArchiveSaved] = useState(false);
   const [fieldPage, setFieldPage] = useState(0), [provenancePage, setProvenancePage] = useState(0);
   const detailHeading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { setFieldPage(0); setProvenancePage(0); if (detail) detailHeading.current?.focus(); }, [detail]);
@@ -19,7 +20,7 @@ export function FoundationBootstrapWorkspace({ projectId, onApplied }: { project
   const act = async (action: () => Promise<void>) => { setBusy(true); setError(""); setMessage(""); try { await action(); } catch (e) { setError((e as Error).message); setAuthorized(false); setApplyPreview(null); } finally { setBusy(false); } };
   useEffect(() => {
     let live = true;
-    setState(null); setError(""); setMessage(""); setDecision(""); setPlan(null); setAuthorized(false); setJob(null); setReview(null); setDetail(null); setSelected([]); setApplyPreview(null);
+    setState(null); setError(""); setMessage(""); setDecision(""); setPlan(null); setAuthorized(false); setJob(null); setReview(null); setDetail(null); setSelected([]); setApplyPreview(null); setArchiveFingerprint(""); setArchiveSaved(false);
     void api.state().then((next) => { if (!live) return; setState(next); const provider = next.providers[0]; setProviderId(provider?.id ?? ""); setModelId(provider?.models[0] ?? ""); }).catch((e: Error) => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [api]);
@@ -84,7 +85,15 @@ export function FoundationBootstrapWorkspace({ projectId, onApplied }: { project
         {review.applications.map((application) => <details key={application.id}><summary>Applied draft versions / {application.createdAt}</summary>{Object.entries(application.artifactVersionIds).map(([id, version]) => <p key={id}>{labels[id as FoundationArtifactId] ?? id}: {version}</p>)}</details>)}
       </section>}
       <section className="brief-section" aria-label="Saved foundation jobs"><h2>Saved jobs</h2>{state.jobs.length === 0 ? <p>No foundation jobs</p> : state.jobs.map((saved) => <button disabled={busy} key={saved.id} onClick={() => void act(() => openJob(saved.id))}>{saved.status} / {saved.id}</button>)}</section>
-      {state.plans.length > 0 && <details><summary>Saved generation previews</summary>{state.plans.map((saved) => <button disabled={busy} key={saved.id} onClick={() => { setPlan(saved); setAuthorized(false); setError(""); }}>Open preview {saved.id}</button>)}</details>}
+      {state.plans.length > 0 && <details><summary>Saved generation previews</summary>{state.plans.map((saved) => <button disabled={busy} key={saved.id} onClick={() => { setPlan(saved); setAuthorized(false); setError(""); }}>Open preview {saved.id}</button>)}
+        <button disabled={busy || !state.plans.some((saved) => !state.jobs.some((job) => job.planId === saved.id))} onClick={() => void act(async () => {
+          const archive = await api.archiveUnusedPreviews(), url = URL.createObjectURL(new Blob([JSON.stringify(archive, null, 2)], { type: "application/json" }));
+          const link = document.createElement("a"); link.href = url; link.download = `foundation-previews-${projectId}.json`; link.click(); URL.revokeObjectURL(url);
+          setArchiveFingerprint(archive.fingerprint); setArchiveSaved(false);
+        })}>Download unused preview archive</button>
+        {archiveFingerprint && <div><label className="bootstrap-check"><input type="checkbox" disabled={busy} checked={archiveSaved} onChange={(e) => setArchiveSaved(e.target.checked)} />Archive saved; retire only unused previews</label>
+          <button disabled={busy || !archiveSaved} onClick={() => void act(async () => { const result = await api.retireUnusedPreviews(archiveFingerprint); setArchiveFingerprint(""); setArchiveSaved(false); resetPreview(); await refresh(); setMessage(`${result.retired} unused previews archived. Job and artifact history retained.`); })}>Retire archived unused previews</button></div>}
+      </details>}
     </>}
   </section>;
 }

@@ -67,6 +67,7 @@ describe("Foundation bootstrap candidate and provider contracts", () => {
     ["source invention", (c: FoundationBootstrapCandidate) => { c.provenance[0]!.origin = "source"; }],
     ["invented source excerpt", (c: FoundationBootstrapCandidate) => { c.artifacts.bible.canonFacts[0]!.sourceExcerptIds = ["not-supplied"]; }],
     ["invented fact with genuine source pointer", (c: FoundationBootstrapCandidate) => { c.artifacts.bible.canonFacts[0]!.statement = "Mira never visits the harbor."; }],
+    ["mixed source and invention fact", (c: FoundationBootstrapCandidate) => { c.artifacts.bible.canonFacts[0]!.statement += "\nMira owns the moon."; }],
     ["missing obligation", (c: FoundationBootstrapCandidate) => { c.canonAssessment = []; }],
     ["foreign structural mapping", (c: FoundationBootstrapCandidate) => { c.canonAssessment[0]!.actIds = ["missing"]; }],
     ["mismatched route ownership", (c: FoundationBootstrapCandidate) => { c.canonAssessment[0]!.actIds = ["route-2-act"]; }],
@@ -103,6 +104,26 @@ describe("Foundation bootstrap candidate and provider contracts", () => {
     expect(act.purpose).toBe(`Mira arrives at the harbor.\n${first.claim}`);
     act.purpose = `${first.claim}\nMira arrives at the harbor.`;
     expect(() => parseFoundationBootstrapCandidate(candidate, input)).toThrow("bootstrap_obligation_order_invalid");
+  });
+  it("preserves complete multiline source claims and A3 correction attribution", () => {
+    const input = context(), record = input.dossier.records[0]!;
+    record.claim = "Mira leaves the harbor.\nMira returns at dawn.";
+    input.dossier.corrections.push({ id: "correction", kind: "field", intent: "source-analysis-correction", reason: "Clarify the full source claim.", previousVersionId: "earlier-dossier",
+      operation: { kind: "field", recordId: record.id }, beforeFingerprint: "a".repeat(64), afterFingerprint: "b".repeat(64) });
+    Object.assign(input.dossier, sourceDossierFingerprints(input.dossier));
+    input.intent = normalizeAdaptationIntent({ ...input.intent, binding: { ...input.intent.binding, dossierMaterialFingerprint: input.dossier.materialFingerprint } });
+    const candidate = deterministicFoundationBootstrapCandidate(input);
+    expect(candidate.artifacts.bible.canonFacts[0]!.statement).toBe(record.claim);
+    expect(candidate.provenance.find((entry) => entry.fieldPath === "/canonFacts/0/statement")).toMatchObject({ origin: "a3-correction", correctionIds: ["correction"] });
+  });
+  it("requires every active effect on one obligation target, not just the first matching effect", () => {
+    const input = context(), record = input.dossier.records[0]!;
+    const common = { scope: "project", rationale: "Reviewed policy", provenance: { origin: "manual" as const, projectId: input.projectId }, authority: "author-override" as const, targetIds: [record.id], active: true, reviewed: true };
+    input.intent = normalizeAdaptationIntent({ ...input.intent, overrides: [{ ...common, id: "stay", aspect: "departure", effect: "Mira stays at the harbor." },
+      { ...common, id: "remember", aspect: "memory", effect: "Mira remembers the voyage." }] });
+    const candidate = deterministicFoundationBootstrapCandidate(input);
+    candidate.artifacts.endings.endings[0]!.summary = input.intent.overrides[0]!.effect;
+    expect(() => parseFoundationBootstrapCandidate(candidate, input)).toThrow("bootstrap_obligation_evidence_ungrounded");
   });
   it("requires reviewed overrides in structural evidence, not the superseded source claim", () => {
     const input = context(), record = input.dossier.records[0]!;
@@ -173,5 +194,16 @@ describe("Foundation bootstrap candidate and provider contracts", () => {
     const raw = await new OpenRouterFoundationBootstrapProvider(client).generate({ context: input, modelId: "offline-stub", mode: "generate", signal: new AbortController().signal });
     expect(parseFoundationBootstrapCandidate(JSON.parse(raw), input)).toEqual(output);
     expect(requests).toHaveLength(1); expect(requests[0]!.max_tokens).toBe(32_000);
+    expect(requests[0]!.response_format).toEqual({ type: "json_object" });
+    const messages = requests[0]!.messages as Array<{ role: string; content: string }>;
+    const schema = JSON.parse(messages[0]!.content.split("Output JSON Schema: ")[1]!);
+    expect(schema.required).toEqual(["schemaVersion", "artifacts", "provenance", "canonAssessment", "passageValidation"]);
+    expect(schema.properties.artifacts.properties.brief.properties.totalWordTarget).toMatchObject({ type: "integer", minimum: 50_000, maximum: 1_000_000 });
+    expect(schema.properties.artifacts.properties.brief.required).toContain("totalWordTarget");
+    expect(schema.properties.artifacts.properties["creative-direction"].required).toContain("tone");
+    expect(schema.properties.provenance).toMatchObject({ type: "array", minItems: 1, maxItems: 2_000 });
+    expect(schema.properties.canonAssessment.items.required).toContain("structuralEvidence");
+    expect(schema.properties.canonAssessment.items.properties.structuralEvidence.items.properties.fieldPath).toMatchObject({ type: "string", maxLength: 1_000 });
+    expect(schema.properties.artifacts.properties["creative-direction"].properties.fieldProvenance.items.properties.reference.properties.unavailable.type).toBe("boolean");
   });
 });

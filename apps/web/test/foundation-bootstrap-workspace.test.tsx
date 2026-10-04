@@ -17,8 +17,27 @@ function mockApi(overrides: Record<string, unknown> = {}) {
     return new Response(JSON.stringify(values[suffix] ?? {}));
   });
 }
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe("Foundation bootstrap workspace", () => {
+  it("requires an archive download and explicit saved confirmation before retiring unused previews", async () => {
+    const unused = { ...plan, id: "unused-preview" }, createObjectURL = vi.fn(() => "blob:previews"), revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    const clicked = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const fetchMock = mockApi({ "": { ...state, plans: [plan, unused] }, "/preview-history/archive": { schemaVersion: 1, projectId: "project", plans: [unused], fingerprint: "exact-archive" },
+      "/preview-history/retire": { retired: 1 } });
+    const user = userEvent.setup(); render(<FoundationBootstrapWorkspace projectId="project" />);
+    await user.click(await screen.findByText("Saved generation previews"));
+    expect(screen.queryByRole("button", { name: "Retire archived unused previews" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Download unused preview archive" }));
+    const retire = await screen.findByRole("button", { name: "Retire archived unused previews" });
+    expect((retire as HTMLButtonElement).disabled).toBe(true); expect(clicked).toHaveBeenCalledOnce(); expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/retire"))).toBe(false);
+    await user.click(screen.getByLabelText("Archive saved; retire only unused previews")); await user.click(retire);
+    await screen.findByText("1 unused previews archived. Job and artifact history retained.");
+    const request = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/retire"));
+    expect(JSON.parse(String(request?.[1]?.body))).toEqual({ fingerprint: "exact-archive", archiveSaved: true });
+    expect(fetchMock.mock.calls.some(([url]) => /start|approve|\/apply$/.test(String(url)))).toBe(false);
+  });
   it("never starts generation on open or preview and requires authorization of an unchanged preview", async () => {
     const fetchMock = mockApi(); const user = userEvent.setup(); render(<FoundationBootstrapWorkspace projectId="project" />);
     await screen.findByText("Generation decision"); expect(fetchMock.mock.calls).toHaveLength(1);

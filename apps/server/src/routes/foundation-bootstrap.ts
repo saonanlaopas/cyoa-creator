@@ -8,6 +8,11 @@ export function registerFoundationBootstrapRoutes(app: FastifyInstance, service:
   const root = "/api/long-form/projects/:projectId/foundation-bootstrap";
   app.get<{ Params: Params }>(root, (request, reply) => respond(reply, () => service.state(request.params.projectId)));
   app.post<{ Params: Params; Body: unknown }>(`${root}/preview`, (request, reply) => respond(reply, () => service.preview(request.params.projectId, request.body)));
+  app.get<{ Params: Params }>(`${root}/preview-history/archive`, (request, reply) => respond(reply, () => service.archiveUnusedPreviews(request.params.projectId)));
+  app.post<{ Params: Params; Body: unknown }>(`${root}/preview-history/retire`, (request, reply) => respond(reply, () => {
+    const input = z.object({ fingerprint: id, archiveSaved: z.literal(true) }).strict().parse(request.body);
+    return service.retireUnusedPreviews(request.params.projectId, input.fingerprint);
+  }));
   app.post<{ Params: Params; Body: unknown }>(`${root}/start`, (request, reply) => respond(reply, () => { const input = z.object({ planId: id, fingerprint: id }).strict().parse(request.body); return service.start(request.params.projectId, input.planId, input.fingerprint); }));
   app.get<{ Params: Params }>(`${root}/jobs/:jobId`, (request, reply) => respond(reply, () => service.job(request.params.projectId, request.params.jobId)));
   app.get<{ Params: Params }>(`${root}/jobs/:jobId/review`, (request, reply) => respond(reply, () => service.review(request.params.projectId, request.params.jobId)));

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, FoundationBootstrapContextSchema,
   sourceCanonicalJson, sourceDigest, foundationFieldPaths, parseFoundationBootstrapCandidate, type FoundationArtifactId } from "@story-to-cyoa/domain";
 import { FoundationBootstrapRepository, type StoryDatabase, ArtifactRepository, WorkflowRepository, ProjectRepository } from "@story-to-cyoa/persistence";
-import type { FoundationBootstrapProvider } from "./foundation-bootstrap-provider.js";
+import { foundationBootstrapMessages, type FoundationBootstrapProvider } from "./foundation-bootstrap-provider.js";
 import type { LongFormProjectService } from "./long-form-project-service.js";
 
 const PreviewSchema = z.object({ message: z.string().trim().min(1).max(6000), providerId: z.string().min(1).max(240), modelId: z.string().min(1).max(240) }).strict();
@@ -49,14 +49,17 @@ export class FoundationBootstrapService {
     if (!this.providers.has(input.providerId) || input.providerId.startsWith("offline") && input.modelId !== "offline-foundation-v1" || !input.providerId.startsWith("offline") && input.modelId.startsWith("offline")) throw new Error("bootstrap_provider_invalid");
     const context = this.context(projectId, input), contextFingerprint = sourceDigest(context), units = [{ id: "foundations" as const, artifactIds: [...FOUNDATION_ARTIFACT_IDS] }];
     const contextBytes = Buffer.byteLength(sourceCanonicalJson(context));
+    const inputBytes = input.providerId.startsWith("offline") ? contextBytes : Buffer.byteLength(sourceCanonicalJson(foundationBootstrapMessages({ context, mode: "generate" })));
     return this.repository.savePlan({ id: randomUUID(), projectId, context, contextFingerprint, units,
       fingerprint: sourceDigest({ contextFingerprint, units, providerId: input.providerId, modelId: input.modelId }), createdAt: new Date().toISOString(), contextBytes,
-      estimatedInputTokens: Math.ceil(contextBytes / 4), cost: input.providerId.startsWith("offline") ? 0 : null, providerId: input.providerId, modelId: input.modelId });
+      estimatedInputTokens: Math.ceil(inputBytes / 4), cost: input.providerId.startsWith("offline") ? 0 : null, providerId: input.providerId, modelId: input.modelId });
   }
   start(projectId: string, planId: string, fingerprint: string) {
     if (this.closing) throw new Error("bootstrap_shutting_down");
     const job = this.repository.createJob(projectId, planId, fingerprint); this.run(projectId, job.id); return job;
   }
+  archiveUnusedPreviews(projectId: string) { this.project(projectId); return this.repository.archiveUnusedPreviews(projectId); }
+  retireUnusedPreviews(projectId: string, fingerprint: string) { this.project(projectId); return this.repository.retireUnusedPreviews(projectId, fingerprint); }
   job(projectId: string, jobId: string) { this.project(projectId); return this.repository.getJob(projectId, jobId); }
   retry(projectId: string, jobId: string) {
     if (this.running.has(jobId) || this.closing) throw new Error("bootstrap_already_running");

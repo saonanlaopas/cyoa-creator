@@ -141,10 +141,24 @@ export function parseFoundationBootstrapCandidate(value: unknown, input: Foundat
     const provenance = candidate.provenance.find((item) => item.artifactId === "bible" && item.fieldPath === `/canonFacts/${index}/statement`)!;
     const linked = provenance.sourceRecordIds.map((id) => records.get(id)!);
     if (!["source", "a3-correction"].includes(provenance.origin) || !linked.length
-      || linked.some((record) => record.classification !== "source-canon" || !fact.statement.split("\n").includes(record.claim))
+      || linked.some((record) => record.classification !== "source-canon")
+      || fact.statement !== linked.map((record) => record.claim).join("\n")
       || fact.sourceExcerptIds.some((id) => !linked.some((record) => record.evidence.some((evidence) => evidence.excerptId === id))))
       throw new Error("bootstrap_canon_fact_ungrounded");
   });
+  // Overrides are author policy even when no canon obligation targets the affected record.
+  for (const override of overrides.values()) {
+    const grounded = candidate.provenance.some((entry) => {
+      if (entry.origin !== "a4-override" || !entry.overrideIds.includes(override.id)
+        || override.targetIds.some((targetId) => !entry.sourceRecordIds.includes(targetId))) return false;
+      if (!(entry.artifactId === "bible" && /^\/adaptationOpportunities\/\d+\/description$/.test(entry.fieldPath))
+        && !(["routes", "endings"].includes(entry.artifactId) && /\/(summary|purpose|promise|thematicPayoff)$/.test(entry.fieldPath))) return false;
+      const material = entry.fieldPath.slice(1).split("/").reduce<unknown>((value, segment) => value && typeof value === "object"
+        ? (value as Record<string, unknown>)[segment.replaceAll("~1", "/").replaceAll("~0", "~")] : undefined, candidate.artifacts[entry.artifactId]);
+      return typeof material === "string" && material.split("\n").some((_, index, lines) => lines.slice(index, index + override.effect.split("\n").length).join("\n") === override.effect);
+    });
+    if (!grounded) throw new Error("bootstrap_active_override_ungrounded");
+  }
   const assessed = new Set<string>();
   for (const assessment of candidate.canonAssessment) {
     const obligation = context.intent.obligations.find((item) => item.id === assessment.obligationId);
@@ -182,8 +196,9 @@ export function parseFoundationBootstrapCandidate(value: unknown, input: Foundat
         const activeOverrides = [...overrides.values()].filter((override) => override.targetIds.includes(targetId));
         const claims = activeOverrides.length ? activeOverrides.map((override) => override.effect) : [records.get(targetId)!.claim];
         const lines = material.split("\n");
-        const position = lines.findIndex((line) => claims.includes(line));
-        if (position < 0 || activeOverrides.length && (provenance.origin !== "a4-override" || activeOverrides.some((override) => !provenance.overrideIds.includes(override.id)))) continue;
+        const positions = claims.map((claim) => lines.findIndex((_, index) => lines.slice(index, index + claim.split("\n").length).join("\n") === claim));
+        const position = Math.min(...positions);
+        if (positions.some((position) => position < 0) || activeOverrides.length && (provenance.origin !== "a4-override" || activeOverrides.some((override) => !provenance.overrideIds.includes(override.id)))) continue;
         if (obligation.kind === "chronology" && assessment.status !== "intentionally-changed" && position <= previousPosition)
           throw new Error("bootstrap_obligation_order_invalid");
         previousPosition = position;
