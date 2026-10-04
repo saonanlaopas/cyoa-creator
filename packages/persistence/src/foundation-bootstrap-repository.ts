@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, FoundationBootstrapContextSchema, FoundationArtifactVersionsSchema,
-  parseFoundationBootstrapCandidate, sourceCanonicalJson, sourceDigest, type FoundationArtifactId, type FoundationBootstrapContext,
+  parseFoundationBootstrapCandidate, assertCreativeDirectionReferences, validateLongFormProject, sourceCanonicalJson, sourceDigest, type FoundationArtifactId, type FoundationBootstrapContext,
   type FoundationBootstrapCandidate } from "@story-to-cyoa/domain";
 import { ArtifactRepository } from "./artifact-repository.js";
 import { WorkflowRepository } from "./workflow-repository.js";
@@ -36,6 +36,15 @@ export const FOUNDATION_DEPENDENCIES: Record<FoundationArtifactId, FoundationArt
 type JsonRow = { id: string; project_id: string; content_json: string };
 const now = () => new Date().toISOString();
 const same = (a: unknown, b: unknown) => sourceCanonicalJson(a) === sourceCanonicalJson(b);
+function assertEffectiveFoundations(effective: FoundationBootstrapContext["baseArtifacts"]): void {
+  try {
+    if (validateLongFormProject(effective).some((finding) => finding.severity === "error")) throw new Error("invalid references");
+    if (effective["creative-direction"]) assertCreativeDirectionReferences(effective["creative-direction"], { characterIds: effective.bible?.characters.map((item) => item.id) ?? [],
+      relationships: effective.bible?.relationships ?? [], routeIds: effective.routes?.routes.map((item) => item.id) ?? [], acts: effective.routes?.acts ?? [] });
+    if (effective.routes && effective.brief && effective.routes.totalWordTarget !== effective.brief.totalWordTarget
+      || effective.endings && effective.brief && effective.endings.projectWordTarget !== effective.brief.totalWordTarget) throw new Error("invalid budgets");
+  } catch { throw new Error("bootstrap_selection_inconsistent_select_dependencies"); }
+}
 
 export class FoundationBootstrapRepository {
   constructor(readonly database: StoryDatabase) {}
@@ -177,7 +186,11 @@ export class FoundationBootstrapRepository {
   }
   recoverInterrupted(projectId?: string) {
     const rows = this.database.prepare(`SELECT project_id,id FROM foundation_bootstrap_jobs ${projectId ? "WHERE project_id=?" : ""}`).all(...(projectId ? [projectId] : [])) as Array<{ project_id: string; id: string }>;
-    for (const row of rows) { const job = this.getJob(row.project_id, row.id); if (job.status === "running") this.finish(job.projectId, job.id, job.units[0].attempts.at(-1)!.id, "failed", undefined, "interrupted"); }
+    for (const row of rows) {
+      const job = this.getJob(row.project_id, row.id);
+      if (job.status === "running") this.finish(job.projectId, job.id, job.units[0].attempts.at(-1)!.id, "failed", undefined, "interrupted");
+      if (job.status === "pending") this.cancel(job.projectId, job.id);
+    }
   }
   candidate(projectId: string, jobId: string) {
     const job = this.getJob(projectId, jobId), plan = this.getPlan(projectId, job.planId);
@@ -194,13 +207,22 @@ export class FoundationBootstrapRepository {
   }
   appliedVersions(projectId: string, jobId: string) { return Object.assign({}, ...this.applications(projectId, jobId).reverse().map((application) => application.artifactVersionIds)) as Partial<Record<FoundationArtifactId, string>>; }
   previewApply(projectId: string, jobId: string, selected: FoundationArtifactId[]) {
-    const job = this.getJob(projectId, jobId), plan = this.getPlan(projectId, job.planId), { id: candidateId } = this.candidate(projectId, jobId), applied = this.appliedVersions(projectId, jobId);
+    const job = this.getJob(projectId, jobId), plan = this.getPlan(projectId, job.planId), { id: candidateId, candidate } = this.candidate(projectId, jobId), applied = this.appliedVersions(projectId, jobId);
     this.assertFresh(plan, applied);
     if (!selected.length || selected.some((artifactId) => !FOUNDATION_ARTIFACT_IDS.includes(artifactId) || applied[artifactId]) || new Set(selected).size !== selected.length) throw new Error("bootstrap_selection_invalid");
     const closure = new Set(selected);
     const add = (artifactId: FoundationArtifactId) => { for (const upstream of FOUNDATION_DEPENDENCIES[artifactId]) if (!closure.has(upstream) && !applied[upstream]) { closure.add(upstream); add(upstream); } };
     selected.forEach(add);
+    const direction = candidate.artifacts["creative-direction"];
+    if (closure.has("creative-direction")) {
+      if (direction.relationshipPresentation?.profiles.length || direction.scopedVariations.some((variation) => ["character", "relationship"].includes(variation.scopeKind))) { closure.add("bible"); add("bible"); }
+      if (direction.scopedVariations.some((variation) => ["route", "act"].includes(variation.scopeKind))) { closure.add("routes"); add("routes"); }
+    }
     const effectiveArtifactIds = FOUNDATION_ARTIFACT_IDS.filter((artifactId) => closure.has(artifactId));
+    const artifacts = new ArtifactRepository(this.database);
+    const effective = { ...plan.context.baseArtifacts };
+    for (const artifactId of FOUNDATION_ARTIFACT_IDS) Object.assign(effective, { [artifactId]: closure.has(artifactId) ? candidate.artifacts[artifactId] : artifacts.getCurrent(projectId, artifactId)?.content ?? null });
+    assertEffectiveFoundations(effective);
     return { effectiveArtifactIds, requiredDependencies: effectiveArtifactIds.filter((artifactId) => !selected.includes(artifactId)),
       previewFingerprint: sourceDigest({ plan: plan.fingerprint, candidateId, applied, effectiveArtifactIds }), wouldStale: ["passage-plan", "passage-drafts"] };
   }
@@ -248,6 +270,9 @@ export function validateFoundationBootstrapDatabase(database: StoryDatabase, pro
           const version = new ArtifactRepository(database).getVersion(versionId);
           if (!version || version.projectId !== job.projectId || version.artifactId !== artifactId || !same(version.content, result.candidate.artifacts[artifactId as FoundationArtifactId])) throw new Error("bootstrap_application_content_invalid");
         }
+        const effective = { ...plan.context.baseArtifacts };
+        for (const artifactId of FOUNDATION_ARTIFACT_IDS) if (priorApplied[artifactId] || selected.includes(artifactId)) Object.assign(effective, { [artifactId]: result.candidate.artifacts[artifactId] });
+        assertEffectiveFoundations(effective);
         Object.assign(priorApplied, application.artifactVersionIds);
       }
     }
@@ -272,6 +297,9 @@ export function foundationBootstrapAuthority(database: StoryDatabase, projectId:
       }
       repository.assertFresh(plan, expected);
       const candidate = repository.candidate(projectId, job.id);
+      if (requireApprovals && plan.context.intent.obligations.some((obligation) => obligation.strength === "required"
+        && candidate.candidate.canonAssessment.some((assessment) => assessment.obligationId === obligation.id && assessment.status === "blocked")))
+        throw new Error("bootstrap_required_obligation_blocked");
       return { fingerprint: sourceDigest({ plan: plan.fingerprint, applied, candidateId: candidate.id }), dossierVersionId: plan.context.dossierVersionId,
         intentVersionId: plan.context.intentVersionId, dimensions: plan.context.intent.dimensions, preserveCanonRoute: plan.context.intent.preserveCanonRoute,
         endingIntent: plan.context.intent.endingIntent, canonAssessment: candidate.candidate.canonAssessment };

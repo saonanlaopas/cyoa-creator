@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { FOUNDATION_ARTIFACT_IDS, FoundationBootstrapContextSchema, defaultCreativeDirection, defaultProjectBrief, newAdaptationIntent,
-  normalizeAdaptationIntent, sourceCanonicalJson, sourceDigest, type FoundationArtifactId, type SourceDossier } from "@story-to-cyoa/domain";
+  foundationFieldPaths, LongFormStoryBibleSchema, normalizeCreativeDirection, normalizeAdaptationIntent, sourceCanonicalJson, sourceDigest, type FoundationArtifactId, type SourceDossier } from "@story-to-cyoa/domain";
 import { ArtifactRepository, FoundationBootstrapRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository,
   openDatabase, validateFoundationBootstrapDatabase, type FoundationBootstrapJob, type StoryDatabase } from "../src/index.js";
 import { analysisFixture, completeFixture } from "./source-analysis-fixture.js";
@@ -120,9 +120,39 @@ describe("Foundation bootstrap persistence lifecycle", () => {
     expect(() => f.repository.finish(f.projectId, job.id, job.units[0].attempts[0]!.id, "completed", deterministicFoundationBootstrapCandidate(f.plan.context))).toThrow("bootstrap_attempt_not_running");
     expect(f.repository.getJob(f.projectId, job.id)).toEqual(retry);
   });
+  it("recovers pending work after a crash before dispatch without blocking a new explicit start", () => {
+    const f = fixture(), pending = f.repository.createJob(f.projectId, f.plan.id, f.plan.fingerprint);
+    f.repository.recoverInterrupted();
+    expect(f.repository.getJob(f.projectId, pending.id)).toMatchObject({ status: "cancelled", units: [{ attempts: [] }] });
+    expect(f.repository.createJob(f.projectId, f.plan.id, f.plan.fingerprint).status).toBe("pending");
+  });
+  it.each(["completed", "failed"] as const)("SQL rejects pending -> %s with no real running attempt", (outcome) => {
+    const f = fixture(), job = f.repository.createJob(f.projectId, f.plan.id, f.plan.fingerprint), changed = structuredClone(job);
+    changed.status = changed.units[0].status = outcome;
+    expect(() => rewrite(f, changed)).toThrow("lifecycle is invalid");
+  });
+  it("SQL forbids appending a terminal synthetic retry without pending and running transitions", () => {
+    const f = fixture(), job = running(f), failed = f.repository.finish(f.projectId, job.id, job.units[0].attempts[0]!.id, "failed", undefined, "provider_failed");
+    const forged = structuredClone(failed); forged.units[0].attempts.push({ ...forged.units[0].attempts[0]!, id: "forged", number: 2 });
+    expect(() => rewrite(f, forged)).toThrow("lifecycle is invalid");
+  });
+  it("SQL cannot settle a running attempt as failed while claiming unit cancellation", () => {
+    const f = fixture(), job = running(f), changed = structuredClone(job);
+    changed.status = changed.units[0].status = "cancelled";
+    Object.assign(changed.units[0].attempts[0]!, { status: "failed", finishedAt: new Date().toISOString() });
+    expect(() => rewrite(f, changed)).toThrow("lifecycle is invalid");
+  });
 });
 
 describe("Foundation bootstrap atomic application and recovery", () => {
+  it("keeps honestly blocked required obligations reviewable but does not restore AI passage authority", () => {
+    const f = fixture(), job = running(f), candidate = deterministicFoundationBootstrapCandidate(f.plan.context);
+    candidate.canonAssessment[0] = { ...candidate.canonAssessment[0]!, status: "blocked", routeIds: [], actIds: [], endingIds: [], structuralEvidence: [], rationale: "Required identity needs structural placement." };
+    f.repository.finish(f.projectId, job.id, job.units[0].attempts[0]!.id, "completed", candidate); apply(f, job.id);
+    for (const id of FOUNDATION_ARTIFACT_IDS) f.workflow.approve(f.projectId, id, f.artifacts.getCurrent(f.projectId, id)!.id);
+    expect(f.artifacts.foundationAuthority(f.projectId, false)).toBeDefined();
+    expect(() => f.artifacts.foundationAuthority(f.projectId)).toThrow("bootstrap_approved_compatible_foundations_required");
+  });
   it("rolls back all artifact versions, workflow state and audit after a forced fourth-write failure", () => {
     const f = fixture(), job = completed(f), before = new PortableProjectRepository(f.database).exportRows(f.projectId), preview = f.repository.previewApply(f.projectId, job.id, [...FOUNDATION_ARTIFACT_IDS]);
     let writes = 0;
@@ -140,6 +170,20 @@ describe("Foundation bootstrap atomic application and recovery", () => {
     f.repository.apply(f.projectId, job.id, remaining.effectiveArtifactIds, remaining.previewFingerprint);
     expect(Object.keys(f.repository.appliedVersions(f.projectId, job.id))).toHaveLength(6); expect(f.repository.applications(f.projectId, job.id)).toHaveLength(4);
     for (const id of FOUNDATION_ARTIFACT_IDS) expect(f.workflow.get(f.projectId, id).status).toBe("draft");
+  });
+  it("closes scoped Creative Direction over the actual new Bible rather than storing dangling references", () => {
+    const f = fixture(), job = running(f), candidate = deterministicFoundationBootstrapCandidate(f.plan.context);
+    candidate.artifacts.bible = LongFormStoryBibleSchema.parse({ ...candidate.artifacts.bible, characters: [{ id: "mira", name: "Mira" }] });
+    candidate.artifacts["creative-direction"] = normalizeCreativeDirection({ ...candidate.artifacts["creative-direction"], scopedVariations: [{ id: "mira-voice", scopeKind: "character", scopeId: "mira" }] });
+    const provenance = new Map(candidate.provenance.map((item) => [`${item.artifactId}:${item.fieldPath}`, item]));
+    candidate.provenance = FOUNDATION_ARTIFACT_IDS.flatMap((artifactId) => foundationFieldPaths(candidate.artifacts[artifactId]).map((fieldPath) => provenance.get(`${artifactId}:${fieldPath}`)
+      ?? { artifactId, fieldPath, origin: "adaptation-only" as const, sourceRecordIds: [], correctionIds: [], overrideIds: [], inventionIds: [], rationale: "Reviewed new adaptation field." }));
+    f.repository.finish(f.projectId, job.id, job.units[0].attempts[0]!.id, "completed", candidate);
+    const preview = f.repository.previewApply(f.projectId, job.id, ["creative-direction"]);
+    expect(preview.effectiveArtifactIds).toEqual(["brief", "creative-direction", "bible"]);
+    expect(() => f.repository.apply(f.projectId, job.id, ["creative-direction"], preview.previewFingerprint)).toThrow("bootstrap_apply_selection_or_preview_invalid");
+    f.repository.apply(f.projectId, job.id, preview.effectiveArtifactIds, preview.previewFingerprint);
+    expect(f.artifacts.getCurrent(f.projectId, "bible")!.content).toEqual(candidate.artifacts.bible);
   });
   it("rejects stale absent/current preconditions without modifying already reviewed candidates", () => {
     const f = fixture(), job = completed(f), original = f.repository.candidate(f.projectId, job.id);
@@ -162,6 +206,12 @@ describe("Foundation bootstrap atomic application and recovery", () => {
     const repository = new FoundationBootstrapRepository(f.database), copied = repository.listJobs(copy.id)[0]!;
     expect(Object.keys(repository.appliedVersions(copy.id, copied.id))).toHaveLength(6);
     expect(repository.candidate(copy.id, copied.id).candidate.artifacts.routes).toEqual(new ArtifactRepository(f.database).getCurrent(copy.id, "routes")!.content);
+  });
+  it("duplicates multiple partial applications with independently recomputed exact audit fingerprints", () => {
+    const f = fixture(), job = completed(f); apply(f, job.id, ["brief"]); apply(f, job.id, ["bible"]); apply(f, job.id, ["routes"]);
+    const copy = f.projects.duplicate(f.projectId); f.projects.remove(f.projectId); validateFoundationBootstrapDatabase(f.database, copy.id);
+    const repository = new FoundationBootstrapRepository(f.database), copied = repository.listJobs(copy.id)[0]!;
+    expect(repository.applications(copy.id, copied.id)).toHaveLength(3); expect(Object.keys(repository.appliedVersions(copy.id, copied.id))).toHaveLength(6);
   });
   it("imports a completed candidate and applies it locally without a provider", () => {
     const f = fixture(), job = completed(f), bundle = new PortableProjectRepository(f.database).exportRows(f.projectId), target = database();

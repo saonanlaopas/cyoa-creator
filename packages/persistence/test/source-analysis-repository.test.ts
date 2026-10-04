@@ -254,19 +254,19 @@ describe("A3 durable source analysis", () => {
       expect(db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'source_analysis_units_terminal_immutable'").get()).toBeUndefined(); db.close();
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
-  it("rolls back a failed v19 migration and rejects future v21 without altering fixture copies", () => {
+  it("rolls back a failed v19 migration and rejects future schemas without altering fixture copies", () => {
     const directory = mkdtempSync(join(tmpdir(), "cyoa-a3-rollback-"));
     try {
       for (const mode of ["conflicting-table", "future"] as const) {
         const path = join(directory, `${mode}.sqlite`);
         copyFileSync(new URL("./fixtures/schema-v19.sqlite", import.meta.url), path);
         const raw = new DatabaseSync(path);
-        raw.exec(mode === "future" ? "PRAGMA user_version = 21" : "CREATE TABLE source_analysis_units (bad_column TEXT)"); raw.close();
+        raw.exec(mode === "future" ? `PRAGMA user_version = ${CURRENT_SCHEMA_VERSION + 1}` : "CREATE TABLE source_analysis_units (bad_column TEXT)"); raw.close();
         const before = createHash("sha256").update(readFileSync(path)).digest("hex");
         expect(() => openDatabase(path)).toThrow();
         expect(createHash("sha256").update(readFileSync(path)).digest("hex")).toBe(before);
         const after = new DatabaseSync(path);
-        expect((after.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(mode === "future" ? 21 : 19);
+        expect((after.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(mode === "future" ? CURRENT_SCHEMA_VERSION + 1 : 19);
         expect(after.prepare("SELECT 1 FROM sqlite_master WHERE name = 'source_analysis_plans'").get()).toBeUndefined(); after.close();
       }
     } finally { rmSync(directory, { recursive: true, force: true }); }

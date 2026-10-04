@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { EnvironmentCredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { assertFoundationBootstrapContext, contentFingerprint, defaultCreativeDirection, defaultProjectBrief, FOUNDATION_ARTIFACT_IDS,
-  foundationFieldPaths, newAdaptationIntent, normalizeAdaptationIntent, parseFoundationBootstrapCandidate, sourceDossierFingerprints,
+  foundationFieldPaths, LongFormStoryBibleSchema, newAdaptationIntent, normalizeAdaptationIntent, normalizeCreativeDirection, parseFoundationBootstrapCandidate, sourceDossierFingerprints,
   sourceEvidence, type FoundationBootstrapCandidate, type FoundationBootstrapContext, type SourceDossier } from "@story-to-cyoa/domain";
 import { DeterministicFoundationBootstrapProvider, deterministicFoundationBootstrapCandidate, OpenRouterFoundationBootstrapProvider } from "../src/services/foundation-bootstrap-provider.js";
 
@@ -47,6 +47,15 @@ describe("Foundation bootstrap candidate and provider contracts", () => {
     expect(candidate.artifacts["creative-direction"]).toEqual(input.baseArtifacts["creative-direction"]);
     expect(candidate.artifacts.brief).toMatchObject({ tone: "Historical tone", pointOfView: "first-person", adaptationFidelity: "expansive" });
   });
+  it("retains stable Bible identities needed by an existing scoped Creative Direction", () => {
+    const input = context(); input.baseVersionIds.bible = "bible";
+    input.baseArtifacts.bible = LongFormStoryBibleSchema.parse({ title: "Existing identities", characters: [{ id: "mira", name: "Mira" }] });
+    input.baseVersionIds["creative-direction"] = "direction";
+    input.baseArtifacts["creative-direction"] = normalizeCreativeDirection({ ...defaultCreativeDirection(), scopedVariations: [{ id: "mira-voice", scopeKind: "character", scopeId: "mira", proseGuidance: "Quiet interiority" }] });
+    const candidate = deterministicFoundationBootstrapCandidate(input);
+    expect(candidate.artifacts.bible.characters).toEqual(input.baseArtifacts.bible.characters);
+    expect(candidate.artifacts["creative-direction"]).toEqual(input.baseArtifacts["creative-direction"]);
+  });
   it.each([
     ["unknown field", (c: FoundationBootstrapCandidate) => { Object.assign(c.artifacts.routes.routes[0]!, { achieved: true }); }],
     ["duplicate ID", (c: FoundationBootstrapCandidate) => { c.artifacts.mechanics.flags[0]!.id = c.artifacts.routes.routes[0]!.id; }],
@@ -57,10 +66,13 @@ describe("Foundation bootstrap candidate and provider contracts", () => {
     ["foreign source", (c: FoundationBootstrapCandidate) => { c.provenance[0]!.sourceRecordIds = ["foreign"]; }],
     ["source invention", (c: FoundationBootstrapCandidate) => { c.provenance[0]!.origin = "source"; }],
     ["invented source excerpt", (c: FoundationBootstrapCandidate) => { c.artifacts.bible.canonFacts[0]!.sourceExcerptIds = ["not-supplied"]; }],
+    ["invented fact with genuine source pointer", (c: FoundationBootstrapCandidate) => { c.artifacts.bible.canonFacts[0]!.statement = "Mira never visits the harbor."; }],
     ["missing obligation", (c: FoundationBootstrapCandidate) => { c.canonAssessment = []; }],
     ["foreign structural mapping", (c: FoundationBootstrapCandidate) => { c.canonAssessment[0]!.actIds = ["missing"]; }],
     ["mismatched route ownership", (c: FoundationBootstrapCandidate) => { c.canonAssessment[0]!.actIds = ["route-2-act"]; }],
     ["guessed existing unrelated ending", (c: FoundationBootstrapCandidate) => { c.canonAssessment[0]!.endingIds = ["ending-3"]; c.canonAssessment[0]!.structuralEvidence = [{ artifactId: "endings", fieldPath: "/endings/2/summary" }]; }],
+    ["extra unrelated ending", (c: FoundationBootstrapCandidate) => { c.canonAssessment[0]!.endingIds.push("ending-2"); }],
+    ["unproven act mapping", (c: FoundationBootstrapCandidate) => { c.canonAssessment[0]!.structuralEvidence = c.canonAssessment[0]!.structuralEvidence.filter((item) => !item.fieldPath.startsWith("/acts/")); }],
     ["generic structural text with real source pointer", (c: FoundationBootstrapCandidate) => { c.artifacts.endings.endings[0]!.summary = "A different outcome unrelated to the source."; }],
     ["provenance from nonmapped structural field", (c: FoundationBootstrapCandidate) => { c.canonAssessment[0]!.structuralEvidence = [{ artifactId: "endings", fieldPath: "/overview" }]; }],
     ["unpermitted condensation", (c: FoundationBootstrapCandidate) => { c.canonAssessment[0]!.status = "condensed"; }],
@@ -79,6 +91,41 @@ describe("Foundation bootstrap candidate and provider contracts", () => {
     candidate.canonAssessment[0] = { obligationId: "obligation", status: "blocked", routeIds: [], actIds: [], endingIds: [], structuralEvidence: [],
       rationale: "The required departure cannot yet be assigned to a suitable proposed ending." };
     expect(parseFoundationBootstrapCandidate(candidate, input).canonAssessment[0]!.status).toBe("blocked");
+  });
+  it("checks ordered chronology against actual proposed structural fields", () => {
+    const input = context(), first = input.dossier.records[0]!;
+    input.dossier.records.push({ ...first, id: "arrival", claim: "Mira arrives at the harbor.", observationIds: ["arrival-observation"] });
+    Object.assign(input.dossier, sourceDossierFingerprints(input.dossier));
+    input.intent = normalizeAdaptationIntent({ ...input.intent, binding: { ...input.intent.binding, dossierMaterialFingerprint: input.dossier.materialFingerprint },
+      obligations: [{ ...input.intent.obligations[0]!, kind: "chronology", targetIds: ["arrival", first.id] }] });
+    const candidate = deterministicFoundationBootstrapCandidate(input);
+    const act = candidate.artifacts.routes.acts.find((item) => item.routeId === "route-1")!;
+    expect(act.purpose).toBe(`Mira arrives at the harbor.\n${first.claim}`);
+    act.purpose = `${first.claim}\nMira arrives at the harbor.`;
+    expect(() => parseFoundationBootstrapCandidate(candidate, input)).toThrow("bootstrap_obligation_order_invalid");
+  });
+  it("requires reviewed overrides in structural evidence, not the superseded source claim", () => {
+    const input = context(), record = input.dossier.records[0]!;
+    input.intent = normalizeAdaptationIntent({ ...input.intent, overrides: [{ id: "stay", scope: "project", rationale: "Author changes the source departure.",
+      provenance: { origin: "manual", projectId: input.projectId }, authority: "author-override", targetIds: [record.id], aspect: "departure",
+      effect: "Mira stays at the harbor.", active: true, reviewed: true }] });
+    const candidate = deterministicFoundationBootstrapCandidate(input);
+    expect(candidate.artifacts.endings.endings[0]!.summary).toBe("Mira stays at the harbor.");
+    expect(candidate.artifacts.bible.canonFacts[0]!.statement).toBe(record.claim);
+    for (const evidence of candidate.canonAssessment[0]!.structuralEvidence) {
+      const parts = evidence.fieldPath.slice(1).split("/");
+      const collection = (candidate.artifacts[evidence.artifactId] as unknown as Record<string, Array<Record<string, unknown>>>)[parts[0]!]!;
+      collection[Number(parts[1])]![parts[2]!] = record.claim;
+    }
+    expect(() => parseFoundationBootstrapCandidate(candidate, input)).toThrow("bootstrap_obligation_evidence_ungrounded");
+  });
+  it("protects historical presentation fields at the direct candidate boundary", () => {
+    const input = context(); input.baseArtifacts.brief = defaultProjectBrief(); input.baseVersionIds.brief = "brief";
+    input.baseArtifacts["creative-direction"] = defaultCreativeDirection(); input.baseVersionIds["creative-direction"] = "direction";
+    const candidate = deterministicFoundationBootstrapCandidate(input); candidate.artifacts.brief.tone = "Wrong authority";
+    expect(() => parseFoundationBootstrapCandidate(candidate, input)).toThrow("bootstrap_historical_presentation_changed");
+    candidate.artifacts.brief.tone = input.baseArtifacts.brief.tone; candidate.artifacts.brief.adaptationFidelity = "expansive";
+    expect(() => parseFoundationBootstrapCandidate(candidate, input)).toThrow("bootstrap_historical_presentation_changed");
   });
   it("keeps correction, inference, author override, and invention origins distinct", () => {
     const input = context(), record = input.dossier.records[0]!;

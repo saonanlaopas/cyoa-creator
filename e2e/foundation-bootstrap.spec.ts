@@ -56,12 +56,17 @@ test("A5 offline preview, generation, provenance review and dependency-safe draf
   const beforeApply = await (await request.get(f.project)).json(); expect(beforeApply.brief.id).toBe(f.created.brief.id); expect(beforeApply.bible).toBeNull();
   await page.getByRole("button", { name: "Review Routes", exact: true }).click();
   const detail = page.getByRole("region", { name: "Foundation artifact detail" }); await expect(detail.getByRole("heading", { name: "Field changes" })).toBeVisible();
+  await expect(detail.getByRole("heading", { name: "Routes", exact: true })).toBeFocused();
   await detail.getByText("Source / override / adaptation-only provenance", { exact: true }).click(); await expect(detail).toContainText("source");
   await review.getByText("Requested canon obligation assessment", { exact: true }).click(); await expect(review).toContainText("Passage-level preservation pending graph validation");
   await page.getByRole("checkbox", { name: "Routes", exact: true }).check(); await page.getByRole("button", { name: "Preview selected drafts" }).click();
   const application = page.getByRole("region", { name: "Foundation application preview" }); await expect(application).toContainText("Required dependencies:"); await expect(application).toContainText("Creative Direction");
   await page.screenshot({ path: info.outputPath("a5-desktop-review.png"), fullPage: true });
+  await page.evaluate(() => scrollTo(0, 0)); await page.screenshot({ path: info.outputPath("a5-desktop-viewport.png") });
   await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: info.outputPath("a5-mobile-review.png"), fullPage: true });
+  await page.evaluate(() => document.querySelector('.bootstrap-workspace')!.scrollIntoView()); await page.screenshot({ path: info.outputPath("a5-mobile-viewport.png") });
+  const titleBox = await page.getByRole("heading", { name: "Foundation bootstrap", exact: true }).boundingBox(), navBox = await page.locator(".app-mode-nav").boundingBox();
+  expect(titleBox!.y).toBeGreaterThanOrEqual(navBox!.y + navBox!.height);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole("button", { name: "Apply reviewed drafts" }).click();
   await expect(page.getByText("Foundation drafts applied. Ordinary approval required; no passage plan or prose generated.", { exact: true })).toBeVisible();

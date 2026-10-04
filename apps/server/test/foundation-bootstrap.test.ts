@@ -8,6 +8,7 @@ import { analysisFixture, completeFixture } from "../../../packages/persistence/
 import { buildApp } from "../src/app.js";
 import { createOfflineSetupClient } from "../src/services/offline-setup-provider.js";
 import { DeterministicFoundationBootstrapProvider, deterministicFoundationBootstrapCandidate } from "../src/services/foundation-bootstrap-provider.js";
+import { assertPassageFidelityAuthority } from "../src/services/adaptation-passage-authority.js";
 
 const apps: ReturnType<typeof buildApp>[] = [], directories: string[] = [];
 afterEach(async () => { vi.useRealTimers(); for (const app of apps.splice(0)) await app.close(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
@@ -81,6 +82,25 @@ describe("A5 exact foundation generation and review boundary", () => {
     const sequenceId = passagePlan.json().structure.content.sequences[0].id;
     const generationPreview = await f.app.inject({ method: "POST", url: `${f.project}/passage-generation/plans/preview`, payload: { scope: { kind: "sequence", sequenceId }, providerId: "offline-kernel", modelId: "deterministic-fixture-v1" } });
     expect(generationPreview.statusCode, generationPreview.body).toBe(200); expect(f.provider.calls).toHaveLength(1);
+    const context = generationPreview.json().units[0].context;
+    expect(context.foundationAuthority.intentVersionId).toBe(plan.context.intentVersionId);
+    expect(context.foundationAuthority.dossierVersionId).toBe(plan.context.dossierVersionId);
+    expect(context.upstream.brief).not.toHaveProperty("adaptationFidelity");
+    const db = openDatabase(f.path), artifacts = new ArtifactRepository(db);
+    expect(() => assertPassageFidelityAuthority(artifacts, f.projectId, undefined, true)).toThrow("A5 foundation bootstrap");
+    expect(assertPassageFidelityAuthority(artifacts, f.projectId, context.foundationAuthority, true)).toEqual(context.foundationAuthority);
+    db.close();
+    const created = await f.app.inject({ method: "POST", url: `${f.project}/passage-generation/plans`, payload: { scope: { kind: "sequence", sequenceId }, providerId: "offline-kernel", modelId: "deterministic-fixture-v1" } });
+    expect(created.statusCode, created.body).toBe(201);
+    const generated = created.json();
+    expect((await f.app.inject({ method: "POST", url: `${f.project}/passage-generation/plans/${generated.id}/authorize`, payload: { fingerprint: generated.fingerprint } })).statusCode).toBe(200);
+    expect((await f.app.inject({ method: "POST", url: `${f.project}/passage-generation/jobs/${generated.jobId}/start` })).statusCode).toBe(202);
+    await vi.waitFor(async () => expect((await f.app.inject({ url: `${f.project}/passage-generation/jobs/${generated.jobId}` })).json().status).toBe("completed"));
+    const intent = (await f.app.inject({ url: `${f.project}/adaptation-intent` })).json();
+    expect((await f.app.inject({ method: "POST", url: `${f.project}/adaptation-intent/edit`, payload: { baseVersionId: intent.current.id, preset: "loose" } })).statusCode).toBe(200);
+    const changedDb = openDatabase(f.path);
+    expect(() => assertPassageFidelityAuthority(new ArtifactRepository(changedDb), f.projectId, context.foundationAuthority, true)).toThrow("A5 foundation bootstrap"); changedDb.close();
+    expect((await f.call(`/jobs/${job.id}/review`)).json().currentState.status).toBe("stale");
   });
 
   it.each(["malformed", "oversized", "duplicate-id", "invalid-reference", "missing-provenance"])("rejects %s output without any canonical write", async (kind) => {
@@ -161,9 +181,18 @@ describe("A5 exact foundation generation and review boundary", () => {
       expect((await f.call(`/jobs/${job.id}`)).json().status).toBe("running");
       await vi.advanceTimersByTimeAsync(60_001);
       const failed = (await f.call(`/jobs/${job.id}`)).json(); expect(failed.status).toBe("failed"); expect(failed.units[0].attempts[0].status).toBe("failed");
+      expect(held.provider.calls[0]!.signal.aborted).toBe(true);
       held.release(); await vi.advanceTimersByTimeAsync(10);
       expect((await f.call(`/jobs/${job.id}`)).json()).toEqual(failed);
       expect((await f.call(`/jobs/${job.id}/review`)).statusCode).toBeGreaterThanOrEqual(400); await assertNoFoundationWrite(f, before);
     } finally { vi.useRealTimers(); }
+  });
+  it("binds the exact reviewed author request and rejects unused setup pointer inputs", async () => {
+    const f = fixture(), first = await preview(f);
+    const second = (await f.call("/preview", { message: "A different reviewed generation decision", providerId: f.provider.id, modelId: "offline-foundation-v1" })).json();
+    expect(second.contextFingerprint).not.toBe(first.contextFingerprint); expect(second.fingerprint).not.toBe(first.fingerprint);
+    expect((await f.call("/start", { planId: second.id, fingerprint: first.fingerprint })).statusCode).toBeGreaterThanOrEqual(400);
+    expect((await f.call("/preview", { message: "Unused evidence", providerId: f.provider.id, modelId: "offline-foundation-v1", setup: { conversationId: "unused" } })).statusCode).toBe(400);
+    expect(f.provider.calls).toHaveLength(0);
   });
 });

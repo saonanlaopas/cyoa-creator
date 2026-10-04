@@ -87,11 +87,13 @@ export class FoundationBootstrapService {
     }
   }
   private async call(provider: FoundationBootstrapProvider, input: Parameters<FoundationBootstrapProvider["generate"]>[0]): Promise<string> {
+    input.signal.throwIfAborted();
+    const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined, abort: (() => void) | undefined;
     try {
-      return await Promise.race([provider.generate(input), new Promise<never>((_, reject) => {
-        abort = () => reject(new Error("bootstrap_cancelled")); input.signal.addEventListener("abort", abort, { once: true });
-        timer = setTimeout(() => reject(new Error("bootstrap_provider_timeout")), 60_000);
+      return await Promise.race([provider.generate({ ...input, signal: controller.signal }), new Promise<never>((_, reject) => {
+        abort = () => { controller.abort(); reject(new Error("bootstrap_cancelled")); }; input.signal.addEventListener("abort", abort, { once: true });
+        timer = setTimeout(() => { controller.abort(); reject(new Error("bootstrap_provider_timeout")); }, 60_000);
         if (input.signal.aborted) abort();
       })]);
     } finally { if (timer) clearTimeout(timer); if (abort) input.signal.removeEventListener("abort", abort); }
@@ -109,7 +111,9 @@ export class FoundationBootstrapService {
       groups: [{ id: "policy", label: "Foundation policy", artifactIds: ["brief", "creative-direction"], dependsOnGroupIds: [] },
         { id: "world", label: "World and mechanics", artifactIds: ["bible", "mechanics"], dependsOnGroupIds: ["policy"] },
         { id: "structure", label: "Routes and endings", artifactIds: ["routes", "endings"], dependsOnGroupIds: ["policy", "world"] }],
-      validation: { errors: reasons, warnings: ["All results are drafts. Passage-level preservation remains pending."] }, canonAssessment: result.candidate.canonAssessment,
+      validation: { errors: reasons, warnings: ["All results are drafts. Passage-level preservation remains pending.",
+        ...result.candidate.canonAssessment.filter((assessment) => assessment.status === "blocked" && plan.context.intent.obligations.some((obligation) => obligation.id === assessment.obligationId && obligation.strength === "required"))
+          .map((assessment) => `Required obligation ${assessment.obligationId} is blocked. AI passage authority remains unavailable.`)] }, canonAssessment: result.candidate.canonAssessment,
       applications: this.repository.applications(projectId, jobId) };
   }
   previewApply(projectId: string, jobId: string, artifactIds: FoundationArtifactId[]) { return this.repository.previewApply(projectId, jobId, artifactIds); }

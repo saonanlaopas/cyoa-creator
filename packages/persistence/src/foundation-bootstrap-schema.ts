@@ -30,6 +30,18 @@ ${table === "foundation_bootstrap_jobs" ? "" : `CREATE TRIGGER IF NOT EXISTS ${t
 CREATE TRIGGER IF NOT EXISTS foundation_bootstrap_jobs_identity BEFORE UPDATE ON foundation_bootstrap_jobs
  WHEN NEW.id != OLD.id OR NEW.project_id != OLD.project_id OR NEW.plan_id != OLD.plan_id
  BEGIN SELECT RAISE(ABORT,'Foundation bootstrap job identity is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS foundation_bootstrap_jobs_transition BEFORE UPDATE OF content_json ON foundation_bootstrap_jobs
+ WHEN NOT (
+   (json_extract(OLD.content_json,'$.status') = 'pending' AND json_extract(NEW.content_json,'$.status') = 'running'
+     AND json_array_length(NEW.content_json,'$.units[0].attempts') = json_array_length(OLD.content_json,'$.units[0].attempts') + 1)
+   OR (json_extract(OLD.content_json,'$.status') = 'running'
+     AND (json_extract(NEW.content_json,'$.status') IN ('completed','failed') OR (json_extract(NEW.content_json,'$.status') = 'cancelled' AND json_extract(NEW.content_json,'$.units[0].attempts[#-1].status') = 'cancelled'))
+     AND json_array_length(NEW.content_json,'$.units[0].attempts') = json_array_length(OLD.content_json,'$.units[0].attempts'))
+   OR (json_extract(OLD.content_json,'$.status') = 'failed' AND json_extract(NEW.content_json,'$.status') = 'pending'
+     AND json_array_length(NEW.content_json,'$.units[0].attempts') = json_array_length(OLD.content_json,'$.units[0].attempts'))
+   OR (json_extract(OLD.content_json,'$.status') IN ('pending','failed') AND json_extract(NEW.content_json,'$.status') = 'cancelled'
+     AND json_array_length(NEW.content_json,'$.units[0].attempts') = json_array_length(OLD.content_json,'$.units[0].attempts')))
+ BEGIN SELECT RAISE(ABORT,'Foundation bootstrap lifecycle is invalid'); END;
 CREATE TRIGGER IF NOT EXISTS foundation_bootstrap_jobs_history BEFORE UPDATE OF content_json ON foundation_bootstrap_jobs
  WHEN json_extract(OLD.content_json,'$.status') IN ('completed','cancelled')
  OR json_extract(NEW.content_json,'$.id') != json_extract(OLD.content_json,'$.id')
@@ -61,6 +73,8 @@ CREATE TRIGGER IF NOT EXISTS foundation_bootstrap_jobs_valid_${operation.toLower
    AND json_extract(NEW.content_json,'$.status') IS NOT json_extract(NEW.content_json,'$.units[0].attempts[#-1].status'))
  OR (json_extract(NEW.content_json,'$.status') = 'pending' AND json_array_length(NEW.content_json,'$.units[0].attempts') > 0
    AND json_extract(NEW.content_json,'$.units[0].attempts[#-1].status') != 'failed')
+ OR (json_extract(NEW.content_json,'$.status') = 'cancelled' AND json_array_length(NEW.content_json,'$.units[0].attempts') > 0
+   AND json_extract(NEW.content_json,'$.units[0].attempts[#-1].status') NOT IN ('failed','cancelled'))
  OR EXISTS(SELECT 1 FROM json_each(NEW.content_json,'$.units[0].attempts') attempt
    WHERE json_extract(attempt.value,'$.number') != attempt.key + 1
    OR (attempt.key < json_array_length(NEW.content_json,'$.units[0].attempts') - 1 AND json_extract(attempt.value,'$.status') != 'failed')

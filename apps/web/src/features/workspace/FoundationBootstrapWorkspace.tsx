@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FoundationBootstrapApi, type BootstrapApplyPreview, type BootstrapJob, type BootstrapPlan, type BootstrapReview, type BootstrapState, type FoundationArtifactId } from "../../api/foundation-bootstrap.js";
 import "./foundation-bootstrap.css";
 
@@ -12,10 +12,14 @@ export function FoundationBootstrapWorkspace({ projectId, onApplied }: { project
   const [plan, setPlan] = useState<BootstrapPlan | null>(null), [authorized, setAuthorized] = useState(false), [job, setJob] = useState<BootstrapJob | null>(null);
   const [review, setReview] = useState<BootstrapReview | null>(null), [selected, setSelected] = useState<FoundationArtifactId[]>([]), [detail, setDetail] = useState<FoundationArtifactId | null>(null);
   const [applyPreview, setApplyPreview] = useState<BootstrapApplyPreview | null>(null);
+  const [fieldPage, setFieldPage] = useState(0), [provenancePage, setProvenancePage] = useState(0);
+  const detailHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { setFieldPage(0); setProvenancePage(0); if (detail) detailHeading.current?.focus(); }, [detail]);
   const refresh = async () => { const next = await api.state(); setState(next); return next; };
   const act = async (action: () => Promise<void>) => { setBusy(true); setError(""); setMessage(""); try { await action(); } catch (e) { setError((e as Error).message); setAuthorized(false); setApplyPreview(null); } finally { setBusy(false); } };
   useEffect(() => {
     let live = true;
+    setState(null); setError(""); setMessage(""); setDecision(""); setPlan(null); setAuthorized(false); setJob(null); setReview(null); setDetail(null); setSelected([]); setApplyPreview(null);
     void api.state().then((next) => { if (!live) return; setState(next); const provider = next.providers[0]; setProviderId(provider?.id ?? ""); setModelId(provider?.models[0] ?? ""); }).catch((e: Error) => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [api]);
@@ -32,7 +36,7 @@ export function FoundationBootstrapWorkspace({ projectId, onApplied }: { project
   const appliedIds = new Set(review?.applications.flatMap((application) => Object.keys(application.artifactVersionIds)) ?? []);
   const blocked = busy || review?.currentState.status !== "fresh" || Boolean(review?.validation.errors.length);
   return <section className="artifact-pane bootstrap-workspace" aria-label="Foundation bootstrap">
-    <header className="artifact-header"><div><h1>Foundation bootstrap</h1><p>Draft foundations / ordinary approval required</p></div><span className="workflow-status">{job?.status ?? "Not started"}</span></header>
+    <header className="artifact-header"><div><h1>Foundation bootstrap</h1><p>Draft foundations / ordinary approval required</p></div><span className="workflow-status" role="status">{job?.status ?? "Not started"}</span></header>
     {error && <p role="alert" className="error">{error}</p>}{message && <p role="status">{message}</p>}
     {!state ? <p role="status">Loading foundations</p> : <>
       {!state.availability.allowed && <p className="status">{state.availability.reason}</p>}
@@ -63,9 +67,13 @@ export function FoundationBootstrapWorkspace({ projectId, onApplied }: { project
         <h3>Dependency groups</h3>{review.groups.map((group) => <section className="bootstrap-group" key={group.id} aria-label={group.label}><h4>{group.label}</h4><small>Requires: {group.dependsOnGroupIds.join(", ") || "None"}</small>
           {group.artifactIds.map((id) => <div className="bootstrap-artifact" key={id}><label className="bootstrap-check"><input type="checkbox" checked={selected.includes(id)} disabled={blocked || appliedIds.has(id)} onChange={(e) => { setSelected((current) => e.target.checked ? [...current, id] : current.filter((value) => value !== id)); setApplyPreview(null); }} />{labels[id]}{appliedIds.has(id) ? " (applied draft)" : ""}</label><button disabled={busy} onClick={() => setDetail(id)}>Review {labels[id]}</button></div>)}
         </section>)}
-        {candidate && <section className="bootstrap-detail" aria-label="Foundation artifact detail"><h3>{labels[candidate.artifactId]}</h3><p>Base: {candidate.baseVersionId ?? "must-not-exist"}</p>
-          <h4>Field changes</h4>{candidate.fieldDiffs.map((diff) => <details key={diff.path}><summary>{diff.path}</summary><div className="bootstrap-diff"><div><strong>Before</strong><pre>{display(diff.before)}</pre></div><div><strong>Proposed draft</strong><pre>{display(diff.after)}</pre></div></div></details>)}
-          <details><summary>Source / override / adaptation-only provenance</summary>{candidate.provenance.map((item, index) => <details key={`${item.fieldPath}-${index}`}><summary>{item.fieldPath} / {item.origin}</summary><p>{item.rationale}</p><dl className="simulation-metadata"><div><dt>Source records</dt><dd>{item.sourceRecordIds.join(", ") || "None"}</dd></div><div><dt>A3 corrections</dt><dd>{item.correctionIds.join(", ") || "None"}</dd></div><div><dt>A4 overrides</dt><dd>{item.overrideIds.join(", ") || "None"}</dd></div><div><dt>Adaptation-only inventions</dt><dd>{item.inventionIds.join(", ") || "None"}</dd></div></dl></details>)}</details>
+        {candidate && <section className="bootstrap-detail" aria-label="Foundation artifact detail"><h3 ref={detailHeading} tabIndex={-1}>{labels[candidate.artifactId]}</h3><p>Base: {candidate.baseVersionId ?? "must-not-exist"}</p>
+          <h4>Field changes</h4><details><summary>Changed fields ({candidate.fieldDiffs.length})</summary>{candidate.fieldDiffs.slice(fieldPage * 20, (fieldPage + 1) * 20).map((diff) => <details key={diff.path}><summary>{diff.path}</summary><div className="bootstrap-diff"><div><strong>Before</strong><pre>{display(diff.before)}</pre></div><div><strong>Proposed draft</strong><pre>{display(diff.after)}</pre></div></div></details>)}
+            {candidate.fieldDiffs.length > 20 && <nav aria-label="Field changes pages"><button title="Previous field changes" aria-label="Previous field changes" disabled={fieldPage === 0} onClick={() => setFieldPage((page) => page - 1)}>&lt;</button><span>{fieldPage + 1} / {Math.ceil(candidate.fieldDiffs.length / 20)}</span><button title="Next field changes" aria-label="Next field changes" disabled={(fieldPage + 1) * 20 >= candidate.fieldDiffs.length} onClick={() => setFieldPage((page) => page + 1)}>&gt;</button></nav>}
+          </details>
+          <details><summary>Source / override / adaptation-only provenance</summary>{candidate.provenance.slice(provenancePage * 20, (provenancePage + 1) * 20).map((item, index) => <details key={`${item.fieldPath}-${index}`}><summary>{item.fieldPath} / {item.origin}</summary><p>{item.rationale}</p><dl className="simulation-metadata"><div><dt>Source records</dt><dd>{item.sourceRecordIds.join(", ") || "None"}</dd></div><div><dt>A3 corrections</dt><dd>{item.correctionIds.join(", ") || "None"}</dd></div><div><dt>A4 overrides</dt><dd>{item.overrideIds.join(", ") || "None"}</dd></div><div><dt>Adaptation-only inventions</dt><dd>{item.inventionIds.join(", ") || "None"}</dd></div></dl></details>)}
+            {candidate.provenance.length > 20 && <nav aria-label="Provenance pages"><button title="Previous provenance" aria-label="Previous provenance" disabled={provenancePage === 0} onClick={() => setProvenancePage((page) => page - 1)}>&lt;</button><span>{provenancePage + 1} / {Math.ceil(candidate.provenance.length / 20)}</span><button title="Next provenance" aria-label="Next provenance" disabled={(provenancePage + 1) * 20 >= candidate.provenance.length} onClick={() => setProvenancePage((page) => page + 1)}>&gt;</button></nav>}
+          </details>
           <details><summary>Complete candidate</summary><pre>{display(candidate.content)}</pre></details>
         </section>}
         <details><summary>Requested canon obligation assessment</summary><p>Passage-level preservation pending graph validation</p>{review.canonAssessment.map((item) => <details key={item.obligationId}><summary>{item.obligationId} / {item.status}</summary><p>{item.rationale}</p><dl className="simulation-metadata"><div><dt>Routes</dt><dd>{item.routeIds.join(", ") || "None"}</dd></div><div><dt>Acts</dt><dd>{item.actIds.join(", ") || "None"}</dd></div><div><dt>Endings</dt><dd>{item.endingIds.join(", ") || "None"}</dd></div></dl>{item.structuralEvidence.map((evidence) => <p key={`${evidence.artifactId}:${evidence.fieldPath}`}>{labels[evidence.artifactId]}: <code>{evidence.fieldPath}</code></p>)}</details>)}</details>

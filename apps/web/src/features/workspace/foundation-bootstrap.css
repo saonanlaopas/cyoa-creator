@@ -1,4 +1,4 @@
-.bootstrap-workspace { min-width: 0; overflow-wrap: anywhere; }
+.bootstrap-workspace { min-width: 0; overflow-wrap: anywhere; scroll-margin-top: 6rem; }
 .bootstrap-workspace h1 { font-size: 1.6rem; }
 .bootstrap-workspace h2 { font-size: 1.2rem; }
 .bootstrap-workspace h3 { font-size: 1.05rem; }
@@ -7,12 +7,16 @@
 .bootstrap-workspace details { margin: .75rem 0; }
 .bootstrap-workspace pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; font-size: .8rem; }
 .bootstrap-provider, .bootstrap-diff { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.bootstrap-provider label { display: grid; gap: .4rem; }
+.bootstrap-provider select { width: 100%; min-height: 2.75rem; padding: .5rem; border: 1px solid #60708a; border-radius: 4px; color: #f4efe7; background: #171d29; font: inherit; }
 .bootstrap-group, .bootstrap-detail { padding: .75rem 0; border-top: 1px solid #364258; }
 .bootstrap-artifact { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .35rem 0; }
 .bootstrap-workspace .bootstrap-check { display: flex; align-items: center; gap: .5rem; }
 .bootstrap-workspace .bootstrap-check input { width: 1rem; height: 1rem; flex: 0 0 1rem; }
 .bootstrap-workspace button, .bootstrap-workspace select { max-width: 100%; white-space: normal; }
 .bootstrap-workspace button { margin: .25rem 0; }
+.bootstrap-detail nav { display: flex; align-items: center; gap: .75rem; }
+.bootstrap-detail nav button { width: 2rem; height: 2rem; padding: 0; }
 .long-form-workspace:has(.bootstrap-workspace) .workflow-nav { min-width: 0; grid-template-columns: minmax(0, 1fr); }
 .long-form-workspace:has(.bootstrap-workspace) .workflow-nav ol { min-width: 0; max-width: 100%; overflow-x: auto; }
 @media (max-width: 640px) {

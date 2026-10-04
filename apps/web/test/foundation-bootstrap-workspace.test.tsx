@@ -52,6 +52,19 @@ describe("Foundation bootstrap workspace", () => {
     expect((screen.getByRole("button", { name: "Preview selected drafts" }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "Review Routes" })); expect(screen.getByRole("region", { name: "Foundation artifact detail" })).toBeTruthy();
   });
+  it("keeps large field reviews paginated and moves keyboard focus into the selected artifact", async () => {
+    const large = structuredClone(review), routes = large.candidates.find((item) => item.artifactId === "routes")!;
+    routes.fieldDiffs = Array.from({ length: 41 }, (_, i) => ({ path: `/field-${i}`, before: null, after: `Value ${i}` }));
+    mockApi({ "/jobs/job/review": large }); const user = userEvent.setup(); render(<FoundationBootstrapWorkspace projectId="project" />);
+    await user.click(await screen.findByRole("button", { name: "completed / job" })); await user.click(await screen.findByRole("button", { name: "Review foundation bundle" }));
+    await user.click(await screen.findByRole("button", { name: "Review Routes" }));
+    const detail = screen.getByRole("region", { name: "Foundation artifact detail" });
+    expect(document.activeElement).toBe(within(detail).getByRole("heading", { name: "Routes", exact: true }));
+    await user.click(within(detail).getByText("Changed fields (41)")); expect(within(detail).queryByText("/field-20")).toBeNull();
+    await user.click(within(detail).getByRole("button", { name: "Next field changes" })); expect(within(detail).getByText("/field-20")).toBeTruthy(); expect(within(detail).queryByText("/field-0")).toBeNull();
+    await user.click(within(detail).getByRole("button", { name: "Next field changes" })); expect(within(detail).getByText("/field-40")).toBeTruthy();
+    expect((within(detail).getByRole("button", { name: "Next field changes" }) as HTMLButtonElement).disabled).toBe(true);
+  });
   it("recovers saved failed jobs and leaves cancellation available independently of polling", async () => {
     const failed = { ...job, status: "failed" }, running = { ...job, status: "running" };
     const fetchMock = mockApi({ "": { ...state, jobs: [failed] }, "/jobs/job": failed, "/jobs/job/retry": running, "/jobs/job/cancel": { ...job, status: "cancelled" } });

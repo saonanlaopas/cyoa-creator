@@ -12,7 +12,7 @@ import { buildLongFormProjectReferenceIndex, validateLongFormProject } from "./l
 export const FOUNDATION_ARTIFACT_IDS = ["brief", "creative-direction", "bible", "routes", "endings", "mechanics"] as const;
 export type FoundationArtifactId = typeof FOUNDATION_ARTIFACT_IDS[number];
 export const FOUNDATION_BOOTSTRAP_POLICY = "foundation-bootstrap-v1" as const;
-export const FOUNDATION_BOOTSTRAP_LIMITS = Object.freeze({ contextBytes: 96_000, outputBytes: 192_000, provenance: 2_000, attempts: 4 });
+export const FOUNDATION_BOOTSTRAP_LIMITS = Object.freeze({ contextBytes: 96_000, outputBytes: 192_000, provenance: 2_000, attempts: 4, structuralRepairs: 0 });
 const id = z.string().trim().min(1).max(240);
 const ids = z.array(id).max(1_000).refine((values) => new Set(values).size === values.length, "IDs must be unique");
 const shape = <T extends z.ZodTypeAny>(schema: T) => ({ brief: schema, "creative-direction": schema, bible: schema, routes: schema, endings: schema, mechanics: schema });
@@ -137,6 +137,14 @@ export function parseFoundationBootstrapCandidate(value: unknown, input: Foundat
     }
   }
   if (provided.size !== paths.size) throw new Error("bootstrap_provenance_incomplete");
+  bible.canonFacts.forEach((fact, index) => {
+    const provenance = candidate.provenance.find((item) => item.artifactId === "bible" && item.fieldPath === `/canonFacts/${index}/statement`)!;
+    const linked = provenance.sourceRecordIds.map((id) => records.get(id)!);
+    if (!["source", "a3-correction"].includes(provenance.origin) || !linked.length
+      || linked.some((record) => record.classification !== "source-canon" || !fact.statement.split("\n").includes(record.claim))
+      || fact.sourceExcerptIds.some((id) => !linked.some((record) => record.evidence.some((evidence) => evidence.excerptId === id))))
+      throw new Error("bootstrap_canon_fact_ungrounded");
+  });
   const assessed = new Set<string>();
   for (const assessment of candidate.canonAssessment) {
     const obligation = context.intent.obligations.find((item) => item.id === assessment.obligationId);

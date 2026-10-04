@@ -29,8 +29,7 @@ export function deterministicFoundationBootstrapCandidate(input: FoundationBoots
     premise: records.find((item) => item.category === "premise")?.claim ?? "Adapt the reviewed source dossier into a choice-driven story.",
     projectConstraints: Object.entries(context.intent.dimensions).map(([dimension, level]) => `Requested ${dimension} fidelity: ${level}.`),
   });
-  const bible = LongFormStoryBibleSchema.parse({ title: `${context.title} story bible`, overview: brief.premise,
-    ...(context.baseArtifacts.bible ? { proseGuidance: context.baseArtifacts.bible.proseGuidance } : {}),
+  const bible = LongFormStoryBibleSchema.parse({ ...context.baseArtifacts.bible, title: `${context.title} story bible`, overview: brief.premise,
     canonFacts: records.filter((item) => item.classification === "source-canon").map((item) => ({ id: `foundation-fact-${sourceDigest(item.id).slice(0, 16)}`,
       statement: item.claim, sourceExcerptIds: [...new Set(item.evidence.map((evidence) => evidence.excerptId))], confidence: "confirmed" })),
     adaptationOpportunities: [
