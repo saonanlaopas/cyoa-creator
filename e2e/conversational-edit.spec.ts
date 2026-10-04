@@ -6,7 +6,13 @@ const test = base.extend<{}, { editingBaseURL: string }>({
     const child = spawn(process.execPath, ["--input-type=module", "-e", `
       import { buildApp } from './apps/server/dist/app.js';
       import { createOfflineSetupClient } from './apps/server/dist/services/offline-setup-provider.js';
-      const app = buildApp({ databasePath: ':memory:', openRouterClient: createOfflineSetupClient() });
+      import { OfflineEditProvider } from './apps/server/dist/services/conversational-edit-provider.js';
+      const offline = new OfflineEditProvider();
+      const conversationalEditProvider = { id: 'offline-edit', async generate(plan, signal) {
+        if (plan.request.message === 'Add setup without payoff') return { message: 'Review the nonblocking continuity warning', groups: [{ id: 'thread-setup', label: 'Thread setup', explanation: 'Add only the selected setup', dependsOnGroupIds: [], operations: [{ kind: 'set-fields', targetKey: plan.targets[0].key, changes: { setupPassageIds: [plan.targets[0].value.description] } }] }] };
+        return offline.generate(plan, signal);
+      } };
+      const app = buildApp({ databasePath: ':memory:', openRouterClient: createOfflineSetupClient(), conversationalEditProvider });
       console.log(JSON.stringify({ address: await app.listen({ port: 0, host: '127.0.0.1' }) }));
       process.on('SIGTERM', () => app.close().then(() => process.exit(0)));
     `], { env: { PATH: process.env.PATH, NODE_ENV: "test" }, stdio: ["ignore", "pipe", "pipe"] });
@@ -109,4 +115,22 @@ test("A6 300-passage flow is metadata-first, bounded, and changes one exact enti
   for (const passage of after.passages) { const old = f.plan.passages.find((p: { entityId: string }) => p.entityId === passage.entityId); if (passage.entityId === "passage-249") expect(passage.content.title).toBe("Harbor handoff"); else expect(passage.id).toBe(old.id); }
   const conversation = (await (await request.get(`${root}/conversations`)).json())[0], history = await (await request.get(`${root}/conversations/${conversation.id}`)).json();
   expect(history.proposals[0].status).toBe("applied"); expect(JSON.stringify(history)).not.toContain("headFingerprint");
+});
+
+test("A6 review exposes effective passage warnings through HTTP and UI without blocking Apply", async ({ page, request }, info) => {
+  const f = await establishedProject(request), passageId = f.plan.passages[0].entityId, threadId = "thread-warning";
+  const saved = await request.put(`${f.root}/passage-plan`, { data: { schemaVersion: 1, structure: f.plan.structure.content,
+    passages: f.plan.passages.map((v: { content: unknown }) => v.content), choices: f.plan.choices.map((v: { content: unknown }) => v.content),
+    threads: [{ id: threadId, label: "Trust", description: passageId, setupPassageIds: [], payoffPassageIds: [], routeIds: [], required: false, status: "planned", waiverRationale: "" }] } }); await expect(saved).toBeOK();
+  await openEditing(page, f.id); await page.getByLabel("Find planning records").fill(`thread:${threadId}`);
+  await page.getByRole("checkbox", { name: /thread \/ Trust/ }).check(); await page.getByLabel("Editing request").fill("Add setup without payoff");
+  await page.getByRole("button", { name: "Preview editing scope" }).click(); await page.getByLabel("Authorize this exact editing generation").check(); await page.getByRole("button", { name: "Generate editing response" }).click();
+  const reviewed = page.waitForResponse((r) => r.url().endsWith("/review") && r.url().includes("/editing/proposals/")); await page.getByRole("button", { name: "Review selected changes" }).click();
+  const result = await (await reviewed).json(); expect(result.findings).toContainEqual(expect.objectContaining({ code: "continuity.thread.setup-without-payoff", entityType: "thread", entityId: threadId, evidence: [passageId], severity: "warning" }));
+  expect(result.validation.totalFindings).toBe(result.findings.length + result.validation.omittedFindings);
+  const review = page.getByRole("region", { name: "Effective editing changes" }); await review.getByText("Validation and evidence", { exact: true }).click();
+  await expect(review.getByText(`continuity.thread.setup-without-payoff / thread / ${threadId}`, { exact: true })).toBeVisible(); await expect(review.getByText("warning: Narrative thread is set up but has no payoff.", { exact: true })).toBeVisible();
+  await expect(review.getByRole("listitem").filter({ hasText: passageId }).first()).toBeVisible(); await page.screenshot({ path: info.outputPath("a6-warning-review.png"), fullPage: true });
+  await page.getByRole("button", { name: "Apply selected editing changes" }).click(); await expect(page.getByText(/Selected changes applied as draft versions/)).toBeVisible();
+  const after = await (await request.get(`${f.root}/passage-plan`)).json(); expect(after.threads[0].content.setupPassageIds).toEqual([passageId]);
 });

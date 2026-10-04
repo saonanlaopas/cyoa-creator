@@ -423,6 +423,7 @@ export class PassagePlanRepository {
   private insertStructure<T>(
     projectId: string, content: T, restoredFromVersionId?: string,
   ): StructureVersion<T> {
+    const before = this.currentStructure<T>(projectId);
     const latest = this.database.prepare(`
       SELECT COALESCE(MAX(version), 0) version FROM passage_structure_versions WHERE project_id = ?
     `).get(projectId) as { version: number };
@@ -436,7 +437,10 @@ export class PassagePlanRepository {
       INSERT INTO passage_structure_heads (project_id, version_id) VALUES (?, ?)
       ON CONFLICT(project_id) DO UPDATE SET version_id = excluded.version_id
     `).run(projectId, id);
-    return this.currentStructure<T>(projectId)!;
+    const result = this.currentStructure<T>(projectId)!;
+    this.mutationObserver?.({ projectId, kind: "structure", entityId: "root", beforeVersionId: before?.id ?? null, afterVersionId: result.id,
+      before: before?.content ?? null, after: result.content, passages: this.currentEntities<{ id: string; sequenceId: string }>(projectId, "passage").map((v) => v.content) });
+    return result;
   }
 
   private insertEntity<T>(

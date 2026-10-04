@@ -10,6 +10,7 @@ import {
   PassagePlanRepository,
   ProjectRepository,
   WorkflowRepository,
+  transaction,
   type StoryDatabase,
 } from "../src/index.js";
 
@@ -104,6 +105,28 @@ function createDraft(
 }
 
 describe("passage draft repository", () => {
+  it.each(["saveStructure", "saveBundle", "transaction"] as const)("observes material structure changes through %s and rolls back their stale events", (path) => {
+    const f = setup(), projectId = f.project.id;
+    const structure = { ...f.passages.currentStructure<Record<string, unknown>>(projectId)!.content,
+      acts: [1, 2].map((n) => ({ id: `act-${n}`, label: `Act ${n}`, purpose: "", summary: "", wordTarget: 500, routeIds: [], sequenceIds: [`sequence-${n}`], position: n - 1 })),
+      sequences: [1, 2].map((n) => ({ id: `sequence-${n}`, actId: `act-${n}`, label: `Sequence ${n}`, purpose: "", summary: "", wordTarget: 500, routeIds: [], passageIds: [`passage-${n}`], entryGoals: [], exitGoals: [], requiredDecisionIds: [], endingHookIds: [], position: n - 1, planningStatus: "planned" })) };
+    f.passages.saveStructure(projectId, structure); f.passages.saveEntity(projectId, "passage", "passage-2", passage("passage-2", { sequenceId: "sequence-2" }));
+    const affected = createDraft(f, "Affected prose"), unrelated = createDraft(f, "Unrelated prose", "passage-2");
+    let fail = true;
+    const writer = new PassagePlanRepository(f.database, (mutation) => { f.drafts.handlePassagePlanMutationInTransaction(mutation); if (fail) throw new Error("Rollback"); });
+    const update = () => {
+      const next = { ...structure, sequences: structure.sequences.map((s) => s.id === "sequence-1" ? { ...s, summary: "New dramatic context" } : s) };
+      if (path === "saveStructure") writer.saveStructure(projectId, next);
+      else if (path === "saveBundle") writer.saveBundle(projectId, next, [], { passage: new Set(["passage-1", "passage-2"]), choice: new Set(["choice-1"]), thread: new Set() });
+      else transaction(f.database, () => writer.insertStructureVersionInTransaction(projectId, next));
+    };
+    const oldStructure = f.passages.currentStructure(projectId)!.id;
+    expect(update).toThrow("Rollback");
+    expect(f.passages.currentStructure(projectId)!.id).toBe(oldStructure); expect(f.drafts.getVersion(projectId, affected.id)!.stale).toBe(false);
+    fail = false; update();
+    expect(f.drafts.getVersion(projectId, affected.id)!.staleReasons).toContainEqual(expect.objectContaining({ sourceEntityKind: "structure", sourceEntityId: "root", reasonCode: "passage-structure-change", changedFields: ["sequences/sequence-1/summary"] }));
+    expect(f.drafts.getVersion(projectId, unrelated.id)!.stale).toBe(false); f.database.close();
+  });
   it("loads accepted heads for a bounded passage set without traversing unrelated draft history", () => {
     const fixture = setup();
     const first = createDraft(fixture, "First accepted draft", "passage-1");

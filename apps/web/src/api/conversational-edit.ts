@@ -8,7 +8,8 @@ export interface EditProposal { id: string; status: string; summary: string; pro
 export interface EditReview {
   fingerprint: string; selectedGroupIds: string[]; requiredGroupIds: string[]; wouldStale: string[]; protectedProse: string;
   outputs: Array<{ owner: string; targetId: string; before: unknown; after: unknown }>;
-  findings: Array<{ severity: string; message: string }>;
+  findings: Array<{ code: string; severity: string; message: string; entityId?: string; entityType?: string; artifactId?: string; evidence?: string[] }>;
+  draftImpacts: Array<{ passageId: string; reasonCode: string; changedFields: string[] }>;
   evidence: { request: string; messageId: string; sourceRecords: Array<{ record: { id: string; claim: string }; excerpts: Array<{ text: string }> }> }; generatedIds: Record<string, string>;
   validation: { totalFindings: number; omittedFindings: number };
 }

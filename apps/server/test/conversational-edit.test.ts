@@ -9,6 +9,7 @@ import { ConversationalEditService } from "../src/services/conversational-edit-s
 import { OfflineEditProvider, OpenRouterEditProvider, editMessages } from "../src/services/conversational-edit-provider.js";
 import type { EditPlan, EditProvider, EditResponse } from "../src/services/conversational-edit-contract.js";
 import { buildApp } from "../src/app.js";
+import { PassagePlanService } from "../src/services/passage-plan-service.js";
 import type { OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { FOUNDATION_ARTIFACT_IDS, ProjectBriefSchema, defaultCreativeDirection, defaultProjectBrief, newAdaptationIntent, normalizeAdaptationIntent, type SourceDossier } from "@story-to-cyoa/domain";
 import { analysisFixture, completeFixture } from "../../../packages/persistence/test/source-analysis-fixture.js";
@@ -53,13 +54,97 @@ const group = (targetKey: string, changes: Record<string, unknown>, id = "edit",
 const response = (...groups: EditResponse["groups"]) => ({ message: "Review these changes", groups });
 function canonical(f: Fixture) {
   return { snapshot: f.longForm.snapshot(f.id), versions: f.db.prepare("SELECT id,stale FROM artifact_versions WHERE project_id=? AND artifact_id IN ('brief','creative-direction','bible','routes','endings','mechanics') ORDER BY id").all(f.id),
-    workflow: f.db.prepare("SELECT * FROM artifact_workflow_state WHERE project_id=? ORDER BY artifact_id").all(f.id), passages: f.passages.listAllEntityVersions(f.id), state: f.passages.state(f.id), drafts: f.db.prepare("SELECT * FROM passage_draft_heads WHERE project_id=?").all(f.id), events: f.db.prepare("SELECT * FROM passage_draft_staleness_events WHERE project_id=?").all(f.id) };
+    workflow: f.db.prepare("SELECT * FROM artifact_workflow_state WHERE project_id=? ORDER BY artifact_id").all(f.id), structure: f.passages.listStructureVersions(f.id), passages: f.passages.listAllEntityVersions(f.id), state: f.passages.state(f.id), drafts: f.db.prepare("SELECT * FROM passage_draft_heads WHERE project_id=?").all(f.id), events: f.db.prepare("SELECT * FROM passage_draft_staleness_events WHERE project_id=?").all(f.id) };
 }
 function readyReview(f: Fixture, p: { id: string; proposal: unknown }, selected?: string[]) {
   const ids = selected ?? (p.proposal as { response: EditResponse }).response.groups.map((g) => g.id); return f.service.review(f.id, p.id, ids);
 }
 
 describe("A6 scoped conversational editing", () => {
+  it.each(["sequence", "act"] as const)("invalidates only drafts under a materially edited %s through Apply, approval and refresh", async (kind) => {
+    const f = fixture(), sequence = f.bundle.structure.sequences.find((s) => s.passageIds.length >= 2)!, other = f.bundle.structure.sequences.find((s) => s.actId !== sequence.actId)!;
+    const upstreamVersions = Object.fromEntries(["bible", "routes", "endings", "mechanics"].map((id) => [id, f.artifacts.getCurrent(f.id, id)!.id]));
+    const accepted = [sequence.passageIds[0]!, sequence.passageIds[1]!, other.passageIds[0]!].map((id, index) => {
+      const passage = f.passages.currentEntity<PassagePlan>(f.id, "passage", id)!;
+      let draft = f.drafts.createVersion({ projectId: f.id, passageId: id, basedOnPassagePlanVersionId: passage.id, proseMarkdown: `Protected original ${index}`, sourceKind: "manual", upstreamVersions, neighboringDraftVersions: {} });
+      draft = f.drafts.transition(f.id, id, draft.id, "accepted");
+      if (index === 1) { draft = f.drafts.transition(f.id, id, draft.id, "reviewed"); draft = f.drafts.transition(f.id, id, draft.id, "locked"); }
+      return { passage, draft };
+    });
+    const target = `passage-structure:${kind === "sequence" ? sequence.id : sequence.actId}`;
+    f.handler.run = async () => response(group(target, { summary: "A different situation shapes these scenes" }));
+    const proposal = await propose(f, "Change the structural summary", [target]), review = readyReview(f, proposal), before = canonical(f);
+    expect(review.draftImpacts.map((i) => i.passageId)).toEqual(expect.arrayContaining(sequence.passageIds));
+    expect(review.draftImpacts.some((i) => i.passageId === other.passageIds[0])).toBe(false);
+    expect((proposal.proposal as { expectedDraftImpacts: unknown }).expectedDraftImpacts).toEqual(review.draftImpacts);
+    expect(() => f.service.apply(f.id, proposal.id, review.selectedGroupIds, review.fingerprint, { simulateFailure: true })).toThrow(/Simulated/);
+    expect(canonical(f)).toEqual(before);
+    f.service.apply(f.id, proposal.id, review.selectedGroupIds, review.fingerprint);
+    new PassagePlanService(new ProjectRepository(f.db), f.artifacts, f.workflow, f.passages).approve(f.id);
+    for (const [index, { passage, draft }] of accepted.entries()) {
+      const refreshed = f.drafts.refreshStaleness(f.id, draft.id, passage.id, passage.content, upstreamVersions);
+      expect(refreshed.stale).toBe(index < 2); expect(refreshed.proseMarkdown).toBe(draft.proseMarkdown);
+      expect(f.drafts.getHead(f.id, passage.entityId)!.accepted!.id).toBe(draft.id);
+      if (index === 0) expect(() => f.drafts.transition(f.id, passage.entityId, draft.id, "reviewed")).toThrow(/stale/);
+      if (index === 1) expect(f.drafts.getHead(f.id, passage.entityId)!.acceptedLocked).toBe(true);
+      if (index === 2) expect(f.drafts.transition(f.id, passage.entityId, draft.id, "reviewed").stale).toBe(false);
+    }
+  });
+  it.each([false, true])("keeps drafts fresh for cosmetic/no-op structure edits (no-op=%s)", async (noop) => {
+    const f = fixture(), sequence = f.bundle.structure.sequences[0]!, passage = f.passages.currentEntity<PassagePlan>(f.id, "passage", sequence.passageIds[0]!)!;
+    const upstreamVersions = Object.fromEntries(["bible", "routes", "endings", "mechanics"].map((id) => [id, f.artifacts.getCurrent(f.id, id)!.id]));
+    let draft = f.drafts.createVersion({ projectId: f.id, passageId: passage.entityId, basedOnPassagePlanVersionId: passage.id, proseMarkdown: "Existing prose", sourceKind: "manual", upstreamVersions });
+    draft = f.drafts.transition(f.id, passage.entityId, draft.id, "accepted");
+    const key = `passage-structure:${sequence.id}`;
+    f.handler.run = async () => response(group(key, { label: noop ? sequence.label : "Cosmetic navigation label" }));
+    const proposal = await propose(f, "Change sequence label", [key]), review = readyReview(f, proposal);
+    expect(review.draftImpacts).toEqual([]); expect(review.wouldStale).toEqual([]); f.service.apply(f.id, proposal.id, review.selectedGroupIds, review.fingerprint);
+    new PassagePlanService(new ProjectRepository(f.db), f.artifacts, f.workflow, f.passages).approve(f.id);
+    expect(f.drafts.refreshStaleness(f.id, draft.id, passage.id, passage.content, upstreamVersions).stale).toBe(false);
+    expect(f.drafts.transition(f.id, passage.entityId, draft.id, "reviewed").stale).toBe(false);
+  });
+  it.each(["outline", "planned", "reviewed", "locked"] as const)("enforces initial lifecycle for new sequences: %s", async (planningStatus) => {
+    for (const nested of [false, true]) {
+      const f = fixture(), sequence = { ...f.bundle.structure.sequences[0]!, id: "$new:sequence", passageIds: [], wordTarget: 0, position: 100, planningStatus };
+      const acts = f.bundle.structure.acts.map((a) => a.id === sequence.actId ? { ...a, sequenceIds: [...a.sequenceIds, sequence.id] } : a);
+      const operations: EditResponse["groups"][number]["operations"] = nested
+        ? [{ kind: "add-item", targetKey: "passage-structure:root", collection: "sequences", item: { ...sequence, planningStatus: "outline" } }, { kind: "set-fields", targetKey: "passage-structure:root", changes: { acts, sequences: [...f.bundle.structure.sequences, sequence] } }]
+        : [{ kind: "add-item", targetKey: "passage-structure:root", collection: "sequences", item: sequence }, { kind: "set-fields", targetKey: "passage-structure:root", changes: { acts } }];
+      f.handler.run = async () => response({ ...group("passage-structure:root", {}), operations }); const before = canonical(f);
+      if (["reviewed", "locked"].includes(planningStatus)) {
+        await expect(propose(f, "Add a sequence", ["passage-structure:root"])).rejects.toThrow(/initial_lifecycle/); expect(canonical(f)).toEqual(before);
+      } else {
+        const proposal = await propose(f, "Add a sequence", ["passage-structure:root"]), review = readyReview(f, proposal);
+        expect(() => f.service.apply(f.id, proposal.id, review.selectedGroupIds, review.fingerprint, { simulateFailure: true })).toThrow(/Simulated/); expect(canonical(f)).toEqual(before);
+        f.service.apply(f.id, proposal.id, review.selectedGroupIds, review.fingerprint);
+        expect(f.passages.currentStructure<{ sequences: Array<{ planningStatus: string }> }>(f.id)!.content.sequences.at(-1)!.planningStatus).toBe(planningStatus);
+      }
+    }
+  });
+  it("reports passage warnings, existing errors and accurate truncation without blocking non-error changes", async () => {
+    const f = fixture(), passageId = f.bundle.passages[0]!.id, passage = f.passages.currentEntity<PassagePlan>(f.id, "passage", passageId)!;
+    f.passages.saveEntity(f.id, "passage", passageId, { ...passage.content, characterIds: ["historical-missing-character"] });
+    for (let i = 0; i < 65; i++) f.passages.saveEntity(f.id, "thread", `thread-${i}`, { id: `thread-${i}`, label: "Trust", description: "", setupPassageIds: i === 0 ? [] : [passageId], payoffPassageIds: [], routeIds: [], required: false, status: "planned", waiverRationale: "" });
+    f.handler.run = async () => response(group("thread:thread-0", { setupPassageIds: [passageId] }));
+    const proposal = await propose(f, "Add thread setup", ["thread:thread-0"]), review = readyReview(f, proposal);
+    expect(review.validation.totalFindings).toBeGreaterThan(65); expect(review.findings).toHaveLength(50); expect(review.validation.omittedFindings).toBe(review.validation.totalFindings - 50);
+    expect(review.findings).toContainEqual(expect.objectContaining({ code: "continuity.thread.setup-without-payoff", entityId: "thread-0", entityType: "thread", evidence: [passageId], severity: "warning" }));
+    expect(review.findings).toContainEqual(expect.objectContaining({ entityId: passageId, severity: "error" }));
+    f.service.apply(f.id, proposal.id, review.selectedGroupIds, review.fingerprint);
+    expect(f.passages.currentEntity<{ setupPassageIds: string[] }>(f.id, "thread", "thread-0")!.content.setupPassageIds).toEqual([passageId]);
+  });
+  it("returns complete nonblocking passage findings through the reviewed HTTP contract", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cyoa-a6-warning-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, "project.sqlite"), f = fixture(path), passageId = f.bundle.passages[0]!.id;
+    f.passages.saveEntity(f.id, "thread", "thread-http", { id: "thread-http", label: "Trust", description: "", setupPassageIds: [], payoffPassageIds: [], routeIds: [], required: false, status: "planned", waiverRationale: "" });
+    const app = buildApp({ databasePath: path, conversationalEditProvider: { id: "offline-edit", async generate() { return response(group("thread:thread-http", { setupPassageIds: [passageId] })); } } }); cleanups.push(() => app.close());
+    const root = `/api/long-form/projects/${f.id}/editing`, post = async (url: string, payload: unknown) => { const r = await app.inject({ method: "POST", url, payload }); expect(r.statusCode, r.body).toBe(200); return r.json(); };
+    const { plan } = await post(`${root}/preview`, { message: "Add a setup", targetKeys: ["thread:thread-http"] }), generated = await post(`${root}/plans/${plan.id}/generate`, { fingerprint: plan.fingerprint });
+    const review = await post(`${root}/proposals/${generated.proposal.id}/review`, { groupIds: ["edit"] });
+    expect(review.findings).toContainEqual(expect.objectContaining({ code: "continuity.thread.setup-without-payoff", entityId: "thread-http", entityType: "thread", evidence: [passageId] }));
+    expect(review.validation.totalFindings).toBe(review.findings.length + review.validation.omittedFindings);
+    await post(`${root}/proposals/${generated.proposal.id}/apply`, { groupIds: ["edit"], fingerprint: review.fingerprint });
+  });
   it.each([
     ["Rename Mira to \"Ren\"", "bible:character-mira", "name", "Ren"],
     ["Change tone to \"restrained tension\"", "creative-direction:section:tone", "customGuidance", "restrained tension"],

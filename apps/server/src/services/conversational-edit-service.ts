@@ -3,9 +3,9 @@ import { AnalysisSourceSchema, SourceDossierSchema, resolveSourceEvidence, colle
 import { applyPlanningOperations, enrichOperationGroups, planningSection, planningArtifactIds, validateLongFormProject,
   ProjectBriefSchema, CreativeDirectionSchema, LongFormStoryBibleSchema, LongFormRoutePlanSchema, LongFormEndingPlanSchema, LongFormMechanicsPlanSchema,
   PassagePlanSchema, ChoicePlanSchema, NarrativeThreadSchema, PassageStructureSchema, validatePassagePlan,
-  type PlanningArtifact, type PlanningArtifactId, type ProposedPlanningOperation, type PassagePlanBundle } from "@story-to-cyoa/pipeline";
+  type PlanningArtifact, type PlanningArtifactId, type ProposedPlanningOperation, type PassagePlanBundle, type PlanningFinding, type PassagePlanFinding } from "@story-to-cyoa/pipeline";
 import { ArtifactRepository, ChangeSetRepository, ConversationRepository, AuthorMemoryRepository, PassagePlanRepository, PassageDraftRepository,
-  WorkflowRepository, transaction, type StoryDatabase } from "@story-to-cyoa/persistence";
+  WorkflowRepository, transaction, classifyPassageDraftStaleness, type DraftStalenessImpact, type StoryDatabase } from "@story-to-cyoa/persistence";
 import type { LongFormProjectService } from "./long-form-project-service.js";
 import { StructuredMutationService } from "./structured-mutation-service.js";
 import { EDIT_LIMITS, EditRequestSchema, EditResponseSchema, type EditOwner, type EditPlan, type EditProvider, type EditResponse, type EditTarget } from "./conversational-edit-contract.js";
@@ -62,13 +62,24 @@ const identityCounts = (value: unknown, counts = new Map<string, number>()): Map
   }
   return counts;
 };
+const protectInitialLifecycle = (before: unknown, after: unknown): void => {
+  if (!after || typeof after !== "object") return;
+  const old = before && typeof before === "object" ? before as Record<string, unknown> : undefined;
+  const next = after as Record<string, unknown>;
+  if (!old && ("planningStatus" in next && !["outline", "planned"].includes(String(next.planningStatus))
+    || "lifecycleStatus" in next || "proseMarkdown" in next)) throw new Error("edit_initial_lifecycle_protected");
+  if (Array.isArray(after)) for (const [index, child] of after.entries()) {
+    const id = child && typeof child === "object" ? (child as { id?: string }).id : undefined;
+    protectInitialLifecycle(Array.isArray(before) ? id ? before.find((v) => v?.id === id) : before[index] : undefined, child);
+  } else for (const [key, child] of Object.entries(after)) protectInitialLifecycle(old?.[key], child);
+};
 const entityPath = (value: unknown, id: string, path = ""): string | null => {
   if (!value || typeof value !== "object") return null;
   if ((value as { id?: string }).id === id) return path;
   for (const [key, child] of Object.entries(value)) { const found = entityPath(child, id, `${path}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`); if (found !== null) return found; }
   return null;
 };
-interface StoredEdit { kind: "conversational-edit-v1"; plan: EditPlan; response: EditResponse; generatedIds: Record<string, string>; expectedStaleness: string[]; fingerprint: string }
+interface StoredEdit { kind: "conversational-edit-v1"; plan: EditPlan; response: EditResponse; generatedIds: Record<string, string>; expectedStaleness: string[]; expectedDraftImpacts?: DraftStalenessImpact[]; fingerprint: string }
 type EditOutput = { owner: EditOwner; targetId: string; before: unknown; after: unknown };
 const materialOwners = (outputs: EditOutput[]) => outputs.filter((o) => sourceCanonicalJson(o.before) !== sourceCanonicalJson(o.after))
   .filter((o) => o.owner !== "creative-direction" || (o.before as { materialFingerprint: string }).materialFingerprint !== (o.after as { materialFingerprint: string }).materialFingerprint).map((o) => o.owner);
@@ -263,8 +274,9 @@ export class ConversationalEditService {
       const mapped = EditResponseSchema.parse(remap(response));
       const stored: StoredEdit = { kind: "conversational-edit-v1", plan, response: mapped, generatedIds, expectedStaleness: [], fingerprint: "" };
       const effective = this.effective(stored, mapped.groups.map((g) => g.id));
-      stored.expectedStaleness = this.impact(projectId, materialOwners(effective.outputs));
-      stored.fingerprint = sourceDigest({ plan, response: mapped, generatedIds, expectedStaleness: stored.expectedStaleness });
+      stored.expectedStaleness = this.impact(projectId, materialOwners(effective.outputs), effective.draftImpacts);
+      stored.expectedDraftImpacts = effective.draftImpacts;
+      stored.fingerprint = sourceDigest({ plan, response: mapped, generatedIds, expectedStaleness: stored.expectedStaleness, expectedDraftImpacts: stored.expectedDraftImpacts });
       this.fresh(plan);
       const anchor = this.artifacts.getCurrent(projectId, "brief")!;
       const proposal = this.changes.createOperations({ projectId, conversationId: plan.conversationId, artifactId: "brief", baseVersionId: anchor.id, summary: mapped.message, rationale: plan.request.message, proposal: stored,
@@ -286,12 +298,13 @@ export class ConversationalEditService {
   proposal(projectId: string, id: string) { return this.stored(projectId, id).record; }
   private stored(projectId: string, id: string) {
     const record = this.changes.get(id), edit = record?.proposal as StoredEdit;
-    if (!record || record.projectId !== projectId || edit?.kind !== "conversational-edit-v1" || edit.fingerprint !== sourceDigest({ plan: edit.plan, response: edit.response, generatedIds: edit.generatedIds, expectedStaleness: edit.expectedStaleness })) throw new Error("edit_proposal_not_found");
+    if (!record || record.projectId !== projectId || edit?.kind !== "conversational-edit-v1" || edit.fingerprint !== sourceDigest({ plan: edit.plan, response: edit.response, generatedIds: edit.generatedIds, expectedStaleness: edit.expectedStaleness,
+      ...(edit.expectedDraftImpacts === undefined ? {} : { expectedDraftImpacts: edit.expectedDraftImpacts }) })) throw new Error("edit_proposal_not_found");
     if (sourceCanonicalJson(this.plan(projectId, edit.plan.id)) !== sourceCanonicalJson(edit.plan)) throw new Error("edit_proposal_lineage_invalid");
     EditResponseSchema.parse(edit.response); return { record, edit };
   }
   reject(projectId: string, id: string) { this.stored(projectId, id); return this.changes.reject(id); }
-  private impact(projectId: string, owners: string[]) {
+  private impact(projectId: string, owners: string[], draftImpacts?: DraftStalenessImpact[]) {
     if (!owners.length) return [];
     const impacted = new Set<string>(); const queue = owners.filter(isArtifact);
     while (queue.length) {
@@ -299,7 +312,8 @@ export class ConversationalEditService {
       for (const row of this.database.prepare("SELECT dependent_artifact_id id FROM artifact_dependencies WHERE project_id=? AND upstream_artifact_id=?").all(projectId, owner) as { id: PlanningArtifactId }[]) if (!impacted.has(row.id)) { impacted.add(row.id); queue.push(row.id); }
     }
     if (owners.some(isArtifact) && this.passages.currentStructure(projectId)) impacted.add("passage-plan");
-    if (this.database.prepare("SELECT 1 FROM passage_draft_heads WHERE project_id=? LIMIT 1").get(projectId)) impacted.add("passage-drafts-on-approval-or-plan-change");
+    if ((draftImpacts === undefined || draftImpacts.length || owners.some(isArtifact))
+      && this.database.prepare("SELECT 1 FROM passage_draft_heads WHERE project_id=? LIMIT 1").get(projectId)) impacted.add("passage-drafts-on-approval-or-plan-change");
     return [...impacted].sort();
   }
   private effective(edit: StoredEdit, selected: string[]) {
@@ -329,6 +343,7 @@ export class ConversationalEditService {
         operations: g.operations.filter((op) => { const t = plan.targets.find((t) => t.key === op.targetKey); return t && (t.owner === target.owner) && (isArtifact(target.owner) || target.owner === "passage-structure" || t.targetId === target.targetId); }).map((op): ProposedPlanningOperation => {
           const t = plan.targets.find((t) => t.key === op.targetKey)!;
           if ((t.value as { planningStatus?: string }).planningStatus === "locked") throw new Error("edit_planning_lock_protected");
+          if (op.kind === "add-item") protectInitialLifecycle(undefined, op.item);
           if (op.changes && Object.keys(op.changes).some((key) => ["id", "schemaId", "schemaVersion", "materialFingerprint", "provenanceFingerprint", "fieldProvenance", "planningStatus", "lifecycleStatus", "proseMarkdown"].includes(key))) throw new Error("edit_protected_field");
           return { ...op, targetId: isArtifact(t.owner) || t.owner === "passage-structure" ? t.targetId : "root" };
         }) })).filter((g) => g.operations.length);
@@ -336,6 +351,7 @@ export class ConversationalEditService {
         ? { ...current as object, relationshipPresentation: { projectDefault: { mechanicsVisibility: "subtle", customGuidance: "" }, profiles: [] } } : current;
       const enriched = enrichOperationGroups(operationBase as PlanningArtifact, applicable);
       let after: unknown = applyPlanningOperations(operationBase as PlanningArtifact, enriched);
+      protectInitialLifecycle(current, after);
       protectLocks(current, after);
       const oldCounts = identityCounts(current);
       for (const [id, count] of identityCounts(after)) if (count > Math.max(1, oldCounts.get(id) ?? 0)) throw new Error("edit_duplicate_identity");
@@ -359,7 +375,7 @@ export class ConversationalEditService {
       if (isArtifact(target.owner)) { this.longForm.assertPresentationAuthorityWrite(plan.projectId, target.owner, parsed as PlanningArtifact); Object.assign(snapshot, { [target.owner]: parsed }); }
       outputs.set(storageKey, { owner: target.owner, targetId: target.targetId, before: current, after: parsed });
     }
-    const findings = validateLongFormProject(snapshot), original = validateLongFormProject(this.longForm.snapshot(plan.projectId));
+    const findings: Array<PlanningFinding | PassagePlanFinding> = validateLongFormProject(snapshot), original = validateLongFormProject(this.longForm.snapshot(plan.projectId));
     const baseline = new Set(original.filter((f) => f.severity === "error").map((f) => sourceDigest(f)));
     const errors = findings.filter((f) => f.severity === "error" && !baseline.has(sourceDigest(f))).map((f) => f.message);
     const directionIssues = (state: typeof snapshot) => state["creative-direction"] ? creativeDirectionReferenceIssues(state["creative-direction"], {
@@ -382,16 +398,20 @@ export class ConversationalEditService {
         void key;
       }
       const checked = validatePassagePlan({ bundle, bible: snapshot.bible, routes: snapshot.routes, endings: snapshot.endings, mechanics: snapshot.mechanics });
+      findings.push(...checked.findings);
       const previous = new Set(before.findings.filter((f) => f.severity === "error").map((f) => sourceDigest(f)));
       errors.push(...checked.findings.filter((f) => f.severity === "error" && !previous.has(sourceDigest(f))).map((f) => f.message));
     }
     if (errors.length) throw new Error(`edit_validation_failed: ${errors.slice(0, 10).join("; ")}`);
-    return { outputs: [...outputs.values()], groups, requiredGroupIds: [...required].sort(), findings };
+    const draftImpacts = [...outputs.values()].flatMap((output) => isArtifact(output.owner) ? [] : classifyPassageDraftStaleness({ projectId: plan.projectId,
+      kind: output.owner === "passage-structure" ? "structure" : output.owner, entityId: output.targetId, beforeVersionId: null, afterVersionId: null, before: output.before, after: output.after,
+      passages: this.passages.currentEntities<{ id: string; sequenceId: string }>(plan.projectId, "passage").map((v) => v.content) }));
+    return { outputs: [...outputs.values()], groups, requiredGroupIds: [...required].sort(), findings, draftImpacts };
   }
   private reviewEffective(projectId: string, id: string, selected: string[]) {
     const { record, edit } = this.stored(projectId, id); if (record.status !== "proposed") throw new Error("edit_proposal_terminal");
     const effective = this.effective(edit, selected);
-    const preview = { proposalId: id, proposalFingerprint: edit.fingerprint, selectedGroupIds: selected, ...effective, wouldStale: this.impact(projectId, materialOwners(effective.outputs)), expectedAllGroupStaleness: edit.expectedStaleness,
+    const preview = { proposalId: id, proposalFingerprint: edit.fingerprint, selectedGroupIds: selected, ...effective, wouldStale: this.impact(projectId, materialOwners(effective.outputs), effective.draftImpacts), expectedAllGroupStaleness: edit.expectedStaleness,
       protectedProse: "Accepted and locked prose is never replaced; prose requests use ordinary candidate drafting.", evidence: { conversationId: edit.plan.conversationId, messageId: edit.plan.id, request: edit.plan.request.message, sourceRecords: edit.plan.context.evidence }, generatedIds: edit.generatedIds };
     return { ...preview, fingerprint: sourceDigest(preview), providerCalls: 0, canonicalMutations: 0 };
   }
@@ -423,7 +443,7 @@ export class ConversationalEditService {
       if (options.simulateFailure) throw new Error("Simulated edit transaction failure");
       const audit = this.artifacts.saveArtifactInTransaction({ projectId, artifactId: `conversational-edit-application-${id}`, artifactType: "conversational-edit-application", content: {
         proposalId: id, proposalFingerprint: preview.proposalFingerprint, previewFingerprint: fingerprint, selectedGroupIds: selected, generatedIds: preview.generatedIds, resultingVersions: results, evidence: preview.evidence,
-        groups: preview.groups, expectedStaleness: preview.wouldStale, expectedBases: edit.plan.targets.map(({ key, versionId }) => ({ key, versionId })), baseFingerprint: edit.plan.headFingerprint,
+        groups: preview.groups, expectedStaleness: preview.wouldStale, draftImpacts: preview.draftImpacts, expectedBases: edit.plan.targets.map(({ key, versionId }) => ({ key, versionId })), baseFingerprint: edit.plan.headFingerprint,
         outputs: preview.outputs, appliedAt: new Date().toISOString(),
       } });
       this.changes.markApplied(id, audit.id); return { application: audit, resultingVersions: results, providerCalls: 0 };

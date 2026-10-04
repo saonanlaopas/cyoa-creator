@@ -2,17 +2,18 @@ import type { PassageEntityKind } from "./passage-plan-repository.js";
 
 export interface PassagePlanEntityMutation {
   projectId: string;
-  kind: PassageEntityKind;
+  kind: PassageEntityKind | "structure";
   entityId: string;
   beforeVersionId: string | null;
   afterVersionId: string | null;
   before: unknown | null;
   after: unknown | null;
+  passages?: Array<{ id: string; sequenceId: string }>;
 }
 
 export interface DraftStalenessImpact {
   passageId: string;
-  reasonCode: "passage-plan-material-change" | "choice-plan-change" | "narrative-thread-change";
+  reasonCode: "passage-plan-material-change" | "choice-plan-change" | "narrative-thread-change" | "passage-structure-change";
   changedFields: string[];
 }
 
@@ -46,6 +47,7 @@ export const cosmeticPassageDraftFields = Object.freeze([
 ]);
 
 export function classifyPassageDraftStaleness(mutation: PassagePlanEntityMutation): DraftStalenessImpact[] {
+  if (mutation.kind === "structure") return classifyStructureStaleness(mutation);
   if (mutation.kind === "passage") {
     const before = record(mutation.before);
     const after = record(mutation.after);
@@ -88,6 +90,35 @@ export function classifyPassageDraftStaleness(mutation: PassagePlanEntityMutatio
     reasonCode: "narrative-thread-change" as const,
     changedFields: changedKeys(before, after),
   }));
+}
+
+function classifyStructureStaleness(mutation: PassagePlanEntityMutation): DraftStalenessImpact[] {
+  const before = record(mutation.before), after = record(mutation.after);
+  const records = (value: unknown) => Array.isArray(value) ? value.map(record) : [];
+  const sequences = [...records(before.sequences), ...records(after.sequences)];
+  const impacts = new Map<string, Set<string>>();
+  // Labels, positions and planning lifecycle are cosmetic, as for passage records.
+  for (const [collection, fields] of [
+    ["acts", ["purpose", "summary", "wordTarget", "routeIds", "sequenceIds"]],
+    ["sequences", ["actId", "purpose", "summary", "wordTarget", "routeIds", "passageIds", "entryGoals", "exitGoals", "requiredDecisionIds", "endingHookIds"]],
+  ] as const) {
+    const old = new Map(records(before[collection]).map((r) => [r.id, r]));
+    const next = new Map(records(after[collection]).map((r) => [r.id, r]));
+    for (const id of new Set([...old.keys(), ...next.keys()])) {
+      const left = old.get(id), right = next.get(id);
+      const changed = !left || !right ? [left ? "removed" : "created"] : fields.filter((field) => canonical(left[field]) !== canonical(right[field]));
+      if (!changed.length) continue;
+      const owned = collection === "sequences" ? [left, right].filter((r): r is Record<string, unknown> => Boolean(r))
+        : sequences.filter((s) => s.actId === id || [...stringArray(left?.sequenceIds), ...stringArray(right?.sequenceIds)].includes(String(s.id)));
+      const sequenceIds = new Set(owned.map((s) => s.id));
+      const passageIds = new Set([...owned.flatMap((s) => stringArray(s.passageIds)), ...(mutation.passages ?? []).filter((p) => sequenceIds.has(p.sequenceId)).map((p) => p.id)]);
+      for (const passageId of passageIds) {
+        const changes = impacts.get(passageId) ?? new Set<string>();
+        changed.forEach((field) => changes.add(`${collection}/${String(id)}/${field}`)); impacts.set(passageId, changes);
+      }
+    }
+  }
+  return [...impacts].sort(([a], [b]) => a.localeCompare(b)).map(([passageId, fields]) => ({ passageId, reasonCode: "passage-structure-change", changedFields: [...fields].sort() }));
 }
 
 function record(value: unknown): Record<string, unknown> {
