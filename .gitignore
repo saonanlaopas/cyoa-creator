@@ -4,6 +4,7 @@ node_modules/
 .pnpm-store/
 dist/
 .env
+.codex/config.toml
 data/
 exports/
 tools/tweego/

@@ -81,6 +81,9 @@ import { ConversationalEditService } from "./services/conversational-edit-servic
 import { OfflineEditProvider, OpenRouterEditProvider } from "./services/conversational-edit-provider.js";
 import type { EditProvider } from "./services/conversational-edit-contract.js";
 import { registerConversationalEditRoutes } from "./routes/conversational-edit.js";
+import { registerConnectedEditing } from "./routes/connected-editing.js";
+import { ConnectedEditService } from "./services/connected-edit-service.js";
+import { validateConnectedEditingConfig, type ConnectedEditingConfig } from "./config.js";
 
 export interface BuildAppOptions {
   databasePath?: string;
@@ -97,6 +100,7 @@ export interface BuildAppOptions {
   adaptationIntentProvider?: AdaptationIntentProvider;
   foundationBootstrapProvider?: FoundationBootstrapProvider;
   conversationalEditProvider?: EditProvider;
+  connectedEditing?: ConnectedEditingConfig;
 }
 
 const webDistPath = resolve(
@@ -105,6 +109,7 @@ const webDistPath = resolve(
 );
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
+  const connectedConfig = options.connectedEditing && validateConnectedEditingConfig(options.connectedEditing);
   const app = fastify({ logger: false });
   const database = openDatabase(options.databasePath ?? ":memory:");
   const projects = new ProjectRepository(database);
@@ -250,6 +255,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerLongFormRoutes(app, projects, artifacts, workflow, longFormProjects);
   registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, authorMemory, changeSets, longFormProjects);
   registerConversationalEditRoutes(app, conversationalEdits);
+  if (connectedConfig) registerConnectedEditing(app, new ConnectedEditService(database, conversationalEdits, connectedConfig.projectIds), connectedConfig);
   registerAuthorMemoryRoutes(app, projects, authorMemory);
   registerProjectSetupRoutes(app, projectSetupService);
   registerSourceAnalysisRoutes(app, sourceAnalysisService);

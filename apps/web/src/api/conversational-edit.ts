@@ -4,7 +4,7 @@ export type EditPreview = { status: "ready"; plan: EditPlan; impact: string[]; e
   | { status: "clarification"; question: string; candidates: EditTarget[] }
   | { status: "draft-workflow"; passageId: string | null };
 export interface EditGroup { id: string; label: string; explanation: string; dependsOnGroupIds: string[]; operations: Array<{ targetKey: string; kind: string }> }
-export interface EditProposal { id: string; status: string; summary: string; proposal: { response: { groups: EditGroup[] }; plan: EditPlan; generatedIds: Record<string, string> } }
+export interface EditProposal { id: string; status: string; summary: string; proposal: { response: { groups: EditGroup[] }; plan: EditPlan & { request?: { providerId: string } }; generatedIds: Record<string, string> } }
 export interface EditReview {
   fingerprint: string; selectedGroupIds: string[]; requiredGroupIds: string[]; wouldStale: string[]; protectedProse: string;
   outputs: Array<{ owner: string; targetId: string; before: unknown; after: unknown }>;

@@ -144,6 +144,11 @@ export class ConversationalEditService {
     const records = this.allTargets(projectId).filter((t) => `${t.label} ${t.key}`.toLowerCase().includes(search.toLowerCase()));
     return { total: records.length, offset, items: records.slice(offset, offset + 50).map(({ value: _value, ...t }) => t) };
   }
+  connectedState(projectId: string) {
+    const project = this.longForm.project(projectId);
+    return { project: { id: project.id, name: project.name, mode: project.mode }, headFingerprint: this.heads(projectId),
+      workflow: planningArtifactIds.map((artifactId) => ({ artifactId, currentVersionId: this.artifacts.getCurrent(projectId, artifactId)?.id ?? null, workflow: this.workflow.get(projectId, artifactId) })) };
+  }
   private resolve(message: string, keys: string[], targets: EditTarget[]) {
     if (new Set(keys).size !== keys.length) throw new Error("edit_duplicate_scope");
     if (keys.length) return keys.map((key) => { const t = targets.find((t) => t.key === key); if (!t) throw new Error("edit_target_not_found"); return t; });
@@ -161,7 +166,7 @@ export class ConversationalEditService {
   preview(projectId: string, value: unknown) {
     return transaction(this.database, () => this.previewInTransaction(projectId, value));
   }
-  private previewInTransaction(projectId: string, value: unknown) {
+  previewInTransaction(projectId: string, value: unknown) {
     const request = EditRequestSchema.parse(value), all = this.allTargets(projectId), targets = this.resolve(request.message, request.targetKeys, all);
     const prose = /\b(rewrite|draft|write)\b.*\b(prose|scene|dialogue|paragraph|passage)\b|\b(replace|revise|edit|improve|change)\b.*\b(prose(?!\s+(guidance|style))|dialogue|paragraph|passage text|scene text)\b|\bpassage prose\b/i.test(request.message);
     if (!targets.length || !request.targetKeys.length && targets.length !== 1 || targets.length > EDIT_LIMITS.targets) return {
@@ -169,7 +174,8 @@ export class ConversationalEditService {
     };
     if (prose) return { status: "draft-workflow" as const, passageId: targets.find((t) => t.owner === "passage")?.targetId ?? null, canonicalMutations: 0, providerCalls: 0 };
     const provider = this.providers.find((p) => p.id === request.providerId);
-    if (!provider || request.providerId === "offline-edit" && request.modelId !== "offline-edit-v1" || request.providerId === "openrouter-edit" && request.modelId.startsWith("offline")) throw new Error("edit_provider_invalid");
+    const external = request.providerId === "connected-assistant";
+    if ((!external && !provider) || external && request.modelId !== "assistant-authored" || request.providerId === "offline-edit" && request.modelId !== "offline-edit-v1" || request.providerId === "openrouter-edit" && request.modelId.startsWith("offline")) throw new Error("edit_provider_invalid");
     const scope = { kind: "project" as const, projectId };
     const conversation = request.conversationId ? this.conversations.get(request.conversationId) : this.conversations.list(projectId).find((c) => c.title === "Conversational editing" && c.scope.kind === "project");
     if (request.conversationId && (!conversation || conversation.projectId !== projectId || conversation.purpose !== "planning" || conversation.scope.kind !== "project")) throw new Error("edit_conversation_not_found");
@@ -192,7 +198,7 @@ export class ConversationalEditService {
     const candidate = { ...definition, id: "preview", fingerprint: sourceDigest(definition) }; editMessages(candidate);
     const message = this.conversations.addMessage({ conversationId: currentConversation.id, role: "user", content: request.message, intent: request.intent, scope, context: this.canonicalContext(projectId), metadata: { editPlan: definition, editFingerprint: candidate.fingerprint } });
     const plan = { ...candidate, id: message.id };
-    return { status: "ready" as const, plan, impact: this.impact(projectId, targets.map((t) => t.owner)), estimatedInputTokens: Math.ceil(bytes(editMessages(plan)) / 4), cost: provider.id === "offline-edit" ? 0 : null, canonicalMutations: 0, providerCalls: 0 };
+    return { status: "ready" as const, plan, impact: this.impact(projectId, targets.map((t) => t.owner)), estimatedInputTokens: Math.ceil(bytes(editMessages(plan)) / 4), cost: external || provider?.id === "offline-edit" ? 0 : null, canonicalMutations: 0, providerCalls: 0 };
   }
   private plan(projectId: string, id: string): EditPlan {
     const message = this.conversations.getMessage(id), conversation = message && this.conversations.get(message.conversationId);
@@ -249,6 +255,7 @@ export class ConversationalEditService {
   }
   async generate(projectId: string, id: string, fingerprint: string) {
     const plan = this.plan(projectId, id); this.fresh(plan); this.freshMemory(plan);
+    if (plan.request.providerId === "connected-assistant") throw new Error("edit_external_submission_required");
     if (fingerprint !== plan.fingerprint) throw new Error("edit_preview_stale");
     if (this.closing || this.running.has(id)) throw new Error("edit_already_running");
     const controller = new AbortController(); this.running.set(id, controller);
@@ -267,6 +274,23 @@ export class ConversationalEditService {
       return result;
     } finally { if (timer) clearTimeout(timer); this.running.delete(id); }
   }
+  submitExternal(projectId: string, id: string, fingerprint: string, raw: unknown) {
+    return transaction(this.database, () => this.submitExternalInTransaction(projectId, id, fingerprint, raw));
+  }
+  submitExternalInTransaction(projectId: string, id: string, fingerprint: string, raw: unknown) {
+      const plan = this.plan(projectId, id);
+      if (this.closing) throw new Error("edit_service_closing");
+      if (plan.request.providerId !== "connected-assistant" || plan.request.modelId !== "assistant-authored") throw new Error("edit_external_plan_required");
+      if (fingerprint !== plan.fingerprint) throw new Error("edit_preview_stale");
+      if (this.database.prepare("SELECT 1 FROM messages WHERE conversation_id=? AND role='assistant' AND json_extract(metadata_json,'$.planId')=?").get(plan.conversationId, id)) throw new Error("edit_plan_already_submitted");
+      if (bytes(raw) > EDIT_LIMITS.outputBytes) throw new Error("edit_output_overflow");
+      unsafe(raw);
+      const response = EditResponseSchema.parse(raw);
+      if (sourceCanonicalJson(response) !== sourceCanonicalJson(raw)) throw new Error("edit_output_not_closed");
+      if (!response.groups.length) throw new Error("edit_external_changes_required");
+      return this.persistResponse(plan, response);
+  }
+  connectedPlan(projectId: string, id: string) { return this.plan(projectId, id); }
   private persistResponse(plan: EditPlan, response: EditResponse) {
       const { projectId, id } = plan;
       this.fresh(plan); this.freshMemory(plan);
@@ -512,7 +536,9 @@ export class ConversationalEditService {
   }
   apply(projectId: string, id: string, selected: string[], fingerprint: string, options: { simulateFailure?: boolean; beforeTransaction?: () => void } = {}) {
     options.beforeTransaction?.();
-    return transaction(this.database, () => {
+    return transaction(this.database, () => this.applyInTransaction(projectId, id, selected, fingerprint, options));
+  }
+  applyInTransaction(projectId: string, id: string, selected: string[], fingerprint: string, options: { simulateFailure?: boolean } = {}) {
       const preview = this.reviewEffective(projectId, id, selected); if (preview.fingerprint !== fingerprint) throw new Error("edit_apply_preview_stale");
       const { edit } = this.stored(projectId, id);
       const writer = new StructuredMutationService(this.artifacts, this.workflow, this.passages), results: Record<string, string> = {};
@@ -532,6 +558,5 @@ export class ConversationalEditService {
         outputs: preview.outputs, appliedAt: new Date().toISOString(),
       } });
       this.changes.markApplied(id, audit.id); return { application: audit, resultingVersions: results, providerCalls: 0 };
-    });
   }
 }

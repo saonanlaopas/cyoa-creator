@@ -6,7 +6,7 @@ export const EditOwnerSchema = z.enum([...planningArtifactIds, "passage-structur
 export type EditOwner = z.infer<typeof EditOwnerSchema>;
 const id = z.string().trim().min(1).max(240);
 export const EditRequestSchema = z.object({ message: z.string().trim().min(1).max(6000), targetKeys: z.array(id).max(EDIT_LIMITS.targets).default([]),
-  conversationId: id.optional(), intent: z.enum(["discuss", "propose"]).default("propose"), providerId: z.enum(["offline-edit", "openrouter-edit"]).default("offline-edit"),
+  conversationId: id.optional(), intent: z.enum(["discuss", "propose"]).default("propose"), providerId: z.enum(["offline-edit", "openrouter-edit", "connected-assistant"]).default("offline-edit"),
   modelId: id.default("offline-edit-v1") }).strict();
 export const EditResponseSchema = z.object({ message: z.string().trim().min(1).max(6000), groups: z.array(z.object({
   id, label: z.string().trim().min(1).max(300), explanation: z.string().trim().min(1).max(2000), dependsOnGroupIds: z.array(id).max(EDIT_LIMITS.groups),
