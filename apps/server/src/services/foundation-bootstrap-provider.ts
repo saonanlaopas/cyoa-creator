@@ -129,6 +129,7 @@ export class DeterministicFoundationBootstrapProvider implements FoundationBoots
   readonly calls: FoundationBootstrapProviderRequest[] = [];
   constructor(private readonly options: { respond?: (request: FoundationBootstrapProviderRequest) => Promise<string> | string } = {}) {}
   async generate(request: FoundationBootstrapProviderRequest): Promise<string> {
+    if (request.context.requestEvidence) throw new Error("bootstrap_request_unavailable_repreview_required");
     this.calls.push(request);
     request.signal.throwIfAborted();
     return this.options.respond ? this.options.respond(request) : JSON.stringify(deterministicFoundationBootstrapCandidate(request.context));
@@ -140,6 +141,7 @@ const FoundationBootstrapProviderCandidateSchema = FoundationBootstrapCandidateS
 });
 
 export function foundationBootstrapMessages(request: Pick<FoundationBootstrapProviderRequest, "context" | "mode" | "malformedOutput">) {
+  if (request.context.requestEvidence) throw new Error("bootstrap_request_unavailable_repreview_required");
   assertFoundationBootstrapContext(request.context);
   const outputSchema = zodToJsonSchema(FoundationBootstrapProviderCandidateSchema, { $refStrategy: "none", postProcess: (schema, definition) => {
     const objectDefinition = definition as z.ZodObjectDef;

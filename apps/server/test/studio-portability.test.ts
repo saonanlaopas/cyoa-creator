@@ -31,8 +31,8 @@ describe("A7 Studio archives", () => {
       expect(JSON.stringify(first)).not.toContain(smallSource.chapters[0]!.blocks[0]!.text);
     } finally { source.db.close(); }
   });
-  it("preserves coexisting production histories through full backup and transactional duplication", async () => {
-    const fixture = await createHistoryHeavyProjectFixture();
+  it.each([false, true])("preserves coexisting production histories through full backup and transactional duplication (conversational direction=%s)", async (conversationalDirection) => {
+    const fixture = await createHistoryHeavyProjectFixture(conversationalDirection);
     try {
       const response = await fixture.app.inject({ method: "POST", url: `/api/projects/${fixture.projectId}/duplicate`, payload: { name: "Independent production copy" } });
       expect(response.statusCode, response.body).toBe(201);

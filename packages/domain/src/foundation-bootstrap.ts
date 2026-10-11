@@ -13,6 +13,8 @@ export const FOUNDATION_ARTIFACT_IDS = ["brief", "creative-direction", "bible", 
 export type FoundationArtifactId = typeof FOUNDATION_ARTIFACT_IDS[number];
 export const FOUNDATION_BOOTSTRAP_POLICY = "foundation-bootstrap-v1" as const;
 export const FOUNDATION_BOOTSTRAP_LIMITS = Object.freeze({ contextBytes: 96_000, outputBytes: 192_000, provenance: 2_000, attempts: 4, structuralRepairs: 0 });
+// Historical privacy metadata may grow a short request; this never expands executable provider input.
+export const REDACTED_BOOTSTRAP_CONTEXT_OVERHEAD_BYTES = 512;
 const id = z.string().trim().min(1).max(240);
 const ids = z.array(id).max(1_000).refine((values) => new Set(values).size === values.length, "IDs must be unique");
 const shape = <T extends z.ZodTypeAny>(schema: T) => ({ brief: schema, "creative-direction": schema, bible: schema, routes: schema, endings: schema, mechanics: schema });
@@ -20,6 +22,7 @@ export const FoundationArtifactsSchema = z.object({ brief: ProjectBriefSchema, "
   bible: LongFormStoryBibleSchema, routes: LongFormRoutePlanSchema, endings: LongFormEndingPlanSchema, mechanics: LongFormMechanicsPlanSchema }).strict();
 export type FoundationArtifacts = z.infer<typeof FoundationArtifactsSchema>;
 export const FoundationArtifactVersionsSchema = z.object(shape(id.nullable())).strict();
+export const REDACTED_BOOTSTRAP_REQUEST = "Author request unavailable in this privacy-redacted archive. Create a new preview with an explicit request.";
 export const FoundationBootstrapContextSchema = z.object({
   schemaVersion: z.literal(1), policyVersion: z.literal(FOUNDATION_BOOTSTRAP_POLICY), projectId: id,
   title: z.string().trim().min(1).max(200), dossierVersionId: id, intentVersionId: id,
@@ -27,7 +30,8 @@ export const FoundationBootstrapContextSchema = z.object({
   baseVersionIds: FoundationArtifactVersionsSchema, baseArtifacts: z.object({ brief: ProjectBriefSchema.nullable(), "creative-direction": CreativeDirectionSchema.nullable(),
     bible: LongFormStoryBibleSchema.nullable(), routes: LongFormRoutePlanSchema.nullable(), endings: LongFormEndingPlanSchema.nullable(), mechanics: LongFormMechanicsPlanSchema.nullable() }).strict(),
   request: z.string().trim().min(1).max(6_000), providerId: id, modelId: id,
-}).strict();
+  requestEvidence: z.object({ availability: z.literal("redacted"), sha256: z.string().regex(/^[a-f0-9]{64}$/), bytes: z.number().int().min(1).max(24_000) }).strict().optional(),
+}).strict().refine((context) => !context.requestEvidence || context.request === REDACTED_BOOTSTRAP_REQUEST, "Unavailable requests must not contain author text");
 export type FoundationBootstrapContext = z.infer<typeof FoundationBootstrapContextSchema>;
 export type BootstrapContext = FoundationBootstrapContext;
 
@@ -61,7 +65,8 @@ export function foundationFieldPaths(value: unknown, path = ""): string[] {
 }
 
 export function assertFoundationBootstrapContext(value: unknown): FoundationBootstrapContext {
-  if (new TextEncoder().encode(sourceCanonicalJson(value)).length > FOUNDATION_BOOTSTRAP_LIMITS.contextBytes) throw new Error("bootstrap_context_overflow");
+  const overhead = value && typeof value === "object" && "requestEvidence" in value ? REDACTED_BOOTSTRAP_CONTEXT_OVERHEAD_BYTES : 0;
+  if (new TextEncoder().encode(sourceCanonicalJson(value)).length > FOUNDATION_BOOTSTRAP_LIMITS.contextBytes + overhead) throw new Error("bootstrap_context_overflow");
   const context = FoundationBootstrapContextSchema.parse(value);
   if (context.dossier.projectId !== context.projectId || context.intent.projectId !== context.projectId
     || context.intent.binding.dossierVersionId !== context.dossierVersionId) throw new Error("bootstrap_input_identity_invalid");

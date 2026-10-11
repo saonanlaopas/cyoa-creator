@@ -33,3 +33,4 @@ export * from "./foundation-bootstrap-repository.js";
 export * from "./foundation-bootstrap-schema.js";
 export * from "./source-material.js";
 export { remapStudioValue } from "./studio-duplication.js";
+export { redactFoundationBootstrapRows, unavailableConversationEvidence } from "./foundation-bootstrap-portability.js";

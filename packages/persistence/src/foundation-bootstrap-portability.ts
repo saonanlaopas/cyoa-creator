@@ -1,4 +1,5 @@
-import { FOUNDATION_ARTIFACT_IDS, CreativeDirectionSchema, creativeDirectionFingerprints, sourceCanonicalJson, sourceDigest,
+import { createHash } from "node:crypto";
+import { FOUNDATION_ARTIFACT_IDS, REDACTED_BOOTSTRAP_REQUEST, CreativeDirectionSchema, creativeDirectionFingerprints, sourceCanonicalJson, sourceDigest,
   type CreativeDirection, type FoundationArtifactId, type FoundationBootstrapCandidate } from "@story-to-cyoa/domain";
 import { FoundationBootstrapApplicationSchema, FoundationBootstrapJobSchema, FoundationBootstrapPlanSchema, orderFoundationBootstrapApplications } from "./foundation-bootstrap-repository.js";
 import type { PortableProjectRows } from "./portable-project-repository.js";
@@ -13,7 +14,7 @@ export function unavailableConversationEvidence(direction: CreativeDirection): C
 }
 
 /** Transform only the exported copy, consistently resealing all exact references to redacted evidence. */
-export function redactFoundationBootstrapRows(bundle: PortableProjectRows): void {
+export function redactFoundationBootstrapRows(bundle: PortableProjectRows, omitAuthorRequests = false): void {
   const plans = new Map(bundle.tables.foundation_bootstrap_plans.map((row) => [String(row.id), FoundationBootstrapPlanSchema.parse(JSON.parse(String(row.content_json)))]));
   const jobs = new Map(bundle.tables.foundation_bootstrap_jobs.map((row) => [String(row.id), FoundationBootstrapJobSchema.parse(JSON.parse(String(row.content_json)))]));
   const applications = bundle.tables.foundation_bootstrap_applications.map((row) => FoundationBootstrapApplicationSchema.parse(JSON.parse(String(row.content_json))));
@@ -21,6 +22,10 @@ export function redactFoundationBootstrapRows(bundle: PortableProjectRows): void
   for (const row of bundle.tables.foundation_bootstrap_plans) {
     const plan = plans.get(String(row.id))!;
     const staticInputTokens = plan.estimatedInputTokens - Math.ceil(plan.contextBytes / 4);
+    if (omitAuthorRequests && !plan.context.requestEvidence) {
+      plan.context.requestEvidence = { availability: "redacted", sha256: createHash("sha256").update(plan.context.request).digest("hex"), bytes: Buffer.byteLength(plan.context.request) };
+      plan.context.request = REDACTED_BOOTSTRAP_REQUEST;
+    }
     if (plan.context.baseArtifacts["creative-direction"]) plan.context.baseArtifacts["creative-direction"] = unavailableConversationEvidence(plan.context.baseArtifacts["creative-direction"]);
     plan.contextFingerprint = sourceDigest(plan.context);
     plan.fingerprint = sourceDigest({ contextFingerprint: plan.contextFingerprint, units: plan.units, providerId: plan.providerId, modelId: plan.modelId });

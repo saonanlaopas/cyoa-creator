@@ -2,13 +2,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, ProjectBriefSchema, creativeDirectionFingerprints, defaultCreativeDirection, newAdaptationIntent, normalizeAdaptationIntent, type SourceDossier } from "@story-to-cyoa/domain";
+import { FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, LongFormStoryBibleSchema, ProjectBriefSchema, creativeDirectionFingerprints, defaultCreativeDirection, newAdaptationIntent, normalizeAdaptationIntent, sourceCanonicalJson, type SourceDossier } from "@story-to-cyoa/domain";
 import { EnvironmentCredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
-import { ArtifactRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, FoundationBootstrapRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
+import { strFromU8, unzipSync } from "fflate";
+import { createHash } from "node:crypto";
 import { analysisFixture, completeFixture, smallSource } from "../../../packages/persistence/test/source-analysis-fixture.js";
 import { buildApp } from "../src/app.js";
 import { createOfflineSetupClient } from "../src/services/offline-setup-provider.js";
-import { DeterministicFoundationBootstrapProvider, deterministicFoundationBootstrapCandidate } from "../src/services/foundation-bootstrap-provider.js";
+import { DeterministicFoundationBootstrapProvider, deterministicFoundationBootstrapCandidate, foundationBootstrapMessages } from "../src/services/foundation-bootstrap-provider.js";
 import { assertPassageFidelityAuthority } from "../src/services/adaptation-passage-authority.js";
 import { PublicationExportService } from "../src/services/publication-export-service.js";
 import { RecoveryService } from "../src/services/recovery-service.js";
@@ -57,6 +59,71 @@ async function assertNoFoundationWrite(f: Fixture, before: any) {
 }
 
 describe("A5 exact foundation generation and review boundary", () => {
+  it.each(["preview-only", "completed", "applied"])("A7 omits raw author requests but preserves readable bootstrap history: %s", async (stage) => {
+    const f = fixture(), request = "PRIVATE-USER-REQUEST-MUST-NOT-BE-IN-SHARED-ARCHIVE";
+    const response = await f.call("/preview", { message: request, providerId: f.provider.id, modelId: "offline-foundation-v1" });
+    expect(response.statusCode, response.body).toBe(200);
+    const plan = response.json();
+    if (stage !== "preview-only") {
+      const started = await f.call("/start", { planId: plan.id, fingerprint: plan.fingerprint });
+      expect(started.statusCode, started.body).toBe(200);
+      const job = await terminal(f, started.json().id); expect(job.status).toBe("completed");
+      if (stage === "applied") {
+        const selected = (await f.call(`/jobs/${job.id}/preview-apply`, { artifactIds: [...FOUNDATION_ARTIFACT_IDS] })).json();
+        expect((await f.call(`/jobs/${job.id}/apply`, { artifactIds: selected.effectiveArtifactIds, fingerprint: selected.previewFingerprint })).statusCode).toBe(200);
+      }
+    }
+    const original = openDatabase(f.path);
+    try {
+      const publication = new PublicationExportService(new PortableProjectRepository(original), undefined), before = publication.studioProjectFingerprint(f.projectId);
+      for (const mode of ["full-fidelity", "privacy-redacted"] as const) {
+        const archive = publication.exportStudioPortable(f.projectId, mode), target = openDatabase();
+        try {
+          const entries = unzipSync(archive.bytes);
+          if (mode === "full-fidelity") expect(strFromU8(entries["project.json"]!)).toContain(request);
+          else for (const entry of Object.values(entries)) expect(strFromU8(entry)).not.toContain(request);
+          const imported = new PublicationExportService(new PortableProjectRepository(target), undefined); imported.importPortable(archive.bytes);
+          const repository = new FoundationBootstrapRepository(target), stored = repository.getPlan(f.projectId, plan.id);
+          expect(stored.context.requestEvidence).toEqual(mode === "privacy-redacted" ? { availability: "redacted", sha256: createHash("sha256").update(request).digest("hex"), bytes: Buffer.byteLength(request) } : undefined);
+          if (mode === "full-fidelity") expect(stored.context.request).toBe(request);
+          else {
+            expect(imported.exportStudioPortable(f.projectId, mode).manifest.projectFingerprint).toBe(archive.manifest.projectFingerprint);
+            const sourceId = new ArtifactRepository(target).getCurrent(f.projectId, "source")!.id;
+            imported.reattachSource(f.projectId, sourceId, smallSource);
+            expect(() => repository.createJob(f.projectId, stored.id, stored.fingerprint)).toThrow("bootstrap_request_unavailable_repreview_required");
+            expect(() => foundationBootstrapMessages({ context: stored.context, mode: "generate" })).toThrow("bootstrap_request_unavailable_repreview_required");
+            validatePortableAuthoringProject(target, f.projectId);
+          }
+        } finally { target.close(); }
+      }
+      expect(publication.studioProjectFingerprint(f.projectId)).toBe(before);
+      expect(f.provider.calls).toHaveLength(stage === "preview-only" ? 0 : 1);
+    } finally { original.close(); }
+  });
+  it("round trips a near-budget preview without expanding executable request budgets", async () => {
+    const f = fixture(), original = openDatabase(f.path), target = openDatabase();
+    try {
+      const payload = { message: "x", providerId: f.provider.id, modelId: "offline-foundation-v1" };
+      const initial = (await f.call("/preview", payload)).json();
+      const bible = LongFormStoryBibleSchema.parse({ title: "Near-budget authored Bible", settings: Array.from({ length: 10 }, (_, index) => ({ id: `setting-${index}`, label: `Setting ${index}`, description: "" })) });
+      const context = { ...initial.context, baseVersionIds: { ...initial.context.baseVersionIds, bible: "x".repeat(36) }, baseArtifacts: { ...initial.context.baseArtifacts, bible } };
+      let remaining = FOUNDATION_BOOTSTRAP_LIMITS.contextBytes - Buffer.byteLength(sourceCanonicalJson(context));
+      for (const setting of bible.settings) { const length = Math.min(10_000, remaining); setting.description = "a".repeat(length); remaining -= length; }
+      expect(remaining).toBe(0);
+      new ArtifactRepository(original).saveArtifact({ projectId: f.projectId, artifactId: "bible", content: bible });
+      const response = await f.call("/preview", payload); expect(response.statusCode, response.body).toBe(200);
+      const plan = response.json(); expect(plan.contextBytes).toBe(FOUNDATION_BOOTSTRAP_LIMITS.contextBytes);
+      const archive = new PublicationExportService(new PortableProjectRepository(original), undefined).exportStudioPortable(f.projectId, "privacy-redacted");
+      new PublicationExportService(new PortableProjectRepository(target), undefined).importPortable(archive.bytes);
+      const repository = new FoundationBootstrapRepository(target), stored = repository.getPlan(f.projectId, plan.id);
+      expect(stored.contextBytes).toBeGreaterThan(FOUNDATION_BOOTSTRAP_LIMITS.contextBytes);
+      expect(() => repository.createJob(f.projectId, stored.id, stored.fingerprint)).toThrow("bootstrap_request_unavailable_repreview_required");
+      expect(f.provider.calls).toHaveLength(0);
+      const oversized = await f.call("/preview", { ...payload, message: "xx" });
+      expect(oversized.statusCode).toBe(400);
+      expect(oversized.body).toContain("bootstrap_context_overflow");
+    } finally { original.close(); target.close(); }
+  });
   it.each(["full-fidelity", "privacy-redacted"] as const)("A7 restores and duplicates applied bootstrap lineage with explicit source recovery: %s", async (mode) => {
     const f = fixture(), { job } = await start(f); expect((await terminal(f, job.id)).status).toBe("completed");
     const usage = (await f.app.inject({ url: `${f.project}/health/usage` })).json();

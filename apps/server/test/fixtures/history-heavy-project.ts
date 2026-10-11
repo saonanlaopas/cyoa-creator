@@ -29,7 +29,7 @@ export interface HistoryHeavyProjectFixture {
  * It exercises persisted authoring, F5-F8 metadata, restore, and usage without
  * executing an AI provider or relying on a network service.
  */
-export async function createHistoryHeavyProjectFixture(): Promise<HistoryHeavyProjectFixture> {
+export async function createHistoryHeavyProjectFixture(conversationalDirection = false): Promise<HistoryHeavyProjectFixture> {
   const directory = mkdtempSync(join(tmpdir(), "cyoa-history-heavy-"));
   const sourcePath = join(directory, "source.sqlite");
   const source = buildApp({ databasePath: sourcePath });
@@ -38,6 +38,15 @@ export async function createHistoryHeavyProjectFixture(): Promise<HistoryHeavyPr
     method: "POST", url: "/api/long-form/projects", payload: { name: "Deterministic history-heavy fixture" },
   });
   const projectId = created.project.id as string;
+  if (conversationalDirection) {
+    const root = `/api/long-form/projects/${projectId}/editing`;
+    const preview = await json(source, { method: "POST", url: `${root}/preview`, payload: { message: 'Change tone to "restrained tension"', targetKeys: ["creative-direction:section:tone"] } });
+    const generated = await json(source, { method: "POST", url: `${root}/plans/${preview.plan.id}/generate`, payload: { fingerprint: preview.plan.fingerprint } });
+    const groupIds = generated.proposal.proposal.response.groups.map((group: { id: string }) => group.id);
+    const review = await json(source, { method: "POST", url: `${root}/proposals/${generated.proposal.id}/review`, payload: { groupIds } });
+    const applied = await json(source, { method: "POST", url: `${root}/proposals/${generated.proposal.id}/apply`, payload: { groupIds, fingerprint: review.fingerprint } });
+    created.creativeDirection.id = applied.resultingVersions["creative-direction"];
+  }
   await json(source, {
     method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`, payload: { versionId: created.brief.id },
   });

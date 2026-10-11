@@ -10,11 +10,13 @@ import {
   FOUNDATION_BOOTSTRAP_TABLES,
   STUDIO_PORTABLE_TABLES,
   reconstructLegacyArtifactApprovalHistory,
+  redactFoundationBootstrapRows,
   type PortableProjectRows,
   type PortableRow,
 } from "@story-to-cyoa/persistence";
 import { assertNativePlayerConfig, loadNativeGame, stableFingerprint, type NativeGameBundle, type NativePlayerConfig } from "@story-to-cyoa/runtime";
 import { sourceDigest, sourceCanonicalJson, unavailableSource, isUnavailableSource, UnavailableSourceSchema, SourceEvidenceMaterialSchema, AnalysisSourceSchema } from "@story-to-cyoa/domain";
+import { redactStudioArtifactContent, resealRedactedNativeHistory } from "./studio-archive-redaction.js";
 import type { NativeCompilationService } from "./native-compilation-service.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -115,7 +117,7 @@ export class PublicationExportService {
   }
 
   private redactedStudioRows(projectId: string): PortableProjectRows {
-    // Canonical provenance excerpts remain authored content. Do not rewrite sealed production histories to redact conversation records.
+    // Canonical excerpts remain authored content, but omitted raw requests and message references must be unavailable.
     const full = this.portable.exportStudioRows(projectId), rows = structuredClone(full);
     rows.studio = Object.fromEntries(STUDIO_PORTABLE_TABLES.map((table) => [table, [] as PortableRow[]])) as NonNullable<PortableProjectRows["studio"]>;
     const omissions: Array<{ kind: string; id: string; digest: string; availability: "redacted"; status?: string }> = [];
@@ -125,12 +127,15 @@ export class PublicationExportService {
     const excluded = new Set(rows.tables.artifact_versions.filter((row) => ["adaptation-intent-proposal", "conversational-edit-application", "source-evidence-material"].includes(String(row.artifact_type))).map((row) => String(row.id)));
     for (const row of rows.tables.artifact_versions) {
       if (excluded.has(String(row.id))) omissions.push({ kind: String(row.artifact_type), id: String(row.id), digest: sourceDigest(row), availability: "redacted" });
+      if (!excluded.has(String(row.id))) row.content_json = JSON.stringify(redactStudioArtifactContent(String(row.artifact_type), JSON.parse(String(row.content_json))));
       if (row.artifact_id === "source") {
         const value: unknown = JSON.parse(String(row.content_json));
         row.content_json = JSON.stringify(isUnavailableSource(value) ? UnavailableSourceSchema.parse(value) : unavailableSource(AnalysisSourceSchema.parse(value)));
       }
     }
     rows.tables.artifact_versions = rows.tables.artifact_versions.filter((row) => !excluded.has(String(row.id)));
+    redactFoundationBootstrapRows(rows, true);
+    resealRedactedNativeHistory(full, rows);
     rows.tables.artifact_version_approvals = rows.tables.artifact_version_approvals.filter((row) => !excluded.has(String(row.version_id)));
     const excludedNames = new Set(full.tables.artifact_versions.filter((row) => excluded.has(String(row.id))).map((row) => row.artifact_id));
     rows.tables.artifact_workflow_state = rows.tables.artifact_workflow_state.filter((row) => !excludedNames.has(row.artifact_id));

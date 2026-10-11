@@ -1,14 +1,29 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { DeterministicRepairProposalProvider } from "../src/services/repair-proposal-provider.js";
+import { RepairProposalGenerationRepository, PortableProjectRepository, ProjectRepository, openDatabase } from "@story-to-cyoa/persistence";
+import { PublicationExportService } from "../src/services/publication-export-service.js";
+import { RecoveryService } from "../src/services/recovery-service.js";
+import { validatePortableAuthoringProject } from "../src/services/portable-project-validator.js";
+import { prepareStudioHistoryDuplicate } from "../src/services/studio-history-duplication.js";
 
 const apps: ReturnType<typeof buildApp>[] = [];
 afterEach(async () => { for (const app of apps.splice(0)) await app.close(); });
 
-async function fixture(provider = new DeterministicRepairProposalProvider()) {
+async function fixture(provider = new DeterministicRepairProposalProvider(), conversationalDirection = false) {
   const app = buildApp({ repairProposalProvider: provider }); apps.push(app);
   const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Repair proposals" } })).json();
   const projectId = created.project.id as string;
+  if (conversationalDirection) {
+    const root = `/api/long-form/projects/${projectId}/editing`;
+    const preview = (await app.inject({ method: "POST", url: `${root}/preview`, payload: { message: 'Change tone to "restrained tension"', targetKeys: ["creative-direction:section:tone"] } })).json();
+    const generated = (await app.inject({ method: "POST", url: `${root}/plans/${preview.plan.id}/generate`, payload: { fingerprint: preview.plan.fingerprint } })).json();
+    const groupIds = generated.proposal.proposal.response.groups.map((group: { id: string }) => group.id);
+    const review = (await app.inject({ method: "POST", url: `${root}/proposals/${generated.proposal.id}/review`, payload: { groupIds } })).json();
+    const applied = await app.inject({ method: "POST", url: `${root}/proposals/${generated.proposal.id}/apply`, payload: { groupIds, fingerprint: review.fingerprint } });
+    expect(applied.statusCode, applied.body).toBe(200);
+    created.creativeDirection.id = applied.json().resultingVersions["creative-direction"];
+  }
   await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/brief/approve`, payload: { versionId: created.brief.id } });
   await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/creative-direction/approve`, payload: { versionId: created.creativeDirection.id } });
   for (const artifactId of ["bible", "routes", "endings"] as const) {
@@ -52,6 +67,32 @@ async function waitForJob(app: ReturnType<typeof buildApp>, projectId: string, g
 }
 
 describe("Foundation 6B repair proposals", () => {
+  it("redacts captured conversational direction without breaking completed repair authorization or recovery", async () => {
+    const value = await fixture(undefined, true), plan = await savePlan(value, "prose"), root = `/api/long-form/projects/${value.projectId}/repair`;
+    const created = await value.app.inject({ method: "POST", url: `${root}/proposal-generations`, payload: { repairPlanId: plan.id } });
+    expect(created.statusCode, created.body).toBe(201); const generation = created.json();
+    await value.app.inject({ method: "POST", url: `${root}/proposal-generations/${generation.generation.id}/authorize`, payload: { fingerprint: generation.generation.fingerprint } });
+    await value.app.inject({ method: "POST", url: `${root}/proposal-generations/${generation.generation.id}/start` });
+    expect((await waitForJob(value.app, value.projectId, generation.generation.id)).job.status).toBe("completed");
+    for (const mode of ["full-fidelity", "privacy-redacted"] as const) {
+      const archive = await value.app.inject({ url: `/api/long-form/projects/${value.projectId}/publication/exports/portable?mode=${mode}` });
+      expect(archive.statusCode, archive.body).toBe(200);
+      const database = openDatabase();
+      try {
+        const portable = new PortableProjectRepository(database), publication = new PublicationExportService(portable, undefined);
+        publication.importPortable(new Uint8Array(archive.rawPayload));
+        const imported = new RepairProposalGenerationRepository(database).get<any>(value.projectId, generation.generation.id)!;
+        expect(imported.content.generation.fingerprint).toBe(generation.generation.fingerprint);
+        const references = imported.content.base.creativeDirection.content.fieldProvenance.filter((entry: any) => entry.reference.kind === "user-message");
+        expect(references.length).toBeGreaterThan(0);
+        for (const entry of references) expect(entry.reference.unavailable).toBe(mode === "privacy-redacted" ? true : undefined);
+        validatePortableAuthoringProject(database, value.projectId);
+        const copy = new ProjectRepository(database).duplicate(value.projectId, "Repair recovery copy", validatePortableAuthoringProject, prepareStudioHistoryDuplicate);
+        expect((await new RecoveryService(database, portable, publication).createVerifiedBackup(copy.id)).record.verifiedAt).toBeTruthy();
+      } finally { database.close(); }
+    }
+    expect(value.provider.calls).toHaveLength(1);
+  }, 15_000);
   it("previews and persists a provider-free immutable proposal without canonical mutation", async () => {
     const value = await fixture(); const plan = await savePlan(value, "passage-plan");
     const root = `/api/long-form/projects/${value.projectId}/repair`;

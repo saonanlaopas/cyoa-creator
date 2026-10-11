@@ -20,6 +20,7 @@ import { createOfflineSetupClient, offlineSetupResponse } from "../src/services/
 import { LongFormProjectService } from "../src/services/long-form-project-service.js";
 import { ProjectSetupError, ProjectSetupService } from "../src/services/project-setup-service.js";
 import { PublicationExportService } from "../src/services/publication-export-service.js";
+import { validatePortableAuthoringProject } from "../src/services/portable-project-validator.js";
 
 const BL_PROMPT = "I want a 20k slow-burn BL about two guys who already like each other. Warm, descriptive, lots of interiority, some angst but low melodrama.";
 const MYSTERY_PROMPT = "A cozy mystery set in a seaside village where a retired librarian investigates a stolen painting. Third-person past tense, tense but gentle.";
@@ -637,18 +638,26 @@ describe("A2 conversational project setup", () => {
     expect(copied.creativeDirection.content.materialFingerprint).toBeDefined();
     const copiedSession = (await app.inject({ method: "POST", url: `/api/long-form/projects/${copyId}/setup/sessions` })).json();
     expect(copiedSession.id).not.toBe(conversationId);
-    const exported = (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/publication/exports/portable` })).rawPayload;
+    const archives = await Promise.all((["full-fidelity", "privacy-redacted"] as const).map(async (mode) => ({ mode,
+      bytes: (await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/publication/exports/portable?mode=${mode}` })).rawPayload })));
     await app.close();
 
-    const target = openDatabase(":memory:");
-    const service = new PublicationExportService(new PortableProjectRepository(target), undefined);
-    const imported = service.importPortable(new Uint8Array(exported));
-    const direction = new ArtifactRepository(target).getCurrent<CreativeDirection>(imported.projectId, "creative-direction")!.content;
-    const conversational = direction.fieldProvenance.filter((record) => ["user-message", "proposal"].includes(record.reference.kind));
-    expect(conversational.length).toBeGreaterThan(0);
-    expect(conversational.every((record) => record.reference.unavailable !== true)).toBe(true);
-    expect(direction.pacing.developmentPace).toBe("slow-burn");
-    target.close();
+    for (const { mode, bytes } of archives) {
+      const target = openDatabase(":memory:");
+      try {
+        const service = new PublicationExportService(new PortableProjectRepository(target), undefined);
+        const imported = service.importPortable(new Uint8Array(bytes));
+        const copy = new ProjectRepository(target).duplicate(imported.projectId, "Copied conversational direction", validatePortableAuthoringProject);
+        for (const id of [imported.projectId, copy.id]) {
+          const direction = new ArtifactRepository(target).getCurrent<CreativeDirection>(id, "creative-direction")!.content;
+          const conversational = direction.fieldProvenance.filter((record) => ["user-message", "proposal"].includes(record.reference.kind));
+          expect(conversational.length).toBeGreaterThan(0);
+          expect(conversational.every((record) => record.reference.unavailable === true)).toBe(mode === "privacy-redacted");
+          expect(direction.pacing.developmentPace).toBe("slow-burn");
+          validatePortableAuthoringProject(target, id);
+        }
+      } finally { target.close(); }
+    }
   });
 
   it("cancels an in-flight Ask Studio request without saving a reply", async () => {

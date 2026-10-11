@@ -16,6 +16,9 @@ import { analysisFixture, completeFixture } from "../../../packages/persistence/
 import { PublicationExportService } from "../src/services/publication-export-service.js";
 import { RecoveryService } from "../src/services/recovery-service.js";
 import { validatePortableAuthoringProject } from "../src/services/portable-project-validator.js";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { createHash } from "node:crypto";
+import { stableFingerprint } from "@story-to-cyoa/runtime";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
@@ -64,6 +67,76 @@ function readyReview(f: Fixture, p: { id: string; proposal: unknown }, selected?
 }
 
 describe("A6 scoped conversational editing", () => {
+  it.each(["full-fidelity", "privacy-redacted"] as const)("A7 round-trips and duplicates real conversational Creative Direction without dangling references: %s", async (mode) => {
+    const f = fixture(), proposal = await propose(f, 'Change tone to "restrained tension"', ["creative-direction:section:tone"]), review = readyReview(f, proposal);
+    f.service.apply(f.id, proposal.id, review.selectedGroupIds, review.fingerprint);
+    const publication = new PublicationExportService(new PortableProjectRepository(f.db), undefined), archive = publication.exportStudioPortable(f.id, mode), target = openDatabase();
+    try {
+      new PublicationExportService(new PortableProjectRepository(target), undefined).importPortable(archive.bytes);
+      const artifacts = new ArtifactRepository(target), expected = f.artifacts.getCurrent(f.id, "creative-direction")!.content as any;
+      const check = (projectId: string) => {
+        const direction = artifacts.getCurrent(projectId, "creative-direction")!.content as any;
+        expect(direction.materialFingerprint).toBe(expected.materialFingerprint);
+        expect(direction.tone).toEqual(expected.tone);
+        const references = direction.fieldProvenance.filter((entry: any) => entry.reference.kind === "user-message");
+        expect(references.length).toBeGreaterThan(0); expect(references.every((entry: any) => entry.reference.unavailable === true)).toBe(mode === "privacy-redacted");
+        validatePortableAuthoringProject(target, projectId);
+      };
+      check(f.id); check(new ProjectRepository(target).duplicate(f.id, "Historical direction copy", validatePortableAuthoringProject).id);
+      expect((await new RecoveryService(target, new PortableProjectRepository(target), new PublicationExportService(new PortableProjectRepository(target), undefined)).createVerifiedBackup(f.id)).record.verifiedAt).toBeTruthy();
+    } finally { target.close(); }
+  });
+
+  it.each(["missing-lineage", "all-outputs", "partial-outputs", "all-results", "partial-results", "extra-output", "extra-result", "wrong-before", "wrong-after", "wrong-result", "changed-groups", "unknown-field"])("A7 rejects incomplete or mismatched edit audits during import and backup certification: %s", async (attack) => {
+    const f = fixture(); f.handler.run = async () => response(group("bible:character-mira", { name: "Ren" }), group("brief:root", { workingTitle: "Reviewed harbor" }, "title"));
+    const proposal = await propose(f, "Review title and character", ["bible:character-mira", "brief:root"]), review = readyReview(f, proposal);
+    f.service.apply(f.id, proposal.id, review.selectedGroupIds, review.fingerprint);
+    const publication = new PublicationExportService(new PortableProjectRepository(f.db), undefined), files = unzipSync(publication.exportStudioPortable(f.id).bytes);
+    const manifest = JSON.parse(strFromU8(files["manifest.json"]!)), payload = JSON.parse(strFromU8(files["project.json"]!));
+    const row = payload.rows.tables.artifact_versions.find((item: any) => item.artifact_type === "conversational-edit-application"), audit = JSON.parse(row.content_json);
+    expect(audit.outputs).toHaveLength(2); expect(Object.keys(audit.resultingVersions)).toHaveLength(2);
+    if (attack === "missing-lineage") { audit.outputs = []; audit.resultingVersions = {}; }
+    if (attack === "all-outputs") audit.outputs = [];
+    if (attack === "partial-outputs") audit.outputs.pop();
+    if (attack === "all-results") audit.resultingVersions = {};
+    if (attack === "partial-results") delete audit.resultingVersions.bible;
+    if (attack === "extra-output") audit.outputs.push(audit.outputs[0]);
+    if (attack === "extra-result") audit.resultingVersions.routes = audit.resultingVersions.bible;
+    if (attack === "wrong-before") audit.outputs[0].before = {};
+    if (attack === "wrong-after") audit.outputs[0].after = {};
+    if (attack === "wrong-result") audit.resultingVersions.bible = audit.resultingVersions.brief;
+    if (attack === "changed-groups") audit.groups[0].operations[0].changes.name = "Invented";
+    if (attack === "unknown-field") audit.unrecognized = true;
+    row.content_json = JSON.stringify(audit);
+    payload.projectFingerprint = manifest.projectFingerprint = stableFingerprint({ schemaId: payload.schemaId, schemaVersion: payload.schemaVersion, exportContractVersion: manifest.exportContractVersion,
+      historyMode: manifest.historyMode, exportMode: manifest.exportMode, evidence: manifest.evidence, rows: payload.rows });
+    const bytes = strToU8(JSON.stringify(payload)); manifest.files[0].bytes = bytes.length; manifest.files[0].sha256 = createHash("sha256").update(bytes).digest("hex");
+    const target = openDatabase(), unchecked = openDatabase();
+    try {
+      const corrupted = zipSync({ "manifest.json": strToU8(JSON.stringify(manifest)), "project.json": bytes });
+      expect(() => new PublicationExportService(new PortableProjectRepository(target), undefined).importPortable(corrupted)).toThrow();
+      expect(new ProjectRepository(target).list()).toHaveLength(0);
+      // Deliberately bypass the domain validator to exercise certification of an already damaged local history.
+      const portable = new PortableProjectRepository(unchecked); portable.importRows(payload.rows, () => {});
+      await expect(new RecoveryService(unchecked, portable, new PublicationExportService(portable, undefined)).createVerifiedBackup(f.id)).rejects.toThrow();
+    } finally { target.close(); unchecked.close(); }
+  });
+
+  it.each(["no-op", "partial-selection", "later-head"])("A7 preserves complete historical edit lineage with %s", async (kind) => {
+    const f = fixture(); f.handler.run = async () => response(group("bible:character-mira", { name: kind === "no-op" ? "Mira" : "Ren" }), group("brief:root", { workingTitle: "Unselected title" }, "title"));
+    const proposal = await propose(f, "Review exact groups", ["bible:character-mira", "brief:root"]), review = readyReview(f, proposal, ["edit"]);
+    const applied = f.service.apply(f.id, proposal.id, review.selectedGroupIds, review.fingerprint);
+    expect(Object.keys(applied.resultingVersions)).toHaveLength(kind === "no-op" ? 0 : 1);
+    if (kind === "later-head") f.longForm.saveArtifact(f.id, "bible", { ...f.longForm.snapshot(f.id).bible!, title: "A later independent revision" });
+    f.service.validateArchiveHistory(f.id);
+    const portable = new PortableProjectRepository(f.db), publication = new PublicationExportService(portable, undefined), target = openDatabase();
+    try {
+      const backup = await new RecoveryService(f.db, portable, publication).createVerifiedBackup(f.id);
+      const copiedPortable = new PortableProjectRepository(target), copiedPublication = new PublicationExportService(copiedPortable, undefined);
+      await new RecoveryService(target, copiedPortable, copiedPublication).restoreBackup(backup.bytes);
+      new ProjectRepository(target).duplicate(f.id, "Historical complete audit", validatePortableAuthoringProject);
+    } finally { target.close(); }
+  });
   it.each([false, true])("A7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=%s)", async (applied) => {
     const f = fixture(), proposal = await propose(f), review = readyReview(f, proposal);
     if (applied) f.service.apply(f.id, proposal.id, review.selectedGroupIds, review.fingerprint);

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, FoundationBootstrapContextSchema, FoundationArtifactVersionsSchema,
+import { FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, REDACTED_BOOTSTRAP_CONTEXT_OVERHEAD_BYTES, FoundationBootstrapContextSchema, FoundationArtifactVersionsSchema,
   parseFoundationBootstrapCandidate, assertCreativeDirectionReferences, validateLongFormProject, sourceCanonicalJson, sourceDigest, type FoundationArtifactId, type FoundationBootstrapContext,
   type FoundationBootstrapCandidate } from "@story-to-cyoa/domain";
 import { ArtifactRepository } from "./artifact-repository.js";
@@ -72,7 +72,7 @@ export class FoundationBootstrapRepository {
   }
   savePlan(value: unknown): FoundationBootstrapPlan {
     return this.atomic(() => {
-      const plan = this.validatePlan(value); this.assertFresh(plan);
+      const plan = this.validatePlan(value); this.assertRequestAvailable(plan); this.assertFresh(plan);
       const equivalent = this.database.prepare(`SELECT id FROM foundation_bootstrap_plans p WHERE project_id=?
         AND json_extract(content_json,'$.fingerprint')=? AND (SELECT COUNT(*) FROM foundation_bootstrap_jobs j WHERE j.plan_id=p.id) < 4
         ORDER BY rowid DESC LIMIT 1`).get(plan.projectId, plan.fingerprint) as { id: string } | undefined;
@@ -86,7 +86,8 @@ export class FoundationBootstrapRepository {
     if (context.projectId !== plan.projectId || plan.providerId !== context.providerId || plan.modelId !== context.modelId
       || !same(plan.units[0].artifactIds, FOUNDATION_ARTIFACT_IDS) || sourceDigest(context) !== plan.contextFingerprint
       || sourceDigest({ contextFingerprint: plan.contextFingerprint, units: plan.units, providerId: plan.providerId, modelId: plan.modelId }) !== plan.fingerprint
-      || plan.contextBytes !== Buffer.byteLength(sourceCanonicalJson(context)) || plan.contextBytes > FOUNDATION_BOOTSTRAP_LIMITS.contextBytes) throw new Error("bootstrap_plan_fingerprint_invalid");
+      || plan.contextBytes !== Buffer.byteLength(sourceCanonicalJson(context))
+      || plan.contextBytes > FOUNDATION_BOOTSTRAP_LIMITS.contextBytes + (context.requestEvidence ? REDACTED_BOOTSTRAP_CONTEXT_OVERHEAD_BYTES : 0)) throw new Error("bootstrap_plan_fingerprint_invalid");
     const artifacts = new ArtifactRepository(this.database);
     const dossier = artifacts.getVersion(context.dossierVersionId), intent = artifacts.getVersion(context.intentVersionId);
     if (!dossier || !intent || dossier.projectId !== plan.projectId || intent.projectId !== plan.projectId
@@ -137,9 +138,12 @@ export class FoundationBootstrapRepository {
     assertAdaptationFresh(this.database, plan.context.intent);
     for (const artifactId of FOUNDATION_ARTIFACT_IDS) if ((artifacts.getCurrent(plan.projectId, artifactId)?.id ?? null) !== (applied[artifactId] ?? plan.context.baseVersionIds[artifactId])) throw new Error("bootstrap_base_stale");
   }
+  private assertRequestAvailable(plan: FoundationBootstrapPlan): void {
+    if (plan.context.requestEvidence) throw new Error("bootstrap_request_unavailable_repreview_required");
+  }
   createJob(projectId: string, planId: string, fingerprint: string): FoundationBootstrapJob {
     return this.atomic(() => {
-      const plan = this.getPlan(projectId, planId); this.assertFresh(plan);
+      const plan = this.getPlan(projectId, planId); this.assertRequestAvailable(plan); this.assertFresh(plan);
       if (fingerprint !== plan.fingerprint) throw new Error("bootstrap_authorization_invalid");
       if (this.listJobs(projectId).some((job) => ["pending", "running"].includes(job.status))) throw new Error("bootstrap_job_already_active");
       if (this.listJobs(projectId).filter((job) => job.planId === planId).length >= 4) throw new Error("bootstrap_jobs_exhausted_repreview_required");
@@ -185,7 +189,7 @@ export class FoundationBootstrapRepository {
   }
   begin(projectId: string, jobId: string) {
     return this.atomic(() => {
-      const old = this.getJob(projectId, jobId), plan = this.getPlan(projectId, old.planId); this.assertFresh(plan);
+      const old = this.getJob(projectId, jobId), plan = this.getPlan(projectId, old.planId); this.assertRequestAvailable(plan); this.assertFresh(plan);
       if (old.status !== "pending" || old.units[0].attempts.length >= FOUNDATION_BOOTSTRAP_LIMITS.attempts) throw new Error("bootstrap_attempt_not_allowed");
       const next = structuredClone(old); next.status = next.units[0].status = "running";
       next.units[0].attempts.push({ id: randomUUID(), number: next.units[0].attempts.length + 1, status: "running", contextFingerprint: plan.contextFingerprint, diagnostic: "", startedAt: now(), finishedAt: null });
@@ -208,7 +212,7 @@ export class FoundationBootstrapRepository {
   }
   retry(projectId: string, jobId: string) {
     return this.atomic(() => {
-      const old = this.getJob(projectId, jobId); this.assertFresh(this.getPlan(projectId, old.planId));
+      const old = this.getJob(projectId, jobId), plan = this.getPlan(projectId, old.planId); this.assertRequestAvailable(plan); this.assertFresh(plan);
       if (old.status !== "failed" || old.units[0].attempts.length >= FOUNDATION_BOOTSTRAP_LIMITS.attempts) throw new Error("bootstrap_retry_exhausted_repreview_required");
       const next = structuredClone(old); next.status = next.units[0].status = "pending"; return this.writeJob(old, next);
     });
