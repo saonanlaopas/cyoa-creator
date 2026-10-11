@@ -103,7 +103,12 @@ export async function completeStudioProductionJourney(page: Page, request: APIRe
   await restore.getByLabel("Project backup file").setInputFiles({ name: "a7-journey.cyoa-backup.zip", mimeType: "application/zip", buffer: await readFile(backupPath!) });
   await restore.getByRole("button", { name: "Verify & preview" }).click();
   await restore.getByLabel("I reviewed the identity, scope, exclusions, and collision state.").check();
+  const restored = page.waitForResponse((response) => response.url().endsWith("/api/recovery/backups/restore")
+    && response.request().method() === "POST", { timeout: 30_000 });
   await restore.getByRole("button", { name: "Restore as project" }).click();
+  const restoreResponse = await restored;
+  expect(restoreResponse.ok(), await restoreResponse.text()).toBe(true);
+  expect((await restoreResponse.json()).projectId).toBe(projectId);
   await expect(page.getByLabel("Switch project")).toHaveValue(projectId);
   expect((await get(root)).project.mode).toBe("long-form");
 }
