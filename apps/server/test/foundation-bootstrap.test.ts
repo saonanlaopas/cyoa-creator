@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, LongFormStoryBibleSchema, ProjectBriefSchema, creativeDirectionFingerprints, defaultCreativeDirection, newAdaptationIntent, normalizeAdaptationIntent, sourceCanonicalJson, type SourceDossier } from "@story-to-cyoa/domain";
+import { CREATIVE_DIRECTION_LIMITS, FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, REDACTED_BOOTSTRAP_CONTEXT_OVERHEAD_BYTES, LongFormStoryBibleSchema, ProjectBriefSchema, assertFoundationBootstrapContext, creativeDirectionFingerprints, defaultCreativeDirection, newAdaptationIntent, normalizeAdaptationIntent, sourceCanonicalJson, type SourceDossier } from "@story-to-cyoa/domain";
 import { EnvironmentCredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
-import { ArtifactRepository, FoundationBootstrapRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, ConversationRepository, FoundationBootstrapRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
 import { strFromU8, unzipSync } from "fflate";
 import { createHash } from "node:crypto";
 import { analysisFixture, completeFixture, smallSource } from "../../../packages/persistence/test/source-analysis-fixture.js";
@@ -100,9 +100,21 @@ describe("A5 exact foundation generation and review boundary", () => {
       expect(f.provider.calls).toHaveLength(stage === "preview-only" ? 0 : 1);
     } finally { original.close(); }
   });
-  it("round trips a near-budget preview without expanding executable request budgets", async () => {
-    const f = fixture(), original = openDatabase(f.path), target = openDatabase();
+  it.each([0, 24, CREATIVE_DIRECTION_LIMITS.provenanceRecords])("round trips a near-budget preview with %i conversation references without expanding executable request budgets", async (referenceCount) => {
+    const f = fixture(), original = openDatabase(f.path);
     try {
+      const artifacts = new ArtifactRepository(original), direction = defaultCreativeDirection();
+      if (referenceCount) {
+        const conversations = new ConversationRepository(original), conversation = conversations.create(f.projectId, { kind: "project", projectId: f.projectId });
+        const paths = ["/tone", ...(["tone", "pacing", "prose"] as const).flatMap((section) => Object.keys(direction[section]).map((field) => `/${section}/${field}`))];
+        expect(paths).toHaveLength(24);
+        direction.fieldProvenance = Array.from({ length: referenceCount }, (_, index) => {
+          const message = conversations.addMessage({ conversationId: conversation.id, role: "user", content: `Author guidance ${index}`, intent: "discuss", scope: conversation.scope, context: {}, metadata: {} });
+          return { fieldPath: paths[index % paths.length]!, reference: { kind: "user-message", targetId: message.id } };
+        });
+        Object.assign(direction, creativeDirectionFingerprints(direction));
+        artifacts.saveArtifact({ projectId: f.projectId, artifactId: "creative-direction", content: direction });
+      }
       const payload = { message: "x", providerId: f.provider.id, modelId: "offline-foundation-v1" };
       const initial = (await f.call("/preview", payload)).json();
       const bible = LongFormStoryBibleSchema.parse({ title: "Near-budget authored Bible", settings: Array.from({ length: 10 }, (_, index) => ({ id: `setting-${index}`, label: `Setting ${index}`, description: "" })) });
@@ -110,19 +122,41 @@ describe("A5 exact foundation generation and review boundary", () => {
       let remaining = FOUNDATION_BOOTSTRAP_LIMITS.contextBytes - Buffer.byteLength(sourceCanonicalJson(context));
       for (const setting of bible.settings) { const length = Math.min(10_000, remaining); setting.description = "a".repeat(length); remaining -= length; }
       expect(remaining).toBe(0);
-      new ArtifactRepository(original).saveArtifact({ projectId: f.projectId, artifactId: "bible", content: bible });
+      artifacts.saveArtifact({ projectId: f.projectId, artifactId: "bible", content: bible });
       const response = await f.call("/preview", payload); expect(response.statusCode, response.body).toBe(200);
       const plan = response.json(); expect(plan.contextBytes).toBe(FOUNDATION_BOOTSTRAP_LIMITS.contextBytes);
-      const archive = new PublicationExportService(new PortableProjectRepository(original), undefined).exportStudioPortable(f.projectId, "privacy-redacted");
-      new PublicationExportService(new PortableProjectRepository(target), undefined).importPortable(archive.bytes);
-      const repository = new FoundationBootstrapRepository(target), stored = repository.getPlan(f.projectId, plan.id);
-      expect(stored.contextBytes).toBeGreaterThan(FOUNDATION_BOOTSTRAP_LIMITS.contextBytes);
-      expect(() => repository.createJob(f.projectId, stored.id, stored.fingerprint)).toThrow("bootstrap_request_unavailable_repreview_required");
+      const publication = new PublicationExportService(new PortableProjectRepository(original), undefined), before = publication.studioProjectFingerprint(f.projectId);
+      for (const mode of ["full-fidelity", "privacy-redacted"] as const) {
+        const archive = publication.exportStudioPortable(f.projectId, mode), target = openDatabase(), repeated = openDatabase();
+        try {
+          const imported = new PublicationExportService(new PortableProjectRepository(target), undefined); imported.importPortable(archive.bytes);
+          const repository = new FoundationBootstrapRepository(target), stored = repository.getPlan(f.projectId, plan.id);
+          expect(stored.contextBytes).toBe(FOUNDATION_BOOTSTRAP_LIMITS.contextBytes + (mode === "privacy-redacted" ? 238 + referenceCount * 19 : 0));
+          expect(stored.context.baseArtifacts["creative-direction"]!.materialFingerprint).toBe(direction.materialFingerprint);
+          expect(stored.context.baseArtifacts["creative-direction"]!.fieldProvenance).toHaveLength(referenceCount);
+          for (const record of stored.context.baseArtifacts["creative-direction"]!.fieldProvenance) expect(record.reference.unavailable).toBe(mode === "privacy-redacted" ? true : undefined);
+          const reexported = imported.exportStudioPortable(f.projectId, mode);
+          expect(reexported.manifest.projectFingerprint).toBe(archive.manifest.projectFingerprint);
+          new PublicationExportService(new PortableProjectRepository(repeated), undefined).importPortable(reexported.bytes);
+          if (mode === "privacy-redacted") {
+            expect(() => repository.createJob(f.projectId, stored.id, stored.fingerprint)).toThrow("bootstrap_request_unavailable_repreview_required");
+            expect(() => foundationBootstrapMessages({ context: stored.context, mode: "generate" })).toThrow("bootstrap_request_unavailable_repreview_required");
+            await expect(f.provider.generate({ context: stored.context, mode: "generate", modelId: stored.modelId, signal: new AbortController().signal })).rejects.toThrow("bootstrap_request_unavailable_repreview_required");
+            const atLimit = structuredClone(stored.context), padding = FOUNDATION_BOOTSTRAP_LIMITS.contextBytes + REDACTED_BOOTSTRAP_CONTEXT_OVERHEAD_BYTES - stored.contextBytes;
+            atLimit.baseArtifacts.bible!.overview = "a".repeat(padding);
+            expect(assertFoundationBootstrapContext(atLimit)).toEqual(atLimit);
+            atLimit.baseArtifacts.bible!.overview += "a";
+            expect(() => assertFoundationBootstrapContext(atLimit)).toThrow("bootstrap_context_overflow");
+          }
+          expect(() => repository.validatePlan({ ...stored, contextFingerprint: "0".repeat(64) })).toThrow("bootstrap_plan_fingerprint_invalid");
+        } finally { target.close(); repeated.close(); }
+      }
+      expect(publication.studioProjectFingerprint(f.projectId)).toBe(before);
       expect(f.provider.calls).toHaveLength(0);
       const oversized = await f.call("/preview", { ...payload, message: "xx" });
       expect(oversized.statusCode).toBe(400);
       expect(oversized.body).toContain("bootstrap_context_overflow");
-    } finally { original.close(); target.close(); }
+    } finally { original.close(); }
   });
   it.each(["full-fidelity", "privacy-redacted"] as const)("A7 restores and duplicates applied bootstrap lineage with explicit source recovery: %s", async (mode) => {
     const f = fixture(), { job } = await start(f); expect((await terminal(f, job.id)).status).toBe("completed");

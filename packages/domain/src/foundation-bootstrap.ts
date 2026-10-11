@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AdaptationIntentSchema, assertAdaptationDossier, assertRequestedSemantics } from "./adaptation-intent.js";
 import { SourceDossierSchema, sourceCanonicalJson, sourceDossierFingerprints } from "./source-analysis.js";
-import { CreativeDirectionSchema, assertCreativeDirectionReferences } from "./creative-direction.js";
+import { CREATIVE_DIRECTION_LIMITS, CreativeDirectionSchema, assertCreativeDirectionReferences } from "./creative-direction.js";
 import { ProjectBriefSchema } from "./project-brief.js";
 import { LongFormStoryBibleSchema } from "./long-form-story-bible.js";
 import { LongFormRoutePlanSchema } from "./long-form-route-plan.js";
@@ -13,8 +13,9 @@ export const FOUNDATION_ARTIFACT_IDS = ["brief", "creative-direction", "bible", 
 export type FoundationArtifactId = typeof FOUNDATION_ARTIFACT_IDS[number];
 export const FOUNDATION_BOOTSTRAP_POLICY = "foundation-bootstrap-v1" as const;
 export const FOUNDATION_BOOTSTRAP_LIMITS = Object.freeze({ contextBytes: 96_000, outputBytes: 192_000, provenance: 2_000, attempts: 4, structuralRepairs: 0 });
-// Historical privacy metadata may grow a short request; this never expands executable provider input.
-export const REDACTED_BOOTSTRAP_CONTEXT_OVERHEAD_BYTES = 512;
+// Bound both request metadata and every permitted reference marker; executable input stays at 96,000 bytes.
+export const REDACTED_BOOTSTRAP_CONTEXT_OVERHEAD_BYTES = 512
+  + CREATIVE_DIRECTION_LIMITS.provenanceRecords * new TextEncoder().encode(',"unavailable":true').byteLength;
 const id = z.string().trim().min(1).max(240);
 const ids = z.array(id).max(1_000).refine((values) => new Set(values).size === values.length, "IDs must be unique");
 const shape = <T extends z.ZodTypeAny>(schema: T) => ({ brief: schema, "creative-direction": schema, bible: schema, routes: schema, endings: schema, mechanics: schema });
