@@ -48,7 +48,7 @@ describe("publication export HTTP boundary", () => {
     const projectId = created.json().id as string;
     const exported = await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/publication/exports/portable` });
     expect(exported.statusCode).toBe(200); expect(exported.headers["content-type"]).toContain("application/zip");
-    expect(exported.headers["content-disposition"]).toContain("cyoa-portable-project.zip");
+    expect(exported.headers["content-disposition"]).toContain("cyoa-full-fidelity-project.zip");
     expect(exported.headers["x-cyoa-artifact-fingerprint"]).toMatch(/^[0-9a-f]{32}$/);
     expect(exported.headers["x-content-type-options"]).toBe("nosniff");
     const boundary = "foundation-7c-boundary";

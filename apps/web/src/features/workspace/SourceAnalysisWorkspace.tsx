@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SOURCE_CATEGORIES, type SourceEvidence, type SourceCorrectionOperation } from "@story-to-cyoa/domain";
 import { SourceAnalysisApi, type SourceMetadata, type SourcePreview, type AnalysisJob, type DossierMetadata, type RecordSummary, type RecordDetails } from "../../api/source-analysis.js";
 
-export function SourceAnalysisWorkspace({ projectId, onStatusChange }: { projectId: string; onStatusChange?(status: string): void }) {
+export function SourceAnalysisWorkspace({ projectId, onStatusChange, refreshToken = 0 }: { projectId: string; onStatusChange?(status: string): void; refreshToken?: number }) {
   const api = useMemo(() => new SourceAnalysisApi(projectId), [projectId]);
   const [source, setSource] = useState<SourceMetadata | null>(null), [chapterOffset, setChapterOffset] = useState(0);
   const [selected, setSelected] = useState<string[]>([]), [pasted, setPasted] = useState("");
@@ -36,6 +36,11 @@ export function SourceAnalysisWorkspace({ projectId, onStatusChange }: { project
   const refreshSource = async () => {
     const next = await api.source(chapterOffset); setSource(next); setSelected(next.scope?.chapterIds ?? []);
   };
+  useEffect(() => {
+    if (!refreshToken) return;
+    setPreview(null); setAuthorized(false); setEvidence(null);
+    void refreshSource().then(refreshDossier).catch((error: Error) => setMessage(error.message));
+  }, [refreshToken]);
   useEffect(() => {
     let cancelled = false;
     void Promise.all([api.source(), api.jobs()]).then(async ([source, jobs]) => {
@@ -76,6 +81,7 @@ export function SourceAnalysisWorkspace({ projectId, onStatusChange }: { project
   }, [api, dossier?.id, historyOffset]);
   const invalidatePreview = () => { setPreview(null); setAuthorized(false); };
   const scopeDirty = Boolean(source?.scope && JSON.stringify([...selected].sort()) !== JSON.stringify([...source.scope.chapterIds].sort()));
+  const sourceUnavailable = source?.availability === "redacted" || source?.availability === "missing";
   const saveScope = async (value: { entireWork: true } | { chapterIds: string[] }) => {
     await api.scope(value); invalidatePreview(); await refreshSource(); await refreshDossier(); setMessage("Source scope saved.");
   };
@@ -109,8 +115,8 @@ export function SourceAnalysisWorkspace({ projectId, onStatusChange }: { project
           }} />{chapter.title}<span>{chapter.characters.toLocaleString()} characters</span></label>)}
         </div></fieldset>
         <PageControls offset={chapterOffset} total={source.chapterCount} step={50} onChange={setChapterOffset} label="Chapter pages" />
-        <div className="source-actions"><button disabled={busy || !selected.length} onClick={() => void perform(() => saveScope({ chapterIds: selected }))}>Save selected scope</button>
-          <button disabled={busy} onClick={() => void perform(() => saveScope({ entireWork: true }))}>Select entire work</button></div>
+        <div className="source-actions"><button disabled={busy || sourceUnavailable || !selected.length} onClick={() => void perform(() => saveScope({ chapterIds: selected }))}>Save selected scope</button>
+          <button disabled={busy || sourceUnavailable} onClick={() => void perform(() => saveScope({ entireWork: true }))}>Select entire work</button></div>
       </>}
     </section>
     <section className="source-analysis-band" aria-label="Analysis request">
@@ -118,7 +124,7 @@ export function SourceAnalysisWorkspace({ projectId, onStatusChange }: { project
       <div className="source-actions"><label>Provider<select value={providerId} onChange={(e) => { setProvider(e.target.value); setModel(e.target.value === "offline-source-analysis" ? "offline-source-v1" : ""); invalidatePreview(); }}>
         <option value="offline-source-analysis">Offline fixture</option><option value="openrouter-source-analysis">OpenRouter</option></select></label>
         <label>Model<input value={modelId} disabled={providerId === "offline-source-analysis"} onChange={(e) => { setModel(e.target.value); invalidatePreview(); }} /></label>
-        <button disabled={busy || !source?.scope || scopeDirty || !modelId} onClick={() => void perform(async () => { setPreview(await api.preview(providerId, modelId)); setAuthorized(false); })}>Preview analysis</button></div>
+        <button disabled={busy || sourceUnavailable || !source?.scope || scopeDirty || !modelId} onClick={() => void perform(async () => { setPreview(await api.preview(providerId, modelId)); setAuthorized(false); })}>Preview analysis</button></div>
       {preview && <div className="analysis-preview" role="region" aria-label="Analysis preview">
         <dl className="source-metrics"><div><dt>Source</dt><dd>{preview.sourceCharacters.toLocaleString()} characters / {preview.sourceBytes.toLocaleString()} bytes</dd></div>
           <div><dt>Selected scope</dt><dd>{preview.selectedChapters} chapters</dd></div><div><dt>Units</dt><dd>{preview.unitCount}; at most {preview.maxUnitCharacters} source characters each</dd></div>
@@ -132,7 +138,7 @@ export function SourceAnalysisWorkspace({ projectId, onStatusChange }: { project
       {job && <div className="source-progress" aria-label="Analysis progress">
         <p role="status">{job.counts.completed} / {job.unitCount} units complete. {job.executing ? "Running" : job.status}.</p>
         <progress value={job.counts.completed} max={job.unitCount} aria-label="Analysis completion" />
-        <div className="source-actions"><button disabled={busy || job.executing || !["pending", "failed"].includes(job.status)} onClick={() => void perform(async () => { setJob(await api.action(job.id, "resume")); setMessage("Analysis resumed."); })}>Resume / retry analysis</button>
+        <div className="source-actions"><button disabled={busy || sourceUnavailable || job.executing || !["pending", "failed"].includes(job.status)} onClick={() => void perform(async () => { setJob(await api.action(job.id, "resume")); setMessage("Analysis resumed."); })}>Resume / retry analysis</button>
           <button disabled={busy || ["completed", "cancelled"].includes(job.status)} onClick={() => void perform(async () => { setJob(await api.action(job.id, "cancel")); setMessage("Analysis cancelled."); })}>Cancel analysis</button></div>
         <details><summary>Unit audit</summary><table><thead><tr><th>Unit</th><th>Status</th><th>Attempts</th><th>Diagnostic</th></tr></thead><tbody>
           {job.units.map((u, i) => <tr key={u.id}><td>{unitOffset + i + 1}</td><td>{u.status}</td><td>{u.attempts.length}</td><td>{u.attempts.at(-1)?.diagnostic || "None"}</td></tr>)}

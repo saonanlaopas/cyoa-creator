@@ -91,6 +91,11 @@ describe("Foundation 6B repair proposals", () => {
     const proposal = (await value.app.inject({ method: "GET", url: `${root}/proposals/${completed.job.proposalId}` })).json();
     expect(proposal).toMatchObject({ provenance: { mode: "ai-assisted", providerId: "offline-repair-proposal" }, validation: { status: "valid" } });
     expect(proposal.operations[0]).toMatchObject({ kind: "create-passage-draft-candidate", requiresUnlock: false });
+    const duplicate = await value.app.inject({ method: "POST", url: `/api/projects/${value.projectId}/duplicate` });
+    expect(duplicate.statusCode, duplicate.body).toBe(201);
+    const backup = await value.app.inject({ method: "POST", url: `/api/projects/${duplicate.json().id}/recovery/backups` });
+    expect(backup.statusCode, backup.body).toBe(200);
+    expect(value.provider.calls).toHaveLength(1);
   }, 15_000);
 
   it("retains one structural repair and explicit failed-unit retry history", async () => {

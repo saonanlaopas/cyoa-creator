@@ -646,7 +646,7 @@ describe("A2 conversational project setup", () => {
     const direction = new ArtifactRepository(target).getCurrent<CreativeDirection>(imported.projectId, "creative-direction")!.content;
     const conversational = direction.fieldProvenance.filter((record) => ["user-message", "proposal"].includes(record.reference.kind));
     expect(conversational.length).toBeGreaterThan(0);
-    expect(conversational.every((record) => record.reference.unavailable === true)).toBe(true);
+    expect(conversational.every((record) => record.reference.unavailable !== true)).toBe(true);
     expect(direction.pacing.developmentPace).toBe("slow-burn");
     target.close();
   });

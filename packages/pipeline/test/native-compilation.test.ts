@@ -242,6 +242,17 @@ function resolvedFixture(): ResolvedNativeCompilationInput {
 }
 
 describe("native pure compiler resolved-input lineage", () => {
+  it("publishes author-configured relationship bands without leaking authoring-only fields", () => {
+    const exact = resolvedFixture(), version = exact.upstreamArtifacts.find((item) => item.artifactId === "mechanics")!;
+    const mechanics = version.content as ReturnType<typeof defaultLongFormMechanicsPlan>;
+    mechanics.relationships = [{ id: "relationship-authoring", key: "trust", label: "Trust", relationshipId: "relationship-story",
+      initial: 0, minimum: 0, maximum: 10, description: "", increaseSignals: [], decreaseSignals: [], bands: [{ id: "band-authoring", minimum: 5, label: "Trusted", meaning: "An authoring explanation" }] }];
+    exact.input.upstreamArtifacts.find((item) => item.artifactId === "mechanics")!.contentFingerprint = stableFingerprint(mechanics);
+    const { sourceInputFingerprint: _fingerprint, ...definition } = exact.input;
+    exact.input.sourceInputFingerprint = sourceInputFingerprint(definition);
+    expect(compileNativeGame(exact).mechanics.find((item) => item.key === "trust")).toMatchObject({ bands: [{ minimum: 5, label: "Trusted" }] });
+    expect(mechanics.relationships[0]!.bands[0]).toMatchObject({ id: "band-authoring", meaning: "An authoring explanation" });
+  });
   it("compiles exact resolved input and accepts canonical collection reordering", () => {
     const exact = resolvedFixture();
     const first = compileNativeGame(exact);

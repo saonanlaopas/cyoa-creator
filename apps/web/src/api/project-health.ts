@@ -68,10 +68,10 @@ export interface ProjectResumeReport {
     generationJobs: ResumeJobFacts; draftingJobs: ResumeJobFacts;
   };
   backup: { latestVerifiedAt: string | null; latestVerifiedBackupId: string | null; freshness: "not-evaluated" };
-  actions: Array<{ id: string; stage: "passage-plan" | "repair" | "publication" | "recovery" | "health";
+  actions: Array<{ id: string; stage: "passage-plan" | "repair" | "publication" | "recovery" | "health" | "source-analysis" | "adaptation-intent" | "foundation-bootstrap" | "setup" | "editing" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics";
     label: string; count: number; stableId: string | null; jobKind: "generation" | "drafting" | null;
     jobId: string | null; jobStatus: string | null }>;
-  truncated: false;
+  truncated: boolean;
 }
 
 async function json<T>(response: Response): Promise<T> {

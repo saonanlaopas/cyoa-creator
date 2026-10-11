@@ -6,6 +6,7 @@ on:
       - main
       - checkpoint/**
       - codex/a6-conversational-editing
+      - codex/a7-studio-handoff
   pull_request:
 
 permissions:

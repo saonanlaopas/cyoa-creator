@@ -77,9 +77,12 @@ describe("Foundation 8A recovery HTTP boundary", () => {
     expect(backup.headers["content-disposition"]).toContain(".cyoa-backup.zip");
     expect(backup.headers["x-cyoa-backup-verification"]).toBe("verified");
     const legacyBackup = rewriteLegacyA1Backup(backup.rawPayload);
+    const legacyPortable = unzipSync(legacyBackup)["portable-project.cyoa.zip"]!;
+    const portablePreview = await app.inject({ method: "POST", url: "/api/portable-projects/preview", ...multipart(legacyPortable, "legacy-portable-check") });
+    expect(portablePreview.statusCode, portablePreview.body).toBe(200);
     const upload = multipart(legacyBackup, "recovery-route-boundary");
     const preview = await app.inject({ method: "POST", url: "/api/recovery/backups/preview", headers: upload.headers, payload: upload.payload });
-    expect(preview.statusCode).toBe(200);
+    expect(preview.statusCode, preview.body).toBe(200);
     expect(preview.json()).toMatchObject({
       projectName: "Recovery route", conflict: true, verification: { verified: true },
       manifest: { includedSections: expect.not.arrayContaining(["artifact_version_approvals"]) },
@@ -145,7 +148,13 @@ function rewriteLegacyA1Backup(bytes: Uint8Array): Uint8Array {
   const backupFiles = unzipSync(bytes);
   const portableFiles = unzipSync(backupFiles["portable-project.cyoa.zip"]!);
   const manifest = JSON.parse(new TextDecoder().decode(portableFiles["manifest.json"]!));
-  const payload = JSON.parse(new TextDecoder().decode(portableFiles["project.json"]!));
+  const current = JSON.parse(new TextDecoder().decode(portableFiles["project.json"]!));
+  const payload = { schemaId: current.schemaId, schemaVersion: current.schemaVersion, projectFingerprint: current.projectFingerprint,
+    projectId: current.rows.projectId, tables: current.rows.tables };
+  manifest.exportContractVersion = 1; delete manifest.exportMode; delete manifest.evidence;
+  manifest.exclusions = ["credentials", "environment", "machine paths", "browser saves", "chat and source bodies", "passage-planning jobs/candidates", "provider raw responses"];
+  for (const table of Object.keys(payload.tables)) if (table.startsWith("source_analysis_") || table.startsWith("foundation_bootstrap_")) delete payload.tables[table];
+  manifest.includedSections = manifest.includedSections.filter((table: string) => Object.hasOwn(payload.tables, table));
   delete payload.tables.artifact_version_approvals;
   manifest.includedSections = manifest.includedSections.filter((section: string) => section !== "artifact_version_approvals");
   delete manifest.counts.artifact_version_approvals;

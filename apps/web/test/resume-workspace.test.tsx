@@ -23,7 +23,7 @@ describe("Foundation 8C resume work", () => {
     const navigate = vi.fn(); const user = userEvent.setup();
     render(<ResumeWorkWorkspace projectId="project-1" localHint={{ stage: "repair", entityId: null }} onNavigate={navigate} />);
     expect(await screen.findByRole("heading", { name: "Resume work" })).toBeTruthy();
-    expect(screen.getByText(/non-canonical navigation hint/i)).toBeTruthy();
+    expect(screen.getByText(/Browser hint, not project progress/i)).toBeTruthy();
     expect(screen.getByText(/Persisted facts only/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /Review pending prose candidates/ }));
     expect(navigate).toHaveBeenCalledWith("passage-plan", "passage-042", null);

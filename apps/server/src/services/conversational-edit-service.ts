@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AnalysisSourceSchema, SourceDossierSchema, resolveSourceEvidence, collectStableIds, CREATIVE_DIRECTION_LIMITS, CreativeDirectionInputSchema, creativeDirectionFingerprints, creativeDirectionReferenceIssues, sourceCanonicalJson, sourceDigest, type FoundationBootstrapCandidate } from "@story-to-cyoa/domain";
+import { AnalysisSourceSchema, SourceDossierSchema, isUnavailableSource, resolveSourceEvidence, collectStableIds, CREATIVE_DIRECTION_LIMITS, CreativeDirectionInputSchema, creativeDirectionFingerprints, creativeDirectionReferenceIssues, sourceCanonicalJson, sourceDigest, type FoundationBootstrapCandidate } from "@story-to-cyoa/domain";
 import { applyPlanningOperations, enrichOperationGroups, planningSection, planningArtifactIds, validateLongFormProject,
   ProjectBriefSchema, CreativeDirectionSchema, LongFormStoryBibleSchema, LongFormRoutePlanSchema, LongFormEndingPlanSchema, LongFormMechanicsPlanSchema,
   PassagePlanSchema, ChoicePlanSchema, NarrativeThreadSchema, PassageStructureSchema, validatePassagePlan,
@@ -198,6 +198,7 @@ export class ConversationalEditService {
     const version = this.artifacts.getCurrent(projectId, "source-dossier"); if (!version) return [];
     const dossier = SourceDossierSchema.parse(version.content), source = this.artifacts.getCurrent(projectId, "source");
     if (dossier.projectId !== projectId || !source || source.id !== dossier.binding.sourceVersionId) throw new Error("edit_source_evidence_unavailable");
+    if (isUnavailableSource(source.content)) throw new Error("edit_source_evidence_unavailable: reattach the exact source first");
     const references = strings(targets.map((t) => t.value));
     // Follow accepted bootstrap field lineage by stable identity, not by a possibly shifted array index.
     const rows = this.database.prepare(`SELECT c.content_json FROM foundation_bootstrap_applications a JOIN foundation_bootstrap_candidates c
@@ -296,6 +297,50 @@ export class ConversationalEditService {
       proposals: this.changes.listRecent(conversationId, 40).filter((p) => (p.proposal as StoredEdit)?.kind === "conversational-edit-v1").map(({ id, status, summary, createdAt }) => ({ id, status, summary, createdAt })) };
   }
   proposal(projectId: string, id: string) { return this.stored(projectId, id).record; }
+  validateArchiveHistory(projectId: string): void {
+    const messages = this.database.prepare(`SELECT m.id FROM messages m JOIN conversations c ON c.id=m.conversation_id
+      WHERE c.project_id=? AND json_type(m.metadata_json,'$.editPlan') IS NOT NULL`).all(projectId) as { id: string }[];
+    for (const message of messages) {
+      const plan = this.plan(projectId, message.id);
+      EditRequestSchema.parse(plan.request);
+      if (plan.contextBytes !== bytes(plan.context) || plan.contextBytes > EDIT_LIMITS.contextBytes || plan.targets.length > EDIT_LIMITS.targets) throw new Error("edit_archive_plan_invalid");
+      for (const target of plan.targets) {
+        const version = isArtifact(target.owner) ? this.artifacts.getVersion(target.versionId)
+          : target.owner === "passage-structure"
+            ? this.database.prepare("SELECT project_id AS projectId FROM passage_structure_versions WHERE id=?").get(target.versionId) as { projectId: string } | undefined
+            : this.database.prepare("SELECT project_id AS projectId FROM passage_entity_versions WHERE id=? AND entity_kind=? AND entity_id=?")
+              .get(target.versionId, target.owner, target.targetId) as { projectId: string } | undefined;
+        if (!version || version.projectId !== projectId) throw new Error("edit_archive_target_lineage_invalid");
+        if (isArtifact(target.owner) && (!("artifactId" in version) || version.artifactId !== target.owner)) throw new Error("edit_archive_target_lineage_invalid");
+      }
+    }
+    const records = this.database.prepare("SELECT id FROM change_sets WHERE project_id=? AND json_extract(proposal_json,'$.kind')='conversational-edit-v1'").all(projectId) as { id: string }[];
+    for (const { id } of records) {
+      const { record, edit } = this.stored(projectId, id);
+      const audits = this.database.prepare("SELECT id,artifact_id,content_json FROM artifact_versions WHERE project_id=? AND artifact_type='conversational-edit-application' AND json_extract(content_json,'$.proposalId')=?").all(projectId, id) as { id: string; artifact_id: string; content_json: string }[];
+      if (record.status === "applied" ? audits.length !== 1 || audits[0]!.id !== record.appliedVersionId : audits.length !== 0) throw new Error("edit_archive_application_lineage_invalid");
+      for (const audit of audits) {
+        const value = JSON.parse(audit.content_json) as { proposalFingerprint: string; selectedGroupIds: string[]; resultingVersions: Record<string, string>; outputs: EditOutput[]; expectedBases: unknown; baseFingerprint: string };
+        if (audit.artifact_id !== `conversational-edit-application-${id}` || value.proposalFingerprint !== edit.fingerprint
+          || value.baseFingerprint !== edit.plan.headFingerprint || sourceCanonicalJson(value.expectedBases) !== sourceCanonicalJson(edit.plan.targets.map(({ key, versionId }) => ({ key, versionId })))
+          || !Array.isArray(value.selectedGroupIds) || !value.selectedGroupIds.length || new Set(value.selectedGroupIds).size !== value.selectedGroupIds.length
+          || value.selectedGroupIds.some((id) => !edit.response.groups.some((g) => g.id === id))) throw new Error("edit_archive_application_invalid");
+        for (const output of value.outputs) {
+          const key = isArtifact(output.owner) || output.owner === "passage-structure" ? output.owner : `${output.owner}:${output.targetId}`;
+          const versionId = value.resultingVersions[key];
+          // Unchanged outputs intentionally have no new version.
+          if (!versionId && sourceCanonicalJson(output.before) === sourceCanonicalJson(output.after)) continue;
+          const row = isArtifact(output.owner) ? this.database.prepare("SELECT project_id,content_json FROM artifact_versions WHERE id=? AND artifact_id=?").get(versionId, output.owner)
+            : this.database.prepare(`SELECT project_id,content_json FROM ${output.owner === "passage-structure" ? "passage_structure_versions" : "passage_entity_versions"} WHERE id=?`).get(versionId);
+          const saved = row as { project_id: string; content_json: string } | undefined;
+          if (!saved || saved.project_id !== projectId || sourceCanonicalJson(JSON.parse(saved.content_json)) !== sourceCanonicalJson(output.after)) throw new Error("edit_archive_result_invalid");
+        }
+      }
+    }
+    const orphan = this.database.prepare(`SELECT 1 FROM artifact_versions a LEFT JOIN change_sets c ON c.id=json_extract(a.content_json,'$.proposalId') AND c.project_id=a.project_id
+      WHERE a.project_id=? AND a.artifact_type='conversational-edit-application' AND (c.id IS NULL OR c.applied_version_id!=a.id) LIMIT 1`).get(projectId);
+    if (orphan) throw new Error("edit_archive_application_lineage_invalid");
+  }
   private stored(projectId: string, id: string) {
     const record = this.changes.get(id), edit = record?.proposal as StoredEdit;
     if (!record || record.projectId !== projectId || edit?.kind !== "conversational-edit-v1" || edit.fingerprint !== sourceDigest({ plan: edit.plan, response: edit.response, generatedIds: edit.generatedIds, expectedStaleness: edit.expectedStaleness,

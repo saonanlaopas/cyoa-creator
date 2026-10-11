@@ -29,6 +29,7 @@ import {
   RepairProposalGenerationRepository,
   RepairProposalRepository,
   WorkflowRepository,
+  readSourceMaterial,
   type StoryDatabase,
 } from "@story-to-cyoa/persistence";
 import {
@@ -36,7 +37,7 @@ import {
   RepairApplicationRecordSchema,
   RepairDraftProvenanceSchema,
   SimulationReportSchema,
-  AnalysisSourceSchema, SourceDossierSchema, AdaptationIntentSchema, AdaptationProposalSchema,
+  AnalysisSourceSchema, UnavailableSourceSchema, isUnavailableSource, SourceEvidenceMaterialSchema, StudioArchiveEvidenceSchema, SourceDossierSchema, AdaptationIntentSchema, AdaptationProposalSchema,
 } from "@story-to-cyoa/domain";
 import { assertNativePlayerConfig, stableFingerprint } from "@story-to-cyoa/runtime";
 import {
@@ -47,6 +48,8 @@ import {
 } from "./native-compilation-service.js";
 import { PLAYTEST_CAMPAIGN_ARTIFACT_ID, PlaytestService } from "./playtest-service.js";
 import { SimulationService } from "./simulation-service.js";
+import { ConversationalEditService } from "./conversational-edit-service.js";
+import { LongFormProjectService } from "./long-form-project-service.js";
 
 type JsonRow = { id: string; artifact_id: string; artifact_type: string; schema_version: number; content_json: string };
 type EntityRow = { id: string; entity_kind: "passage" | "choice" | "thread"; entity_id: string; content_json: string };
@@ -84,6 +87,8 @@ export function validatePortableAuthoringProject(database: StoryDatabase, projec
   validateDraftHistories(database, projectId);
   validateAcceptanceHistory(database, projectId);
   validateRepairHistory(database, projectId);
+  new ConversationalEditService(database, new LongFormProjectService(new ProjectRepository(database), new ArtifactRepository(database), new WorkflowRepository(database)), [])
+    .validateArchiveHistory(projectId);
 }
 
 function validateArtifacts(database: StoryDatabase, projectId: string): void {
@@ -145,9 +150,25 @@ function validateArtifactRow(input: {
   native: NativeCompilationService;
 }): void {
   const { row, projectId, database, content, simulation, playtest, native } = input;
+  if (row.artifact_type === "source-evidence-material") {
+    const material = SourceEvidenceMaterialSchema.parse(content);
+    if (row.schema_version !== 1 || row.artifact_id !== `source-evidence-material-${material.sourceVersionId}` || material.projectId !== projectId) fail("source material identity");
+    readSourceMaterial(database, projectId, material.sourceVersionId);
+    canonical(material, content, row); return;
+  }
+  if (row.artifact_type === "studio-archive-evidence") {
+    exactIdentity(row, "studio-archive-evidence", [1]);
+    const evidence = StudioArchiveEvidenceSchema.parse(content);
+    if (evidence.projectId !== projectId) fail("studio archive evidence ownership");
+    canonical(evidence, content, row); return;
+  }
+  if (row.artifact_type === "conversational-edit-application") {
+    if (row.schema_version !== 1 || !row.artifact_id.startsWith("conversational-edit-application-")) fail("conversational edit application identity");
+    return; // Complete proposal, application and result lineage is checked by validateArchiveHistory.
+  }
   if (["source", "source-scope"].includes(row.artifact_id) && (database.prepare("SELECT mode FROM projects WHERE id = ?").get(projectId) as { mode?: string } | undefined)?.mode === "long-form") {
     exactIdentity(row, row.artifact_id, [1]);
-    if (row.artifact_id === "source") canonical(AnalysisSourceSchema.parse(content), content, row);
+    if (row.artifact_id === "source") canonical(isUnavailableSource(content) ? UnavailableSourceSchema.parse(content) : AnalysisSourceSchema.parse(content), content, row);
     else {
       const scope = content as { chapterIds?: unknown; sourceVersionId?: unknown };
       if (!Array.isArray(scope?.chapterIds) || !scope.chapterIds.length || scope.chapterIds.some((value) => typeof value !== "string")) fail("source scope");

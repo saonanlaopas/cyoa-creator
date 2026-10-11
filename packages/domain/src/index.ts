@@ -21,3 +21,4 @@ export * from "./long-form-route-plan.js";
 export * from "./long-form-ending-plan.js";
 export * from "./long-form-mechanics-plan.js";
 export * from "./long-form-foundation.js";
+export * from "./studio-archive.js";

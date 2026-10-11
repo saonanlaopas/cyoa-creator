@@ -623,3 +623,13 @@ body { overflow-wrap: anywhere; }
 .long-form-workspace:has(.adaptation-intent-workspace) .workflow-nav { min-width: 0; grid-template-columns: minmax(0, 1fr); }
 .long-form-workspace:has(.adaptation-intent-workspace) .workflow-nav ol { min-width: 0; max-width: 100%; overflow-x: auto; }
 @media (max-width: 760px) { .intent-review-layout, .intent-grid, .intent-dimensions { grid-template-columns: minmax(0, 1fr); } .adaptation-intent-workspace { padding: 12px; } }
+.studio-segments { display: flex; flex-wrap: wrap; gap: .5rem; padding: .5rem; border: 1px solid #59636e; border-radius: 6px; min-width: 0; }
+.studio-segments label, .workflow-nav .studio-segments label { display: flex; align-items: center; gap: .25rem; font-size: .85rem; }
+.studio-segments input { width: 1rem; height: 1rem; margin: 0; }
+.studio-director-navigation { display: grid; gap: .4rem; }
+.studio-director-navigation[hidden] { display: none; }
+.studio-current { font-size: .85rem; margin: 0; overflow-wrap: anywhere; }
+.source-evidence-recovery { min-width: 0; border-top: 1px solid #59636e; padding-top: .6rem; font-size: .85rem; }
+.source-evidence-recovery h3 { font-size: 1rem; margin: 0 0 .4rem; }
+.source-evidence-recovery p, .source-evidence-recovery code, .source-evidence-recovery summary { overflow-wrap: anywhere; }
+.source-evidence-recovery input { max-width: 100%; min-width: 0; }

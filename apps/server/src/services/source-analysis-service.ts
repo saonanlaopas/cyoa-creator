@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { SOURCE_ANALYSIS_POLICY, SOURCE_CATEGORIES, SourceUnitOutputSchema, SourceEvidenceSchema, AnalysisSourceSchema,
   SourceCorrectionOperationSchema, sourceBinding, planSourceAnalysis, sourceCanonicalJson, sourceDigest,
-  sourceUnitContext, resolveSourceEvidence, validateSourceOutput,
+  sourceUnitContext, resolveSourceEvidence, validateSourceOutput, isUnavailableSource, UnavailableSourceSchema,
   type SourceAnalysisPlan, type SourceDossier, type SourceEvidence } from "@story-to-cyoa/domain";
 import { SourceAnalysisRepository, SourceAnalysisUsageSchema, type StoryDatabase, type ProjectRepository,
   type ArtifactRepository, type WorkflowRepository, type ArtifactVersion, type SourceAnalysisUsage } from "@story-to-cyoa/persistence";
@@ -29,8 +29,15 @@ export class SourceAnalysisService {
     this.project(projectId);
     const source = this.artifacts.getCurrent(projectId, "source"), scope = this.artifacts.getCurrent(projectId, "source-scope");
     if (!source) return { sourceVersionId: null, chapters: [], chapterCount: 0, scope: null };
+    if (isUnavailableSource(source.content)) {
+      const index = UnavailableSourceSchema.parse(source.content);
+      return { sourceVersionId: source.id, sourceFingerprint: index.sourceFingerprint, availability: index.availability,
+        chapterCount: index.chapters.length, chapters: index.chapters.slice(offset, offset + limit).map((c) => ({ id: c.id, title: c.id, order: c.order,
+          blockCount: c.blocks.length, characters: c.blocks.reduce((sum, b) => sum + b.characters, 0) })),
+        scope: scope && !scope.stale ? { versionId: scope.id, ...(scope.content as object) } : null };
+    }
     const content = AnalysisSourceSchema.parse(source.content);
-    return { sourceVersionId: source.id, sourceFingerprint: sourceDigest(content), metadata: content.metadata,
+    return { sourceVersionId: source.id, sourceFingerprint: sourceDigest(content), availability: "present" as const, metadata: content.metadata,
       chapterCount: content.chapters.length, chapters: content.chapters.slice(offset, offset + limit).map((c) => ({ id: c.id, title: c.title, order: c.order,
         blockCount: c.blocks.length, characters: c.blocks.reduce((sum, b) => sum + b.text.length, 0) })),
       scope: scope && !scope.stale ? { versionId: scope.id, ...(scope.content as object) } : null };
@@ -39,6 +46,7 @@ export class SourceAnalysisService {
     this.project(projectId);
     const input = ScopeSchema.parse(value), imported = this.artifacts.getCurrent(projectId, "source");
     if (!imported) throw new Error("source_analysis_source_missing");
+    if (isUnavailableSource(imported.content)) throw new Error("source_evidence_unavailable");
     const source = AnalysisSourceSchema.parse(imported.content);
     const chapterIds = "entireWork" in input ? source.chapters.map((c) => c.id) : input.chapterIds;
     sourceBinding(projectId, imported.id, "scope-validation", source, chapterIds);
@@ -52,6 +60,7 @@ export class SourceAnalysisService {
     if (!this.providers.has(input.providerId) || (input.providerId === "openrouter-source-analysis" && input.modelId === "offline-source-v1")) throw new Error("source_analysis_provider_configuration_invalid");
     const source = this.artifacts.getCurrent(projectId, "source"), scope = this.artifacts.getCurrent<{ chapterIds: string[]; sourceVersionId?: string }>(projectId, "source-scope");
     if (!source || !scope || scope.stale || (scope.content.sourceVersionId && scope.content.sourceVersionId !== source.id)) throw new Error("source_analysis_scope_required");
+    if (isUnavailableSource(source.content)) throw new Error("source_evidence_unavailable");
     const normalized = AnalysisSourceSchema.parse(source.content);
     const binding = sourceBinding(projectId, source.id, scope.id, normalized, scope.content.chapterIds);
     const plan = this.repository.savePlan(planSourceAnalysis(binding, normalized, input.providerId, input.modelId));
@@ -169,6 +178,7 @@ export class SourceAnalysisService {
   dossierMetadata(projectId: string, versionId?: string) {
     const version = this.dossier(projectId, versionId), { content, ...metadata } = version;
     return { ...metadata, workflow: this.workflow.get(projectId, "source-dossier"), binding: content.binding,
+      evidenceAvailability: isUnavailableSource(this.artifacts.getVersion(content.binding.sourceVersionId)?.content) ? "unavailable" : "present",
       materialFingerprint: content.materialFingerprint, provenanceFingerprint: content.provenanceFingerprint,
       recordCount: content.records.length, categories: Object.fromEntries(SOURCE_CATEGORIES.map((c) => [c, content.records.filter((r) => r.category === c).length])),
       conflictCount: content.conflicts.length, correctionCount: content.corrections.length };

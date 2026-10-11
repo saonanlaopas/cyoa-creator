@@ -2,6 +2,7 @@ import type { SourceEvidence, SourceRecord, SourceDossier, SourceCorrectionOpera
 
 export interface SourceMetadata {
   sourceVersionId: string | null; sourceFingerprint?: string; metadata?: { title?: string; sourceFormat: string };
+  availability?: "present" | "redacted" | "missing";
   chapterCount: number; chapters: Array<{ id: string; title: string; order: number; blockCount: number; characters: number }>;
   scope: { versionId: string; chapterIds: string[]; sourceVersionId?: string } | null;
 }
@@ -17,6 +18,7 @@ export interface AnalysisJob {
 export interface DossierMetadata {
   id: string; version: number; stale: boolean; materialFingerprint: string; recordCount: number; conflictCount: number; correctionCount: number;
   categories: Record<string, number>; workflow: { status: string; approvedVersionId: string | null };
+  evidenceAvailability?: "present" | "unavailable";
 }
 export type RecordSummary = Omit<SourceRecord, "evidence" | "observationIds"> & { evidenceCount: number; observationCount: number };
 export type RecordDetails = SourceRecord & { evidenceCount: number; originals: SourceDossier["provenance"]; conflicts: SourceDossier["conflicts"]; corrections: SourceDossier["corrections"] };

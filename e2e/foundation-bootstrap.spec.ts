@@ -1,5 +1,6 @@
 import { expect, test as base, type APIRequestContext } from "playwright/test";
 import { spawn } from "node:child_process";
+import { completeStudioProductionJourney } from "./helpers/studio-production-journey.js";
 
 const test = base.extend<{}, { bootstrapBaseURL: string }>({
   bootstrapBaseURL: [async ({}, use) => {
@@ -27,8 +28,12 @@ const test = base.extend<{}, { bootstrapBaseURL: string }>({
 async function adaptedProject(request: APIRequestContext) {
   const response = await request.post("/api/long-form/projects", { data: { name: "A5 harbor foundations" } }); expect(response.ok()).toBe(true);
   const created = await response.json(), id = created.project.id, project = `/api/long-form/projects/${id}`;
-  expect((await request.post(`/api/projects/${id}/source/text`, { data: { text: "Chapter 1\n\nRen dies during the harbor collapse. Jules and Ren are lovers.\n\nChapter 2\n\nMira departs the harbor." } })).ok()).toBe(true);
-  expect((await request.post(`${project}/source-analysis/scope`, { data: { entireWork: true } })).ok()).toBe(true);
+  const text = "Chapter 1\n\nRen dies during the harbor collapse. Jules and Ren are lovers.\n\nChapter 2\n\nMira departs the harbor.\n\nChapter 3\n\n" + "Unselected archival appendix. ".repeat(8_000);
+  expect(Buffer.byteLength(text)).toBeGreaterThan(200_000);
+  expect((await request.post(`/api/projects/${id}/source/text`, { data: { text } })).ok()).toBe(true);
+  const source = await (await request.get(`${project}/source-analysis/source`)).json();
+  expect(source.chapterCount).toBe(3); expect(JSON.stringify(source)).not.toContain("Unselected archival appendix.");
+  expect((await request.post(`${project}/source-analysis/scope`, { data: { chapterIds: source.chapters.slice(0, 2).map((chapter: { id: string }) => chapter.id) } })).ok()).toBe(true);
   const plan = await (await request.post(`${project}/source-analysis/preview`, { data: {} })).json();
   const job = await (await request.post(`${project}/source-analysis/plans/${plan.id}/start`, { data: { fingerprint: plan.fingerprint } })).json();
   await expect.poll(async () => (await (await request.get(`${project}/source-analysis/jobs/${job.id}`)).json()).status).toBe("completed");
@@ -40,6 +45,7 @@ async function adaptedProject(request: APIRequestContext) {
 }
 
 test("A5 offline preview, generation, provenance review and dependency-safe draft Apply leave approval and prose untouched", async ({ page, request }, info) => {
+  test.setTimeout(120_000);
   const f = await adaptedProject(request), root = `${f.project}/foundation-bootstrap`;
   await page.goto("/"); await page.evaluate((id) => { localStorage.setItem("story-to-cyoa.long-form-project-id", id); localStorage.setItem("story-to-cyoa.long-form-stage", "foundation-bootstrap"); }, f.id);
   await page.getByRole("button", { name: "Long-form workspace" }).click();
@@ -69,7 +75,8 @@ test("A5 offline preview, generation, provenance review and dependency-safe draf
   expect(titleBox!.y).toBeGreaterThanOrEqual(navBox!.y + navBox!.height);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole("button", { name: "Apply reviewed drafts" }).click();
-  await expect(page.getByText("Foundation drafts applied. Ordinary approval required; no passage plan or prose generated.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Project brief", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Review", { exact: true })).toBeChecked();
   const after = await (await request.get(f.project)).json();
   for (const id of ["brief", "creative-direction", "bible", "routes", "endings", "mechanics"]) {
     expect(after.workflow[id].status).toBe("draft"); expect(after.workflow[id].approvedVersionId).toBeNull();
@@ -77,7 +84,8 @@ test("A5 offline preview, generation, provenance review and dependency-safe draf
   }
   const passages = await (await request.get(`${f.project}/passage-plan`)).json(); expect(passages.structure).toBeNull(); expect(passages.passages).toHaveLength(0);
   const drafts = await (await request.get(`${f.project}/drafts/review-queue`)).json(); expect(drafts.items ?? drafts).toHaveLength(0);
-  await page.reload(); await expect(page.getByRole("heading", { name: "Foundation bootstrap", exact: true })).toBeVisible();
+  await page.reload(); await expect(page.getByRole("heading", { name: "Project brief", exact: true })).toBeVisible();
+  await completeStudioProductionJourney(page, request, f.id, info);
 });
 
 test("A5 unused-preview archive recovery requires a real download and leaves canonical work untouched", async ({ page, request }) => {

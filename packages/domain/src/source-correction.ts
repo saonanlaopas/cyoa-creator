@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { SourceEvidenceSchema, SourceObservationSchema, SourceDossierSchema, assertSourceDossier,
   sourceCanonicalJson, sourceConflicts, sourceDigest, sourceDossierFingerprints, sourceSorted, sourceUnique, SOURCE_ANALYSIS_POLICY, assertSourceDossierBudget,
-  type AnalysisSource, type SourceDossier, type SourceRecord } from "./source-analysis.js";
+  type SourceEvidenceMaterial, type SourceDossier, type SourceRecord } from "./source-analysis.js";
 
 const id = z.string().min(1).max(240).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const common = { intent: z.literal("source-analysis-correction"), reason: z.string().trim().min(1).max(1_000), previousVersionId: id };
@@ -22,7 +22,7 @@ export const SourceCorrectionOperationSchema = z.discriminatedUnion("kind", [
 ]);
 export type SourceCorrectionOperation = z.infer<typeof SourceCorrectionOperationSchema>;
 
-export function correctSourceDossier(previous: SourceDossier, value: unknown, source: AnalysisSource): SourceDossier {
+export function correctSourceDossier(previous: SourceDossier, value: unknown, source: SourceEvidenceMaterial): SourceDossier {
   if (previous.corrections.length >= SOURCE_ANALYSIS_POLICY.maxCorrections) throw new Error("source_correction_count_budget_exceeded: review a new analysis draft");
   if (new TextEncoder().encode(JSON.stringify(value)).length > SOURCE_ANALYSIS_POLICY.maxCorrectionBytes - 1024)
     throw new Error("source_correction_byte_budget_exceeded: use a smaller correction with exact evidence");

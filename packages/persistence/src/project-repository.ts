@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
   CreativeDirectionSchema,
-  compareCreativeDirectionStrings,
   creativeDirectionFingerprints,
 } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
@@ -13,6 +12,7 @@ import { prepareAdaptationDuplicate, remapAdaptationIntent, remapAdaptationPropo
 import { validateAdaptationDatabase } from "./adaptation-intent-validation.js";
 import { copyFoundationBootstrapRows } from "./foundation-bootstrap-duplication.js";
 import { FoundationBootstrapRepository, validateFoundationBootstrapDatabase } from "./foundation-bootstrap-repository.js";
+import { prepareAuthoringDuplicate, copyAuthoringRows, prepareEditDuplicate, remapStudioValue } from "./studio-duplication.js";
 import { validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
 import type { SourceDossier } from "@story-to-cyoa/domain";
 
@@ -88,10 +88,13 @@ export class ProjectRepository {
     else transaction(this.database, remove);
   }
 
-  duplicate(id: string, name?: string): ProjectRecord {
+  duplicate(id: string, name?: string, validateProject?: (database: StoryDatabase, projectId: string) => void,
+    prepareHistory?: (database: StoryDatabase, projectId: string, copyId: string, ids: Map<string, string>) => Map<string, unknown>): ProjectRecord {
     const source = this.get(id);
     if (!source) throw new Error("Project not found");
     return transaction(this.database, () => {
+      this.database.exec("PRAGMA defer_foreign_keys = ON");
+      validateProject?.(this.database, id);
       const copy = this.create(name ?? `${source.name} (copy)`, randomUUID(), source.mode);
       const versions = this.database.prepare(`
         SELECT * FROM artifact_versions WHERE project_id = ? ORDER BY artifact_id, version
@@ -124,29 +127,44 @@ export class ProjectRepository {
       const allIds = new Map<string, string>([
         [id, copy.id], ...versionIdMap, ...conversationIdMap, ...messageIdMap, ...changeSetIdMap, ...setupProposalIdMap, ...memoryIdMap,
       ]);
+      for (const row of versions) if (row.artifact_type === "studio-archive-evidence") {
+        const evidence = JSON.parse(String(row.content_json)) as { omissions: Array<{ id: string }> };
+        for (const omission of evidence.omissions) if (!allIds.has(omission.id)) allIds.set(omission.id, randomUUID());
+      }
+      for (const row of versions) if (row.artifact_type === "source-evidence-material") {
+        const material = JSON.parse(String(row.content_json)) as { sourceVersionId: string };
+        allIds.set(String(row.artifact_id), `source-evidence-material-${allIds.get(material.sourceVersionId)!}`);
+      }
       prepareSourceAnalysisDuplicate(this.database, id, copy.id, allIds);
       prepareAdaptationDuplicate(this.database, id, allIds);
+      const authoringRows = prepareAuthoringDuplicate(this.database, id, allIds);
+      const edits = prepareEditDuplicate(messages, changeSets, allIds);
+      for (const change of changeSets) if (JSON.parse(String(change.proposal_json ?? "null"))?.kind === "conversational-edit-v1") {
+        allIds.set(`conversational-edit-application-${change.id}`, `conversational-edit-application-${allIds.get(String(change.id))!}`);
+      }
+      const history = prepareHistory?.(this.database, id, copy.id, allIds);
 
       const insertVersion = (version: typeof versions[number]) => {
-        let contentJson = String(version.content_json);
-        if (version.artifact_id === "source-scope") contentJson = JSON.stringify(remapSourceAnalysisValue(JSON.parse(contentJson), allIds));
-        if (version.artifact_id === "source-dossier") contentJson = JSON.stringify(remapSourceDossierContent(this.database, JSON.parse(contentJson) as SourceDossier, allIds));
-        if (version.artifact_id === "adaptation-intent") contentJson = JSON.stringify(remapAdaptationIntent(this.database, JSON.parse(contentJson), allIds));
-        if (version.artifact_type === "adaptation-intent-proposal") contentJson = JSON.stringify(remapAdaptationProposal(this.database, JSON.parse(contentJson), allIds));
+        const original = String(version.content_json);
+        let contentJson = version.artifact_id === "source" ? original : JSON.stringify(remapStudioValue(JSON.parse(original), allIds));
+        if (version.artifact_id === "source-scope") contentJson = JSON.stringify(remapSourceAnalysisValue(JSON.parse(original), allIds));
+        if (version.artifact_id === "source-dossier") contentJson = JSON.stringify(remapSourceDossierContent(this.database, JSON.parse(original) as SourceDossier, allIds));
+        if (version.artifact_id === "adaptation-intent") contentJson = JSON.stringify(remapAdaptationIntent(this.database, JSON.parse(original), allIds));
+        if (version.artifact_type === "adaptation-intent-proposal") contentJson = JSON.stringify(remapAdaptationProposal(this.database, JSON.parse(original), allIds));
         if (version.artifact_id === "creative-direction") {
           const content = remapJsonValue(
-            CreativeDirectionSchema.parse(JSON.parse(contentJson)), allIds,
+            CreativeDirectionSchema.parse(JSON.parse(original)), allIds,
           ) as ReturnType<typeof CreativeDirectionSchema.parse>;
-          content.fieldProvenance.sort((left, right) => compareCreativeDirectionStrings(JSON.stringify(left), JSON.stringify(right)));
           content.provenanceFingerprint = creativeDirectionFingerprints(content).provenanceFingerprint;
           contentJson = JSON.stringify(CreativeDirectionSchema.parse(content));
         }
+        if (history?.has(String(version.id))) contentJson = JSON.stringify(history.get(String(version.id)));
         this.database.prepare(`
           INSERT INTO artifact_versions
             (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, restored_from_version_id, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          versionIdMap.get(String(version.id))!, copy.id, version.artifact_id, version.artifact_type,
+          versionIdMap.get(String(version.id))!, copy.id, allIds.get(String(version.artifact_id)) ?? version.artifact_id, version.artifact_type,
           version.version, version.schema_version, contentJson, version.stale,
           version.restored_from_version_id ? requireMapped(versionIdMap, String(version.restored_from_version_id)) : null,
           version.created_at,
@@ -163,7 +181,7 @@ export class ProjectRepository {
         this.database.prepare(`
           INSERT INTO artifact_dependencies (project_id, upstream_artifact_id, dependent_artifact_id)
           VALUES (?, ?, ?)
-        `).run(copy.id, dependency.upstream_artifact_id, dependency.dependent_artifact_id);
+        `).run(copy.id, allIds.get(dependency.upstream_artifact_id) ?? dependency.upstream_artifact_id, allIds.get(dependency.dependent_artifact_id) ?? dependency.dependent_artifact_id);
       }
       const workflows = this.database.prepare(
         "SELECT * FROM artifact_workflow_state WHERE project_id = ? ORDER BY artifact_id",
@@ -171,7 +189,7 @@ export class ProjectRepository {
       for (const workflow of workflows) {
         this.database.prepare(`INSERT INTO artifact_workflow_state
           (project_id, artifact_id, status, approved_version_id, updated_at) VALUES (?, ?, ?, ?, ?)`)
-          .run(copy.id, workflow.artifact_id, workflow.status,
+          .run(copy.id, allIds.get(String(workflow.artifact_id)) ?? workflow.artifact_id, workflow.status,
             workflow.approved_version_id ? requireMapped(versionIdMap, String(workflow.approved_version_id)) : null,
             workflow.updated_at);
       }
@@ -180,8 +198,9 @@ export class ProjectRepository {
       ).all(id) as Array<Record<string, string | number | null>>;
       for (const approval of approvals) this.database.prepare(`INSERT INTO artifact_version_approvals
         (project_id, artifact_id, version_id, approved_at) VALUES (?, ?, ?, ?)`)
-        .run(copy.id, approval.artifact_id, requireMapped(versionIdMap, String(approval.version_id)), approval.approved_at);
+        .run(copy.id, allIds.get(String(approval.artifact_id)) ?? approval.artifact_id, requireMapped(versionIdMap, String(approval.version_id)), approval.approved_at);
       for (const version of versions.filter((v) => v.artifact_type === "adaptation-intent-proposal")) insertVersion(version);
+      copyAuthoringRows(this.database, authoringRows, allIds);
 
       for (const conversation of conversations) this.database.prepare(`INSERT INTO conversations
         (id, project_id, purpose, title, scope_json, summary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -193,7 +212,7 @@ export class ProjectRepository {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(requireMapped(messageIdMap, String(message.id)), requireMapped(conversationIdMap, String(message.conversation_id)),
           message.role, message.content, message.intent, remapJsonText(String(message.scope_json), allIds),
-          remapJsonText(String(message.context_json), allIds), remapJsonText(String(message.metadata_json), allIds), message.created_at);
+          remapJsonText(String(message.context_json), allIds), edits.messages.get(String(message.id)) ?? remapJsonText(String(message.metadata_json), allIds), message.created_at);
       for (const change of changeSets) this.database.prepare(`INSERT INTO change_sets
         (id, project_id, conversation_id, artifact_id, base_version_id, status, summary, rationale,
           candidate_json, proposal_json, validation_json, invalidations_json, applied_version_id, created_at, updated_at)
@@ -202,7 +221,7 @@ export class ProjectRepository {
           requireMapped(conversationIdMap, String(change.conversation_id)), change.artifact_id,
           requireMapped(versionIdMap, String(change.base_version_id)), change.status, change.summary, change.rationale,
           remapJsonText(String(change.candidate_json), allIds),
-          change.proposal_json === null ? null : remapJsonText(String(change.proposal_json), allIds),
+          change.proposal_json === null ? null : edits.proposals.get(String(change.id)) ?? remapJsonText(String(change.proposal_json), allIds),
           remapJsonText(String(change.validation_json), allIds), remapJsonText(String(change.invalidations_json), allIds),
           change.applied_version_id ? requireMapped(versionIdMap, String(change.applied_version_id)) : null,
           change.created_at, change.updated_at);
@@ -276,6 +295,7 @@ export class ProjectRepository {
       copyFoundationBootstrapRows(this.database, id, allIds);
       validateFoundationBootstrapDatabase(this.database, copy.id);
       new FoundationBootstrapRepository(this.database).recoverInterrupted(copy.id);
+      validateProject?.(this.database, copy.id);
       return copy;
     });
   }

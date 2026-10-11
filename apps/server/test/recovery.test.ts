@@ -127,11 +127,11 @@ describe("Foundation 8A verified project recovery", () => {
     } finally { source.database.close(); }
   });
 
-  it("creates a strict backup around unchanged portable-v1 bytes, previews without writes, and restores exact stable identity", async () => {
+  it("creates a strict backup around unchanged full-fidelity portable bytes, previews without writes, and restores exact stable identity", async () => {
     const source = context();
     try {
       source.projects.create("Ångström 物語 — exact", "exact-project", "long-form");
-      const portableBefore = source.publication.exportPortable("exact-project");
+      const portableBefore = source.publication.exportStudioPortable("exact-project");
       const created = await source.recovery.createVerifiedBackup("exact-project");
       const outer = unzipSync(created.bytes);
       expect(Object.keys(outer).sort()).toEqual(["backup-record.json", "portable-project.cyoa.zip"]);
@@ -154,7 +154,7 @@ describe("Foundation 8A verified project recovery", () => {
       const restored = await source.recovery.restoreBackup(created.bytes);
       expect(restored.projectId).toBe("exact-project");
       expect(source.projects.get("exact-project")?.name).toBe("Ångström 物語 — exact");
-      expect(source.publication.exportPortable("exact-project").manifest.projectFingerprint).toBe(portableBefore.manifest.projectFingerprint);
+      expect(source.publication.exportStudioPortable("exact-project").manifest.projectFingerprint).toBe(portableBefore.manifest.projectFingerprint);
       expect(new RecoveryRepository(source.database).listBackups("exact-project")).toHaveLength(1);
       expect(new RecoveryRepository(source.database).listRestores("exact-project")).toHaveLength(1);
     } finally { source.database.close(); }
@@ -300,7 +300,7 @@ describe("Foundation 8A verified project recovery", () => {
       afterBackupCapture: () => { projects.rename("concurrent-project", "Version B"); },
     });
     try {
-      const capturedA = recoveryContext.publication.exportPortable("concurrent-project").manifest.projectFingerprint;
+      const capturedA = recoveryContext.publication.exportStudioPortable("concurrent-project").manifest.projectFingerprint;
       const backup = await recoveryContext.recovery.createVerifiedBackup("concurrent-project");
       expect(backup.record.portableProjectFingerprint).toBe(capturedA);
       expect((await recoveryContext.recovery.previewBackup(backup.bytes)).projectName).toBe("Version A");

@@ -1059,6 +1059,10 @@ describe("Foundation 6C repair application", () => {
       expect(direct.passagePlans.currentEntity(value.projectId, "passage", passageId)?.id).toBe(versionId);
     }
     expect(direct.passagePlans.listEntityVersions(value.projectId, "passage", passage.content.id).map((item) => item.id)).toContain(expectedBase.versionId);
+    const copied = await value.app.inject({ method: "POST", url: `/api/projects/${value.projectId}/duplicate` });
+    expect(copied.statusCode, copied.body).toBe(201);
+    const copiedBackup = await value.app.inject({ method: "POST", url: `/api/projects/${copied.json().id}/recovery/backups` });
+    expect(copiedBackup.statusCode, copiedBackup.body).toBe(200);
     direct.database.close();
   }, 30_000);
 

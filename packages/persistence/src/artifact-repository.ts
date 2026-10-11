@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { CreativeDirectionSchema, normalizeAdaptationIntent, type AdaptationIntent } from "@story-to-cyoa/domain";
+import { CreativeDirectionSchema, isUnavailableSource, normalizeAdaptationIntent, type AdaptationIntent } from "@story-to-cyoa/domain";
+import { readSourceMaterial } from "./source-material.js";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
 import { artifactChain } from "./schema.js";
@@ -139,6 +140,7 @@ export class ArtifactRepository {
       SELECT * FROM artifact_versions WHERE project_id = ? AND artifact_id = ? ORDER BY version DESC
     `).all(projectId, artifactId) as ArtifactRow[]).map(mapArtifact<T>);
     versions.forEach((version) => {
+      if (version.artifactId === "source" && isUnavailableSource(version.content)) version.content = readSourceMaterial(this.database, projectId, version.id) as T;
       if (version.artifactId === "creative-direction") this.validateCreativeDirectionProvenance(projectId, artifactId, version.content);
       if (version.artifactId === "source-dossier") validateDossierPersistence(this.database, projectId, version.content);
       if (version.artifactId === "adaptation-intent") validateAdaptationIntent(this.database, projectId, version.content);
@@ -154,6 +156,7 @@ export class ArtifactRepository {
   getVersion<T = unknown>(versionId: string): ArtifactVersion<T> | undefined {
     const row = this.database.prepare("SELECT * FROM artifact_versions WHERE id = ?").get(versionId) as ArtifactRow | undefined;
     const version = row ? mapArtifact<T>(row) : undefined;
+    if (version?.artifactId === "source" && isUnavailableSource(version.content)) version.content = readSourceMaterial(this.database, version.projectId, version.id) as T;
     if (version?.artifactId === "creative-direction") {
       this.validateCreativeDirectionProvenance(version.projectId, version.artifactId, version.content);
     }

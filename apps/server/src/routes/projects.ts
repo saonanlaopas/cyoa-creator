@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ArtifactRepository, ProjectRepository } from "@story-to-cyoa/persistence";
 import type { LongFormProjectService } from "../services/long-form-project-service.js";
+import { validatePortableAuthoringProject } from "../services/portable-project-validator.js";
+import { prepareStudioHistoryDuplicate } from "../services/studio-history-duplication.js";
 
 interface ProjectParams { projectId: string }
 interface ArtifactParams extends ProjectParams { artifactId: string }
@@ -42,9 +44,11 @@ export function registerProjectRoutes(
 
   app.post<{ Params: ProjectParams; Body: { name?: string } }>("/api/projects/:projectId/duplicate", async (request, reply) => {
     try {
-      return reply.code(201).send(projects.duplicate(request.params.projectId, request.body?.name));
+      const project = projects.get(request.params.projectId);
+      return reply.code(201).send(projects.duplicate(request.params.projectId, request.body?.name, project?.mode === "long-form" ? validatePortableAuthoringProject : undefined,
+        project?.mode === "long-form" ? prepareStudioHistoryDuplicate : undefined));
     } catch (error) {
-      return reply.code(404).send({ error: (error as Error).message });
+      return reply.code((error as Error).message === "Project not found" ? 404 : 400).send({ error: (error as Error).message });
     }
   });
 

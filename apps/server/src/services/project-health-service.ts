@@ -39,8 +39,8 @@ export interface ProjectUsageReport {
   schemaVersion: 1;
   projectId: string;
   authority: {
-    relationalAttempts: ["generation_unit_attempts", "drafting_unit_attempts"];
-    immutableAggregateAttempts: ["narrative-review", "repair-proposal-generation"];
+    relationalAttempts: ["generation_unit_attempts", "drafting_unit_attempts", "source_analysis_attempts"];
+    immutableAggregateAttempts: ["narrative-review", "repair-proposal-generation", "foundation-bootstrap"];
     legacyRecords: "usage_records";
     excludes: ["job-unit rollups", "drafting unit rollups", "candidate mirrors"];
   };
@@ -67,10 +67,10 @@ export interface ProjectResumeReport {
   generatedAt: string;
   facts: ReturnType<ProjectHealthRepository["resume"]>;
   backup: { latestVerifiedAt: string | null; latestVerifiedBackupId: string | null; freshness: "not-evaluated" };
-  actions: Array<{ id: string; stage: "passage-plan" | "repair" | "publication" | "recovery" | "health";
+  actions: Array<{ id: string; stage: "passage-plan" | "repair" | "publication" | "recovery" | "health" | ReturnType<ProjectHealthRepository["studioResume"]>[number]["stage"];
     label: string; count: number; stableId: string | null; jobKind: "generation" | "drafting" | null;
     jobId: string | null; jobStatus: string | null }>;
-  truncated: false;
+  truncated: boolean;
 }
 
 export interface ProjectHealth {
@@ -230,8 +230,8 @@ export class ProjectHealthService {
     return {
       schemaId: "cyoa.project-usage", schemaVersion: 1, projectId,
       authority: {
-        relationalAttempts: ["generation_unit_attempts", "drafting_unit_attempts"],
-        immutableAggregateAttempts: ["narrative-review", "repair-proposal-generation"],
+        relationalAttempts: ["generation_unit_attempts", "drafting_unit_attempts", "source_analysis_attempts"],
+        immutableAggregateAttempts: ["narrative-review", "repair-proposal-generation", "foundation-bootstrap"],
         legacyRecords: "usage_records",
         excludes: ["job-unit rollups", "drafting unit rollups", "candidate mirrors"],
       },
@@ -247,7 +247,7 @@ export class ProjectHealthService {
     this.requireProject(projectId);
     const facts = this.facts.resume(projectId);
     const backup = this.recovery.latestVerifiedBackup(projectId);
-    const actions: ProjectResumeReport["actions"] = [];
+    const actions: ProjectResumeReport["actions"] = this.facts.studioResume(projectId).map((action) => ({ ...action, stableId: null, jobKind: null, jobId: null, jobStatus: null }));
     const add = (id: string, stage: ProjectResumeReport["actions"][number]["stage"], label: string, count: number,
       stableId: string | null = null, jobKind: "generation" | "drafting" | null = null,
       jobId: string | null = null, jobStatus: string | null = null) => {
@@ -277,7 +277,7 @@ export class ProjectHealthService {
       stableId: null, jobKind: null, jobId: null, jobStatus: null });
     return { schemaId: "cyoa.project-resume", schemaVersion: 1, projectId, authority: "persisted-facts-only",
       generatedAt: new Date().toISOString(), facts, backup: { latestVerifiedAt: backup?.verifiedAt ?? null,
-        latestVerifiedBackupId: backup?.backupId ?? null, freshness: "not-evaluated" }, actions: actions.slice(0, 20), truncated: false };
+        latestVerifiedBackupId: backup?.backupId ?? null, freshness: "not-evaluated" }, actions: actions.slice(0, 20), truncated: actions.length > 20 };
   }
 
   storageDiagnostics(projectId: string): ProjectStorageDiagnostics {

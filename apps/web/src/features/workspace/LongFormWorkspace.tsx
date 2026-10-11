@@ -38,6 +38,7 @@ import { SourceAnalysisWorkspace } from "./SourceAnalysisWorkspace.js";
 import { AdaptationIntentWorkspace } from "./AdaptationIntentWorkspace.js";
 import { FoundationBootstrapWorkspace } from "./FoundationBootstrapWorkspace.js";
 import { ConversationalEditWorkspace } from "./ConversationalEditWorkspace.js";
+import { SourceEvidenceRecovery } from "./SourceEvidenceRecovery.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
@@ -48,6 +49,8 @@ const isLongFormStage = (value: unknown): value is LongFormStage => typeof value
 const stages = ["Source analysis", "Project brief", "Creative Direction", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Repair planning", "Publication", "Resume work", "Project health", "Backup & recovery"];
 const navigationStageIds: Array<LongFormStage | null> = ["source-analysis", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", null, "simulation", "repair", "publication", "resume", "health", "recovery"];
 type NavigationHint = { stage: LongFormStage; entityId: string | null };
+type StudioLayer = "director" | "review" | "advanced";
+const layerKey = (projectId: string) => `story-to-cyoa.layer.${projectId}`;
 const stageLabels: Record<LongFormStage, string> = {
   setup: "Talk it through",
   "source-analysis": "Source analysis",
@@ -90,8 +93,11 @@ export function LongFormWorkspace() {
   const [navigationHistory, setNavigationHistory] = useState<LongFormStage[]>([]);
   const [lastWorkspaceHint, setLastWorkspaceHint] = useState<NavigationHint | null>(null);
   const [requestedJob, setRequestedJob] = useState<{ kind: "generation" | "drafting"; id: string } | null>(null);
+  const [layer, setLayer] = useState<StudioLayer>("advanced");
+  const [sourceRevision, setSourceRevision] = useState(0);
 
   const openProject = async (projectId: string) => {
+    const initialSelection = !project && localStorage.getItem(activeProjectKey) === projectId;
     const state = await loadLongFormProject(projectId);
     setProject(state.project);
     setBrief(state.brief);
@@ -109,6 +115,12 @@ export function LongFormWorkspace() {
     setValidation(state.validation);
     setAdaptationIntentAdopted(Boolean(state.adaptationIntentAdopted));
     localStorage.setItem(activeProjectKey, projectId);
+    const savedLayer = localStorage.getItem(layerKey(projectId));
+    setLayer(savedLayer === "director" || savedLayer === "review" ? savedLayer : "advanced");
+    if (project?.id !== projectId) {
+      setActiveStage(initialSelection && isLongFormStage(storedStage) ? storedStage : "brief"); setPassagePlanJump(""); setCurrentStableId(""); setStableIdInput("");
+      setNavigationHistory([]); setLastWorkspaceHint(null); setRequestedJob(null);
+    }
     try {
       const saved = JSON.parse(localStorage.getItem(navigationKey(projectId)) ?? "null") as { stage?: LongFormStage; entityId?: string; scrollY?: number; previous?: NavigationHint } | null;
       if (isLongFormStage(saved?.stage)) setActiveStage(saved.stage);
@@ -158,6 +170,18 @@ export function LongFormWorkspace() {
     }).catch((error: Error) => setMessage(error.message));
   }, []);
 
+  const handoff = async () => {
+    if (!project) return;
+    const state = await loadLongFormProject(project.id);
+    await openProject(project.id);
+    const versions = { brief: state.brief, "creative-direction": state.creativeDirection, bible: state.bible, routes: state.routes, endings: state.endings, mechanics: state.mechanics };
+    const next = (["brief", "creative-direction", "bible", "routes", "endings", "mechanics"] as const)
+      .find((id) => versions[id] && (state.workflow[id].status !== "approved" || state.workflow[id].approvedVersionId !== versions[id]!.id)) ?? "brief";
+    setLayer("review"); localStorage.setItem(layerKey(project.id), "review");
+    navigate(next); setMessage("Foundation drafts are ready for ordinary review. Nothing has been approved and no passages have been generated.");
+    requestAnimationFrame(() => document.getElementById("main-content")?.focus({ preventScroll: true }));
+  };
+
   const create = async (initialStage: LongFormStage = "brief") => {
     if (!newName.trim()) return;
     setBusy(true);
@@ -197,6 +221,8 @@ export function LongFormWorkspace() {
       setMechanics(null);
       setMechanicsWorkflow({ projectId: created.project.id, artifactId: "mechanics", status: "empty", approvedVersionId: null, updatedAt: "" });
       setActiveStage(initialStage);
+      setLayer(initialStage === "brief" ? "advanced" : "director");
+      localStorage.setItem(layerKey(created.project.id), initialStage === "brief" ? "advanced" : "director");
       localStorage.setItem(activeStageKey, initialStage);
       setNewName("");
       localStorage.setItem(activeProjectKey, created.project.id);
@@ -225,6 +251,7 @@ export function LongFormWorkspace() {
             const created = await createSetupProject(newName);
             setProjects((items) => [created.project, ...items]);
             await openProject(created.project.id);
+            setLayer("director"); localStorage.setItem(layerKey(created.project.id), "director");
             setActiveStage("setup"); localStorage.setItem(activeStageKey, "setup"); setNewName("");
             localStorage.setItem(navigationKey(created.project.id), JSON.stringify({ stage: "setup" }));
           } catch (error) { setMessage((error as Error).message); }
@@ -247,6 +274,16 @@ export function LongFormWorkspace() {
     <nav className="workflow-nav" aria-label="Long-form workflow">
       <p className="eyebrow">Long-form project</p>
       <h2>{project.name}</h2>
+      <fieldset className="studio-segments"><legend>Workspace</legend>
+        {(["director", "review", "advanced"] as const).map((value) => <label key={value}>
+          <input type="radio" name="studio-layer" value={value} checked={layer === value} onChange={() => {
+            const scrollY = window.scrollY;
+            setLayer(value); localStorage.setItem(layerKey(project.id), value);
+            requestAnimationFrame(() => window.scrollTo({ top: scrollY }));
+          }} />{value === "director" ? "Director" : value === "review" ? "Review" : "Advanced"}
+        </label>)}
+      </fieldset>
+      <p className="studio-current" aria-live="polite">{stageLabels[activeStage]}{currentStableId ? ` / ${currentStableId}` : ""}</p>
       <label>Switch project
         <select value={project.id} onChange={(event) => void openProject(event.target.value)}>
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -268,11 +305,16 @@ export function LongFormWorkspace() {
         setActiveStage("brief");
         localStorage.setItem(activeStageKey, "brief");
       }}>New project</button>
-      <button aria-current={activeStage === "setup" ? "step" : undefined} onClick={() => navigate("setup")}>Talk it through</button>
-      <button aria-current={activeStage === "adaptation-intent" ? "step" : undefined} onClick={() => navigate("adaptation-intent")}>Adaptation Intent</button>
-      <button aria-current={activeStage === "foundation-bootstrap" ? "step" : undefined} onClick={() => navigate("foundation-bootstrap")}>Foundation bootstrap</button>
-      <button aria-current={activeStage === "editing" ? "step" : undefined} onClick={() => navigate("editing")}>Conversational editing</button>
-      <details open={activeStage !== "setup"}><summary>Advanced workspace</summary><ol>
+      <div hidden={layer === "review"} className="studio-director-navigation">
+        <button aria-current={activeStage === "setup" ? "step" : undefined} onClick={() => navigate("setup")}>Talk it through</button>
+        <button aria-current={activeStage === "source-analysis" ? "step" : undefined} onClick={() => navigate("source-analysis")}>Analyze a supplied story</button>
+        <button aria-current={activeStage === "adaptation-intent" ? "step" : undefined} onClick={() => navigate("adaptation-intent")}>Adaptation Intent</button>
+        <button aria-current={activeStage === "foundation-bootstrap" ? "step" : undefined} onClick={() => navigate("foundation-bootstrap")}>Foundation bootstrap</button>
+        <button aria-current={activeStage === "editing" ? "step" : undefined} onClick={() => navigate("editing")}>Conversational editing</button>
+      </div>
+      {layer === "director" && <button onClick={() => navigate("resume")}>Resume work</button>}
+      <SourceEvidenceRecovery key={project.id} projectId={project.id} onReattached={async () => { await openProject(project.id); setSourceRevision((value) => value + 1); }} />
+      <details open={activeStage !== "setup" || layer === "review"} hidden={layer === "director"}><summary>{layer === "review" ? "Review & production" : "Advanced workspace"}</summary><ol>
         {stages.map((stage, index) => {
           const stageId = navigationStageIds[index] ?? null;
           const enabled = stageId === "source-analysis" || stageId === "brief" || stageId === "creative-direction"
@@ -322,7 +364,7 @@ export function LongFormWorkspace() {
         </li>;
         })}
       </ol>
-      <section className="navigation-memory" aria-labelledby="navigation-memory-heading">
+      <section hidden={layer !== "advanced"} className="navigation-memory" aria-labelledby="navigation-memory-heading">
         <h3 id="navigation-memory-heading">Session navigation</h3>
         <p aria-live="polite">{project.name} / {stageLabels[activeStage]}{currentStableId ? ` / ${currentStableId}` : ""}</p>
         <button disabled={navigationHistory.length === 0} onClick={() => {
@@ -365,7 +407,7 @@ export function LongFormWorkspace() {
       </details>}
     </section>}
 
-    {activeStage === "editing" ? <ConversationalEditWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id)} onDraftRoute={(id) => { setPassagePlanJump(id); navigate("passage-plan", id); }} /> : activeStage === "setup" ? <ProjectSetupWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id)} /> : activeStage === "foundation-bootstrap" ? <FoundationBootstrapWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id)} /> : activeStage === "brief" ? <section className="artifact-pane">
+    {activeStage === "editing" ? <ConversationalEditWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id).then(() => undefined)} onDraftRoute={(id) => { setPassagePlanJump(id); navigate("passage-plan", id); }} /> : activeStage === "setup" ? <ProjectSetupWorkspace key={project.id} projectId={project.id} onApplied={handoff} /> : activeStage === "foundation-bootstrap" ? <FoundationBootstrapWorkspace key={project.id} projectId={project.id} onApplied={handoff} /> : activeStage === "brief" ? <section className="artifact-pane">
       <header className="artifact-header">
         <div>
           <p className="eyebrow">Stage 1</p>
@@ -408,7 +450,7 @@ export function LongFormWorkspace() {
       projectId={project.id} direction={creativeDirection} workflow={creativeDirectionWorkflow}
       busy={busy} message={message} setBusy={setBusy} setMessage={setMessage}
       onChanged={() => openProject(project.id)}
-    /> : activeStage === "source-analysis" ? <SourceAnalysisWorkspace key={project.id} projectId={project.id} onStatusChange={(status) => setSourceAnalysisStatus({ projectId: project.id, status })} /> : activeStage === "adaptation-intent" ? <AdaptationIntentWorkspace key={project.id} projectId={project.id} onStatusChange={(status) => setAdaptationIntentAdopted(status !== "empty")} /> : activeStage === "bible" ? <BibleWorkspace
+    /> : activeStage === "source-analysis" ? <SourceAnalysisWorkspace key={project.id} projectId={project.id} refreshToken={sourceRevision} onStatusChange={(status) => setSourceAnalysisStatus({ projectId: project.id, status })} /> : activeStage === "adaptation-intent" ? <AdaptationIntentWorkspace key={project.id} projectId={project.id} onStatusChange={(status) => setAdaptationIntentAdopted(status !== "empty")} /> : activeStage === "bible" ? <BibleWorkspace
       projectId={project.id}
       briefApproved={briefWorkflow.status === "approved"}
       creativeDirectionApproved={creativeDirectionWorkflow.status === "approved"}

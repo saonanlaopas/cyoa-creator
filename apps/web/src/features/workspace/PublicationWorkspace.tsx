@@ -45,6 +45,7 @@ export function PublicationWorkspace({ projectId, playerStorage }: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [portableFile, setPortableFile] = useState<File | null>(null);
+  const [archiveMode, setArchiveMode] = useState<"full-fidelity" | "privacy-redacted">("full-fidelity");
   const [portablePreview, setPortablePreview] = useState<Awaited<ReturnType<typeof previewPortableProject>> | null>(null);
   const [tweeCompatibility, setTweeCompatibility] = useState<Awaited<ReturnType<typeof inspectTweeCompatibility>> | null>(null);
 
@@ -271,12 +272,18 @@ export function PublicationWorkspace({ projectId, playerStorage }: {
     <DiagnosticSection title="Acknowledged warnings" items={readiness.acknowledgedWarnings} empty="No acknowledged warnings." />
 
     <section className="brief-section publication-exports" aria-label="Publication exports">
+      <fieldset className="studio-segments"><legend>Authoring archive</legend>
+        <label><input type="radio" name="archive-mode" checked={archiveMode === "full-fidelity"} onChange={() => setArchiveMode("full-fidelity")} />Full-fidelity</label>
+        <label><input type="radio" name="archive-mode" checked={archiveMode === "privacy-redacted"} onChange={() => setArchiveMode("privacy-redacted")} />Privacy-redacted</label>
+      </fieldset>
+      {archiveMode === "full-fidelity" ? <p>Includes source material, conversations and proposal history. Treat this archive as private.</p>
+        : <p role="status">Source bodies, conversation records, author memory and conversational proposals will be omitted. Canonical prose, dossier claims and provenance excerpts remain; this is not anonymization. Evidence-grounded work requires exact source reattachment; this is not a verified recovery backup.</p>}
       <h2>Exports</h2>
       <p>Each publication captures the exact approved native bundle and current immutable player policy. Markdown is readable only; the portable project archive is the re-importable authoring format.</p>
       <div className="artifact-actions">
         {(["portable", "markdown", "static", "standalone", "twee"] as const).map((format) => <a
           key={format} className="button" aria-disabled={!readiness.ready && format !== "portable"}
-          href={readiness.ready || format === "portable" ? publicationExportUrl(projectId, format) : undefined}
+          href={readiness.ready || format === "portable" ? publicationExportUrl(projectId, format, undefined, archiveMode) : undefined}
           download
         >Export {format === "twee" ? "Twee 3 + SugarCube" : format}</a>)}
       </div>
@@ -304,6 +311,8 @@ export function PublicationWorkspace({ projectId, playerStorage }: {
         <div><dt>Project</dt><dd>{portablePreview.projectName} ({portablePreview.manifest.projectId})</dd></div>
         <div><dt>Fingerprint</dt><dd>{portablePreview.manifest.projectFingerprint}</dd></div>
         <div><dt>History</dt><dd>{portablePreview.manifest.historyMode}</dd></div>
+        <div><dt>Archive</dt><dd>{portablePreview.manifest.exportMode ?? "Historical archive"}</dd></div>
+        {portablePreview.manifest.evidence?.some((item) => item.availability !== "present") && <div><dt>Source evidence</dt><dd>Unavailable until exact source reattachment. Not a full recovery backup.</dd></div>}
         <div><dt>Conflict</dt><dd>{portablePreview.conflict ? "Existing stable ID — import blocked" : "None"}</dd></div>
       </dl>}
     </section>

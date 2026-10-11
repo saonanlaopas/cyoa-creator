@@ -50,6 +50,24 @@ export const AnalysisSourceSchema = z.object({
     || source.chapters.some((c, i) => c.order !== i)) ctx.addIssue({ code: "custom", message: "Source identities/order are invalid" });
 });
 export type AnalysisSource = z.infer<typeof AnalysisSourceSchema>;
+/** An archive index is not source text and cannot resolve evidence or feed a provider. */
+export const UnavailableSourceSchema = z.object({ schemaId: z.literal("cyoa.unavailable-source"), schemaVersion: z.literal(1),
+  availability: z.enum(["redacted", "missing"]), sourceFingerprint: digest, sourceBytes: z.number().int().positive(),
+  chapters: z.array(z.object({ id, order: z.number().int().nonnegative(),
+    blocks: z.array(z.object({ excerptId: id, characters: z.number().int().nonnegative() }).strict()) }).strict()).min(1),
+}).strict().superRefine((source, ctx) => {
+  const chapters = source.chapters.map((c) => c.id), excerpts = source.chapters.flatMap((c) => c.blocks.map((b) => b.excerptId));
+  if (new Set(chapters).size !== chapters.length || new Set(excerpts).size !== excerpts.length || source.chapters.some((c, i) => c.order !== i)) ctx.addIssue({ code: "custom", message: "Unavailable source index is invalid" });
+});
+export type UnavailableSource = z.infer<typeof UnavailableSourceSchema>;
+export type SourceEvidenceMaterial = AnalysisSource | UnavailableSource;
+export const isUnavailableSource = (value: unknown): value is UnavailableSource => !!value && typeof value === "object" && (value as { schemaId?: string }).schemaId === "cyoa.unavailable-source";
+export function unavailableSource(source: AnalysisSource): UnavailableSource {
+  AnalysisSourceSchema.parse(source);
+  return UnavailableSourceSchema.parse({ schemaId: "cyoa.unavailable-source", schemaVersion: 1, availability: "redacted",
+    sourceFingerprint: sourceDigest(source), sourceBytes: new TextEncoder().encode(sourceCanonicalJson(source)).length,
+    chapters: source.chapters.map((c) => ({ id: c.id, order: c.order, blocks: c.blocks.map((b) => ({ excerptId: b.excerptId, characters: b.text.length })) })) });
+}
 export const SourceBindingSchema = z.object({ projectId: id, sourceVersionId: id, sourceFingerprint: digest,
   scopeVersionId: id, chapterIds: z.array(id).min(1), scopeFingerprint: digest }).strict();
 export type SourceBinding = z.infer<typeof SourceBindingSchema>;
@@ -59,12 +77,12 @@ export const SourceEvidenceSchema = SourceBindingSchema.omit({ chapterIds: true 
 export type SourceEvidence = z.infer<typeof SourceEvidenceSchema>;
 
 export function sourceBinding(projectId: string, sourceVersionId: string, scopeVersionId: string,
-  source: AnalysisSource, chapterIds: string[]): SourceBinding {
-  AnalysisSourceSchema.parse(source);
+  source: SourceEvidenceMaterial, chapterIds: string[]): SourceBinding {
+  if (isUnavailableSource(source)) UnavailableSourceSchema.parse(source); else AnalysisSourceSchema.parse(source);
   if (!chapterIds.length || new Set(chapterIds).size !== chapterIds.length
     || chapterIds.some((selected) => !source.chapters.some((c) => c.id === selected))) throw new Error("source_scope_invalid");
   const ordered = source.chapters.filter((c) => chapterIds.includes(c.id)).map((c) => c.id);
-  const identity = { projectId, sourceVersionId, sourceFingerprint: sourceDigest(source), scopeVersionId, chapterIds: ordered };
+  const identity = { projectId, sourceVersionId, sourceFingerprint: isUnavailableSource(source) ? source.sourceFingerprint : sourceDigest(source), scopeVersionId, chapterIds: ordered };
   return SourceBindingSchema.parse({ ...identity, scopeFingerprint: sourceDigest(identity) });
 }
 
@@ -77,6 +95,7 @@ function splitsSurrogate(value: string, offset: number): boolean {
   return offset > 0 && offset < value.length && /[\uD800-\uDBFF]/.test(value[offset - 1]!) && /[\uDC00-\uDFFF]/.test(value[offset]!);
 }
 export function resolveSourceEvidence(source: AnalysisSource, binding: SourceBinding, reference: SourceEvidence): string {
+  if (isUnavailableSource(source)) throw new Error("source_evidence_unavailable: reattach the exact source before evidence-grounded work");
   SourceEvidenceSchema.parse(reference);
   const { chapterIds: _, ...exact } = binding;
   if (Object.entries(exact).some(([key, value]) => reference[key as keyof SourceEvidence] !== value)
@@ -88,17 +107,43 @@ export function resolveSourceEvidence(source: AnalysisSource, binding: SourceBin
   return block.text.slice(reference.start, reference.end);
 }
 
+/** Structural archival validation only. A missing body never counts as resolved evidence. */
+export function assertStoredSourceEvidence(source: SourceEvidenceMaterial, binding: SourceBinding, reference: SourceEvidence): void {
+  if (!isUnavailableSource(source)) { resolveSourceEvidence(source, binding, reference); return; }
+  UnavailableSourceSchema.parse(source); SourceEvidenceSchema.parse(reference);
+  const { chapterIds: _, ...exact } = binding;
+  const block = source.chapters.find((c) => c.id === reference.chapterId)?.blocks.find((b) => b.excerptId === reference.excerptId);
+  if (source.sourceFingerprint !== binding.sourceFingerprint || Object.entries(exact).some(([key, value]) => reference[key as keyof SourceEvidence] !== value)
+    || !binding.chapterIds.includes(reference.chapterId) || !block || reference.start >= reference.end || reference.end > block.characters) throw new Error("source_evidence_index_invalid");
+}
+
 export const SourceUnitSchema = z.object({ id, order: z.number().int().nonnegative(), ranges: z.array(SourceEvidenceSchema).min(1),
   inputFingerprint: digest, contextFingerprint: digest, characters: z.number().int().positive(), contextBytes: z.number().int().positive(),
 }).strict();
 export type SourceUnit = z.infer<typeof SourceUnitSchema>;
 export const SourceAnalysisPlanSchema = z.object({ schemaVersion: z.literal(1), id, binding: SourceBindingSchema,
+  // Copied unavailable history retains the real captured context commitment; it is not a new provider request.
+  copiedContextBinding: SourceBindingSchema.optional(),
   providerId: id, modelId: z.string().min(1).max(240), policyId: z.literal("source-analysis-v1"), promptVersion: z.literal("source-analysis-v1"),
   units: z.array(SourceUnitSchema).min(1).max(SOURCE_ANALYSIS_POLICY.maxUnits), fingerprint: digest,
   sourceCharacters: z.number().int().nonnegative(), sourceBytes: z.number().int().nonnegative(),
   cost: z.union([z.literal(0), z.null()]),
 }).strict();
 export type SourceAnalysisPlan = z.infer<typeof SourceAnalysisPlanSchema>;
+export function copySourceAnalysisPlan(original: SourceAnalysisPlan, binding: SourceBinding, source: SourceEvidenceMaterial): SourceAnalysisPlan {
+  if (binding.sourceFingerprint !== original.binding.sourceFingerprint) throw new Error("source_duplicate_fingerprint_mismatch");
+  if (!isUnavailableSource(source) && !original.copiedContextBinding) return planSourceAnalysis(binding, source, original.providerId, original.modelId);
+  const { id: _, fingerprint: _fingerprint, ...definition } = original;
+  const { chapterIds: _chapters, ...exact } = binding;
+  const content = { ...definition, binding, copiedContextBinding: original.copiedContextBinding ?? original.binding,
+    units: original.units.map((unit) => {
+      const ranges = unit.ranges.map((reference) => ({ ...reference, ...exact }));
+      const inputFingerprint = sourceDigest({ binding, providerId: original.providerId, modelId: original.modelId, policyId: original.policyId, ranges });
+      return { ...unit, ranges, inputFingerprint, id: `sau_${inputFingerprint.slice(0, 32)}` };
+    }) };
+  const fingerprint = sourceDigest(content);
+  return SourceAnalysisPlanSchema.parse({ ...content, fingerprint, id: `sap_${fingerprint.slice(0, 32)}` });
+}
 export function sourceUnitContext(source: AnalysisSource, binding: SourceBinding, unit: Pick<SourceUnit, "ranges">) {
   return { schemaVersion: 1, evidence: unit.ranges.map((reference) => ({ reference, text: resolveSourceEvidence(source, binding, reference) })) };
 }
@@ -160,7 +205,8 @@ export const SourceObservationSchema = z.object({
 export type SourceObservation = z.infer<typeof SourceObservationSchema>;
 export const SourceUnitOutputSchema = z.object({ schemaVersion: z.literal(1), observations: z.array(SourceObservationSchema).max(32) }).strict();
 export type SourceUnitOutput = z.infer<typeof SourceUnitOutputSchema>;
-export function validateSourceOutput(source: AnalysisSource, plan: SourceAnalysisPlan, unit: SourceUnit, value: unknown, stored = false): SourceUnitOutput {
+export function validateSourceOutput(source: SourceEvidenceMaterial, plan: SourceAnalysisPlan, unit: SourceUnit, value: unknown, stored = false): SourceUnitOutput {
+  if (!stored && isUnavailableSource(source)) throw new Error("source_evidence_unavailable");
   const output = SourceUnitOutputSchema.parse(value);
   if (new TextEncoder().encode(sourceCanonicalJson(output)).length > (stored ? SOURCE_ANALYSIS_POLICY.maxStoredOutputBytes : SOURCE_ANALYSIS_POLICY.maxOutputBytes)) throw new Error("source_output_oversized");
   const ids = new Set(output.observations.map((o) => o.id));
@@ -168,7 +214,7 @@ export function validateSourceOutput(source: AnalysisSource, plan: SourceAnalysi
   for (const observation of output.observations) {
     if (observation.references.some((ref) => !ids.has(ref))) throw new Error("source_observation_orphan_reference");
     for (const evidence of observation.evidence) {
-      resolveSourceEvidence(source, plan.binding, evidence);
+      assertStoredSourceEvidence(source, plan.binding, evidence);
       if (!unit.ranges.some((r) => r.chapterId === evidence.chapterId && r.excerptId === evidence.excerptId
         && r.start <= evidence.start && r.end >= evidence.end)) throw new Error("source_evidence_outside_unit");
     }
@@ -264,7 +310,7 @@ export function consolidateSourceDossier(plan: SourceAnalysisPlan, jobId: string
   assertSourceDossierBudget({ ...dossier, materialFingerprint: "0".repeat(64), provenanceFingerprint: "0".repeat(64) });
   return SourceDossierSchema.parse({ ...dossier, ...sourceDossierFingerprints(dossier) });
 }
-export function assertSourceDossier(dossier: SourceDossier, source: AnalysisSource, binding: SourceBinding): void {
+export function assertSourceDossier(dossier: SourceDossier, source: SourceEvidenceMaterial, binding: SourceBinding): void {
   SourceDossierSchema.parse(dossier);
   if (dossier.projectId !== binding.projectId || sourceCanonicalJson(dossier.binding) !== sourceCanonicalJson(binding)) throw new Error("source_dossier_binding_invalid");
   const fingerprints = sourceDossierFingerprints(dossier);
@@ -274,8 +320,8 @@ export function assertSourceDossier(dossier: SourceDossier, source: AnalysisSour
   if (ids.size !== dossier.records.length || observations.size !== dossier.provenance.length) throw new Error("source_dossier_duplicate_id");
   for (const r of dossier.records) {
     if (r.references.some((ref) => !ids.has(ref)) || r.observationIds.some((ref) => !observations.has(ref))) throw new Error("source_dossier_orphan_reference");
-    r.evidence.forEach((ref) => resolveSourceEvidence(source, binding, ref));
+    r.evidence.forEach((ref) => assertStoredSourceEvidence(source, binding, ref));
   }
-  dossier.provenance.forEach((p) => p.original.evidence.forEach((ref) => resolveSourceEvidence(source, binding, ref)));
+  dossier.provenance.forEach((p) => p.original.evidence.forEach((ref) => assertStoredSourceEvidence(source, binding, ref)));
   if (sourceCanonicalJson(dossier.conflicts) !== sourceCanonicalJson(sourceConflicts(dossier.records))) throw new Error("source_dossier_conflicts_invalid");
 }

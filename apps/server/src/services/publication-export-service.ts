@@ -8,10 +8,13 @@ import {
   PORTABLE_PROJECT_TABLES,
   SOURCE_ANALYSIS_TABLES,
   FOUNDATION_BOOTSTRAP_TABLES,
+  STUDIO_PORTABLE_TABLES,
   reconstructLegacyArtifactApprovalHistory,
   type PortableProjectRows,
+  type PortableRow,
 } from "@story-to-cyoa/persistence";
 import { assertNativePlayerConfig, loadNativeGame, stableFingerprint, type NativeGameBundle, type NativePlayerConfig } from "@story-to-cyoa/runtime";
+import { sourceDigest, sourceCanonicalJson, unavailableSource, isUnavailableSource, UnavailableSourceSchema, SourceEvidenceMaterialSchema, AnalysisSourceSchema } from "@story-to-cyoa/domain";
 import type { NativeCompilationService } from "./native-compilation-service.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -31,9 +34,11 @@ const canonical = (value: unknown): string => JSON.stringify(value, (_key, item)
   ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
 
 export interface PortableManifest {
-  schemaId: typeof SCHEMA_ID; schemaVersion: 1; exportContractVersion: 1; projectId: string;
+  schemaId: typeof SCHEMA_ID; schemaVersion: 1; exportContractVersion: 1 | 2; projectId: string;
   projectFingerprint: string; historyMode: typeof HISTORY_MODE; includedSections: string[];
   exclusions: string[]; counts: Record<string, number>; files: Array<{ path: string; sha256: string; bytes: number }>;
+  exportMode?: "full-fidelity" | "privacy-redacted";
+  evidence?: Array<{ sourceVersionId: string; sourceFingerprint: string; availability: "present" | "redacted" | "missing" }>;
 }
 
 export type PortableApprovalHistoryMode = "current" | "legacy-reconstructed";
@@ -77,6 +82,69 @@ export class PublicationExportService {
     }, { level: 9 });
     if (bytes.byteLength > PORTABLE_PROJECT_LIMITS.archiveBytes) throw new Error("portable_project_too_large");
     return { bytes, manifest };
+  }
+
+  /** v1 remains available solely for historical backup verification. New downloads use v2. */
+  exportStudioPortable(projectId: string, exportMode: "full-fidelity" | "privacy-redacted" = "full-fidelity"): { bytes: Uint8Array; manifest: PortableManifest } {
+    const rows = exportMode === "full-fidelity" ? this.portable.exportStudioRows(projectId) : this.redactedStudioRows(projectId);
+    enforcePortableRows(rows);
+    const evidence = studioEvidence(rows);
+    if (exportMode === "full-fidelity" && evidence.some((entry) => entry.availability !== "present")) throw new Error("full_fidelity_source_unavailable: reattach every exact source before creating a full archive or verified backup");
+    const sections = [...PORTABLE_PROJECT_TABLES, ...STUDIO_PORTABLE_TABLES];
+    const projectFingerprint = studioFingerprint(rows, exportMode);
+    const payload = strToU8(canonical({ schemaId: SCHEMA_ID, schemaVersion: 1, projectFingerprint, rows }));
+    if (payload.byteLength > PORTABLE_PROJECT_LIMITS.uncompressedBytes) throw new Error("portable_project_too_large");
+    const manifest: PortableManifest = { schemaId: SCHEMA_ID, schemaVersion: 1, exportContractVersion: 2, projectId,
+      projectFingerprint, historyMode: HISTORY_MODE, exportMode, evidence,
+      includedSections: sections, exclusions: studioExclusions(exportMode),
+      counts: Object.fromEntries(sections.map((table) => [table, (rows.tables as Record<string, unknown[]>)[table]?.length ?? (rows.studio as Record<string, unknown[]>)[table].length])),
+      files: [{ path: "project.json", sha256: sha256(payload), bytes: payload.byteLength }] };
+    const bytes = zipSync({ "manifest.json": [strToU8(canonical(manifest)), { mtime: fixedDate }], "project.json": [payload, { mtime: fixedDate }] }, { level: 9 });
+    if (bytes.byteLength > PORTABLE_PROJECT_LIMITS.archiveBytes) throw new Error("portable_project_too_large");
+    return { bytes, manifest };
+  }
+
+  studioProjectFingerprint(projectId: string): string { return studioFingerprint(this.portable.exportStudioRows(projectId), "full-fidelity"); }
+
+  sourceAvailability(projectId: string) { return studioEvidence(this.portable.sourceEvidenceRows(projectId)); }
+  unavailableSourcePage(projectId: string, offset: number) { return this.portable.unavailableSourcePage(projectId, offset); }
+
+  reattachSource(projectId: string, versionId: string, source: unknown) {
+    this.portable.reattachSource(projectId, versionId, source, validatePortableAuthoringProject);
+    return { projectId, sourceVersionId: versionId, evidence: this.sourceAvailability(projectId) };
+  }
+
+  private redactedStudioRows(projectId: string): PortableProjectRows {
+    // Canonical provenance excerpts remain authored content. Do not rewrite sealed production histories to redact conversation records.
+    const full = this.portable.exportStudioRows(projectId), rows = structuredClone(full);
+    rows.studio = Object.fromEntries(STUDIO_PORTABLE_TABLES.map((table) => [table, [] as PortableRow[]])) as NonNullable<PortableProjectRows["studio"]>;
+    const omissions: Array<{ kind: string; id: string; digest: string; availability: "redacted"; status?: string }> = [];
+    for (const table of STUDIO_PORTABLE_TABLES) for (const row of full.studio![table]) if (typeof row.id === "string") {
+      omissions.push({ kind: table, id: row.id, digest: sourceDigest(row), availability: "redacted", ...(typeof row.status === "string" ? { status: row.status } : {}) });
+    }
+    const excluded = new Set(rows.tables.artifact_versions.filter((row) => ["adaptation-intent-proposal", "conversational-edit-application", "source-evidence-material"].includes(String(row.artifact_type))).map((row) => String(row.id)));
+    for (const row of rows.tables.artifact_versions) {
+      if (excluded.has(String(row.id))) omissions.push({ kind: String(row.artifact_type), id: String(row.id), digest: sourceDigest(row), availability: "redacted" });
+      if (row.artifact_id === "source") {
+        const value: unknown = JSON.parse(String(row.content_json));
+        row.content_json = JSON.stringify(isUnavailableSource(value) ? UnavailableSourceSchema.parse(value) : unavailableSource(AnalysisSourceSchema.parse(value)));
+      }
+    }
+    rows.tables.artifact_versions = rows.tables.artifact_versions.filter((row) => !excluded.has(String(row.id)));
+    rows.tables.artifact_version_approvals = rows.tables.artifact_version_approvals.filter((row) => !excluded.has(String(row.version_id)));
+    const excludedNames = new Set(full.tables.artifact_versions.filter((row) => excluded.has(String(row.id))).map((row) => row.artifact_id));
+    rows.tables.artifact_workflow_state = rows.tables.artifact_workflow_state.filter((row) => !excludedNames.has(row.artifact_id));
+    rows.tables.artifact_dependencies = rows.tables.artifact_dependencies.filter((row) => !excludedNames.has(row.upstream_artifact_id) && !excludedNames.has(row.dependent_artifact_id));
+    const existing = rows.tables.artifact_versions.filter((row) => row.artifact_id === "studio-archive-evidence").sort((a, b) => Number(b.version) - Number(a.version))[0];
+    const previous = existing ? JSON.parse(String(existing.content_json)).omissions as typeof omissions : [];
+    const all = [...new Map([...previous, ...omissions].map((item) => [`${item.kind}:${item.id}`, item])).values()].sort((a, b) => sourceCanonicalJson(a).localeCompare(sourceCanonicalJson(b)));
+    const content = { schemaId: "cyoa.studio-archive-evidence", schemaVersion: 1, projectId, omissions: all };
+    if (existing) existing.content_json = JSON.stringify(content);
+    else if (all.length) rows.tables.artifact_versions.push({ id: `archive_${sourceDigest(content).slice(0, 32)}`, project_id: projectId,
+      artifact_id: "studio-archive-evidence", artifact_type: "studio-archive-evidence", version: 1, schema_version: 1,
+      content_json: JSON.stringify(content), stale: 0, restored_from_version_id: null, created_at: String(rows.tables.projects[0]!.created_at) });
+    for (const table of PORTABLE_PROJECT_TABLES) rows.tables[table].sort((a, b) => stableFingerprint(Object.fromEntries(Object.entries(a).sort())).localeCompare(stableFingerprint(Object.fromEntries(Object.entries(b).sort()))));
+    return rows;
   }
 
   previewPortable(bytes: Uint8Array): { manifest: PortableManifest; projectName: string; conflict: boolean } {
@@ -185,6 +253,7 @@ export class PublicationExportService {
     const files = unzipSync(bytes);
     if (Object.keys(files).sort().join("\0") !== "manifest.json\0project.json") throw new Error("portable_project_entries_invalid");
     const manifest = JSON.parse(strFromU8(files["manifest.json"]!)) as PortableManifest;
+    if (manifest.exportContractVersion === 2) return this.parseStudioArchive(files, manifest);
     if (Object.keys(manifest).sort().join("\0") !== ["counts", "exclusions", "exportContractVersion", "files", "historyMode", "includedSections", "projectFingerprint", "projectId", "schemaId", "schemaVersion"].sort().join("\0")) throw new Error("portable_project_manifest_schema_invalid");
     if (manifest.schemaId !== SCHEMA_ID || manifest.schemaVersion !== 1 || manifest.exportContractVersion !== 1 || manifest.historyMode !== HISTORY_MODE) throw new Error("portable_project_version_unsupported");
     if (!Array.isArray(manifest.includedSections) || !Array.isArray(manifest.exclusions) || !Array.isArray(manifest.files)
@@ -234,6 +303,42 @@ export class PublicationExportService {
     return { manifest, rows, approvalHistoryMode: hasApprovalHistory ? "current" : "legacy-reconstructed" };
   }
 
+  private parseStudioArchive(files: Record<string, Uint8Array>, manifest: PortableManifest): { manifest: PortableManifest; rows: PortableProjectRows; approvalHistoryMode: PortableApprovalHistoryMode } {
+    const keys = ["counts", "evidence", "exclusions", "exportContractVersion", "exportMode", "files", "historyMode", "includedSections", "projectFingerprint", "projectId", "schemaId", "schemaVersion"];
+    if (Object.keys(manifest).sort().join("\0") !== keys.sort().join("\0") || manifest.schemaId !== SCHEMA_ID || manifest.schemaVersion !== 1 || manifest.exportContractVersion !== 2
+      || manifest.historyMode !== HISTORY_MODE || !["full-fidelity", "privacy-redacted"].includes(manifest.exportMode ?? "")) throw new Error("portable_project_version_unsupported");
+    const payload = files["project.json"]!;
+    const declared = manifest.files?.[0];
+    if (manifest.files?.length !== 1 || !declared || Object.keys(declared).sort().join("\0") !== "bytes\0path\0sha256"
+      || declared.path !== "project.json" || declared.bytes !== payload.length || declared.sha256 !== sha256(payload)) throw new Error("portable_project_hash_invalid");
+    const parsed = JSON.parse(strFromU8(payload)) as { schemaId: string; schemaVersion: number; projectFingerprint: string; rows: PortableProjectRows };
+    if (Object.keys(parsed).sort().join("\0") !== "projectFingerprint\0rows\0schemaId\0schemaVersion" || parsed.schemaId !== SCHEMA_ID || parsed.schemaVersion !== 1
+      || Object.keys(parsed.rows ?? {}).sort().join("\0") !== "projectId\0studio\0tables" || parsed.rows.projectId !== manifest.projectId) throw new Error("portable_project_schema_invalid");
+    const sections = [...PORTABLE_PROJECT_TABLES, ...STUDIO_PORTABLE_TABLES];
+    if (manifest.includedSections?.join("\0") !== sections.join("\0") || Object.keys(manifest.counts ?? {}).sort().join("\0") !== [...sections].sort().join("\0")
+      || Object.keys(parsed.rows.tables ?? {}).sort().join("\0") !== [...PORTABLE_PROJECT_TABLES].sort().join("\0")
+      || Object.keys(parsed.rows.studio ?? {}).sort().join("\0") !== [...STUDIO_PORTABLE_TABLES].sort().join("\0")
+      || manifest.exclusions?.join("\0") !== studioExclusions(manifest.exportMode!).join("\0")) throw new Error("portable_project_sections_invalid");
+    let count = 0;
+    for (const table of sections) {
+      const rows = (parsed.rows.tables as Record<string, PortableProjectRows["tables"]["projects"]>)[table] ?? (parsed.rows.studio as Record<string, PortableProjectRows["tables"]["projects"]>)[table];
+      if (!Array.isArray(rows) || manifest.counts[table] !== rows.length) throw new Error("portable_project_counts_invalid");
+      count += rows.length;
+      for (const row of rows) if (!row || typeof row !== "object" || Array.isArray(row) || Object.values(row).some((value) => value !== null
+        && (typeof value !== "string" && typeof value !== "number" || typeof value === "number" && !Number.isFinite(value)
+          || typeof value === "string" && strToU8(value).length > PORTABLE_PROJECT_LIMITS.textBytes))) throw new Error("portable_project_row_invalid");
+    }
+    if (count > PORTABLE_PROJECT_LIMITS.rows) throw new Error("portable_project_rows_exceeded");
+    enforcePortableRows(parsed.rows);
+    const evidence = studioEvidence(parsed.rows);
+    if (canonical(evidence) !== canonical(manifest.evidence)) throw new Error("portable_project_evidence_invalid");
+    if (manifest.exportMode === "full-fidelity" && evidence.some((entry) => entry.availability !== "present")) throw new Error("full_fidelity_source_unavailable");
+    if (manifest.exportMode === "privacy-redacted" && (evidence.some((entry) => entry.availability === "present") || STUDIO_PORTABLE_TABLES.some((table) => parsed.rows.studio![table].length))) throw new Error("portable_project_redaction_invalid");
+    const fingerprint = studioFingerprint(parsed.rows, manifest.exportMode!);
+    if (fingerprint !== manifest.projectFingerprint || fingerprint !== parsed.projectFingerprint) throw new Error("portable_project_fingerprint_invalid");
+    return { manifest, rows: parsed.rows, approvalHistoryMode: "current" };
+  }
+
   private requireNativeCompilation(): NativeCompilationService {
     if (!this.nativeCompilation) throw new Error("native_compilation_unavailable");
     return this.nativeCompilation;
@@ -243,6 +348,30 @@ export class PublicationExportService {
     try { return String(this.portable.exportRows(projectId).tables.projects[0]?.name || "Interactive story"); }
     catch { return bundle.passages.find((item) => item.id === bundle.startPassageId)?.presentation.title ?? "Interactive story"; }
   }
+}
+
+function studioExclusions(mode: "full-fidelity" | "privacy-redacted"): string[] {
+  return ["credentials", "environment", "machine paths", "browser saves", "passage-planning jobs/candidates", "provider raw responses",
+    ...(mode === "privacy-redacted" ? ["source bodies", "conversation records, author memory and conversational proposals (metadata commitments retained; canonical provenance excerpts retained)"] : [])];
+}
+function studioEvidence(rows: { projectId: string; tables: { artifact_versions: PortableRow[] } }): NonNullable<PortableManifest["evidence"]> {
+  return rows.tables.artifact_versions.filter((row) => row.artifact_id === "source").map((row) => {
+    const source: unknown = JSON.parse(String(row.content_json));
+    if (isUnavailableSource(source)) {
+      const marker = UnavailableSourceSchema.parse(source);
+      const attachments = rows.tables.artifact_versions.filter((item) => item.artifact_type === "source-evidence-material" && JSON.parse(String(item.content_json)).sourceVersionId === row.id);
+      for (const attachment of attachments) {
+        const material = SourceEvidenceMaterialSchema.parse(JSON.parse(String(attachment.content_json)));
+        if (material.projectId !== rows.projectId || material.sourceFingerprint !== marker.sourceFingerprint || sourceDigest(material.source) !== marker.sourceFingerprint
+          || sourceCanonicalJson({ ...unavailableSource(material.source), availability: marker.availability }) !== sourceCanonicalJson(marker)) throw new Error("source_reattachment_lineage_invalid");
+      }
+      return { sourceVersionId: String(row.id), sourceFingerprint: marker.sourceFingerprint, availability: attachments.length ? "present" as const : marker.availability };
+    }
+    return { sourceVersionId: String(row.id), sourceFingerprint: sourceDigest(source), availability: "present" as const };
+  }).sort((a, b) => a.sourceVersionId.localeCompare(b.sourceVersionId));
+}
+function studioFingerprint(rows: PortableProjectRows, exportMode: "full-fidelity" | "privacy-redacted"): string {
+  return stableFingerprint({ schemaId: SCHEMA_ID, schemaVersion: 1, exportContractVersion: 2, historyMode: HISTORY_MODE, exportMode, evidence: studioEvidence(rows), rows });
 }
 
 function isSupportedPortableSections(sections: readonly string[]): boolean {

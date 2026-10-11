@@ -943,6 +943,7 @@ test("passage proposal review blocks stale and hard-invalid selections without m
   await completePassageGeneration(request, hardProjectId, "deterministic-fixture-uncontrolled-cycle-v1");
   await page.reload();
   await page.getByLabel("Switch project").selectOption(hardProjectId);
+  await page.getByRole("button", { name: /^Passage plan/ }).click();
   await expect(page.getByText("Job: completed")).toBeVisible();
   await page.getByRole("button", { name: "Create proposal set" }).click();
   await page.getByRole("checkbox", { name: "Select Generation unit 1" }).check();
@@ -1342,6 +1343,8 @@ test("verified recovery downloads, detects change, previews without writes, reje
   expect((await request.get(`/api/projects/${projectId}`)).status()).toBe(404);
   await globalRestore.getByLabel("I reviewed the identity, scope, exclusions, and collision state.").check();
   await globalRestore.getByRole("button", { name: "Restore as project" }).click();
+  await expect(page.getByLabel("Switch project")).toHaveValue(projectId);
+  await page.getByRole("button", { name: /^Backup & recovery/ }).click();
   await expect(page.getByLabel("Backup and recovery")).toBeVisible();
   expect((await request.get(`/api/projects/${projectId}`)).ok()).toBe(true);
 

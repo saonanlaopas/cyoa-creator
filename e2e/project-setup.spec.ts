@@ -1,5 +1,6 @@
 import { expect, test as base } from "playwright/test";
 import { spawn } from "node:child_process";
+import { completeStudioProductionJourney } from "./helpers/studio-production-journey.js";
 
 // Setup owns its server/database so parallel CI cannot expose its temporary projects to older browser journeys.
 const test = base.extend<{}, { setupBaseURL: string }>({
@@ -43,6 +44,7 @@ test.afterEach(async ({ request }) => {
 });
 
 test("A2 author journey reviews, edits and explicitly applies foundations without generating passages", async ({ page, request }, testInfo) => {
+  test.setTimeout(120_000);
   await page.goto("/");
   await page.getByRole("button", { name: "Long-form workspace" }).click();
   await page.getByRole("button", { name: "Talk through an original idea" }).click();
@@ -84,7 +86,8 @@ test("A2 author journey reviews, edits and explicitly applies foundations withou
   await page.screenshot({ path: testInfo.outputPath("a2-mobile-review.png"), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole("button", { name: "Apply selected foundations" }).click();
-  await expect(page.getByText("Selected foundations applied as drafts, not approved. No passages generated.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Project brief", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Review", { exact: true })).toBeChecked();
   const after = await (await request.get(url)).json();
   expect(after.brief.content.premise).toBe("Haru and Ren return to a mountain town with feelings neither has confessed.");
   expect(after.creativeDirection.content.prose.pointOfView).toBe("first-person");
@@ -95,10 +98,11 @@ test("A2 author journey reviews, edits and explicitly applies foundations withou
   }
   const passages = await request.get(`${url}/passage-plan`);
   expect(passages.status() === 404 || (await passages.json()).structure == null).toBe(true);
-  await page.reload(); await expect(page.getByText("Status: applied", { exact: true })).toBeVisible();
-  await page.getByText("Advanced workspace", { exact: true }).click();
+  await page.reload(); await expect(page.getByRole("heading", { name: "Project brief", exact: true })).toBeVisible();
+  await page.getByLabel("Advanced", { exact: true }).check();
   await page.getByRole("button", { name: /Project brief/ }).click();
   await expect(page.getByPlaceholder("What is this adaptation or original story about?")).toHaveValue(after.brief.content.premise);
+  await completeStudioProductionJourney(page, request, projectId!, testInfo);
 });
 
 test("A2 non-romance detective refinement stays noncanonical and can be rejected", async ({ page, request }) => {

@@ -1,22 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { planSourceAnalysis, sourceBinding, sourceDigest, consolidateSourceDossier, correctSourceDossier,
+import { copySourceAnalysisPlan, sourceBinding, sourceDigest, consolidateSourceDossier, correctSourceDossier,
   type AnalysisSource, type SourceAnalysisPlan, type SourceDossier } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
-import { analysisBindingSource, analysisProvenance } from "./source-analysis-validation.js";
+import { analysisBindingMaterial, analysisProvenance, validateSourceAnalysisDatabase } from "./source-analysis-validation.js";
+import { readSourceMaterial } from "./source-material.js";
 
 export const SOURCE_ANALYSIS_TABLES = ["source_analysis_plans", "source_analysis_jobs", "source_analysis_units",
   "source_analysis_attempts", "source_analysis_outputs"] as const;
 
 /** Prepare every project-owned identity before copying any rows; chapter/excerpt IDs remain content-owned. */
 export function prepareSourceAnalysisDuplicate(database: StoryDatabase, projectId: string, copyId: string, ids: Map<string, string>): void {
+  validateSourceAnalysisDatabase(database, projectId);
   const plans = database.prepare("SELECT content_json FROM source_analysis_plans WHERE project_id = ?").all(projectId) as Array<{ content_json: string }>;
   for (const row of plans) {
     const plan = JSON.parse(row.content_json) as SourceAnalysisPlan;
-    const source = database.prepare("SELECT content_json FROM artifact_versions WHERE id = ?").get(plan.binding.sourceVersionId) as { content_json: string };
-    const normalized = JSON.parse(source.content_json) as AnalysisSource;
+    const normalized = readSourceMaterial(database, projectId, plan.binding.sourceVersionId);
     const binding = sourceBinding(copyId, ids.get(plan.binding.sourceVersionId)!, ids.get(plan.binding.scopeVersionId)!, normalized, plan.binding.chapterIds);
     ids.set(plan.binding.scopeFingerprint, binding.scopeFingerprint);
-    const copied = planSourceAnalysis(binding, normalized, plan.providerId, plan.modelId);
+    const copied = copySourceAnalysisPlan(plan, binding, normalized);
     ids.set(plan.id, copied.id); ids.set(plan.fingerprint, copied.fingerprint);
     plan.units.forEach((u, i) => {
       const next = copied.units[i]!;
@@ -46,6 +47,7 @@ export function prepareSourceAnalysisDuplicate(database: StoryDatabase, projectI
 const projectOwnedKeys = new Set(["id", "projectId", "sourceVersionId", "scopeVersionId", "scopeFingerprint", "planId", "jobId", "unitId", "attemptId",
   "inputFingerprint", "contextFingerprint", "fingerprint", "observationId", "recordId", "recordIds", "targetId", "previousVersionId", "references", "observationIds", "replacementIds"]);
 export function remapSourceAnalysisValue(value: unknown, ids: Map<string, string>, key = ""): unknown {
+  if (key === "copiedContextBinding") return value;
   // Claims, aliases, reasons and content-owned chapter/excerpt IDs are not project references.
   if (typeof value === "string") return projectOwnedKeys.has(key) ? ids.get(value) ?? value : value;
   if (Array.isArray(value)) return value.map((v) => remapSourceAnalysisValue(v, ids, key));
@@ -61,8 +63,8 @@ export function copySourceAnalysisRows(database: StoryDatabase, projectId: strin
       const mapped = Object.fromEntries(Object.entries(row).map(([k, v]) => [k, k.endsWith("_json") && typeof v === "string"
         ? JSON.stringify(remapSourceAnalysisValue(JSON.parse(v), ids)) : typeof v === "string" ? ids.get(v) ?? v : v]));
       if (table === "source_analysis_plans") {
-        const plan = JSON.parse(String(mapped.content_json)) as SourceAnalysisPlan;
-        mapped.content_json = JSON.stringify(planSourceAnalysis(plan.binding, analysisBindingSource(database, plan.binding), plan.providerId, plan.modelId));
+        const original = JSON.parse(String(row.content_json)) as SourceAnalysisPlan, plan = JSON.parse(String(mapped.content_json)) as SourceAnalysisPlan;
+        mapped.content_json = JSON.stringify(copySourceAnalysisPlan(original, plan.binding, analysisBindingMaterial(database, plan.binding)));
       }
       const columns = Object.keys(mapped);
       database.prepare(`INSERT INTO ${table} (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`).run(...columns.map((k) => mapped[k]));
@@ -75,6 +77,6 @@ export function remapSourceDossierContent(database: StoryDatabase, content: Sour
   const plan = JSON.parse(row.content_json) as SourceAnalysisPlan;
   let dossier = consolidateSourceDossier(plan, ids.get(content.jobId)!, analysisProvenance(database, plan, ids.get(content.jobId)!));
   for (const correction of content.corrections) dossier = correctSourceDossier(dossier,
-    remapSourceAnalysisValue(correction.operation, ids), analysisBindingSource(database, plan.binding));
+    remapSourceAnalysisValue(correction.operation, ids), analysisBindingMaterial(database, plan.binding));
   return dossier;
 }

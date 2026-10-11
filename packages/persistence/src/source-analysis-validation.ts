@@ -1,23 +1,37 @@
 import { AnalysisSourceSchema, SourceAnalysisPlanSchema, SourceDossierSchema, SourceUnitOutputSchema,
   SOURCE_ANALYSIS_POLICY, assertSourceDossier, consolidateSourceDossier, correctSourceDossier,
-  planSourceAnalysis, sourceBinding, sourceCanonicalJson, validateSourceOutput,
+  planSourceAnalysis, sourceBinding, sourceCanonicalJson, validateSourceOutput, sourceDigest,
+  isUnavailableSource, UnavailableSourceSchema, assertStoredSourceEvidence, copySourceAnalysisPlan, unavailableSource,
   type SourceAnalysisPlan, type SourceBinding, type SourceDossier, type SourceProvenance,
 } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
+import { readSourceMaterial } from "./source-material.js";
 
 export function analysisBindingSource(database: StoryDatabase, binding: SourceBinding) {
+  const source = analysisBindingMaterial(database, binding);
+  if (isUnavailableSource(source)) throw new Error("source_evidence_unavailable: reattach the exact source before evidence-grounded work");
+  return source;
+}
+export function analysisBindingMaterial(database: StoryDatabase, binding: SourceBinding) {
   const row = database.prepare("SELECT content_json FROM artifact_versions WHERE project_id = ? AND id = ? AND artifact_id = 'source' AND artifact_type = 'source'")
     .get(binding.projectId, binding.sourceVersionId) as { content_json: string } | undefined;
   const scope = database.prepare("SELECT content_json FROM artifact_versions WHERE project_id = ? AND id = ? AND artifact_id = 'source-scope' AND artifact_type = 'source-scope'")
     .get(binding.projectId, binding.scopeVersionId) as { content_json: string } | undefined;
   if (!row || !scope) throw new Error("source_analysis_binding_missing");
-  const source = AnalysisSourceSchema.parse(JSON.parse(row.content_json));
+  const source = readSourceMaterial(database, binding.projectId, binding.sourceVersionId);
   const selected = JSON.parse(scope.content_json) as { chapterIds: string[]; sourceVersionId?: string };
   if (selected.sourceVersionId && selected.sourceVersionId !== binding.sourceVersionId) throw new Error("source_analysis_scope_source_mismatch");
-  if (sourceCanonicalJson(sourceBinding(binding.projectId, binding.sourceVersionId, binding.scopeVersionId, source, selected.chapterIds)) !== sourceCanonicalJson(binding)) throw new Error("source_analysis_binding_invalid");
+  if (isUnavailableSource(source)) {
+    const chapterIds = source.chapters.filter((c) => selected.chapterIds.includes(c.id)).map((c) => c.id);
+    const identity = { projectId: binding.projectId, sourceVersionId: binding.sourceVersionId, sourceFingerprint: source.sourceFingerprint, scopeVersionId: binding.scopeVersionId, chapterIds };
+    if (chapterIds.length !== selected.chapterIds.length || new Set(selected.chapterIds).size !== selected.chapterIds.length
+      || sourceCanonicalJson({ ...identity, scopeFingerprint: sourceDigest(identity) }) !== sourceCanonicalJson(binding)) throw new Error("source_analysis_binding_invalid");
+  } else if (sourceCanonicalJson(sourceBinding(binding.projectId, binding.sourceVersionId, binding.scopeVersionId, source, selected.chapterIds)) !== sourceCanonicalJson(binding)) throw new Error("source_analysis_binding_invalid");
   return source;
 }
 export function assertAnalysisFresh(database: StoryDatabase, plan: SourceAnalysisPlan): void {
+  analysisBindingSource(database, plan.binding);
+  if (plan.copiedContextBinding) throw new Error("source_analysis_copied_context_repreview_required: create a new analysis preview; copied attempts are historical evidence only");
   for (const [artifactId, versionId] of [["source", plan.binding.sourceVersionId], ["source-scope", plan.binding.scopeVersionId]]) {
     const row = database.prepare("SELECT id,stale FROM artifact_versions WHERE project_id = ? AND artifact_id = ? ORDER BY version DESC LIMIT 1")
       .get(plan.binding.projectId, artifactId) as { id: string; stale: number } | undefined;
@@ -26,12 +40,33 @@ export function assertAnalysisFresh(database: StoryDatabase, plan: SourceAnalysi
 }
 export function validateAnalysisPlan(database: StoryDatabase, value: unknown): SourceAnalysisPlan {
   const plan = SourceAnalysisPlanSchema.parse(value);
-  const source = analysisBindingSource(database, plan.binding);
-  if (sourceCanonicalJson(planSourceAnalysis(plan.binding, source, plan.providerId, plan.modelId)) !== sourceCanonicalJson(plan)) throw new Error("source_analysis_plan_invalid");
+  const source = analysisBindingMaterial(database, plan.binding);
+  if (plan.copiedContextBinding) {
+    const { scopeFingerprint, ...origin } = plan.copiedContextBinding;
+    if (scopeFingerprint !== sourceDigest(origin) || origin.sourceFingerprint !== plan.binding.sourceFingerprint
+      || sourceCanonicalJson(origin.chapterIds) !== sourceCanonicalJson(plan.binding.chapterIds)) throw new Error("source_analysis_copied_context_invalid");
+  }
+  if (isUnavailableSource(source)) {
+    const { id, fingerprint, ...definition } = plan;
+    if (fingerprint !== sourceDigest(definition) || id !== `sap_${fingerprint.slice(0, 32)}` || plan.sourceBytes !== source.sourceBytes
+      || plan.sourceCharacters !== source.chapters.flatMap((c) => c.blocks).reduce((sum, b) => sum + b.characters, 0)
+      || new Set(plan.units.map((u) => u.id)).size !== plan.units.length) throw new Error("source_analysis_plan_invalid");
+    for (const [order, unit] of plan.units.entries()) {
+      const inputFingerprint = sourceDigest({ binding: plan.binding, providerId: plan.providerId, modelId: plan.modelId, policyId: plan.policyId, ranges: unit.ranges });
+      if (unit.order !== order || unit.inputFingerprint !== inputFingerprint || unit.id !== `sau_${inputFingerprint.slice(0, 32)}`
+        || unit.characters !== unit.ranges.reduce((sum, r) => sum + r.end - r.start, 0) || unit.characters > SOURCE_ANALYSIS_POLICY.maxSourceCharacters
+        || unit.contextBytes > SOURCE_ANALYSIS_POLICY.maxContextBytes || unit.ranges.length > SOURCE_ANALYSIS_POLICY.maxRangesPerUnit) throw new Error("source_analysis_plan_invalid");
+      unit.ranges.forEach((range) => assertStoredSourceEvidence(source, plan.binding, range));
+    }
+  } else {
+    const original = planSourceAnalysis(plan.copiedContextBinding ?? plan.binding, source, plan.providerId, plan.modelId);
+    const expected = plan.copiedContextBinding ? copySourceAnalysisPlan(original, plan.binding, unavailableSource(source)) : original;
+    if (sourceCanonicalJson(expected) !== sourceCanonicalJson(plan)) throw new Error("source_analysis_plan_invalid");
+  }
   return plan;
 }
 export function analysisProvenance(database: StoryDatabase, plan: SourceAnalysisPlan, jobId: string): SourceProvenance[] {
-  const source = analysisBindingSource(database, plan.binding);
+  const source = analysisBindingMaterial(database, plan.binding);
   const rows = database.prepare(`SELECT outputs.*,attempts.context_fingerprint,attempts.status
     FROM source_analysis_outputs outputs JOIN source_analysis_attempts attempts ON attempts.id = outputs.attempt_id
     WHERE outputs.project_id = ? AND outputs.job_id = ? ORDER BY outputs.unit_id`).all(plan.binding.projectId, jobId) as
@@ -51,7 +86,7 @@ export function validateDossierPersistence(database: StoryDatabase, projectId: s
   const job = database.prepare("SELECT plan_id,status FROM source_analysis_jobs WHERE project_id = ? AND id = ?").get(projectId, dossier.jobId) as { plan_id: string; status: string } | undefined;
   if (!row || !job || job.plan_id !== dossier.planId || job.status !== "completed") throw new Error("source_dossier_job_invalid");
   const plan = validateAnalysisPlan(database, JSON.parse(row.content_json));
-  const source = analysisBindingSource(database, plan.binding);
+  const source = analysisBindingMaterial(database, plan.binding);
   assertSourceDossier(dossier, source, plan.binding);
   let expected = consolidateSourceDossier(plan, dossier.jobId, analysisProvenance(database, plan, dossier.jobId));
   for (const correction of dossier.corrections) {

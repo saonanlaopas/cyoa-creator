@@ -7,6 +7,7 @@ import {
   NATIVE_GAME_BUNDLE_SCHEMA_VERSION,
   NATIVE_RUNTIME_CONTRACT_VERSION,
   compileRuntime,
+  compiledRuntimeFingerprint,
   initializeRuntimeState,
   nativeBundleFingerprint,
   stableFingerprint,
@@ -187,6 +188,7 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
     mechanics,
   };
   const runtime = compileRuntime(source);
+  const nativeMechanics = Object.values(runtime.mechanics).sort((left, right) => left.key.localeCompare(right.key)).map(nativeMechanic);
   const upstreamVersions = Object.fromEntries(exact.upstreamArtifacts.map((item) => [item.artifactId, item.versionId]));
   const provisional: NativeGameBundle = {
     schemaId: NATIVE_GAME_BUNDLE_SCHEMA_ID,
@@ -199,7 +201,7 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
       structureVersionId: exact.snapshot.structureVersionId,
     },
     bundleFingerprint: "0".repeat(32),
-    runtimeFingerprint: runtime.fingerprint,
+    runtimeFingerprint: compiledRuntimeFingerprint({ ...runtime, mechanics: Object.fromEntries(nativeMechanics.map((item) => [item.key, item])) }),
     compiler: {
       policyId: exact.compilerPolicy.id,
       policyVersion: exact.compilerPolicy.version,
@@ -208,7 +210,7 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
     runtimeContract: exact.runtimeContract,
     startPassageId: runtime.startPassageId,
     initialState: initializeRuntimeState(runtime),
-    mechanics: Object.values(runtime.mechanics).sort((left, right) => left.key.localeCompare(right.key)).map(nativeMechanic),
+    mechanics: nativeMechanics,
     passages: Object.values(runtime.passages).sort((left, right) => left.id.localeCompare(right.id)).map((passage) => {
       const authoring = passageById.get(passage.id)!;
       const draft = draftByPassage.get(passage.id)!;
@@ -403,7 +405,7 @@ function nativeMechanic(definition: RuntimeMechanicDefinition): NativeGameBundle
     initial: definition.initial as number,
     ...(definition.minimum === undefined ? {} : { minimum: definition.minimum }),
     ...(definition.maximum === undefined ? {} : { maximum: definition.maximum }),
-    bands: definition.bands ?? [],
+    bands: (definition.bands ?? []).map(({ minimum, label }) => ({ minimum, label })),
   };
   if (definition.category === "flag") return {
     key: definition.key,

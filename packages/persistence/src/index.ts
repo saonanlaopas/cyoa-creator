@@ -31,3 +31,5 @@ export * from "./setup-proposal-repository.js";
 export * from "./adaptation-intent-validation.js";
 export * from "./foundation-bootstrap-repository.js";
 export * from "./foundation-bootstrap-schema.js";
+export * from "./source-material.js";
+export { remapStudioValue } from "./studio-duplication.js";

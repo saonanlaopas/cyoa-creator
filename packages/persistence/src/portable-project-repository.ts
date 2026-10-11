@@ -1,4 +1,6 @@
-import { AnalysisSourceSchema, CreativeDirectionSchema } from "@story-to-cyoa/domain";
+import { randomUUID } from "node:crypto";
+import { AnalysisSourceSchema, CreativeDirectionSchema, SourceEvidenceMaterialSchema, UnavailableSourceSchema, isUnavailableSource, sourceDigest } from "@story-to-cyoa/domain";
+import { readSourceMaterial } from "./source-material.js";
 import { stableFingerprint } from "@story-to-cyoa/runtime";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
@@ -8,6 +10,7 @@ import { validateAdaptationDatabase } from "./adaptation-intent-validation.js";
 import { FOUNDATION_BOOTSTRAP_TABLES } from "./foundation-bootstrap-schema.js";
 import { validateFoundationBootstrapDatabase } from "./foundation-bootstrap-repository.js";
 import { redactFoundationBootstrapRows, unavailableConversationEvidence } from "./foundation-bootstrap-portability.js";
+import { assertSetupProposalSource } from "./setup-proposal-repository.js";
 
 export const PORTABLE_PROJECT_TABLES = [
   "projects", "artifact_versions", "artifact_workflow_state", "artifact_version_approvals", "artifact_dependencies",
@@ -26,7 +29,15 @@ export const PORTABLE_PROJECT_TABLES = [
 export type PortableProjectTable = typeof PORTABLE_PROJECT_TABLES[number];
 export type PortableSqlValue = string | number | null;
 export type PortableRow = Record<string, PortableSqlValue>;
-export interface PortableProjectRows { projectId: string; tables: Record<PortableProjectTable, PortableRow[]> }
+export const STUDIO_PORTABLE_TABLES = ["conversations", "messages", "change_sets", "conversation_summary_series",
+  "conversation_summary_versions", "conversation_summary_heads", "pinned_decisions", "pinned_decision_versions",
+  "pinned_decision_heads", "setup_proposals"] as const;
+export type StudioPortableTable = typeof STUDIO_PORTABLE_TABLES[number];
+export interface PortableProjectRows {
+  projectId: string;
+  tables: Record<PortableProjectTable, PortableRow[]>;
+  studio?: Record<StudioPortableTable, PortableRow[]>;
+}
 export type PortableProjectValidator = (database: StoryDatabase, projectId: string) => void;
 
 const rowFingerprint = (row: PortableRow) => stableFingerprint(Object.fromEntries(Object.entries(row).sort(([a], [b]) => a.localeCompare(b))));
@@ -107,13 +118,13 @@ function redactConversationEvidence(row: PortableRow): PortableRow {
 export class PortableProjectRepository {
   public constructor(private readonly database: StoryDatabase) {}
 
-  exportRows(projectId: string): PortableProjectRows {
+  exportRows(projectId: string, fullFidelity = false): PortableProjectRows {
     const project = this.database.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as PortableRow | undefined;
     if (!project) throw new Error("Portable project does not exist");
     validateFoundationBootstrapDatabase(this.database, projectId);
     const tables = {} as Record<PortableProjectTable, PortableRow[]>;
     const sourceRows = project.mode === "long-form" ? this.database.prepare("SELECT content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source'").all(projectId) as Array<{ content_json: string }> : [];
-    const retainSourceEvidence = sourceRows.some((row) => AnalysisSourceSchema.safeParse(JSON.parse(row.content_json)).success);
+    const retainSourceEvidence = sourceRows.some((row) => AnalysisSourceSchema.safeParse(JSON.parse(row.content_json)).success || UnavailableSourceSchema.safeParse(JSON.parse(row.content_json)).success);
     for (const table of PORTABLE_PROJECT_TABLES) {
       let rows: PortableRow[];
       if (table === "projects") rows = [project];
@@ -123,7 +134,7 @@ export class PortableProjectRepository {
         WHERE snapshots.project_id = ?`).all(projectId) as PortableRow[];
       else if (table === "artifact_versions") rows = (this.database.prepare(
         `SELECT * FROM artifact_versions WHERE project_id = ? ${retainSourceEvidence ? "" : "AND artifact_id NOT IN ('source', 'source-scope')"}`,
-      ).all(projectId) as PortableRow[]).map(redactConversationEvidence);
+      ).all(projectId) as PortableRow[]).map((row) => fullFidelity ? row : redactConversationEvidence(row));
       else if (table === "artifact_workflow_state") rows = this.database.prepare(
         `SELECT * FROM artifact_workflow_state WHERE project_id = ? ${retainSourceEvidence ? "" : "AND artifact_id NOT IN ('source', 'source-scope')"}`,
       ).all(projectId) as PortableRow[];
@@ -134,9 +145,57 @@ export class PortableProjectRepository {
       tables[table] = rows.sort((a, b) => rowFingerprint(a).localeCompare(rowFingerprint(b)));
     }
     const bundle = { projectId, tables };
-    redactFoundationBootstrapRows(bundle);
+    if (!fullFidelity) redactFoundationBootstrapRows(bundle);
     for (const table of FOUNDATION_BOOTSTRAP_TABLES) tables[table].sort((a, b) => rowFingerprint(a).localeCompare(rowFingerprint(b)));
     return bundle;
+  }
+
+  exportStudioRows(projectId: string): PortableProjectRows {
+    const bundle = this.exportRows(projectId, true);
+    bundle.studio = {} as Record<StudioPortableTable, PortableRow[]>;
+    for (const table of STUDIO_PORTABLE_TABLES) {
+      bundle.studio[table] = (table === "messages"
+        ? this.database.prepare("SELECT m.* FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE c.project_id = ? ORDER BY m.rowid")
+        : this.database.prepare(`SELECT * FROM ${table} WHERE project_id = ? ORDER BY rowid`)).all(projectId) as PortableRow[];
+    }
+    return bundle;
+  }
+
+  sourceEvidenceRows(projectId: string): { projectId: string; tables: { artifact_versions: PortableRow[] } } {
+    if (!this.database.prepare("SELECT 1 FROM projects WHERE id=?").get(projectId)) throw new Error("Project not found");
+    return { projectId, tables: { artifact_versions: this.database.prepare("SELECT * FROM artifact_versions WHERE project_id=? AND (artifact_id='source' OR artifact_type='source-evidence-material') ORDER BY id").all(projectId) as PortableRow[] } };
+  }
+
+  unavailableSourcePage(projectId: string, offset: number) {
+    if (!this.database.prepare("SELECT 1 FROM projects WHERE id=?").get(projectId)) throw new Error("Project not found");
+    const evidence = this.database.prepare(`SELECT s.id AS sourceVersionId,
+      json_extract(s.content_json,'$.sourceFingerprint') AS sourceFingerprint,
+      json_extract(s.content_json,'$.availability') AS availability FROM artifact_versions s
+      WHERE s.project_id=? AND s.artifact_id='source' AND json_extract(s.content_json,'$.schemaId')='cyoa.unavailable-source'
+      AND NOT EXISTS(SELECT 1 FROM artifact_versions m WHERE m.project_id=s.project_id
+        AND m.artifact_type='source-evidence-material' AND json_extract(m.content_json,'$.sourceVersionId')=s.id)
+      ORDER BY s.id LIMIT 21 OFFSET ?`).all(projectId, offset);
+    const omissions = this.database.prepare(`SELECT json_array_length(content_json,'$.omissions') AS count FROM artifact_versions
+      WHERE project_id=? AND artifact_id='studio-archive-evidence' ORDER BY version DESC LIMIT 1`).get(projectId) as { count: number } | undefined;
+    return { evidence: evidence.slice(0, 20), hasMore: evidence.length > 20, omittedHistoryCount: omissions?.count ?? 0 };
+  }
+
+  reattachSource(projectId: string, versionId: string, value: unknown, validateProject: PortableProjectValidator): void {
+    transaction(this.database, () => {
+      const row = this.database.prepare("SELECT content_json FROM artifact_versions WHERE project_id=? AND id=? AND artifact_id='source' AND artifact_type='source'").get(projectId, versionId) as { content_json: string } | undefined;
+      if (!row || !isUnavailableSource(readSourceMaterial(this.database, projectId, versionId))) throw new Error("source_reattachment_not_required");
+      const expected = UnavailableSourceSchema.parse(JSON.parse(row.content_json)), source = AnalysisSourceSchema.parse(value);
+      if (sourceDigest(source) !== expected.sourceFingerprint) throw new Error("source_reattachment_fingerprint_mismatch: this is not the exact archived source");
+      // Attach material to the committed identity without updating the immutable source version.
+      const material = SourceEvidenceMaterialSchema.parse({ schemaId: "cyoa.source-evidence-material", schemaVersion: 1, projectId, sourceVersionId: versionId, sourceFingerprint: expected.sourceFingerprint, source });
+      this.database.prepare(`INSERT INTO artifact_versions (id,project_id,artifact_id,artifact_type,version,schema_version,content_json,stale,created_at)
+        VALUES (?,?,?,'source-evidence-material',1,1,?,0,?)`).run(randomUUID(), projectId, `source-evidence-material-${versionId}`, JSON.stringify(material), new Date().toISOString());
+      readSourceMaterial(this.database, projectId, versionId);
+      validateSourceAnalysisDatabase(this.database, projectId);
+      validateAdaptationDatabase(this.database, projectId);
+      validateFoundationBootstrapDatabase(this.database, projectId);
+      validateProject(this.database, projectId);
+    });
   }
 
   importRows(bundle: PortableProjectRows, validateProject: PortableProjectValidator): void {
@@ -175,6 +234,7 @@ export class PortableProjectRepository {
       this.database.prepare(`UPDATE ${pending.table} SET status = ? WHERE ${keys.map((key) => `${key} = ?`).join(" AND ")}`)
         .run(pending.status, ...keys.map((key) => pending.keys[key]));
     }
+    if (bundle.studio) this.importStudioRows(bundle);
     const violations = this.database.prepare("PRAGMA foreign_key_check").all() as unknown[];
     if (violations.length) throw new Error("portable_project_lineage_invalid: foreign-key validation failed");
     this.validateJsonFields(bundle);
@@ -183,6 +243,48 @@ export class PortableProjectRepository {
     validateAdaptationDatabase(this.database, bundle.projectId);
     validateFoundationBootstrapDatabase(this.database, bundle.projectId);
     validateProject(this.database, bundle.projectId);
+  }
+
+  private importStudioRows(bundle: PortableProjectRows): void {
+    const studio = bundle.studio!;
+    for (const table of STUDIO_PORTABLE_TABLES) {
+      if (table === "conversation_summary_heads" || table === "pinned_decision_heads") continue;
+      const columns = this.columns(table);
+      for (const row of studio[table]) {
+        if (Object.keys(row).sort().join("\0") !== [...columns].sort().join("\0")) throw new Error(`portable_project_schema_invalid: ${table} columns differ`);
+        if (table === "messages") {
+          if (!this.database.prepare("SELECT 1 FROM conversations WHERE id = ? AND project_id = ?").get(row.conversation_id, bundle.projectId)) throw new Error("portable_project_conversation_lineage_invalid");
+        } else if (row.project_id !== bundle.projectId) throw new Error("portable_project_conversation_lineage_invalid");
+        const inserted = { ...row };
+        if (table === "setup_proposals") { inserted.status = "proposed"; inserted.application_json = null; }
+        this.database.prepare(`INSERT INTO ${table} (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`)
+          .run(...columns.map((key) => inserted[key]));
+        if (table === "conversation_summary_versions" || table === "pinned_decision_versions") {
+          const headTable = table === "conversation_summary_versions" ? "conversation_summary_heads" : "pinned_decision_heads";
+          const key = table === "conversation_summary_versions" ? "series_id" : "decision_id";
+          const head = studio[headTable].find((item) => item[key] === row[key]);
+          if (!head) throw new Error("portable_project_memory_head_missing");
+          this.database.prepare(`INSERT INTO ${headTable} (${key},project_id,current_version_id,updated_at) VALUES (?,?,?,?)
+            ON CONFLICT(${key}) DO UPDATE SET current_version_id = excluded.current_version_id, updated_at = excluded.updated_at`)
+            .run(row[key], bundle.projectId, row.id, head.current_version_id === row.id ? head.updated_at : row.created_at);
+        }
+        if (table === "setup_proposals" && row.status !== "proposed") this.database.prepare("UPDATE setup_proposals SET status = ?, application_json = ?, updated_at = ? WHERE id = ?")
+          .run(row.status, row.application_json, row.updated_at, row.id);
+      }
+    }
+    for (const table of ["conversation_summary_heads", "pinned_decision_heads"] as const) {
+      const key = table === "conversation_summary_heads" ? "series_id" : "decision_id";
+      for (const head of studio[table]) {
+        if (!this.database.prepare(`SELECT 1 FROM ${table} WHERE ${key} = ? AND project_id = ? AND current_version_id = ?`).get(head[key], bundle.projectId, head.current_version_id)) throw new Error("portable_project_memory_head_invalid");
+      }
+    }
+    for (const row of studio.setup_proposals) assertSetupProposalSource(this.database, bundle.projectId, String(row.conversation_id), JSON.parse(String(row.source_json)));
+    for (const row of studio.change_sets) {
+      if (!this.database.prepare("SELECT 1 FROM conversations WHERE id = ? AND project_id = ?").get(row.conversation_id, bundle.projectId)
+        || !this.database.prepare("SELECT 1 FROM artifact_versions WHERE id = ? AND project_id = ? AND artifact_id = ?").get(row.base_version_id, bundle.projectId, row.artifact_id)
+        || (row.status === "applied") !== Boolean(row.applied_version_id)
+        || (row.applied_version_id && !this.database.prepare("SELECT 1 FROM artifact_versions WHERE id = ? AND project_id = ?").get(row.applied_version_id, bundle.projectId))) throw new Error("portable_project_proposal_lineage_invalid");
+    }
   }
 
   private validateJsonFields(bundle: PortableProjectRows): void {
@@ -276,7 +378,7 @@ export class PortableProjectRepository {
     }
   }
 
-  private columns(table: PortableProjectTable): string[] {
+  private columns(table: PortableProjectTable | StudioPortableTable): string[] {
     return (this.database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((item) => item.name);
   }
 }

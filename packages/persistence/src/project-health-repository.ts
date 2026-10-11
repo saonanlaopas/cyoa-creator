@@ -95,6 +95,43 @@ export interface ProjectResumeFacts {
 export class ProjectHealthRepository {
   public constructor(private readonly database: StoryDatabase) {}
 
+  studioResume(projectId: string): Array<{ id: string; stage: "source-analysis" | "adaptation-intent" | "foundation-bootstrap" | "setup" | "editing" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics"; label: string; count: number }> {
+    const counts = this.database.prepare(`SELECT
+      (SELECT COUNT(*) FROM artifact_versions s WHERE s.project_id=? AND s.artifact_id='source'
+        AND json_extract(s.content_json,'$.schemaId')='cyoa.unavailable-source' AND NOT EXISTS(SELECT 1 FROM artifact_versions m
+          WHERE m.project_id=s.project_id AND m.artifact_type='source-evidence-material' AND json_extract(m.content_json,'$.sourceVersionId')=s.id)) AS missing,
+      (SELECT COUNT(*) FROM setup_proposals WHERE project_id=? AND status='proposed') AS setup,
+      (SELECT COUNT(*) FROM change_sets WHERE project_id=? AND status='proposed' AND json_extract(proposal_json,'$.kind')='conversational-edit-v1') AS editing,
+      (SELECT COUNT(*) FROM source_analysis_jobs WHERE project_id=? AND status IN ('pending','running','failed')) AS analysis,
+      (SELECT COUNT(*) FROM foundation_bootstrap_jobs WHERE project_id=? AND json_extract(content_json,'$.status') IN ('pending','running','failed')) AS bootstrap`)
+      .get(projectId, projectId, projectId, projectId, projectId) as { missing: number; setup: number; editing: number; analysis: number; bootstrap: number };
+    const actions: ReturnType<ProjectHealthRepository["studioResume"]> = [];
+    if (counts.missing) actions.push({ id: "source-unavailable", stage: "source-analysis", label: "Reattach exact source evidence", count: counts.missing });
+    if (counts.setup) actions.push({ id: "setup-proposals", stage: "setup", label: "Review proposed story foundations", count: counts.setup });
+    if (counts.editing) actions.push({ id: "editing-proposals", stage: "editing", label: "Review conversational changes", count: counts.editing });
+    if (counts.analysis) actions.push({ id: "source-jobs", stage: "source-analysis", label: "Inspect or resume source analysis", count: counts.analysis });
+    if (counts.bootstrap) actions.push({ id: "bootstrap-jobs", stage: "foundation-bootstrap", label: "Inspect or resume foundation drafts", count: counts.bootstrap });
+    for (const [artifactId, stage, label] of [["source-dossier", "source-analysis", "Review the source dossier"], ["adaptation-intent", "adaptation-intent", "Review adaptation intent"]] as const) {
+      const review = this.database.prepare(`SELECT 1 FROM artifact_versions v LEFT JOIN artifact_workflow_state w
+        ON w.project_id=v.project_id AND w.artifact_id=v.artifact_id WHERE v.project_id=? AND v.artifact_id=?
+        AND v.version=(SELECT MAX(version) FROM artifact_versions WHERE project_id=v.project_id AND artifact_id=v.artifact_id)
+        AND (v.stale=1 OR w.status IS NULL OR w.status!='approved' OR w.approved_version_id IS NOT v.id) LIMIT 1`).get(projectId, artifactId);
+      if (review) actions.push({ id: `${artifactId}-review`, stage, label, count: 1 });
+    }
+    const unapplied = this.database.prepare(`SELECT COUNT(*) AS count FROM foundation_bootstrap_jobs j
+      WHERE j.project_id=? AND json_extract(j.content_json,'$.status')='completed'
+      AND NOT EXISTS(SELECT 1 FROM foundation_bootstrap_applications a WHERE a.project_id=j.project_id AND a.job_id=j.id)`).get(projectId) as { count: number };
+    if (unapplied.count) actions.push({ id: "bootstrap-review", stage: "foundation-bootstrap", label: "Review generated foundation drafts", count: unapplied.count });
+    const foundation = this.database.prepare(`SELECT v.artifact_id FROM artifact_versions v LEFT JOIN artifact_workflow_state w
+      ON w.project_id=v.project_id AND w.artifact_id=v.artifact_id WHERE v.project_id=? AND v.artifact_id IN ('brief','creative-direction','bible','routes','endings','mechanics')
+      AND v.version=(SELECT MAX(version) FROM artifact_versions WHERE project_id=v.project_id AND artifact_id=v.artifact_id)
+      AND (w.status IS NULL OR w.status!='approved' OR w.approved_version_id IS NOT v.id)
+      ORDER BY CASE v.artifact_id WHEN 'brief' THEN 0 WHEN 'creative-direction' THEN 1 WHEN 'bible' THEN 2 WHEN 'routes' THEN 3 WHEN 'endings' THEN 4 ELSE 5 END LIMIT 1`)
+      .get(projectId) as { artifact_id: "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" } | undefined;
+    if (foundation) actions.push({ id: "foundation-review", stage: foundation.artifact_id, label: `Review ${foundation.artifact_id === "creative-direction" ? "Creative Direction" : foundation.artifact_id === "brief" ? "the project brief" : foundation.artifact_id === "bible" ? "the story bible" : foundation.artifact_id}`, count: 1 });
+    return actions;
+  }
+
   counts(projectId: string): ProjectHealthCounts {
     return this.database.prepare(`SELECT
       (SELECT COUNT(*) FROM passage_entity_heads WHERE project_id = ? AND entity_kind = 'passage' AND tombstoned = 0) AS passages,
@@ -176,7 +213,7 @@ export class ProjectHealthRepository {
 
   resume(projectId: string): ProjectResumeFacts {
     const facts = this.database.prepare(`SELECT
-      (SELECT COUNT(*) FROM change_sets WHERE project_id = ? AND status = 'proposed') AS proposedChangeSets,
+      (SELECT COUNT(*) FROM change_sets WHERE project_id = ? AND status = 'proposed' AND COALESCE(json_extract(proposal_json,'$.kind'),'')!='conversational-edit-v1') AS proposedChangeSets,
       (SELECT COUNT(*) FROM passage_draft_heads heads JOIN passage_draft_versions versions
         ON versions.project_id = heads.project_id AND versions.id = heads.current_version_id
         WHERE heads.project_id = ? AND versions.lifecycle_status = 'candidate') AS pendingDraftCandidates,
@@ -330,7 +367,16 @@ export class ProjectHealthRepository {
         LEFT JOIN drafting_unit_outputs outputs
           ON outputs.project_id = attempts.project_id AND outputs.attempt_id = attempts.id
         WHERE attempts.project_id = ?
-      ) GROUP BY workflow, provider_id, model_id, status`).all(projectId, projectId) as unknown as RawUsageRow[];
+        UNION ALL
+        SELECT 'source-analysis' AS workflow, json_extract(plans.content_json, '$.providerId') AS provider_id,
+          json_extract(plans.content_json, '$.modelId') AS model_id, attempts.status, attempts.usage_json,
+          CASE WHEN attempts.status IN ('completed','failed') THEN json_object('repairsPerformed', attempts.repair_count) ELSE NULL END AS repair_json,
+          attempts.started_at AS created_at, attempts.finished_at, attempts.started_at AS updated_at
+        FROM source_analysis_attempts attempts
+        JOIN source_analysis_jobs jobs ON jobs.project_id=attempts.project_id AND jobs.id=attempts.job_id
+        JOIN source_analysis_plans plans ON plans.project_id=jobs.project_id AND plans.id=jobs.plan_id
+        WHERE attempts.project_id = ?
+      ) GROUP BY workflow, provider_id, model_id, status`).all(projectId, projectId, projectId) as unknown as RawUsageRow[];
     const generic = this.database.prepare(`SELECT jobs.kind AS workflow, NULL AS provider_id, NULL AS model_id,
         jobs.status, 0 AS attempt_count, COUNT(*) AS known_provider_request_count,
         0 AS unknown_provider_request_attempt_count,
@@ -356,6 +402,14 @@ export class ProjectHealthRepository {
       JOIN json_each(versions.content_json, '$.job.units') unit
       JOIN json_each(unit.value, '$.attempts') attempt
       WHERE versions.project_id = ?
+      UNION ALL
+      SELECT 'foundation-bootstrap' AS workflow, json_extract(plans.content_json,'$.providerId') AS provider_id,
+        json_extract(plans.content_json,'$.modelId') AS model_id, json_extract(attempt.value,'$.status') AS status,
+        NULL AS usage_json, NULL AS repair_performed,
+        json_extract(attempt.value,'$.startedAt') AS created_at, json_extract(attempt.value,'$.finishedAt') AS finished_at
+      FROM foundation_bootstrap_jobs jobs JOIN foundation_bootstrap_plans plans ON plans.project_id=jobs.project_id AND plans.id=jobs.plan_id
+      JOIN json_each(jobs.content_json,'$.units') unit JOIN json_each(unit.value,'$.attempts') attempt
+      WHERE jobs.project_id = ?
     ) SELECT workflow, provider_id, model_id, status, COUNT(*) AS attempt_count,
       COALESCE(SUM(CASE WHEN status IN ('completed', 'failed') AND repair_performed IS NOT NULL
         THEN 1 + CAST(repair_performed AS INTEGER) ELSE 0 END), 0) AS known_provider_request_count,
@@ -369,7 +423,7 @@ export class ProjectHealthRepository {
       SUM(CASE WHEN usage_json IS NOT NULL AND json_type(usage_json, '$.cost') IS NULL THEN 1 ELSE 0 END) AS unknown_cost_request_count,
       COALESCE(SUM(CASE WHEN json_type(usage_json, '$.cost') IN ('integer', 'real') THEN CAST(json_extract(usage_json, '$.cost') AS REAL) ELSE 0 END), 0) AS recorded_cost,
       MIN(created_at) AS first_recorded_at, MAX(COALESCE(finished_at, created_at)) AS last_recorded_at
-      FROM attempts GROUP BY workflow, provider_id, model_id, status`).all(projectId, projectId) as unknown as RawUsageRow[];
+      FROM attempts GROUP BY workflow, provider_id, model_id, status`).all(projectId, projectId, projectId) as unknown as RawUsageRow[];
     return [...relational, ...generic, ...embedded].map(mapUsageRow);
   }
 

@@ -4,12 +4,16 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, ProjectBriefSchema, creativeDirectionFingerprints, defaultCreativeDirection, newAdaptationIntent, normalizeAdaptationIntent, type SourceDossier } from "@story-to-cyoa/domain";
 import { EnvironmentCredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
-import { ArtifactRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
-import { analysisFixture, completeFixture } from "../../../packages/persistence/test/source-analysis-fixture.js";
+import { ArtifactRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
+import { analysisFixture, completeFixture, smallSource } from "../../../packages/persistence/test/source-analysis-fixture.js";
 import { buildApp } from "../src/app.js";
 import { createOfflineSetupClient } from "../src/services/offline-setup-provider.js";
 import { DeterministicFoundationBootstrapProvider, deterministicFoundationBootstrapCandidate } from "../src/services/foundation-bootstrap-provider.js";
 import { assertPassageFidelityAuthority } from "../src/services/adaptation-passage-authority.js";
+import { PublicationExportService } from "../src/services/publication-export-service.js";
+import { RecoveryService } from "../src/services/recovery-service.js";
+import { validatePortableAuthoringProject } from "../src/services/portable-project-validator.js";
+import { prepareStudioHistoryDuplicate } from "../src/services/studio-history-duplication.js";
 
 const apps: ReturnType<typeof buildApp>[] = [], directories: string[] = [];
 afterEach(async () => { vi.useRealTimers(); for (const app of apps.splice(0)) await app.close(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
@@ -53,6 +57,37 @@ async function assertNoFoundationWrite(f: Fixture, before: any) {
 }
 
 describe("A5 exact foundation generation and review boundary", () => {
+  it.each(["full-fidelity", "privacy-redacted"] as const)("A7 restores and duplicates applied bootstrap lineage with explicit source recovery: %s", async (mode) => {
+    const f = fixture(), { job } = await start(f); expect((await terminal(f, job.id)).status).toBe("completed");
+    const usage = (await f.app.inject({ url: `${f.project}/health/usage` })).json();
+    expect(usage.groups.find((group: any) => group.workflow === "foundation-bootstrap")).toMatchObject({
+      attemptCount: 1, providerRequestCount: null, providerRequestCountStatus: "unknown", tokenKnownRequestCount: 0,
+      cost: { status: "unknown", recorded: null },
+    });
+    expect((await f.app.inject({ url: `${f.project}/health/resume` })).json().actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "bootstrap-review", stage: "foundation-bootstrap", count: 1 }),
+    ]));
+    const selection = (await f.call(`/jobs/${job.id}/preview-apply`, { artifactIds: [...FOUNDATION_ARTIFACT_IDS] })).json();
+    expect((await f.call(`/jobs/${job.id}/apply`, { artifactIds: selection.effectiveArtifactIds, fingerprint: selection.previewFingerprint })).statusCode).toBe(200);
+    const resume = (await f.app.inject({ url: `${f.project}/health/resume` })).json();
+    expect(resume.actions.some((action: any) => action.id === "bootstrap-review")).toBe(false);
+    expect(resume.actions).toEqual(expect.arrayContaining([expect.objectContaining({ id: "foundation-review", stage: "brief" })]));
+    const original = openDatabase(f.path), target = openDatabase();
+    try {
+      const archive = new PublicationExportService(new PortableProjectRepository(original), undefined).exportStudioPortable(f.projectId, mode);
+      const portable = new PortableProjectRepository(target), publication = new PublicationExportService(portable, undefined), recovery = new RecoveryService(target, portable, publication);
+      publication.importPortable(archive.bytes);
+      const copy = new ProjectRepository(target).duplicate(f.projectId, "Independent bootstrap copy", validatePortableAuthoringProject, prepareStudioHistoryDuplicate);
+      if (mode === "privacy-redacted") {
+        await expect(recovery.createVerifiedBackup(copy.id)).rejects.toThrow(/full_fidelity_source_unavailable/);
+        const version = new ArtifactRepository(target).getCurrent(copy.id, "source")!;
+        publication.reattachSource(copy.id, version.id, smallSource);
+      }
+      validatePortableAuthoringProject(target, copy.id);
+      expect((await recovery.createVerifiedBackup(copy.id)).record.verifiedAt).toBeTruthy();
+      expect(f.provider.calls).toHaveLength(1);
+    } finally { original.close(); target.close(); }
+  });
   it.each([false, true])("completes and applies hash-free OpenRouter output with existing Creative Direction=%s", async (existingDirection) => {
     let calls = 0;
     const client = new OpenRouterClient({ credentialStore: new EnvironmentCredentialStore({ environment: { OPENROUTER_API_KEY: "offline-key" } }), fetch: async (_url, init) => {

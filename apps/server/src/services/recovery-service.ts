@@ -95,7 +95,7 @@ export class RecoveryService {
   async createVerifiedBackup(projectId: string): Promise<{ bytes: Uint8Array; record: ProjectBackupRecord; filename: string }> {
     const capturedAt = new Date().toISOString();
     let capture: ReturnType<PublicationExportService["exportPortable"]>;
-    try { capture = this.publication.exportPortable(projectId); }
+    try { capture = this.publication.exportStudioPortable(projectId); }
     catch (error) { throw normalizeRecoveryError(error, "backup_export_failed"); }
     try {
       await this.options.afterBackupCapture?.({
@@ -181,7 +181,8 @@ export class RecoveryService {
         this.portable.importRowsInTransaction(verification.rows, validatePortableAuthoringProject);
         this.recovery.insertVerifiedBackup(parsed.record);
         this.recovery.insertRestore(restore);
-        const restored = this.publication.exportPortable(parsed.record.projectId);
+        const restored = verification.manifest.exportContractVersion === 2
+          ? this.publication.exportStudioPortable(parsed.record.projectId) : this.publication.exportPortable(parsed.record.projectId);
         const restoredPortable = this.publication.parsePortableArchive(restored.bytes);
         assertPortableSemanticEquivalence(
           {
@@ -201,8 +202,8 @@ export class RecoveryService {
 
   status(projectId: string): RecoveryStatus {
     if (!this.projects.get(projectId)) throw new RecoveryOperationError("project_not_found", "Project not found.");
-    const current = this.publication.exportPortable(projectId).manifest.projectFingerprint;
     const latest = this.recovery.latestVerifiedBackup(projectId) ?? null;
+    const current = this.publication.studioProjectFingerprint(projectId);
     const state = this.recovery.getState(projectId);
     const currentSchemaVersion = databaseSchemaVersion(this.database);
     let freshness: BackupFreshnessStatus;
@@ -268,6 +269,7 @@ export class RecoveryService {
     diagnostics: string[];
   }> {
     const source = this.publication.parsePortableArchive(portableBytes);
+    if (source.manifest.exportMode === "privacy-redacted") throw new RecoveryOperationError("backup_redacted_archive_forbidden", "A privacy-redacted archive is not a full-fidelity verified backup.");
     const directory = await (this.options.createTemporaryDirectory ?? mkdtemp)(join(this.temporaryDirectoryRoot, "cyoa-recovery-"));
     const databasePath = join(directory, "reconstruction.sqlite");
     let isolated: StoryDatabase | undefined;
@@ -278,7 +280,8 @@ export class RecoveryService {
       isolatedPortable.importRows(source.rows, validatePortableAuthoringProject);
       const integrity = runDatabaseIntegrityCheck(isolated);
       if (!integrity.ok) throw new RecoveryOperationError("isolated_integrity_failed", "The isolated reconstructed database did not pass SQLite quick_check.");
-      const restored = isolatedPublication.exportPortable(source.rows.projectId);
+      const restored = source.manifest.exportContractVersion === 2
+        ? isolatedPublication.exportStudioPortable(source.rows.projectId) : isolatedPublication.exportPortable(source.rows.projectId);
       assertPortableSemanticEquivalence(
         source,
         isolatedPublication.parsePortableArchive(restored.bytes),

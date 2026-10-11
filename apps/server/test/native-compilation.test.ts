@@ -210,18 +210,19 @@ type PortablePayload = {
 function resealPortableArchive(bytes: Uint8Array, mutate: (payload: PortablePayload) => void): Uint8Array {
   const files = unzipSync(bytes);
   const manifest = JSON.parse(new TextDecoder().decode(files["manifest.json"]!)) as Record<string, any>;
-  const payload = JSON.parse(new TextDecoder().decode(files["project.json"]!)) as PortablePayload;
-  mutate(payload);
-  const rows = { projectId: payload.projectId, tables: payload.tables };
+  const payload = JSON.parse(new TextDecoder().decode(files["project.json"]!)) as PortablePayload & { rows?: { projectId: string; tables: PortablePayload["tables"]; studio: PortablePayload["tables"] } };
+  mutate(payload.rows ? { ...payload, ...payload.rows } : payload);
+  const rows = payload.rows ?? { projectId: payload.projectId, tables: payload.tables };
   payload.projectFingerprint = stableFingerprint({
     schemaId: payload.schemaId,
     schemaVersion: payload.schemaVersion,
     historyMode: manifest.historyMode,
+    ...(manifest.exportContractVersion === 2 ? { exportContractVersion: 2, exportMode: manifest.exportMode, evidence: manifest.evidence } : {}),
     rows,
   });
   const payloadBytes = strToU8(JSON.stringify(payload));
   manifest.projectFingerprint = payload.projectFingerprint;
-  manifest.counts = Object.fromEntries(Object.entries(payload.tables).map(([table, tableRows]) => [table, tableRows.length]));
+  manifest.counts = Object.fromEntries(Object.entries({ ...rows.tables, ...(payload.rows?.studio ?? {}) }).map(([table, tableRows]) => [table, tableRows.length]));
   manifest.files[0].bytes = payloadBytes.byteLength;
   manifest.files[0].sha256 = createHash("sha256").update(payloadBytes).digest("hex");
   return zipSync({
@@ -639,10 +640,10 @@ describe("Foundation 7A native compilation API", () => {
     const archive = new Uint8Array(exported.rawPayload);
     const archiveFiles = unzipSync(archive);
     const archiveManifest = JSON.parse(new TextDecoder().decode(archiveFiles["manifest.json"]!)) as Record<string, any>;
-    const archivePayload = JSON.parse(new TextDecoder().decode(archiveFiles["project.json"]!)) as PortablePayload;
+    const archivePayload = JSON.parse(new TextDecoder().decode(archiveFiles["project.json"]!)) as PortablePayload & { rows: { projectId: string; tables: PortablePayload["tables"]; studio: PortablePayload["tables"] } };
     expect(archiveManifest.projectFingerprint).toBe(archivePayload.projectFingerprint);
     expect(stableFingerprint({ schemaId: archivePayload.schemaId, schemaVersion: archivePayload.schemaVersion,
-      historyMode: "immutable-authoring-history-v1", rows: { projectId: archivePayload.projectId, tables: archivePayload.tables } }))
+      historyMode: "immutable-authoring-history-v1", exportContractVersion: 2, exportMode: archiveManifest.exportMode, evidence: archiveManifest.evidence, rows: archivePayload.rows }))
       .toBe(archivePayload.projectFingerprint);
 
     const target = buildApp(); apps.push(target);

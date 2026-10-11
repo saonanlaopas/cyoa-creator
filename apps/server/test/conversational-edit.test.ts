@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ArtifactRepository, AuthorMemoryRepository, ChangeSetRepository, ConversationRepository, PassageDraftRepository, PassagePlanRepository, ProjectRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
+import { ArtifactRepository, AuthorMemoryRepository, ChangeSetRepository, ConversationRepository, PassageDraftRepository, PassagePlanRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
 import { defaultPassagePlanBundle, type LongFormMechanicsPlan, type LongFormStoryBible, type PassagePlan } from "@story-to-cyoa/pipeline";
 import { LongFormProjectService } from "../src/services/long-form-project-service.js";
 import { ConversationalEditService } from "../src/services/conversational-edit-service.js";
@@ -13,6 +13,9 @@ import { PassagePlanService } from "../src/services/passage-plan-service.js";
 import type { OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { FOUNDATION_ARTIFACT_IDS, ProjectBriefSchema, defaultCreativeDirection, defaultProjectBrief, newAdaptationIntent, normalizeAdaptationIntent, type SourceDossier } from "@story-to-cyoa/domain";
 import { analysisFixture, completeFixture } from "../../../packages/persistence/test/source-analysis-fixture.js";
+import { PublicationExportService } from "../src/services/publication-export-service.js";
+import { RecoveryService } from "../src/services/recovery-service.js";
+import { validatePortableAuthoringProject } from "../src/services/portable-project-validator.js";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
@@ -61,6 +64,30 @@ function readyReview(f: Fixture, p: { id: string; proposal: unknown }, selected?
 }
 
 describe("A6 scoped conversational editing", () => {
+  it.each([false, true])("A7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=%s)", async (applied) => {
+    const f = fixture(), proposal = await propose(f), review = readyReview(f, proposal);
+    if (applied) f.service.apply(f.id, proposal.id, review.selectedGroupIds, review.fingerprint);
+    const portable = new PortableProjectRepository(f.db), publication = new PublicationExportService(portable, undefined), recovery = new RecoveryService(f.db, portable, publication);
+    const before = f.service.proposal(f.id, proposal.id), backup = await recovery.createVerifiedBackup(f.id);
+    const db = openDatabase();
+    try {
+      const restoredPortable = new PortableProjectRepository(db), restoredPublication = new PublicationExportService(restoredPortable, undefined);
+      await new RecoveryService(db, restoredPortable, restoredPublication).restoreBackup(backup.bytes);
+      const artifacts = new ArtifactRepository(db), projects = new ProjectRepository(db), workflow = new WorkflowRepository(db), longForm = new LongFormProjectService(projects, artifacts, workflow);
+      const service = new ConversationalEditService(db, longForm, []);
+      expect(service.proposal(f.id, proposal.id)).toEqual(before);
+      expect(new PassagePlanRepository(db).listAllEntityVersions(f.id)).toEqual(f.passages.listAllEntityVersions(f.id));
+      const copy = projects.duplicate(f.id, "Copied conversational project", validatePortableAuthoringProject);
+      const conversation = service.conversationsForProject(copy.id)[0]!;
+      const copied = service.history(copy.id, conversation.id).proposals[0]!;
+      expect(copied.id).not.toBe(proposal.id); expect(copied.status).toBe(before.status);
+      expect(service.proposal(copy.id, copied.id).projectId).toBe(copy.id);
+      service.validateArchiveHistory(copy.id);
+      expect(new PassagePlanRepository(db).currentEntities(copy.id, "passage")).toHaveLength(f.bundle.passages.length);
+      // Captured plans from another project are historical; they cannot authorize a new Apply.
+      if (!applied) expect(() => service.review(copy.id, copied.id, review.selectedGroupIds)).toThrow(/stale/);
+    } finally { db.close(); }
+  });
   it.each(["sequence", "act"] as const)("invalidates only drafts under a materially edited %s through Apply, approval and refresh", async (kind) => {
     const f = fixture(), sequence = f.bundle.structure.sequences.find((s) => s.passageIds.length >= 2)!, other = f.bundle.structure.sequences.find((s) => s.actId !== sequence.actId)!;
     const upstreamVersions = Object.fromEntries(["bible", "routes", "endings", "mechanics"].map((id) => [id, f.artifacts.getCurrent(f.id, id)!.id]));

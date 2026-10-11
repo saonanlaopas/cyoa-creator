@@ -195,7 +195,7 @@ describe("Foundation 8B project health", () => {
     const resume = service.resume(project.id);
     expect(resume).toMatchObject({ authority: "persisted-facts-only", truncated: false,
       facts: { proposedChangeSets: 1 }, backup: { latestVerifiedAt: null, freshness: "not-evaluated" } });
-    expect(resume.actions.map((item) => item.id)).toEqual(["proposals", "backup"]);
+    expect(resume.actions.map((item) => item.id)).toEqual(["foundation-review", "proposals", "backup"]);
   });
 
   it("classifies every real generation and drafting attention state with exact latest job navigation", () => {
