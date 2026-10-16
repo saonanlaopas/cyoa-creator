@@ -8,6 +8,7 @@ on:
       - codex/a6-conversational-editing
       - codex/a7-studio-handoff
       - codex/m1-connected-editing
+      - codex/m2-original-game-foundations
   pull_request:
 
 permissions:

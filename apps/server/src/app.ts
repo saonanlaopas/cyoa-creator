@@ -255,7 +255,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerLongFormRoutes(app, projects, artifacts, workflow, longFormProjects);
   registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, authorMemory, changeSets, longFormProjects);
   registerConversationalEditRoutes(app, conversationalEdits);
-  if (connectedConfig) registerConnectedEditing(app, new ConnectedEditService(database, conversationalEdits, connectedConfig.projectIds), connectedConfig);
+  if (connectedConfig) registerConnectedEditing(app, new ConnectedEditService(database, conversationalEdits, connectedConfig.projectIds, longFormProjects, connectedConfig.allowProjectCreation), connectedConfig);
   registerAuthorMemoryRoutes(app, projects, authorMemory);
   registerProjectSetupRoutes(app, projectSetupService);
   registerSourceAnalysisRoutes(app, sourceAnalysisService);

@@ -24,7 +24,7 @@ function fixture(path = ":memory:") {
   longForm.approveArtifact(id, "brief", created.brief.id);
   const generate = vi.fn(async () => { throw new Error("Provider calls forbidden"); });
   const edits = new ConversationalEditService(db, longForm, [{ id: "offline-edit", generate }, { id: "openrouter-edit", generate }]);
-  const service = new ConnectedEditService(db, edits, [id]);
+  const service = new ConnectedEditService(db, edits, [id], longForm);
   cleanups.push(() => { edits.shutdown(); db.close(); });
   return { db, artifacts, workflow, projects, longForm, id, edits, service, generate, created };
 }
@@ -208,7 +208,7 @@ describe("M1 authenticated Streamable HTTP", () => {
       return result.structuredContent as any;
     };
     const tools = (await first.client.listTools()).tools;
-    expect(tools.map((t) => t.name)).toHaveLength(10); expect(tools.find((t) => t.name === "apply_edit")!.annotations?.readOnlyHint).toBe(false);
+    expect(tools.map((t) => t.name)).toHaveLength(15); expect(tools.find((t) => t.name === "apply_edit")!.annotations?.readOnlyHint).toBe(false);
     await expect(call(first.client, "project_state", { projectId: randomUUID() })).rejects.toThrow("access_denied");
     const state = await call(first.client, "project_state", { projectId: f.id });
     const p = await call(first.client, "prepare_edit", { projectId: f.id, operationId: randomUUID(), message: "Change the title", headFingerprint: state.headFingerprint, targets: [{ key: "brief:root", versionId: f.created.brief.id }] });

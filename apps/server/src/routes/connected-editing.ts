@@ -7,7 +7,12 @@ import { ConnectedEditInputs, boundedConnectedResult, type ConnectedEditService,
 import type { ConnectedEditingConfig } from "../config.js";
 
 const descriptions: Record<ConnectedEditTool, string> = {
-  list_projects: "List only configured Long-form projects. No creation, generation, approval or export tools are exposed in M1.",
+  list_projects: "List only configured Long-form projects and explicitly enabled empty creation slots. No provider generation, passage authoring, or export tools are exposed.",
+  create_project: "Create an original-premise Long-form project only in a configured empty UUID slot, with creation enabled by the server and approved=true from the author. Creates default brief/Creative Direction drafts, not approved content. Retry identical arguments with the same operation UUID.",
+  initialize_foundation: "Create a missing bible/routes/endings/mechanics default draft through Creator's service after its prerequisites are approved. Requires the exact project head and author approval. Inspect its schema-shaped content with read_foundation, then propose real content with prepare_edit/submit_edit. Never replaces existing work.",
+  read_foundation: "Read a current foundation artifact or stable-ID section, bounded to 64KB. Use section:<field> or an entity ID to narrow a large artifact. Returns exact version, staleness, content and project head; no provider call.",
+  review_foundation_approval: "Review an exact fresh current artifact version, shared canonical validation and approval prerequisites. Show content/findings to the author before requesting approval. Applying a proposal does not approve it. Large results require browser review.",
+  approve_foundation: "Only after explicit author approval, approve the exact reviewed artifact version and fingerprint with approved=true. Uses Creator's prerequisite/validation service, never approves historical or stale versions. Approval is separate from Apply, generation and publication. Retry identical operation UUID/arguments after a lost response.",
   project_state: "Read current project version fingerprint and approval/draft state before preparing an edit.",
   list_edit_targets: "Discover editable stable target keys and exact versions; 50 records per page. Use narrow explicit scope.",
   list_edits: "Discover saved proposal IDs and statuses, 50 metadata-only records per page. Resume without the original assistant chat, then get_edit or review_edit for exact details.",
@@ -18,7 +23,7 @@ const descriptions: Record<ConnectedEditTool, string> = {
   apply_edit: "Apply only the author's explicitly approved batch using the exact review fingerprint/groupIds and approved=true. Draft creation is NOT artifact approval or publication. Retry the same UUID and arguments after a lost response; changed arguments require a new UUID.",
   reject_edit: "Reject a saved pending proposal; changes no canonical content. Use a retry-safe UUID.",
 };
-const reads = new Set<ConnectedEditTool>(["list_projects", "project_state", "list_edit_targets", "list_edits", "get_edit", "review_edit"]);
+const reads = new Set<ConnectedEditTool>(["list_projects", "project_state", "list_edit_targets", "list_edits", "get_edit", "review_edit", "read_foundation", "review_foundation_approval"]);
 
 export function registerConnectedEditing(app: FastifyInstance, service: ConnectedEditService, config: ConnectedEditingConfig) {
   const token = Buffer.from(`Bearer ${config.token}`);
@@ -38,7 +43,7 @@ export function registerConnectedEditing(app: FastifyInstance, service: Connecte
       const server = new McpServer({ name: "cyoa-connected-editing", version: "1.0.0" });
       for (const name of Object.keys(ConnectedEditInputs) as ConnectedEditTool[]) {
         server.registerTool(name, { description: descriptions[name], inputSchema: ConnectedEditInputs[name],
-          annotations: { readOnlyHint: reads.has(name), destructiveHint: name === "apply_edit" || name === "reject_edit", idempotentHint: true, openWorldHint: false } },
+          annotations: { readOnlyHint: reads.has(name), destructiveHint: name === "apply_edit" || name === "reject_edit" || name === "approve_foundation", idempotentHint: true, openWorldHint: false } },
         async (args: unknown): Promise<CallToolResult> => {
           try {
             const result = boundedConnectedResult(service.call(name, args)) as Record<string, unknown>;

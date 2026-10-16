@@ -58,7 +58,10 @@ export class WorkflowRepository {
   }
 
   approve(projectId: string, artifactId: string, versionId: string): ArtifactWorkflowState {
-    return transaction(this.database, () => {
+    return transaction(this.database, () => this.approveInTransaction(projectId, artifactId, versionId));
+  }
+
+  approveInTransaction(projectId: string, artifactId: string, versionId: string): ArtifactWorkflowState {
       if (artifactId === "adaptation-intent") assertAdaptationApproval(this.database, projectId, versionId);
       if (artifactId === "source-dossier") {
         const row = this.database.prepare("SELECT id,content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source-dossier' ORDER BY version DESC LIMIT 1").get(projectId) as { id: string; content_json: string } | undefined;
@@ -77,7 +80,6 @@ export class WorkflowRepository {
         (project_id, artifact_id, version_id, approved_at) VALUES (?, ?, ?, ?)`)
         .run(projectId, artifactId, versionId, now);
       return state;
-    });
   }
 
   private set(

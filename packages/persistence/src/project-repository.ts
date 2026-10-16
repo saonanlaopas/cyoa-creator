@@ -35,7 +35,7 @@ const mapProject = (row: ProjectRow): ProjectRecord => ({
 export class ProjectRepository {
   constructor(private readonly database: StoryDatabase) {}
 
-  create(name: string, id = randomUUID(), mode: ProjectRecord["mode"] = "quick"): ProjectRecord {
+  create(name: string, id: string = randomUUID(), mode: ProjectRecord["mode"] = "quick"): ProjectRecord {
     const cleanName = name.trim();
     if (!cleanName) throw new Error("Project name is required");
     if (mode !== "quick" && mode !== "long-form") throw new Error("Project mode is invalid");

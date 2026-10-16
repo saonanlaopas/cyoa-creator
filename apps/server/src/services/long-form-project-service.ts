@@ -83,9 +83,10 @@ export class LongFormProjectService {
     return project;
   }
 
-  createProject(name: string, sourceMode?: ProjectBrief["sourceMode"]) {
-    const project = this.projects.create(name, undefined, "long-form");
-    const brief = this.artifacts.saveArtifact({
+  createProject(name: string, sourceMode?: ProjectBrief["sourceMode"], options: { projectId?: string; inTransaction?: boolean } = {}) {
+    const project = this.projects.create(name, options.projectId, "long-form");
+    const save = options.inTransaction ? this.artifacts.saveArtifactInTransaction.bind(this.artifacts) : this.artifacts.saveArtifact.bind(this.artifacts);
+    const brief = save({
       projectId: project.id,
       artifactId: "brief",
       artifactType: "brief",
@@ -93,7 +94,7 @@ export class LongFormProjectService {
       content: { ...defaultProjectBrief(project.name), ...(sourceMode ? { sourceMode } : {}) },
       dependencies: dependencies.brief,
     });
-    const creativeDirection = this.artifacts.saveArtifact({
+    const creativeDirection = save({
       projectId: project.id,
       artifactId: "creative-direction",
       artifactType: "creative-direction",
@@ -153,7 +154,7 @@ export class LongFormProjectService {
     };
   }
 
-  createArtifact(projectId: string, artifactId: Exclude<PlanningArtifactId, "brief">) {
+  createArtifact(projectId: string, artifactId: Exclude<PlanningArtifactId, "brief">, options: { inTransaction?: boolean } = {}) {
     this.project(projectId);
     if (this.artifacts.getCurrent(projectId, artifactId)) throw new Error(`${artifactId} already exists`);
     this.requireApprovedPrerequisites(projectId, artifactId);
@@ -176,7 +177,7 @@ export class LongFormProjectService {
         : artifactId === "endings"
           ? defaultLongFormEndingPlan(routes!.content)
           : defaultLongFormMechanicsPlan(bible!.content, endings!.content);
-    return this.saveNew(projectId, artifactId, content);
+    return this.saveNew(projectId, artifactId, content, options.inTransaction);
   }
 
   saveArtifact(projectId: string, artifactId: PlanningArtifactId, content: unknown) {
@@ -202,7 +203,7 @@ export class LongFormProjectService {
     };
   }
 
-  approveArtifact(projectId: string, artifactId: PlanningArtifactId, versionId: string) {
+  reviewArtifactApproval(projectId: string, artifactId: PlanningArtifactId, versionId: string) {
     this.project(projectId);
     this.requireApprovedPrerequisites(projectId, artifactId);
     const version = this.artifacts.getVersion<PlanningArtifact>(versionId);
@@ -223,14 +224,23 @@ export class LongFormProjectService {
       Object.assign(error, { findings });
       throw error;
     }
+    return { artifactId, versionId, content: version.content, findings, prerequisites: this.approvalPrerequisites(artifactId) };
+  }
+
+  approvalPrerequisites(artifactId: PlanningArtifactId) { return [...prerequisites[artifactId]]; }
+
+  approveArtifact(projectId: string, artifactId: PlanningArtifactId, versionId: string, options: { inTransaction?: boolean } = {}) {
+    this.reviewArtifactApproval(projectId, artifactId, versionId);
+    const version = this.artifacts.getVersion<PlanningArtifact>(versionId)!;
     const priorApprovedId = this.workflow.get(projectId, artifactId).approvedVersionId;
     const priorApproved = priorApprovedId ? this.artifacts.getVersion<PlanningArtifact>(priorApprovedId) : undefined;
-    const approved = this.workflow.approve(projectId, artifactId, versionId);
+    const approved = options.inTransaction ? this.workflow.approveInTransaction(projectId, artifactId, versionId) : this.workflow.approve(projectId, artifactId, versionId);
     const materialChanged = artifactId !== "creative-direction"
       || !priorApproved
       || (priorApproved.content as CreativeDirection).materialFingerprint !== (version.content as CreativeDirection).materialFingerprint;
     if (materialChanged) {
-      this.passageDrafts?.markStaleForUpstreamVersion(projectId, artifactId, versionId);
+      if (options.inTransaction) this.passageDrafts?.markStaleForUpstreamVersionInTransaction(projectId, artifactId, versionId);
+      else this.passageDrafts?.markStaleForUpstreamVersion(projectId, artifactId, versionId);
       if (artifactId === "creative-direction") {
         let coherentBootstrap = false;
         try { coherentBootstrap = Boolean(this.artifacts.foundationAuthority(projectId, false)); } catch { /* Ordinary manual approval retains its existing invalidation behavior. */ }
@@ -349,8 +359,9 @@ export class LongFormProjectService {
     }
   }
 
-  private saveNew(projectId: string, artifactId: Exclude<PlanningArtifactId, "brief">, content: PlanningArtifact) {
-    const version = this.artifacts.saveArtifact({
+  private saveNew(projectId: string, artifactId: Exclude<PlanningArtifactId, "brief">, content: PlanningArtifact, inTransaction = false) {
+    const save = inTransaction ? this.artifacts.saveArtifactInTransaction.bind(this.artifacts) : this.artifacts.saveArtifact.bind(this.artifacts);
+    const version = save({
       projectId, artifactId, artifactType: artifactId,
       schema: schemas[artifactId] as never, content: content as never,
       dependencies: this.dependenciesFor(projectId, artifactId),
@@ -372,7 +383,7 @@ export class LongFormProjectService {
   }
 
   private requireApprovedPrerequisites(projectId: string, artifactId: PlanningArtifactId): void {
-    const required = [...prerequisites[artifactId]];
+    const required = this.approvalPrerequisites(artifactId);
     const missing = required.filter((dependency) => {
       const state = this.workflow.get(projectId, dependency);
       return state.status !== "approved" || !state.approvedVersionId;
