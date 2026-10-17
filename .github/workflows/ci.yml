@@ -9,6 +9,7 @@ on:
       - codex/a7-studio-handoff
       - codex/m1-connected-editing
       - codex/m2-original-game-foundations
+      - codex/m3-complete-text-game
   pull_request:
 
 permissions:

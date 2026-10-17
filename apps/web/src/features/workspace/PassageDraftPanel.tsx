@@ -107,6 +107,7 @@ export function PassageDraftPanel(props: {
   const exactSelection = reviewVersion ? [{
     passageId: props.passageId, candidateDraftVersionId: reviewVersion.id,
   }] : [];
+  const connectedSubmission = reviewVersion?.authorNote.startsWith("Connected assistant; no provider generation. Author request: ");
 
   return <section className="passage-draft-panel" aria-label="Passage prose review">
     <header><div><p className="eyebrow">Foundation 4B-3</p><h3>Review prose</h3>
@@ -122,7 +123,7 @@ export function PassageDraftPanel(props: {
       <div><dt>Candidate</dt><dd>{reviewVersion ? `v${reviewVersion.version} · ${reviewVersion.wordCount} words · ${reviewVersion.sourceKind}` : "None"}</dd></div>
       <div><dt>Accepted</dt><dd>{accepted ? `v${accepted.version} · ${accepted.lifecycleStatus} · ${accepted.wordCount} words${accepted.stale ? " · stale" : ""}` : "None"}</dd></div>
       <div><dt>Corpus</dt><dd>{state.summary.acceptedWords.toLocaleString()} accepted · {state.summary.remainingWords.toLocaleString()} remaining · {state.summary.acceptanceCompletionPercentage}%</dd></div>
-      <div><dt>Generated</dt><dd>{reviewVersion?.generationProvenance
+      <div><dt>Origin</dt><dd>{connectedSubmission ? "Connected assistant / no provider generation" : reviewVersion?.generationProvenance
         ? `${reviewVersion.generationProvenance.providerId}/${reviewVersion.generationProvenance.modelId} · ${new Date(reviewVersion.createdAt).toLocaleString()}`
         : reviewVersion ? `${reviewVersion.sourceKind} · ${new Date(reviewVersion.createdAt).toLocaleString()}` : "Not drafted"}</dd></div>
     </dl>

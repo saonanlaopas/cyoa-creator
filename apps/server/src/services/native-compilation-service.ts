@@ -179,7 +179,7 @@ export class NativeCompilationService {
     return this.inspectCurrent(projectId).readiness;
   }
 
-  captureInput(projectId: string): ArtifactVersion<NativeCompilationInput> {
+  captureInput(projectId: string, options: { inTransaction?: boolean } = {}): ArtifactVersion<NativeCompilationInput> {
     this.requireProject(projectId);
     const inspected = this.inspectCurrent(projectId);
     if (!inspected.resolved || !inspected.readiness.ready) {
@@ -189,7 +189,8 @@ export class NativeCompilationService {
         inspected.readiness,
       );
     }
-    return this.artifacts.saveArtifact({
+    const save = options.inTransaction ? this.artifacts.saveArtifactInTransaction.bind(this.artifacts) : this.artifacts.saveArtifact.bind(this.artifacts);
+    return save({
       projectId,
       artifactId: NATIVE_COMPILATION_INPUT_ARTIFACT_ID,
       artifactType: "native-compilation-input",
@@ -213,7 +214,7 @@ export class NativeCompilationService {
     return { inputVersion, resolved: this.resolveStoredInput(projectId, inputVersion.content) };
   }
 
-  compile(projectId: string, inputArtifactVersionId?: string): {
+  compile(projectId: string, inputArtifactVersionId?: string, options: { inTransaction?: boolean } = {}): {
     input: ArtifactVersion<NativeCompilationInput>;
     build: ArtifactVersion<NativeBuildRecord>;
     bundle: NativeGameBundle;
@@ -223,7 +224,7 @@ export class NativeCompilationService {
     this.requireProject(projectId);
     const inputVersion = inputArtifactVersionId
       ? this.requireInputVersion(projectId, inputArtifactVersionId)
-      : this.captureInput(projectId);
+      : this.captureInput(projectId, options);
     const resolved = this.resolveStoredInput(projectId, inputVersion.content);
     const bundle = compileNativeGame(resolved);
     const mechanics = resolved.upstreamArtifacts.find((item) => item.artifactId === "mechanics")
@@ -270,7 +271,8 @@ export class NativeCompilationService {
         availableChoiceCount: availableChoices.length,
       },
     };
-    const build = this.artifacts.saveArtifact({
+    const save = options.inTransaction ? this.artifacts.saveArtifactInTransaction.bind(this.artifacts) : this.artifacts.saveArtifact.bind(this.artifacts);
+    const build = save({
       projectId,
       artifactId: NATIVE_BUILD_ARTIFACT_ID,
       artifactType: "native-build",

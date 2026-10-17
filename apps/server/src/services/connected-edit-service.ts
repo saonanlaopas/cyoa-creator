@@ -5,12 +5,14 @@ import { planningArtifactIds, planningSection, type PlanningArtifact, type Plann
 import { EDIT_LIMITS, EditResponseSchema, type EditPlan, type EditResponse } from "./conversational-edit-contract.js";
 import type { ConversationalEditService } from "./conversational-edit-service.js";
 import type { LongFormProjectService } from "./long-form-project-service.js";
+import { ConnectedGameInputs, connectedGameMutations, type ConnectedGameService, type ConnectedGameTool } from "./connected-game-service.js";
 
 const id = z.string().min(1).max(240), digest = z.string().regex(/^[a-f0-9]{64}$/);
 const project = { projectId: id }, operation = { ...project, operationId: z.string().uuid() };
 const selection = { ...project, proposalId: id, groupIds: z.array(id).min(1).max(EDIT_LIMITS.groups) };
 const foundation = { ...project, artifactId: z.enum(planningArtifactIds) };
 export const ConnectedEditInputs = {
+  ...ConnectedGameInputs,
   list_projects: z.object({}).strict(),
   create_project: z.object({ ...operation, projectId: z.string().uuid(), name: z.string().trim().min(1).max(200), approved: z.literal(true) }).strict(),
   initialize_foundation: z.object({ ...operation, artifactId: z.enum(["bible", "routes", "endings", "mechanics"]), headFingerprint: digest, approved: z.literal(true) }).strict(),
@@ -39,7 +41,7 @@ export class ConnectedEditService {
   private readonly conversations: ConversationRepository;
   private readonly projects: ProjectRepository;
   constructor(private readonly database: StoryDatabase, private readonly edits: ConversationalEditService, private readonly projectIds: readonly string[],
-    private readonly longForm: LongFormProjectService, private readonly allowProjectCreation = false) {
+    private readonly longForm: LongFormProjectService, private readonly allowProjectCreation = false, private readonly game?: ConnectedGameService) {
     this.conversations = new ConversationRepository(database); this.projects = new ProjectRepository(database);
   }
   private access(projectId: string, allowMissing = false) {
@@ -65,6 +67,10 @@ export class ConnectedEditService {
     })) throw new Error("connected_approval_prerequisite_not_current");
   }
   private assertReceipt(tool: ConnectedEditTool, input: unknown, result: unknown) {
+    if (tool in ConnectedGameInputs) {
+      if (!this.game) throw new Error("connected_game_unavailable");
+      return this.game.assertReceipt(tool as ConnectedGameTool, input, result);
+    }
     const equal = (a: unknown, b: unknown) => sourceCanonicalJson(a) === sourceCanonicalJson(b);
     const r = result as { plan: EditPlan; proposalId: string; conversationId: string; applicationId: string; status: string; provenance: string; providerCalls: number; resultingVersions: Record<string, string> };
     if (tool === "create_project") {
@@ -142,6 +148,13 @@ export class ConnectedEditService {
       }, true);
     }
     const projectId = input.projectId; this.access(projectId);
+    if (tool in ConnectedGameInputs) {
+      if (!this.game) throw new Error("connected_game_unavailable");
+      const name = tool as ConnectedGameTool;
+      return connectedGameMutations.has(name) && "operationId" in input && typeof input.operationId === "string"
+        ? this.once(projectId, input.operationId, tool, input, () => this.game!.call(name, input))
+        : boundedConnectedResult(this.game.call(name, input));
+    }
     // Parse each concrete schema again for static narrowing as well as a closed public operation contract.
     switch (tool) {
       case "initialize_foundation": {

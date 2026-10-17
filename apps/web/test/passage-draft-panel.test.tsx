@@ -72,6 +72,19 @@ const response = (value: unknown, status = 200) => new Response(JSON.stringify(v
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("PassageDraftPanel", () => {
+  it("identifies connected candidate prose without claiming provider generation", async () => {
+    const connected = { ...candidate, authorNote: "Connected assistant; no provider generation. Author request: Revise the opening." };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).endsWith("/drafting/plans")) return response([]);
+      if (String(input).includes("/compare?")) return response({ ...comparison, after: connected });
+      return response({ ...candidateState, head: { ...candidateState.head, current: connected }, history: [connected] });
+    });
+    render(<PassageDraftPanel projectId="project-1" passageId="passage-001"
+      passagePlanVersionId="passage-plan-v1" passagePlanApproved setMessage={vi.fn()} />);
+    expect(await screen.findByText("Connected assistant / no provider generation")).toBeTruthy();
+    expect(screen.queryByText("No prose has been accepted.")).toBeTruthy();
+  });
+
   it("loads the exact persisted Resume drafting job rather than a newer passage plan", async () => {
     const ordinaryPlan = { ...planPreview, id: "drafting-plan-newer", executionPolicyId: planPreview.policy.id,
       executionPolicy: planPreview.policy, authorizationState: "planned", authorizationFingerprint: null,

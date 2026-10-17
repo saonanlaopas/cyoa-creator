@@ -103,7 +103,7 @@ export class SimulationService {
     private readonly passageDrafts: PassageDraftRepository,
   ) {}
 
-  createInput(projectId: string): ArtifactVersion<SimulationInputRecord> {
+  createInput(projectId: string, options: { inTransaction?: boolean } = {}): ArtifactVersion<SimulationInputRecord> {
     this.requireProject(projectId);
     const state = this.passagePlans.state(projectId);
     if (state.status !== "approved" || !state.approvedSnapshotId) {
@@ -161,7 +161,8 @@ export class SimulationService {
       id: `simin_${provisional.fingerprint}`,
       runtimeFingerprint: runtime.fingerprint,
     };
-    return this.artifacts.saveArtifact({
+    const save = options.inTransaction ? this.artifacts.saveArtifactInTransaction.bind(this.artifacts) : this.artifacts.saveArtifact.bind(this.artifacts);
+    return save({
       projectId,
       artifactId: SIMULATION_INPUT_ARTIFACT_ID,
       artifactType: "simulation-input",
@@ -194,7 +195,7 @@ export class SimulationService {
     choiceIds: string[];
     expectedEndingId?: string | null;
     expectedState?: DeterministicPathDefinition["expectedState"];
-  }): ArtifactVersion<SimulationRunRecord> {
+  }, options: { inTransaction?: boolean } = {}): ArtifactVersion<SimulationRunRecord> {
     this.requireProject(projectId);
     if (!Array.isArray(input.choiceIds) || input.choiceIds.some((id) => typeof id !== "string" || !id.trim())) {
       throw new SimulationServiceError("simulation_path_invalid", "Deterministic paths require stable choice IDs");
@@ -245,7 +246,8 @@ export class SimulationService {
       path,
       trace,
     };
-    return this.artifacts.saveArtifact({
+    const save = options.inTransaction ? this.artifacts.saveArtifactInTransaction.bind(this.artifacts) : this.artifacts.saveArtifact.bind(this.artifacts);
+    return save({
       projectId,
       artifactId: SIMULATION_RUN_ARTIFACT_ID,
       artifactType: "simulation-run",

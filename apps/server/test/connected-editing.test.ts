@@ -208,7 +208,7 @@ describe("M1 authenticated Streamable HTTP", () => {
       return result.structuredContent as any;
     };
     const tools = (await first.client.listTools()).tools;
-    expect(tools.map((t) => t.name)).toHaveLength(15); expect(tools.find((t) => t.name === "apply_edit")!.annotations?.readOnlyHint).toBe(false);
+    expect(tools.map((t) => t.name)).toHaveLength(28); expect(tools.find((t) => t.name === "apply_edit")!.annotations?.readOnlyHint).toBe(false);
     await expect(call(first.client, "project_state", { projectId: randomUUID() })).rejects.toThrow("access_denied");
     const state = await call(first.client, "project_state", { projectId: f.id });
     const p = await call(first.client, "prepare_edit", { projectId: f.id, operationId: randomUUID(), message: "Change the title", headFingerprint: state.headFingerprint, targets: [{ key: "brief:root", versionId: f.created.brief.id }] });

@@ -85,12 +85,14 @@ export class PassagePlanRepository {
   initialize(projectId: string, structure: unknown, entities: Array<{
     kind: PassageEntityKind; id: string; content: unknown;
   }>): void {
-    transaction(this.database, () => {
-      if (this.currentStructure(projectId)) throw new Error("Passage plan already exists");
-      this.insertStructure(projectId, structure);
-      entities.forEach((entity) => this.insertEntity(projectId, entity.kind, entity.id, entity.content));
-      this.setState(projectId, "draft");
-    });
+    transaction(this.database, () => this.initializeInTransaction(projectId, structure, entities));
+  }
+
+  initializeInTransaction(projectId: string, structure: unknown, entities: Array<{ kind: PassageEntityKind; id: string; content: unknown }>): void {
+    if (this.currentStructure(projectId)) throw new Error("Passage plan already exists");
+    this.insertStructure(projectId, structure);
+    entities.forEach((entity) => this.insertEntity(projectId, entity.kind, entity.id, entity.content));
+    this.setState(projectId, "draft");
   }
 
   currentStructure<T = unknown>(projectId: string): StructureVersion<T> | undefined {
@@ -259,26 +261,28 @@ export class PassagePlanRepository {
     upstreamVersions: Record<string, string>,
     validation: unknown,
   ): PassageSnapshot {
-    return transaction(this.database, () => {
-      const structure = this.currentStructure(projectId);
-      if (!structure) throw new Error("Passage plan not found");
-      const latest = this.database.prepare(`
-        SELECT COALESCE(MAX(version), 0) version FROM passage_plan_snapshots WHERE project_id = ?
-      `).get(projectId) as { version: number };
-      const id = randomUUID();
-      const now = new Date().toISOString();
-      this.database.prepare(`
-        INSERT INTO passage_plan_snapshots
-          (id, project_id, version, structure_version_id, upstream_versions_json, validation_json, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'draft', ?)
-      `).run(id, projectId, latest.version + 1, structure.id, JSON.stringify(upstreamVersions), JSON.stringify(validation), now);
-      this.database.prepare(`
-        INSERT INTO passage_plan_snapshot_items (snapshot_id, entity_kind, entity_id, version_id)
-        SELECT ?, entity_kind, entity_id, version_id FROM passage_entity_heads
-        WHERE project_id = ? AND tombstoned = 0
-      `).run(id, projectId);
-      return this.getSnapshot(id)!;
-    });
+    return transaction(this.database, () => this.createSnapshotInTransaction(projectId, upstreamVersions, validation));
+  }
+
+  createSnapshotInTransaction(projectId: string, upstreamVersions: Record<string, string>, validation: unknown): PassageSnapshot {
+    const structure = this.currentStructure(projectId);
+    if (!structure) throw new Error("Passage plan not found");
+    const latest = this.database.prepare(`
+      SELECT COALESCE(MAX(version), 0) version FROM passage_plan_snapshots WHERE project_id = ?
+    `).get(projectId) as { version: number };
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.database.prepare(`
+      INSERT INTO passage_plan_snapshots
+        (id, project_id, version, structure_version_id, upstream_versions_json, validation_json, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'draft', ?)
+    `).run(id, projectId, latest.version + 1, structure.id, JSON.stringify(upstreamVersions), JSON.stringify(validation), now);
+    this.database.prepare(`
+      INSERT INTO passage_plan_snapshot_items (snapshot_id, entity_kind, entity_id, version_id)
+      SELECT ?, entity_kind, entity_id, version_id FROM passage_entity_heads
+      WHERE project_id = ? AND tombstoned = 0
+    `).run(id, projectId);
+    return this.getSnapshot(id)!;
   }
 
   getSnapshot(id: string): PassageSnapshot | undefined {
@@ -302,12 +306,14 @@ export class PassagePlanRepository {
   }
 
   approveSnapshot(projectId: string, snapshotId: string): PassagePlanState {
-    return transaction(this.database, () => {
-      const snapshot = this.getSnapshot(snapshotId);
-      if (!snapshot || snapshot.projectId !== projectId) throw new Error("Passage-plan snapshot not found");
-      this.database.prepare("UPDATE passage_plan_snapshots SET status = 'approved' WHERE id = ?").run(snapshotId);
-      return this.setState(projectId, "approved", snapshotId);
-    });
+    return transaction(this.database, () => this.approveSnapshotInTransaction(projectId, snapshotId));
+  }
+
+  approveSnapshotInTransaction(projectId: string, snapshotId: string): PassagePlanState {
+    const snapshot = this.getSnapshot(snapshotId);
+    if (!snapshot || snapshot.projectId !== projectId) throw new Error("Passage-plan snapshot not found");
+    this.database.prepare("UPDATE passage_plan_snapshots SET status = 'approved' WHERE id = ?").run(snapshotId);
+    return this.setState(projectId, "approved", snapshotId);
   }
 
   restoreSnapshot(projectId: string, snapshotId: string): PassagePlanState {

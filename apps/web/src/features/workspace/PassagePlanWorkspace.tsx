@@ -397,7 +397,7 @@ export function PassagePlanWorkspace(props: {
               }}>Apply locally</button>
             </div>}
           </aside>
-          <main className="passage-detail">
+          <section className="passage-detail" aria-label="Selected passage">
             {selected ? <><PassageEditor
               passage={selected} passages={passages} choices={choicesByPassage.get(selected.id) ?? []}
               sequences={structure.sequences} mechanics={props.mechanics} endings={props.endings}
@@ -448,7 +448,7 @@ export function PassagePlanWorkspace(props: {
               setMessage={props.setMessage}
               onCorpusChange={() => setDraftQueueRevision((value) => value + 1)}
             /></> : <p>Select a passage from the outline.</p>}
-          </main>
+          </section>
         </div>
         <ThreadEditor threads={threads} setThreads={setThreads} passages={passages} routes={props.routes}
           focusedThreadId={focusEntity?.type === "thread" ? focusEntity.id : null} />

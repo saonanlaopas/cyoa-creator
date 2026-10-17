@@ -53,17 +53,19 @@ export class PassageDraftService {
   }
 
   accept(projectId: string, input: { selections?: unknown; previewFingerprint?: unknown }) {
+    return transaction(this.database, () => this.acceptInTransaction(projectId, input));
+  }
+
+  acceptInTransaction(projectId: string, input: { selections?: unknown; previewFingerprint?: unknown }) {
     this.requireProject(projectId);
     const selections = this.acceptanceSelections(input.selections);
     if (typeof input.previewFingerprint !== "string" || !input.previewFingerprint) {
       throw new Error("previewFingerprint is required");
     }
-    return transaction(this.database, () => {
-      const preview = this.acceptance.preview(projectId, selections);
-      if (preview.fingerprint !== input.previewFingerprint) throw new StaleDraftAcceptancePreviewError(preview);
-      const application = this.acceptance.applyInTransaction(preview);
-      return { application, preview, summary: this.drafts.projectSummary(projectId) };
-    });
+    const preview = this.acceptance.preview(projectId, selections);
+    if (preview.fingerprint !== input.previewFingerprint) throw new StaleDraftAcceptancePreviewError(preview);
+    const application = this.acceptance.applyInTransaction(preview);
+    return { application, preview, summary: this.drafts.projectSummary(projectId) };
   }
 
   compare(projectId: string, passageId: string, beforeVersionId: string | null, afterVersionId: string) {
@@ -88,7 +90,7 @@ export class PassageDraftService {
     };
   }
 
-  saveManual(projectId: string, passageId: string, input: { proseMarkdown?: unknown; authorNote?: unknown }) {
+  saveManual(projectId: string, passageId: string, input: { proseMarkdown?: unknown; authorNote?: unknown }, options: { inTransaction?: boolean } = {}) {
     this.requireProject(projectId);
     const passage = this.requirePassage(projectId, passageId);
     if (typeof input.proseMarkdown !== "string") throw new Error("proseMarkdown is required");
@@ -98,7 +100,8 @@ export class PassageDraftService {
     const authorNote = typeof input.authorNote === "string" ? input.authorNote : "";
     if (Buffer.byteLength(authorNote, "utf8") > 10_000) throw new Error("Draft author note is too large");
     const upstreamVersions = this.approvedUpstreamVersions(projectId);
-    const draft = this.drafts.createVersion({
+    const create = options.inTransaction ? this.drafts.createVersionInTransaction.bind(this.drafts) : this.drafts.createVersion.bind(this.drafts);
+    const draft = create({
       projectId,
       passageId,
       basedOnPassagePlanVersionId: passage.id,

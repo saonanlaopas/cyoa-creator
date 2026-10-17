@@ -42,7 +42,7 @@ export class PassagePlanService {
     private readonly repository: PassagePlanRepository,
   ) {}
 
-  create(projectId: string) {
+  create(projectId: string, options: { inTransaction?: boolean } = {}) {
     this.requireProject(projectId);
     if (this.repository.currentStructure(projectId)) throw new Error("Passage plan already exists");
     const brief = this.approved<ProjectBrief>(projectId, "brief");
@@ -53,7 +53,8 @@ export class PassagePlanService {
       throw new Error("Approve brief, routes, endings, and mechanics first");
     }
     const bundle = defaultPassagePlanBundle(brief.content, routes.content, endings.content);
-    this.repository.initialize(projectId, bundle.structure, [
+    const initialize = options.inTransaction ? this.repository.initializeInTransaction.bind(this.repository) : this.repository.initialize.bind(this.repository);
+    initialize(projectId, bundle.structure, [
       ...bundle.passages.map((content) => ({ kind: "passage" as const, id: content.id, content })),
       ...bundle.choices.map((content) => ({ kind: "choice" as const, id: content.id, content })),
       ...bundle.threads.map((content) => ({ kind: "thread" as const, id: content.id, content })),
@@ -194,13 +195,13 @@ export class PassagePlanService {
     return { entity, report: this.validate(projectId) };
   }
 
-  createSnapshot(projectId: string) {
+  createSnapshot(projectId: string, options: { inTransaction?: boolean } = {}) {
     const dependencies = this.approvedDependencies(projectId);
     const report = this.validate(projectId, this.bundle(projectId), dependencies);
-    return this.repository.createSnapshot(projectId, dependencies.versions, report);
+    return options.inTransaction ? this.repository.createSnapshotInTransaction(projectId, dependencies.versions, report) : this.repository.createSnapshot(projectId, dependencies.versions, report);
   }
 
-  approve(projectId: string, snapshotId?: string) {
+  approve(projectId: string, snapshotId?: string, options: { inTransaction?: boolean } = {}) {
     const snapshot = snapshotId ? this.repository.getSnapshot(snapshotId) : this.createSnapshot(projectId);
     if (!snapshot || snapshot.projectId !== projectId) throw new Error("Passage-plan snapshot not found");
     const currentUpstream = Object.fromEntries(Object.keys(snapshot.upstreamVersions).map((artifactId) => [
@@ -217,7 +218,7 @@ export class PassagePlanService {
       Object.assign(error, { findings: errors });
       throw error;
     }
-    return { snapshot: { ...snapshot, status: "approved" as const }, state: this.repository.approveSnapshot(projectId, snapshot.id) };
+    return { snapshot: { ...snapshot, status: "approved" as const }, state: options.inTransaction ? this.repository.approveSnapshotInTransaction(projectId, snapshot.id) : this.repository.approveSnapshot(projectId, snapshot.id) };
   }
 
   restoreSnapshot(projectId: string, snapshotId: string) {

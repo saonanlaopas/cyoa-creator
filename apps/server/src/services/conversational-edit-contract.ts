@@ -10,11 +10,12 @@ export const EditRequestSchema = z.object({ message: z.string().trim().min(1).ma
   modelId: id.default("offline-edit-v1") }).strict();
 export const EditResponseSchema = z.object({ message: z.string().trim().min(1).max(6000), groups: z.array(z.object({
   id, label: z.string().trim().min(1).max(300), explanation: z.string().trim().min(1).max(2000), dependsOnGroupIds: z.array(id).max(EDIT_LIMITS.groups),
-  operations: z.array(z.object({ targetKey: id, kind: z.enum(["set-fields", "add-item", "remove-item", "reorder-items"]),
+  operations: z.array(z.object({ targetKey: id, kind: z.enum(["set-fields", "add-item", "remove-item", "reorder-items", "add-entity"]),
+    entityKind: z.enum(["passage", "choice", "thread"]).optional(),
     changes: z.record(z.unknown()).optional(), collection: id.optional(), item: z.record(z.unknown()).optional(), orderedIds: z.array(id).max(500).optional(),
   }).strict().superRefine((op, ctx) => {
-    const fields = op.kind === "set-fields" ? ["changes"] : op.kind === "add-item" ? ["collection", "item"] : op.kind === "reorder-items" ? ["collection", "orderedIds"] : [];
-    for (const field of ["changes", "collection", "item", "orderedIds"] as const) {
+    const fields = op.kind === "set-fields" ? ["changes"] : op.kind === "add-item" ? ["collection", "item"] : op.kind === "reorder-items" ? ["collection", "orderedIds"] : op.kind === "add-entity" ? ["entityKind", "item"] : [];
+    for (const field of ["changes", "collection", "item", "orderedIds", "entityKind"] as const) {
       if (fields.includes(field) !== (op[field] !== undefined)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Invalid ${field} for ${op.kind}`, path: [field] });
     }
     if (op.orderedIds && new Set(op.orderedIds).size !== op.orderedIds.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Duplicate reorder IDs" });
