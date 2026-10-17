@@ -84,6 +84,8 @@ import { registerConversationalEditRoutes } from "./routes/conversational-edit.j
 import { registerConnectedEditing } from "./routes/connected-editing.js";
 import { ConnectedEditService } from "./services/connected-edit-service.js";
 import { ConnectedGameService } from "./services/connected-game-service.js";
+import { AssetLibraryService } from "./services/asset-library-service.js";
+import { registerAssetLibrary } from "./routes/asset-library.js";
 import { validateConnectedEditingConfig, type ConnectedEditingConfig } from "./config.js";
 
 export interface BuildAppOptions {
@@ -102,6 +104,7 @@ export interface BuildAppOptions {
   foundationBootstrapProvider?: FoundationBootstrapProvider;
   conversationalEditProvider?: EditProvider;
   connectedEditing?: ConnectedEditingConfig;
+  assetStagingDirectory?: string;
 }
 
 const webDistPath = resolve(
@@ -113,6 +116,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const connectedConfig = options.connectedEditing && validateConnectedEditingConfig(options.connectedEditing);
   const app = fastify({ logger: false });
   const database = openDatabase(options.databasePath ?? ":memory:");
+  const assetLibrary = new AssetLibraryService(database, options.assetStagingDirectory);
   const projects = new ProjectRepository(database);
   const commands = new CommandRepository(database);
   const artifacts = new ArtifactRepository(database);
@@ -257,7 +261,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, authorMemory, changeSets, longFormProjects);
   registerConversationalEditRoutes(app, conversationalEdits);
   if (connectedConfig) registerConnectedEditing(app, new ConnectedEditService(database, conversationalEdits, connectedConfig.projectIds, longFormProjects, connectedConfig.allowProjectCreation,
-    new ConnectedGameService(database, conversationalEdits, passagePlanService, passageDraftService, simulationService, nativeCompilationService)), connectedConfig);
+    new ConnectedGameService(database, conversationalEdits, passagePlanService, passageDraftService, simulationService, nativeCompilationService), assetLibrary), connectedConfig);
+  registerAssetLibrary(app, assetLibrary);
   registerAuthorMemoryRoutes(app, projects, authorMemory);
   registerProjectSetupRoutes(app, projectSetupService);
   registerSourceAnalysisRoutes(app, sourceAnalysisService);

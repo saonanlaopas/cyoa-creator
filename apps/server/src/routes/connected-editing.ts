@@ -7,6 +7,15 @@ import { ConnectedEditInputs, boundedConnectedResult, type ConnectedEditService,
 import type { ConnectedEditingConfig } from "../config.js";
 
 const descriptions: Record<ConnectedEditTool, string> = {
+  list_assets: "List project image candidates/approval heads and thumbnail URLs, 25 per page; no binary output or generation.",
+  read_asset: "Read exact image-asset metadata/provenance, image URLs, retained approved version and paginated immutable history. No scene assignment or generation.",
+  asset_usage: "Inspect exact library version references and current game assignments. V1 has no scene assignments; never infer usage from prose mentions.",
+  list_staged_assets: "List bounded regular image filenames/digests only in the explicitly configured staging directory. No arbitrary paths, URLs or filesystem access. Disabled unless configured.",
+  import_staged_asset: "After author consent, import one listed PNG/JPEG/WebP by basename and exact source digest as an unapproved candidate. No symlinks or paths. Bind replacements to assetId/expectedVersionId; retain approved history. Zero provider calls; identical UUID retry survives file removal.",
+  revise_asset: "Create a new metadata candidate at an exact asset head. Never implicitly approve or replace the retained approved image. Requires author consent and retry-safe UUID.",
+  review_asset: "Inspect an exact current candidate beside the retained approved version, metadata, provenance, license findings and usage before asking for approval. Returns a locally computed review fingerprint.",
+  approve_asset: "Only after author approval of this exact image/metadata review, approve the current candidate version and fingerprint. Separate from upload/import. Retry identical UUID/arguments; stale heads require new review.",
+  reject_asset: "Reject only the explicitly reviewed current candidate, preserving all immutable files and any earlier approved version. Requires exact review fingerprint, author consent and retry-safe UUID.",
   game_state: "Read exact game head, plan approval state and paginated passage/choice/thread metadata with draft IDs. No transcript required. Use read_game_record for bounded exact content.",
   read_game_record: "Read one exact structure/entity/draft version and current head. Omit versionId for current; supply it for saved candidate prose before acceptance. No generation or mutation.",
   initialize_game_plan: "Create Creator's default passage-plan skeleton once from current approved foundations, with exact game head and author consent. Revise using prepare_edit/submit_edit/review_edit/apply_edit; this does not approve the plan or write prose.",
@@ -38,6 +47,7 @@ const descriptions: Record<ConnectedEditTool, string> = {
 };
 const reads = new Set<ConnectedEditTool>(["list_projects", "project_state", "list_edit_targets", "list_edits", "get_edit", "review_edit", "read_foundation", "review_foundation_approval"]);
 for (const name of ["game_state", "read_game_record", "review_game_plan", "review_drafts", "publication_readiness", "read_simulation", "export_game"] as const) reads.add(name);
+for (const name of ["list_assets", "read_asset", "asset_usage", "list_staged_assets", "review_asset"] as const) reads.add(name);
 
 export function registerConnectedEditing(app: FastifyInstance, service: ConnectedEditService, config: ConnectedEditingConfig) {
   const token = Buffer.from(`Bearer ${config.token}`);
@@ -57,10 +67,10 @@ export function registerConnectedEditing(app: FastifyInstance, service: Connecte
       const server = new McpServer({ name: "cyoa-connected-editing", version: "1.0.0" });
       for (const name of Object.keys(ConnectedEditInputs) as ConnectedEditTool[]) {
         server.registerTool(name, { description: descriptions[name], inputSchema: ConnectedEditInputs[name],
-          annotations: { readOnlyHint: reads.has(name), destructiveHint: ["apply_edit", "reject_edit", "approve_foundation", "approve_game_plan", "accept_drafts"].includes(name), idempotentHint: true, openWorldHint: false } },
+          annotations: { readOnlyHint: reads.has(name), destructiveHint: ["apply_edit", "reject_edit", "approve_foundation", "approve_game_plan", "accept_drafts", "approve_asset", "reject_asset"].includes(name), idempotentHint: true, openWorldHint: false } },
         async (args: unknown): Promise<CallToolResult> => {
           try {
-            const result = boundedConnectedResult(service.call(name, args)) as Record<string, unknown>;
+            const result = boundedConnectedResult(await service.call(name, args)) as Record<string, unknown>;
             return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
           } catch (error) {
             const message = error instanceof Error ? error.message.slice(0, 1000) : "connected_operation_failed";

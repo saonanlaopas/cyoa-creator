@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { CreativeDirectionSchema, isUnavailableSource, normalizeAdaptationIntent, type AdaptationIntent } from "@story-to-cyoa/domain";
+import { CreativeDirectionSchema, IMAGE_ASSET_LIMITS, isUnavailableSource, normalizeAdaptationIntent, type AdaptationIntent } from "@story-to-cyoa/domain";
+import { assertImageArtifact } from "./image-asset-validation.js";
 import { readSourceMaterial } from "./source-material.js";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
@@ -104,6 +105,15 @@ export class ArtifactRepository {
       this.validateCreativeDirectionProvenance(input.projectId, input.artifactId, creativeDirection);
     }
     const id = randomUUID();
+    if (artifactType.startsWith("image-") || input.artifactId.startsWith("image-")) {
+      assertImageArtifact(this.database, { id, project_id: input.projectId, artifact_id: input.artifactId, artifact_type: artifactType,
+        version: latest.version + 1, schema_version: input.schemaVersion ?? 1, content_json: JSON.stringify(content) }, content);
+      const budget = this.database.prepare(`SELECT COALESCE(SUM(CASE WHEN artifact_type='image-file' THEN json_extract(content_json,'$.bytes') ELSE 0 END),0) bytes,
+        COUNT(CASE WHEN artifact_type='image-asset' THEN 1 END) versions, COUNT(CASE WHEN artifact_type='image-asset' AND version=1 THEN 1 END) assets
+        FROM artifact_versions WHERE project_id=?`).get(input.projectId) as { bytes: number; versions: number; assets: number };
+      if (budget.bytes + (artifactType === "image-file" ? (content as { bytes: number }).bytes : 0) > IMAGE_ASSET_LIMITS.projectFileBytes
+        || artifactType === "image-asset" && (budget.versions >= IMAGE_ASSET_LIMITS.versions || latest.version === 0 && budget.assets >= IMAGE_ASSET_LIMITS.assets)) throw new Error("image_project_budget_exceeded: retain history; use a smaller image or a separate project");
+    }
     this.database.prepare(`
       INSERT INTO artifact_versions
         (id, project_id, artifact_id, artifact_type, version, schema_version, content_json, stale, created_at)
@@ -167,6 +177,7 @@ export class ArtifactRepository {
   }
 
   restore<T = unknown>(projectId: string, artifactId: string, versionId: string, options: { markDependentsStale?: boolean } = {}): ArtifactVersion<T> {
+    if (artifactId.startsWith("image-")) throw new Error("image_restore_requires_new_candidate");
     const source = this.getVersion<T>(versionId);
     if (!source || source.projectId !== projectId || source.artifactId !== artifactId) {
       throw new Error("Artifact version not found");

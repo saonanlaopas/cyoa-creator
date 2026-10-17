@@ -1,4 +1,4 @@
-# Connected Authoring (M1-M3)
+# Connected Authoring (M1-V1)
 
 Connected authoring is opt-in, local, and limited to explicitly configured Long-form projects. It uses the same editing, foundation, passage planning, drafting, simulation and publication services as Creator. M2 adds separately enabled original-project creation and exact foundation approval. M3 completes text-game authoring. It does not expose provider generation, SQL, file access, arbitrary HTTP requests, or visual/world mechanics.
 
@@ -28,7 +28,7 @@ Put the following in the connected workspace's local `.codex/config.toml`, not y
 [mcp_servers.cyoa_creator]
 url = "http://127.0.0.1:3000/mcp"
 bearer_token_env_var = "CYOA_MCP_TOKEN"
-enabled_tools = ["list_projects", "create_project", "project_state", "initialize_foundation", "read_foundation", "review_foundation_approval", "approve_foundation", "list_edit_targets", "list_edits", "prepare_edit", "submit_edit", "get_edit", "review_edit", "apply_edit", "reject_edit", "game_state", "read_game_record", "initialize_game_plan", "review_game_plan", "approve_game_plan", "submit_draft", "review_drafts", "accept_drafts", "publication_readiness", "compile_game", "simulate_game", "read_simulation", "export_game"]
+enabled_tools = ["list_projects", "create_project", "project_state", "initialize_foundation", "read_foundation", "review_foundation_approval", "approve_foundation", "list_edit_targets", "list_edits", "prepare_edit", "submit_edit", "get_edit", "review_edit", "apply_edit", "reject_edit", "game_state", "read_game_record", "initialize_game_plan", "review_game_plan", "approve_game_plan", "submit_draft", "review_drafts", "accept_drafts", "publication_readiness", "compile_game", "simulate_game", "read_simulation", "export_game", "list_assets", "read_asset", "asset_usage", "list_staged_assets", "import_staged_asset", "revise_asset", "review_asset", "approve_asset", "reject_asset"]
 ```
 
 See [official Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli). The endpoint uses the [official TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk), stateless Streamable HTTP JSON responses, authenticated POST requests, and no persistent transport session. Browser Origin requests and non-loopback clients/Host headers are rejected, with no CORS grant.
@@ -74,3 +74,7 @@ MCP results are bounded to 256,000 bytes; use narrower scope when that limit is 
 All six new mutations (initialize/approve plan, submit/accept drafts, simulate, compile) share the transactional operation-receipt mechanism. Identical retries survive server/client restart; changed arguments conflict. Failed writes roll back both content and receipt, allowing correction/retry. Backup/restore preserves canonical histories; duplicated/redacted projects require fresh authorization as above. No schema migration or second compilation/runtime engine is introduced.
 
 Use disposable projects and deterministic requests for verification. No provider credential or paid call is required. This checkpoint ends at a playable branching text game. Visual/world mechanics remain separate later checkpoints.
+
+## Asset Library (V1)
+
+V1 adds nine scoped tools for image catalogue/history/usage reads, restricted staging import and exact candidate revision/review/approval/rejection. Creator uploads and MCP imports use the same image validation, content-addressed storage and lifecycle service. The server must explicitly configure `CYOA_ASSET_STAGING_DIR` for staging import; no arbitrary path or URL reader is exposed. Image candidates remain separate from approvals and from future scene assignment. See [Asset Library](asset-library.md) for the full contract, bounds, retry/recovery behavior and immediate backup/restore/duplication support. No V2 illustrated-player or world mechanics are included.

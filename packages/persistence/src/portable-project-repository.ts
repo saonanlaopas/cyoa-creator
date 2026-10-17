@@ -11,6 +11,7 @@ import { FOUNDATION_BOOTSTRAP_TABLES } from "./foundation-bootstrap-schema.js";
 import { validateFoundationBootstrapDatabase } from "./foundation-bootstrap-repository.js";
 import { redactFoundationBootstrapRows, unavailableConversationEvidence } from "./foundation-bootstrap-portability.js";
 import { assertSetupProposalSource } from "./setup-proposal-repository.js";
+import { validateImageAssets } from "./image-asset-validation.js";
 
 export const PORTABLE_PROJECT_TABLES = [
   "projects", "artifact_versions", "artifact_workflow_state", "artifact_version_approvals", "artifact_dependencies",
@@ -122,6 +123,7 @@ export class PortableProjectRepository {
     const project = this.database.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as PortableRow | undefined;
     if (!project) throw new Error("Portable project does not exist");
     validateFoundationBootstrapDatabase(this.database, projectId);
+    validateImageAssets(this.database, projectId);
     const tables = {} as Record<PortableProjectTable, PortableRow[]>;
     const sourceRows = project.mode === "long-form" ? this.database.prepare("SELECT content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source'").all(projectId) as Array<{ content_json: string }> : [];
     const retainSourceEvidence = sourceRows.some((row) => AnalysisSourceSchema.safeParse(JSON.parse(row.content_json)).success || UnavailableSourceSchema.safeParse(JSON.parse(row.content_json)).success);
@@ -239,6 +241,7 @@ export class PortableProjectRepository {
     if (violations.length) throw new Error("portable_project_lineage_invalid: foreign-key validation failed");
     this.validateJsonFields(bundle);
     this.validateExactLineage(bundle.projectId);
+    validateImageAssets(this.database, bundle.projectId);
     validateSourceAnalysisDatabase(this.database, bundle.projectId);
     validateAdaptationDatabase(this.database, bundle.projectId);
     validateFoundationBootstrapDatabase(this.database, bundle.projectId);

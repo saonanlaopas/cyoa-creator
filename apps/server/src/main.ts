@@ -4,7 +4,7 @@ import { DatabaseRecoveryError } from "@story-to-cyoa/persistence";
 
 const config = readRuntimeConfig();
 try {
-  const app = buildApp({ databasePath: config.databasePath, connectedEditing: config.connectedEditing });
+  const app = buildApp({ databasePath: config.databasePath, connectedEditing: config.connectedEditing, assetStagingDirectory: config.assetStagingDirectory });
   await app.listen({ host: config.host, port: config.port });
 } catch (error) {
   const diagnostic = error instanceof DatabaseRecoveryError

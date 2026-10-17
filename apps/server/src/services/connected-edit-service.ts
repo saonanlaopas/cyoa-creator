@@ -6,12 +6,14 @@ import { EDIT_LIMITS, EditResponseSchema, type EditPlan, type EditResponse } fro
 import type { ConversationalEditService } from "./conversational-edit-service.js";
 import type { LongFormProjectService } from "./long-form-project-service.js";
 import { ConnectedGameInputs, connectedGameMutations, type ConnectedGameService, type ConnectedGameTool } from "./connected-game-service.js";
+import { ConnectedAssetInputs, type AssetLibraryService, type ConnectedAssetTool } from "./asset-library-service.js";
 
 const id = z.string().min(1).max(240), digest = z.string().regex(/^[a-f0-9]{64}$/);
 const project = { projectId: id }, operation = { ...project, operationId: z.string().uuid() };
 const selection = { ...project, proposalId: id, groupIds: z.array(id).min(1).max(EDIT_LIMITS.groups) };
 const foundation = { ...project, artifactId: z.enum(planningArtifactIds) };
 export const ConnectedEditInputs = {
+  ...ConnectedAssetInputs,
   ...ConnectedGameInputs,
   list_projects: z.object({}).strict(),
   create_project: z.object({ ...operation, projectId: z.string().uuid(), name: z.string().trim().min(1).max(200), approved: z.literal(true) }).strict(),
@@ -41,7 +43,7 @@ export class ConnectedEditService {
   private readonly conversations: ConversationRepository;
   private readonly projects: ProjectRepository;
   constructor(private readonly database: StoryDatabase, private readonly edits: ConversationalEditService, private readonly projectIds: readonly string[],
-    private readonly longForm: LongFormProjectService, private readonly allowProjectCreation = false, private readonly game?: ConnectedGameService) {
+    private readonly longForm: LongFormProjectService, private readonly allowProjectCreation = false, private readonly game?: ConnectedGameService, private readonly assets?: AssetLibraryService) {
     this.conversations = new ConversationRepository(database); this.projects = new ProjectRepository(database);
   }
   private access(projectId: string, allowMissing = false) {
@@ -116,10 +118,10 @@ export class ConnectedEditService {
       this.access(projectId, allowMissing);
       const fingerprint = sourceDigest({ tool, input });
       const row = this.database.prepare(`SELECT m.metadata_json FROM messages m JOIN conversations c ON c.id=m.conversation_id
-        WHERE c.project_id=? AND json_extract(m.metadata_json,'$.connectedOperation.operationId')=? LIMIT 1`).get(projectId, operationId) as { metadata_json: string } | undefined;
+        WHERE c.project_id=? AND (json_extract(m.metadata_json,'$.connectedOperation.operationId')=? OR json_extract(m.metadata_json,'$.assetOperation.operationId')=?) LIMIT 1`).get(projectId, operationId, operationId) as { metadata_json: string } | undefined;
       if (row) {
         const saved = JSON.parse(row.metadata_json).connectedOperation;
-        if (saved.fingerprint !== fingerprint || saved.tool !== tool) throw new Error("connected_operation_id_conflict");
+        if (!saved || saved.fingerprint !== fingerprint || saved.tool !== tool) throw new Error("connected_operation_id_conflict");
         this.assertReceipt(tool, input, saved.result);
         return boundedConnectedResult(saved.result as T);
       }
@@ -148,6 +150,10 @@ export class ConnectedEditService {
       }, true);
     }
     const projectId = input.projectId; this.access(projectId);
+    if (tool in ConnectedAssetInputs) {
+      if (!this.assets) throw new Error("connected_assets_unavailable");
+      return this.assets.call(tool as ConnectedAssetTool, input).then(boundedConnectedResult);
+    }
     if (tool in ConnectedGameInputs) {
       if (!this.game) throw new Error("connected_game_unavailable");
       const name = tool as ConnectedGameTool;

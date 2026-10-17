@@ -3,6 +3,7 @@ export interface RuntimeConfig {
   port: number;
   databasePath: string;
   connectedEditing?: ConnectedEditingConfig;
+  assetStagingDirectory?: string;
 }
 
 export interface ConnectedEditingConfig { token: string; projectIds: string[]; allowProjectCreation?: boolean }
@@ -39,6 +40,7 @@ export function readRuntimeConfig(
     host: host as RuntimeConfig["host"],
     port,
     databasePath: environment.DATABASE_PATH ?? "data/story-to-cyoa.sqlite",
+    ...(environment.CYOA_ASSET_STAGING_DIR ? { assetStagingDirectory: environment.CYOA_ASSET_STAGING_DIR } : {}),
     ...(environment.CYOA_MCP_ENABLED === "1" ? { connectedEditing: validateConnectedEditingConfig({
       token: environment.CYOA_MCP_TOKEN ?? "", projectIds: (environment.CYOA_MCP_PROJECT_IDS ?? "").split(",").map((s) => s.trim()),
       allowProjectCreation: environment.CYOA_MCP_ALLOW_PROJECT_CREATION === "1",
