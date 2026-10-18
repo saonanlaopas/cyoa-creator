@@ -25,6 +25,7 @@ const test = base.extend<{}, { bootstrapBaseURL: string }>({
   }, { scope: "worker" }],
   baseURL: async ({ bootstrapBaseURL }, use) => { await use(bootstrapBaseURL); },
 });
+test.use({ trace: "retain-on-failure" });
 async function adaptedProject(request: APIRequestContext) {
   const response = await request.post("/api/long-form/projects", { data: { name: "A5 harbor foundations" } }); expect(response.ok()).toBe(true);
   const created = await response.json(), id = created.project.id, project = `/api/long-form/projects/${id}`;
@@ -74,7 +75,23 @@ test("A5 offline preview, generation, provenance review and dependency-safe draf
   const titleBox = await page.getByRole("heading", { name: "Foundation bootstrap", exact: true }).boundingBox(), navBox = await page.locator(".app-mode-nav").boundingBox();
   expect(titleBox!.y).toBeGreaterThanOrEqual(navBox!.y + navBox!.height);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  let delayedReviewCompleted = false;
+  // Exercise a successful post-Apply refresh slower than Playwright's five-second UI assertion budget.
+  await page.route(`**${root}/jobs/*/review`, async (route) => {
+    const response = await route.fetch();
+    await new Promise((resolve) => setTimeout(resolve, 5500));
+    delayedReviewCompleted = true;
+    await route.fulfill({ response });
+  });
+  const applicationResponses = Promise.all([
+    page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.startsWith(`${root}/jobs/`) && response.url().endsWith("/apply")),
+    page.waitForResponse((response) => new URL(response.url()).pathname.startsWith(`${root}/jobs/`) && response.url().endsWith("/review")),
+    page.waitForResponse((response) => new URL(response.url()).pathname === root),
+  ]);
   await page.getByRole("button", { name: "Apply reviewed drafts" }).click();
+  for (const response of await applicationResponses) expect(response.ok(), `${response.url()}: HTTP ${response.status()}`).toBe(true);
+  expect(delayedReviewCompleted).toBe(true);
+  await page.unroute(`**${root}/jobs/*/review`);
   await expect(page.getByRole("heading", { name: "Project brief", exact: true })).toBeVisible();
   await expect(page.getByLabel("Review", { exact: true })).toBeChecked();
   const after = await (await request.get(f.project)).json();

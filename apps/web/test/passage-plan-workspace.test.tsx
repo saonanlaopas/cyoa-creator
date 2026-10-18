@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PassagePlanWorkspace } from "../src/features/workspace/PassagePlanWorkspace.js";
@@ -158,10 +158,19 @@ const state = {
   },
 };
 
-afterEach(() => vi.restoreAllMocks());
+const pendingFrames = new Map<number, FrameRequestCallback>();
+afterEach(() => {
+  // Vitest globals are disabled, so Testing Library cannot register automatic cleanup.
+  cleanup();
+  expect(pendingFrames.size).toBe(0);
+  expect(document.body.childElementCount).toBe(0);
+  vi.restoreAllMocks();
+});
 
 describe("PassagePlanWorkspace coverage dashboard", () => {
   it("shows conservative coverage and links a finding to its exact choice editor", async () => {
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => { pendingFrames.set(1, callback); return 1; });
+    vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation((id) => { pendingFrames.delete(id); });
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const path = String(input);
       const body = path.includes("/drafts/passages/") ? {
@@ -210,5 +219,6 @@ describe("PassagePlanWorkspace coverage dashboard", () => {
     await user.click(screen.getByRole("button", { name: "choice · choice-1" }));
     expect(await screen.findByText("Continue → passage-end")).toBeTruthy();
     expect(screen.getByLabelText("Destination")).toBeTruthy();
+    expect(pendingFrames.size).toBe(1);
   });
 });
