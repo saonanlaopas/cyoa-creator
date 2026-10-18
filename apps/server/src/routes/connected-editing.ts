@@ -7,7 +7,7 @@ import { ConnectedEditInputs, boundedConnectedResult, type ConnectedEditService,
 import type { ConnectedEditingConfig } from "../config.js";
 
 const descriptions: Record<ConnectedEditTool, string> = {
-  list_assets: "List project image candidates/approval heads and thumbnail URLs, 25 per page; no binary output or generation.",
+  list_assets: "List compact project image title/status summaries, approval heads and thumbnail URLs, 25 per page. Read full metadata with read_asset. No binary output or generation.",
   read_asset: "Read exact image-asset metadata/provenance, image URLs, retained approved version and paginated immutable history. No scene assignment or generation.",
   asset_usage: "Inspect exact library version references and current game assignments. V1 has no scene assignments; never infer usage from prose mentions.",
   list_staged_assets: "List bounded regular image filenames/digests only in the explicitly configured staging directory. No arbitrary paths, URLs or filesystem access. Disabled unless configured.",

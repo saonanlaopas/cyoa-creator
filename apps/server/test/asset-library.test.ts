@@ -10,6 +10,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { IMAGE_ASSET_LIMITS, type ImageAsset, type ImageAssetMetadata } from "@story-to-cyoa/domain";
 import { ArtifactRepository, ImageAssetRepository, PortableProjectRepository, ProjectRepository, encodeAssetPng, imageSha256, openDatabase, transaction, validateImageAssets } from "@story-to-cyoa/persistence";
 import { AssetLibraryService } from "../src/services/asset-library-service.js";
+import { boundedConnectedResult, CONNECTED_RESULT_BYTES } from "../src/services/connected-edit-service.js";
 import { prepareImageAsset } from "../src/services/image-asset-preparation.js";
 import { PublicationExportService } from "../src/services/publication-export-service.js";
 import { validatePortableAuthoringProject } from "../src/services/portable-project-validator.js";
@@ -145,6 +146,76 @@ describe("V1 image preparation and immutable library", () => {
     expect(f.repository.list(f.projectId, "Study 199").total).toBe(1);
     expect(() => transaction(f.db, () => f.repository.candidateInTransaction(f.projectId, { metadata: imageMetadata }, prepared))).toThrow("budget_exceeded");
     expect(f.repository.list(f.projectId).total).toBe(200);
+  });
+  it("finishes all pending reviews at the authoring cap, restores legacy boundary states and retries completed outcomes", async () => {
+    const f = fixture(), prepared = await prepareImageAsset(fixtureImage(1, 1), "small.png", "user-upload");
+    const create = () => transaction(f.db, () => f.repository.candidateInTransaction(f.projectId, { metadata: imageMetadata }, prepared));
+    let head = create(); const second = create();
+    for (let n = 2; n < IMAGE_ASSET_LIMITS.versions - 2; n++) head = transaction(f.db, () => f.repository.reviseInTransaction(f.projectId, head.content.assetId, head.id, imageMetadata));
+    const third = create(); // A new asset at 1,999 and a revision at 2,000 both retain completion capacity.
+    head = transaction(f.db, () => f.repository.reviseInTransaction(f.projectId, head.content.assetId, head.id, imageMetadata));
+    const counts = () => f.db.prepare("SELECT (SELECT COUNT(*) FROM artifact_versions) artifacts,(SELECT COUNT(*) FROM messages) messages").get();
+    const before = counts();
+    expect(() => create()).toThrow("budget_exceeded");
+    expect(() => transaction(f.db, () => f.repository.reviseInTransaction(f.projectId, head.content.assetId, head.id, imageMetadata))).toThrow("budget_exceeded");
+    await expect(f.upload(imageMetadata, {}, fixtureImage(2, 2, true))).rejects.toThrow("budget_exceeded");
+    await expect(f.service.call("revise_asset", { projectId: f.projectId, operationId: randomUUID(), approved: true, assetId: head.content.assetId, expectedVersionId: head.id, metadata: imageMetadata })).rejects.toThrow("budget_exceeded");
+    expect(counts()).toEqual(before); // Failed authoring retains neither new files nor success receipts.
+
+    const legacy = new PortableProjectRepository(f.db).exportStudioRows(f.projectId), recovered = openDatabase(); cleanup.push(() => recovered.close());
+    new PortableProjectRepository(recovered).importRows(legacy, validatePortableAuthoringProject);
+    const recoveredService = new AssetLibraryService(recovered), recoveredReview = recoveredService.review(f.projectId, head.content.assetId, head.id);
+    expect(await recoveredService.call("reject_asset", { projectId: f.projectId, operationId: randomUUID(), approved: true, assetId: head.content.assetId, versionId: head.id, fingerprint: recoveredReview.fingerprint })).toMatchObject({ status: "rejected" });
+
+    const approval = await f.review({ assetId: head.content.assetId, versionId: head.id });
+    const rejection = await f.review({ assetId: second.content.assetId, versionId: second.id }, "reject_asset");
+    const final = await f.review({ assetId: third.content.assetId, versionId: third.id });
+    expect(f.db.prepare("SELECT COUNT(*) n FROM artifact_versions WHERE artifact_type='image-asset'").get()).toEqual(expect.objectContaining({ n: 2003 }));
+    expect(() => transaction(f.db, () => f.repository.reviseInTransaction(f.projectId, head.content.assetId, approval.result.versionId, imageMetadata))).toThrow("budget_exceeded");
+    validateImageAssets(f.db, f.projectId);
+
+    const portable = new PortableProjectRepository(f.db), publication = new PublicationExportService(portable, undefined);
+    const backup = await new RecoveryService(f.db, portable, publication).createVerifiedBackup(f.projectId);
+    expect(backup.record.verificationStatus).toBe("verified");
+    const restored = openDatabase(); cleanup.push(() => restored.close()); const restoredPortable = new PortableProjectRepository(restored);
+    await new RecoveryService(restored, restoredPortable, new PublicationExportService(restoredPortable, undefined)).restoreBackup(backup.bytes);
+    const service = new AssetLibraryService(restored);
+    expect(await service.call("approve_asset", approval.input)).toEqual(approval.result);
+    expect(await service.call("reject_asset", rejection.input)).toEqual(rejection.result);
+    expect(await service.call("approve_asset", final.input)).toEqual(final.result);
+    expect(new ImageAssetRepository(restored).history(f.projectId, head.content.assetId)).toEqual(f.repository.history(f.projectId, head.content.assetId));
+
+    const forged = portable.exportStudioRows(f.projectId), row = forged.tables.artifact_versions.find((v) => v.id === approval.result.versionId)!;
+    const content = JSON.parse(String(row.content_json));
+    forged.tables.artifact_versions.push({ ...row, id: randomUUID(), version: Number(row.version) + 1,
+      content_json: JSON.stringify({ ...content, status: "candidate", baseVersionId: row.id, reviewedCandidateVersionId: null }) });
+    const invalid = openDatabase(); cleanup.push(() => invalid.close());
+    expect(() => new PortableProjectRepository(invalid).importRows(forged, validatePortableAuthoringProject)).toThrow("budget_exceeded");
+    expect(new ProjectRepository(invalid).get(f.projectId)).toBeUndefined();
+  }, 90000);
+  it("discovers every identically searchable Unicode asset with compact transport-safe pages and full metadata on read", async () => {
+    const f = fixture(), prepared = await prepareImageAsset(fixtureImage(1, 1), "small.png", "user-upload");
+    const metadata: ImageAssetMetadata = { title: "海".repeat(200), description: "海".repeat(2000), altText: "海".repeat(1000),
+      tags: Array.from({ length: 20 }, () => "海".repeat(60)), credit: "海".repeat(300), license: "海".repeat(300) };
+    const expected: string[] = [];
+    for (let n = 0; n < 52; n++) expected.push(transaction(f.db, () => f.repository.candidateInTransaction(f.projectId, { metadata }, prepared)).content.assetId);
+    const seen: string[] = [];
+    for (const search of ["", "海"]) {
+      seen.length = 0;
+      for (let offset = 0; offset < 52; offset += 25) {
+        const page = boundedConnectedResult(await f.service.call("list_assets", { projectId: f.projectId, search, offset })) as any;
+        expect(page).toMatchObject({ total: 52, offset }); expect(page.items).toHaveLength(Math.min(25, 52 - offset));
+        expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(CONNECTED_RESULT_BYTES);
+        if (offset === 0) {
+          const formerPage = { ...page, items: page.items.map((v: any) => ({ ...v, metadata })) };
+          expect(Buffer.byteLength(JSON.stringify(formerPage))).toBeGreaterThan(CONNECTED_RESULT_BYTES);
+        }
+        for (const item of page.items) { expect(item.metadata).toEqual({ title: metadata.title }); seen.push(item.assetId); }
+      }
+      expect(new Set(seen).size).toBe(52); expect([...seen].sort()).toEqual([...expected].sort());
+    }
+    const detail = boundedConnectedResult(await f.service.call("read_asset", { projectId: f.projectId, assetId: seen[0] })) as any;
+    expect(detail.selected.content.metadata).toEqual(metadata);
   });
 });
 

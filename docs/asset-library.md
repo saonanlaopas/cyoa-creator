@@ -25,7 +25,7 @@ The existing authenticated MCP endpoint exposes these nine additional tools (37 
 
 | Tool | Boundary |
 | --- | --- |
-| `list_assets` | Title/description/tag search; 25 metadata/thumbnail records per page |
+| `list_assets` | Title/description/tag search; 25 compact title/status/thumbnail summaries per page; full metadata in `read_asset` |
 | `read_asset` | Exact image/metadata/provenance and retained approval; 20 history records per page |
 | `asset_usage` | Exact library references, 25 per page, and actual assignment count |
 | `list_staged_assets` | Regular image basenames, byte counts and SHA-256 only; no arbitrary paths |
@@ -77,10 +77,12 @@ Images and thumbnails are content-addressed immutable `cyoa.image-file` v1 objec
 | Thumbnail | At most 256 per side / 512,000 bytes |
 | Concurrent decoding | 2; additional attempts receive a retryable busy result |
 | Project image material | 48,000,000 bytes, including retained history/thumbnail objects |
-| Project library | 200 distinct assets / 2,000 metadata lifecycle versions |
+| Project library | 200 distinct assets / 2,000 charged lifecycle versions plus one current review outcome per asset (at most 2,200 total) |
 | Staging catalogue | At most 2,000 directory entries / 500 eligible files |
 
-Animated and multi-page images, SVG/GIF, MIME mismatches, malformed/truncated inputs and oversized material are rejected before persistence. Resize/re-encode a rejected source within the limits and retry with a new binding when its bytes change. Budget errors retain existing history; use a smaller image or a separate project rather than discarding approved material. Failed content/receipt writes roll back together. Busy decoding can be retried with the same operation ID.
+The version budget charges every record except each asset's current approved/rejected head. This bounded completion allowance lets every pending candidate finish review, including existing projects at the former 2,000-record cap. Revising a reviewed head charges both its retained outcome and the new candidate; additional authoring is rejected when it would exceed 2,000 charged records. Approval/rejection preserves that charged count. Direct writes and archive validation use this same rule; no history is removed and no content/lineage checks are bypassed.
+
+Animated and multi-page images, SVG/GIF, MIME mismatches, malformed/truncated inputs and oversized material are rejected before persistence. Resize/re-encode a rejected source within the limits and retry with a new binding when its bytes change. Budget errors retain existing history; use a smaller image for byte limits, finish pending reviews or use a separate project for version limits rather than discarding approved material. Failed content/receipt writes roll back together. Busy decoding can be retried with the same operation ID.
 
 Browser image routes require loopback Host/IP and same-origin requests, reject cross-site requests, and serve only canonical `image/png` with `nosniff`, restrictive CSP and content-addressed URLs. MCP retains its bearer token, configured project allowlist and stricter no-browser-Origin boundary. Binary images never enter tool text results.
 

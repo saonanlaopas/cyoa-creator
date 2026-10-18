@@ -124,7 +124,7 @@ export class AssetLibraryService {
     switch (tool) {
       case "list_assets": {
         const i = ConnectedAssetInputs.list_assets.parse(value), list = this.repository.list(i.projectId, i.search, i.offset);
-        return { ...list, items: list.items.map((v) => ({ assetId: v.content.assetId, versionId: v.id, status: v.content.status, metadata: v.content.metadata,
+        return { ...list, items: list.items.map((v) => ({ assetId: v.content.assetId, versionId: v.id, status: v.content.status, metadata: { title: v.content.metadata.title },
           thumbnailUrl: `/api/long-form/projects/${i.projectId}/assets/files/${v.content.thumbnailSha256}`, approvedVersionId: this.repository.approved(i.projectId, v.content.assetId)?.id ?? null })) };
       }
       case "read_asset": { const i = ConnectedAssetInputs.read_asset.parse(value); return this.read(i.projectId, i.assetId, i.versionId, i.offset); }

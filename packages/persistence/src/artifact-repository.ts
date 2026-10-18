@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { CreativeDirectionSchema, IMAGE_ASSET_LIMITS, isUnavailableSource, normalizeAdaptationIntent, type AdaptationIntent } from "@story-to-cyoa/domain";
-import { assertImageArtifact } from "./image-asset-validation.js";
+import { CreativeDirectionSchema, isUnavailableSource, normalizeAdaptationIntent, type AdaptationIntent } from "@story-to-cyoa/domain";
+import { assertImageArtifact, assertImageProjectBudget } from "./image-asset-validation.js";
 import { readSourceMaterial } from "./source-material.js";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
@@ -108,11 +108,7 @@ export class ArtifactRepository {
     if (artifactType.startsWith("image-") || input.artifactId.startsWith("image-")) {
       assertImageArtifact(this.database, { id, project_id: input.projectId, artifact_id: input.artifactId, artifact_type: artifactType,
         version: latest.version + 1, schema_version: input.schemaVersion ?? 1, content_json: JSON.stringify(content) }, content);
-      const budget = this.database.prepare(`SELECT COALESCE(SUM(CASE WHEN artifact_type='image-file' THEN json_extract(content_json,'$.bytes') ELSE 0 END),0) bytes,
-        COUNT(CASE WHEN artifact_type='image-asset' THEN 1 END) versions, COUNT(CASE WHEN artifact_type='image-asset' AND version=1 THEN 1 END) assets
-        FROM artifact_versions WHERE project_id=?`).get(input.projectId) as { bytes: number; versions: number; assets: number };
-      if (budget.bytes + (artifactType === "image-file" ? (content as { bytes: number }).bytes : 0) > IMAGE_ASSET_LIMITS.projectFileBytes
-        || artifactType === "image-asset" && (budget.versions >= IMAGE_ASSET_LIMITS.versions || latest.version === 0 && budget.assets >= IMAGE_ASSET_LIMITS.assets)) throw new Error("image_project_budget_exceeded: retain history; use a smaller image or a separate project");
+      assertImageProjectBudget(this.database, input.projectId, { artifactId: input.artifactId, artifactType, version: latest.version + 1, content });
     }
     this.database.prepare(`
       INSERT INTO artifact_versions

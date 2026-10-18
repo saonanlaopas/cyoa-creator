@@ -33,6 +33,24 @@ export function validateImageFile(value: unknown): ImageFile {
   return file;
 }
 type AssetRow = { id: string; project_id: string; artifact_id: string; artifact_type: string; version: number; schema_version: number; content_json: string };
+export function assertImageProjectBudget(database: StoryDatabase, projectId: string, append?: { artifactId: string; artifactType: string; version: number; content: unknown }): void {
+  const budget = database.prepare(`SELECT COALESCE(SUM(CASE WHEN artifact_type='image-file' THEN json_extract(content_json,'$.bytes') ELSE 0 END),0) bytes,
+    COUNT(CASE WHEN artifact_type='image-asset' THEN 1 END) versions, COUNT(CASE WHEN artifact_type='image-asset' AND version=1 THEN 1 END) assets,
+    COUNT(CASE WHEN artifact_type='image-asset' AND json_extract(content_json,'$.status') IN ('approved','rejected')
+      AND version=(SELECT MAX(v.version) FROM artifact_versions v WHERE v.project_id=a.project_id AND v.artifact_id=a.artifact_id) THEN 1 END) reviewedHeads
+    FROM artifact_versions a WHERE project_id=?`).get(projectId) as { bytes: number; versions: number; assets: number; reviewedHeads: number };
+  if (append?.artifactType === "image-file") budget.bytes += ImageFileSchema.parse(append.content).bytes;
+  if (append?.artifactType === "image-asset") {
+    const asset = ImageAssetSchema.parse(append.content);
+    const prior = database.prepare("SELECT json_extract(content_json,'$.status') status FROM artifact_versions WHERE project_id=? AND artifact_id=? AND version=?")
+      .get(projectId, append.artifactId, append.version - 1) as { status: string } | undefined;
+    budget.versions++; if (append.version === 1) budget.assets++;
+    budget.reviewedHeads += Number(asset.status !== "candidate") - Number(prior !== undefined && prior.status !== "candidate");
+  }
+  // One current review outcome per asset is completion capacity, including for legacy capped projects.
+  if (budget.bytes > IMAGE_ASSET_LIMITS.projectFileBytes || budget.assets > IMAGE_ASSET_LIMITS.assets
+    || budget.versions - budget.reviewedHeads > IMAGE_ASSET_LIMITS.versions) throw new Error("image_project_budget_exceeded: retain history; finish pending reviews or use a separate project for further authoring");
+}
 function previous(database: StoryDatabase, projectId: string, key: string, version: number) {
   return database.prepare("SELECT * FROM artifact_versions WHERE project_id=? AND artifact_id=? AND version=?").get(projectId, key, version - 1) as AssetRow | undefined;
 }
@@ -60,12 +78,9 @@ export function assertImageArtifact(database: StoryDatabase, row: AssetRow, valu
 }
 export function validateImageAssets(database: StoryDatabase, projectId: string): void {
   const rows = database.prepare("SELECT * FROM artifact_versions WHERE project_id=? AND (artifact_type IN ('image-file','image-asset') OR artifact_id LIKE 'image-file:%' OR artifact_id LIKE 'image-asset:%') ORDER BY artifact_id,version").all(projectId) as AssetRow[];
-  let bytes = 0, versions = 0; const assets = new Set<string>();
   for (const row of rows) {
     const value = JSON.parse(row.content_json);
     assertImageArtifact(database, row, value);
-    if (row.artifact_type === "image-file") bytes += ImageFileSchema.parse(value).bytes;
-    else { versions++; assets.add(row.artifact_id); }
   }
-  if (bytes > IMAGE_ASSET_LIMITS.projectFileBytes || assets.size > IMAGE_ASSET_LIMITS.assets || versions > IMAGE_ASSET_LIMITS.versions) throw new Error("image_project_budget_exceeded");
+  assertImageProjectBudget(database, projectId);
 }
