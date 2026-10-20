@@ -168,6 +168,7 @@ export class PublicationExportService {
 
   exportMarkdown(projectId: string, inputArtifactVersionId?: string): { text: string; fingerprint: string; bundleFingerprint: string } {
     const source = this.requireNativeCompilation().compile(projectId, inputArtifactVersionId); const { bundle } = source;
+    if (bundle.illustratedPresentation?.scenes.length) throw new Error("markdown_illustrated_scenes_unsupported: use standalone HTML or static ZIP to preserve presentation");
     const choices = new Map(bundle.choices.map((choice) => [choice.id, choice]));
     const sections = [[`# ${this.projectTitle(projectId, bundle)}`, "",
       `> Native bundle: \`${bundle.bundleFingerprint}\`  `, `> Source input: \`${bundle.source.inputFingerprint}\`  `,

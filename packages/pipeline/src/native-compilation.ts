@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { IllustratedSceneSchema, type IllustratedScene } from "@story-to-cyoa/domain";
 import {
   NATIVE_COMPILER_POLICY_ID,
   NATIVE_COMPILER_POLICY_VERSION,
@@ -12,6 +13,8 @@ import {
   nativeBundleFingerprint,
   stableFingerprint,
   validateNativeGameBundle,
+  IllustratedPresentationSchema,
+  type IllustratedPresentation,
   type NativeGameBundle,
   type RuntimeMechanicDefinition,
   type RuntimeCompileSource,
@@ -114,6 +117,7 @@ export const NativeCompilationInputSchema = z.object({
     schemaVersion: z.literal(NATIVE_GAME_BUNDLE_SCHEMA_VERSION),
   }).strict(),
   sourceInputFingerprint: Fingerprint,
+  illustrations: z.object({ schemaVersion: z.literal(1), versions: z.array(z.object({ versionId: StableId, contentFingerprint: Fingerprint }).strict()).max(10000), presentationFingerprint: Fingerprint }).strict().optional(),
 }).strict();
 
 export type NativeCompilationInput = z.infer<typeof NativeCompilationInputSchema>;
@@ -135,6 +139,7 @@ export interface ResolvedNativeCompilationInput {
     content: ProjectBrief | LongFormStoryBible | LongFormRoutePlan | LongFormEndingPlan | LongFormMechanicsPlan;
   }>;
   acceptedDrafts: Array<{ selection: NativeAcceptedDraftSelection; proseMarkdown: string }>;
+  illustrations?: { versions: Array<{ versionId: string; content: IllustratedScene }>; presentation: IllustratedPresentation };
 }
 
 export class NativeCompilationInputError extends Error {
@@ -233,6 +238,7 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
     routeIds: [...runtime.routeIds],
     decisionIds: [...runtime.decisionIds],
     factIds: [...new Set(bible.canonFacts.map((fact) => fact.id))].sort(),
+    ...(input.illustrations ? { illustratedPresentation: input.illustrations.presentation } : {}),
     ...(exact.compilerPolicy.includeDebugProvenance ? {
       debug: {
         upstreamVersions,
@@ -266,6 +272,17 @@ export function assertResolvedNativeCompilationInput(
     validateEntities(exact.threads, resolved.threads, NarrativeThreadSchema, "thread");
     validateUpstreamArtifacts(exact, resolved);
     validateAcceptedDrafts(exact, resolved);
+    if (Boolean(exact.illustrations) !== Boolean(resolved.illustrations)) throw new Error("native_illustration_lineage_invalid");
+    if (exact.illustrations && resolved.illustrations) {
+      const refs = exact.illustrations.versions, versions = resolved.illustrations.versions;
+      if (refs.length !== versions.length || new Set(refs.map((r) => r.versionId)).size !== refs.length
+        || stableFingerprint(IllustratedPresentationSchema.parse(resolved.illustrations.presentation)) !== exact.illustrations.presentationFingerprint) throw new Error("native_illustration_lineage_invalid");
+      for (const ref of refs) {
+        const version = versions.find((v) => v.versionId === ref.versionId);
+        if (!version || stableFingerprint(IllustratedSceneSchema.parse(version.content)) !== ref.contentFingerprint
+          || !exact.passages.some((p) => p.entityId === version.content.passageId && p.versionId === version.content.passageVersionId)) throw new Error("native_scene_passage_stale_review_again");
+      }
+    }
     return exact;
   } catch (error) {
     if (error instanceof NativeCompilationInputError) throw error;

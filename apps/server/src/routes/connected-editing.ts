@@ -7,9 +7,12 @@ import { ConnectedEditInputs, boundedConnectedResult, type ConnectedEditService,
 import type { ConnectedEditingConfig } from "../config.js";
 
 const descriptions: Record<ConnectedEditTool, string> = {
+  read_scene: "Read the current scene, exact passage binding and staleness. Text layout clears artwork. Asset references must name exact approved versions; expressions and dialogue are authored presentation, not gameplay or prose approval.",
+  review_scene: "Review one authored scene against its previous version and exact current passage. Assign only approved image versions, up to three positioned portraits with explicit expressions, optional background and speaker dialogue. No generation. Ask the author to approve the returned exact fingerprint separately.",
+  apply_scene: "After explicit author approval, apply the exact reviewed scene/fingerprint atomically with a retry-safe operation UUID. Does not approve prose, change choices or publish. Stale passage/scene bases require a new review. Historical approved assets remain pinned until explicitly reassigned.",
   list_assets: "List compact project image title/status summaries, approval heads and thumbnail URLs, 25 per page. Read full metadata with read_asset. No binary output or generation.",
   read_asset: "Read exact image-asset metadata/provenance, image URLs, retained approved version and paginated immutable history. No scene assignment or generation.",
-  asset_usage: "Inspect exact library version references and current game assignments. V1 has no scene assignments; never infer usage from prose mentions.",
+  asset_usage: "Inspect exact library version references and paginated current scene assignments. Never infer usage from prose mentions.",
   list_staged_assets: "List bounded regular image filenames/digests only in the explicitly configured staging directory. No arbitrary paths, URLs or filesystem access. Disabled unless configured.",
   import_staged_asset: "After author consent, import one listed PNG/JPEG/WebP by basename and exact source digest as an unapproved candidate. No symlinks or paths. Bind replacements to assetId/expectedVersionId; retain approved history. Zero provider calls; identical UUID retry survives file removal.",
   revise_asset: "Create a new metadata candidate at an exact asset head. Never implicitly approve or replace the retained approved image. Requires author consent and retry-safe UUID.",
@@ -28,7 +31,7 @@ const descriptions: Record<ConnectedEditTool, string> = {
   compile_game: "After explicit author approval, compile the exact current publication-ready game through Creator's native compiler, capturing immutable input/build versions. No silent staleness override. Use identical operation UUID/arguments for retry.",
   simulate_game: "Run a deterministic authored choice-ID path against an exact approved current plan, with optional expected ending. Stores reproducible input/trace, never provider narration. Inspect with read_simulation and revise through proposals. Requires consent and exact game head; retry identical UUID/arguments.",
   read_simulation: "Read and verify a stored deterministic simulation trace, paginated 50 steps, including actual result and final state. No claims of exhaustive correctness.",
-  export_game: "Prepare a download link for one exact native build as standalone HTML, static ZIP or manuscript Markdown. Fetch the returned same-server path to render/download through Creator's existing export service; this tool returns no file bytes and writes no file. Historical content requires allowHistorical=true. Creator uses current player configuration. Published games require no AI service.",
+  export_game: "Prepare a download link for one exact native build as standalone HTML, static ZIP or text-only manuscript Markdown. Illustrated scenes require native HTML/ZIP; incompatible Markdown is rejected. Fetch the returned same-server path to render/download through Creator's existing export service; this tool returns no file bytes and writes no file. Historical content requires allowHistorical=true. Creator uses current player configuration. Published games require no AI service.",
   list_projects: "List only configured Long-form projects and explicitly enabled empty creation slots. No provider generation, arbitrary filesystem, SQL or HTTP tools are exposed.",
   create_project: "Create an original-premise Long-form project only in a configured empty UUID slot, with creation enabled by the server and approved=true from the author. Creates default brief/Creative Direction drafts, not approved content. Retry identical arguments with the same operation UUID.",
   initialize_foundation: "Create a missing bible/routes/endings/mechanics default draft through Creator's service after its prerequisites are approved. Requires the exact project head and author approval. Inspect its schema-shaped content with read_foundation, then propose real content with prepare_edit/submit_edit. Never replaces existing work.",
@@ -48,6 +51,7 @@ const descriptions: Record<ConnectedEditTool, string> = {
 const reads = new Set<ConnectedEditTool>(["list_projects", "project_state", "list_edit_targets", "list_edits", "get_edit", "review_edit", "read_foundation", "review_foundation_approval"]);
 for (const name of ["game_state", "read_game_record", "review_game_plan", "review_drafts", "publication_readiness", "read_simulation", "export_game"] as const) reads.add(name);
 for (const name of ["list_assets", "read_asset", "asset_usage", "list_staged_assets", "review_asset"] as const) reads.add(name);
+for (const name of ["read_scene", "review_scene"] as const) reads.add(name);
 
 export function registerConnectedEditing(app: FastifyInstance, service: ConnectedEditService, config: ConnectedEditingConfig) {
   const token = Buffer.from(`Bearer ${config.token}`);
@@ -67,7 +71,7 @@ export function registerConnectedEditing(app: FastifyInstance, service: Connecte
       const server = new McpServer({ name: "cyoa-connected-editing", version: "1.0.0" });
       for (const name of Object.keys(ConnectedEditInputs) as ConnectedEditTool[]) {
         server.registerTool(name, { description: descriptions[name], inputSchema: ConnectedEditInputs[name],
-          annotations: { readOnlyHint: reads.has(name), destructiveHint: ["apply_edit", "reject_edit", "approve_foundation", "approve_game_plan", "accept_drafts", "approve_asset", "reject_asset"].includes(name), idempotentHint: true, openWorldHint: false } },
+          annotations: { readOnlyHint: reads.has(name), destructiveHint: ["apply_scene", "apply_edit", "reject_edit", "approve_foundation", "approve_game_plan", "accept_drafts", "approve_asset", "reject_asset"].includes(name), idempotentHint: true, openWorldHint: false } },
         async (args: unknown): Promise<CallToolResult> => {
           try {
             const result = boundedConnectedResult(await service.call(name, args)) as Record<string, unknown>;

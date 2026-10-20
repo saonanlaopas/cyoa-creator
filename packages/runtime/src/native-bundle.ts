@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { IllustratedPresentationSchema } from "./illustrated-scenes.js";
 import { canonical, serializedBytes, stableFingerprint } from "./canonical.js";
 import { compiledRuntimeFingerprint } from "./compile.js";
 import {
@@ -164,6 +165,7 @@ export const NativeGameBundleSchema = z.object({
   routeIds: z.array(StableId).max(NATIVE_BUNDLE_LIMITS.maximumRoutes),
   decisionIds: z.array(StableId).max(20_000),
   factIds: z.array(StableId).max(NATIVE_BUNDLE_LIMITS.maximumFacts),
+  illustratedPresentation: IllustratedPresentationSchema.optional(),
   debug: z.object({
     upstreamVersions: z.record(StableId),
     threadVersionIds: z.array(StableId).max(5_000),
@@ -217,6 +219,7 @@ function gameplayPayload(bundle: NativeGameBundle): unknown {
     routeIds: bundle.routeIds,
     decisionIds: bundle.decisionIds,
     factIds: bundle.factIds,
+    ...(bundle.illustratedPresentation ? { illustratedPresentation: bundle.illustratedPresentation } : {}),
   };
 }
 
@@ -307,6 +310,21 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
   }
   const bundle = parsed.data;
   const findings: NativeBundleFinding[] = [];
+  if (bundle.illustratedPresentation) {
+    const { assets, scenes } = bundle.illustratedPresentation;
+    const ids = new Set(assets.map((a) => a.id)), used = new Set<string>();
+    if (ids.size !== assets.length || new Set(scenes.map((s) => s.passageId)).size !== scenes.length) findings.push({ code: "illustration.duplicate", message: "Illustration IDs must be unique" });
+    for (const scene of scenes) {
+      if (!bundle.passages.some((p) => p.id === scene.passageId)
+        || new Set(scene.portraits.map((p) => p.position)).size !== scene.portraits.length
+        || new Set(scene.portraits.map((p) => p.character)).size !== scene.portraits.length) findings.push({ code: "illustration.scene", message: "Invalid illustrated scene" });
+      for (const ref of [...(scene.background ? [scene.background] : []), ...scene.portraits.map((p) => p.image)]) {
+        used.add(ref);
+        if (!ids.has(ref)) findings.push({ code: "illustration.asset", message: "Missing packaged illustration" });
+      }
+    }
+    if (assets.some((a) => !used.has(a.id))) findings.push({ code: "illustration.unused", message: "Unassigned artwork must not enter the publication" });
+  }
   const add = (finding: NativeBundleFinding): void => { findings.push(finding); };
   const passageIds = new Set(bundle.passages.map((item) => item.id));
   const choiceIds = new Set(bundle.choices.map((item) => item.id));

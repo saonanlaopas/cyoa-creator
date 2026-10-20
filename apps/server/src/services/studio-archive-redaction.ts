@@ -1,4 +1,5 @@
-import { unavailableConversationEvidence, type PortableProjectRows, type PortableRow } from "@story-to-cyoa/persistence";
+import { unavailableConversationEvidence, type ArtifactRepository, type ArtifactVersion, type PortableProjectRows, type PortableRow } from "@story-to-cyoa/persistence";
+import { resolveIllustrations } from "./illustrated-scene-service.js";
 import { CreativeDirectionSchema, sourceCanonicalJson } from "@story-to-cyoa/domain";
 import { assertResolvedNativeCompilationInput, compileNativeGame, sourceInputFingerprint, repairProposalFingerprint, type NativeCompilationInput, type ResolvedNativeCompilationInput } from "@story-to-cyoa/pipeline";
 import { serializedBytes, stableFingerprint, type NativeGameBundle } from "@story-to-cyoa/runtime";
@@ -37,6 +38,15 @@ export function resealRedactedNativeHistory(original: PortableProjectRows, redac
     return JSON.parse(String(row.content_json));
   };
   const builds = new Map<string, { input: NativeCompilationInput; before: NativeGameBundle; after: NativeGameBundle }>();
+  const artifact = <T,>(row: PortableRow | undefined): ArtifactVersion<T> | undefined => row ? {
+    id: String(row.id), projectId: String(row.project_id), artifactId: String(row.artifact_id), artifactType: String(row.artifact_type),
+    version: Number(row.version), schemaVersion: Number(row.schema_version), content: JSON.parse(String(row.content_json)) as T,
+    stale: Boolean(row.stale), createdAt: String(row.created_at),
+  } : undefined;
+  const reader: Pick<ArtifactRepository, "getVersion" | "getCurrent"> = {
+    getVersion: <T,>(id: string) => artifact<T>(originalArtifacts.get(id)),
+    getCurrent: <T,>(projectId: string, key: string) => artifact<T>([...originalArtifacts.values()].filter((r) => r.project_id === projectId && r.artifact_id === key).sort((a, b) => Number(b.version) - Number(a.version))[0]),
+  };
   for (const row of redacted.tables.artifact_versions.filter((row) => row.artifact_type === "native-compilation-input")) {
     const input = content(originalArtifacts, String(row.id)) as NativeCompilationInput;
     if (input.upstreamArtifacts.every((reference) => reference.contentFingerprint === stableFingerprint(content(redactedArtifacts, reference.versionId)))) continue;
@@ -50,6 +60,7 @@ export function resealRedactedNativeHistory(original: PortableProjectRows, redac
         const draft = drafts.get(selection.versionId); if (!draft) throw new Error("studio_redaction_native_draft_missing");
         return { selection, proseMarkdown: String(draft.prose_markdown) };
       }),
+      ...(input.illustrations ? { illustrations: resolveIllustrations(reader, input.projectId, input.passages, input.illustrations.versions) } : {}),
     };
     assertResolvedNativeCompilationInput(resolved);
     const before = compileNativeGame(resolved);

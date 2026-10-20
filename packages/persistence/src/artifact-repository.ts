@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CreativeDirectionSchema, isUnavailableSource, normalizeAdaptationIntent, type AdaptationIntent } from "@story-to-cyoa/domain";
 import { assertImageArtifact, assertImageProjectBudget } from "./image-asset-validation.js";
+import { validateIllustratedScene } from "./illustrated-scene-validation.js";
 import { readSourceMaterial } from "./source-material.js";
 import type { StoryDatabase } from "./database.js";
 import { transaction } from "./database.js";
@@ -75,6 +76,11 @@ export class ArtifactRepository {
 
   saveArtifactInTransaction<T>(input: SaveArtifactInput<T>): ArtifactVersion<T> {
     const artifactType = input.artifactType ?? input.artifactId;
+    const illustratedScene = artifactType === "illustrated-scene" || input.artifactId.startsWith("illustrated-scene:")
+      ? validateIllustratedScene(this.database, input.projectId, input.content) : undefined;
+    if (illustratedScene) {
+      if (input.artifactId !== `illustrated-scene:${illustratedScene.passageId}` || artifactType !== "illustrated-scene" || (input.schemaVersion ?? 1) !== 1) throw new Error("scene_identity_invalid");
+    }
     const adaptationIdentity = input.artifactId === "adaptation-intent" || artifactType === "adaptation-intent";
     if (adaptationIdentity && (input.artifactId !== "adaptation-intent" || artifactType !== "adaptation-intent" || (input.schemaVersion ?? 1) !== 1)) throw new Error("adaptation_identity_invalid");
     const adaptation = adaptationIdentity ? assertAdaptationWrite(this.database, input.projectId, input.content) : undefined;
@@ -92,7 +98,7 @@ export class ArtifactRepository {
     if (dossierIdentity && (input.artifactId !== "source-dossier" || artifactType !== "source-dossier" || (input.schemaVersion ?? 1) !== 1)) throw new Error("source_dossier_identity_invalid");
     const dossier = dossierIdentity ? validateDossierPersistence(this.database, input.projectId, input.content) : undefined;
     if (dossier) assertDossierHistoryBudget(this.database, input.projectId, dossier);
-    const content = proposal ?? adaptation ?? dossier ?? creativeDirection ?? (input.schema ? input.schema.parse(input.content) : input.content);
+    const content = illustratedScene ?? proposal ?? adaptation ?? dossier ?? creativeDirection ?? (input.schema ? input.schema.parse(input.content) : input.content);
     JSON.stringify(content);
     const latest = this.database.prepare(`
       SELECT COALESCE(MAX(version), 0) AS version
@@ -174,6 +180,7 @@ export class ArtifactRepository {
 
   restore<T = unknown>(projectId: string, artifactId: string, versionId: string, options: { markDependentsStale?: boolean } = {}): ArtifactVersion<T> {
     if (artifactId.startsWith("image-")) throw new Error("image_restore_requires_new_candidate");
+    if (artifactId.startsWith("illustrated-scene:")) throw new Error("scene_restore_requires_review");
     const source = this.getVersion<T>(versionId);
     if (!source || source.projectId !== projectId || source.artifactId !== artifactId) {
       throw new Error("Artifact version not found");

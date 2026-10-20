@@ -103,6 +103,10 @@ export function prepareStudioHistoryDuplicate(db: StoryDatabase, projectId: stri
   for (const row of ofType("native-compilation-input")) {
     const original = JSON.parse(row.content_json) as NativeCompilationInput;
     const resolved = mapped(native.validateStoredInput(projectId, row.id).resolved);
+    if (resolved.illustrations && resolved.input.illustrations) {
+      resolved.input.illustrations.presentationFingerprint = stableFingerprint(resolved.illustrations.presentation);
+      resolved.input.illustrations.versions = resolved.illustrations.versions.map((v) => ({ versionId: v.versionId, contentFingerprint: stableFingerprint(v.content) }));
+    }
     for (const reference of resolved.input.upstreamArtifacts) reference.contentFingerprint = stableFingerprint(resolved.upstreamArtifacts.find((item) => item.versionId === reference.versionId)!.content);
     for (const selection of resolved.input.acceptedDrafts) {
       const oldSelection = original.acceptedDrafts.find((item) => item.passageId === selection.passageId)!;

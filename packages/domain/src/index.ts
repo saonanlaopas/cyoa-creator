@@ -23,3 +23,4 @@ export * from "./long-form-mechanics-plan.js";
 export * from "./long-form-foundation.js";
 export * from "./studio-archive.js";
 export * from "./image-asset.js";
+export * from "./illustrated-scene.js";

@@ -86,6 +86,7 @@ import { ConnectedEditService } from "./services/connected-edit-service.js";
 import { ConnectedGameService } from "./services/connected-game-service.js";
 import { AssetLibraryService } from "./services/asset-library-service.js";
 import { registerAssetLibrary } from "./routes/asset-library.js";
+import { registerIllustratedScenes } from "./routes/illustrated-scenes.js";
 import { validateConnectedEditingConfig, type ConnectedEditingConfig } from "./config.js";
 
 export interface BuildAppOptions {
@@ -263,6 +264,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   if (connectedConfig) registerConnectedEditing(app, new ConnectedEditService(database, conversationalEdits, connectedConfig.projectIds, longFormProjects, connectedConfig.allowProjectCreation,
     new ConnectedGameService(database, conversationalEdits, passagePlanService, passageDraftService, simulationService, nativeCompilationService), assetLibrary), connectedConfig);
   registerAssetLibrary(app, assetLibrary);
+  registerIllustratedScenes(app, (projectId) => new ConnectedEditService(database, conversationalEdits, [projectId], longFormProjects, false,
+    new ConnectedGameService(database, conversationalEdits, passagePlanService, passageDraftService, simulationService, nativeCompilationService), assetLibrary));
   registerAuthorMemoryRoutes(app, projects, authorMemory);
   registerProjectSetupRoutes(app, projectSetupService);
   registerSourceAnalysisRoutes(app, sourceAnalysisService);

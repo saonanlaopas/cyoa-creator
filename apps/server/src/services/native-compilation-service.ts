@@ -1,3 +1,4 @@
+import { resolveIllustrations } from "./illustrated-scene-service.js";
 import {
   LongFormEndingPlanSchema,
   LongFormMechanicsPlanSchema,
@@ -767,9 +768,13 @@ export class NativeCompilationService {
           schemaVersion: NATIVE_GAME_BUNDLE_SCHEMA_VERSION,
         },
       };
+      let illustrations: ResolvedNativeCompilationInput["illustrations"];
+      try { illustrations = resolveIllustrations(this.artifacts, projectId, identity.passages); }
+      catch (error) { blocker("publication.illustration-invalid", (error as Error).message, "illustrated-scene", projectId); }
       const input = NativeCompilationInputSchema.parse({
         ...identity,
-        sourceInputFingerprint: sourceInputFingerprint(identity),
+        ...(illustrations ? { illustrations: illustrationReference(illustrations) } : {}),
+        sourceInputFingerprint: sourceInputFingerprint({ ...identity, ...(illustrations ? { illustrations: illustrationReference(illustrations) } : {}) }),
       });
       const resolvedCandidate: ResolvedNativeCompilationInput = {
         input,
@@ -782,6 +787,7 @@ export class NativeCompilationService {
           content: { brief, "creative-direction": creativeDirection, bible, routes, endings, mechanics }[reference.artifactId],
         })) as ResolvedNativeCompilationInput["upstreamArtifacts"],
         acceptedDrafts,
+        ...(illustrations ? { illustrations } : {}),
       };
       resolved = resolvedCandidate;
       try {
@@ -885,6 +891,7 @@ export class NativeCompilationService {
         content: parsedUpstream[reference.artifactId],
       })) as ResolvedNativeCompilationInput["upstreamArtifacts"],
       acceptedDrafts,
+      ...(input.illustrations ? { illustrations: resolveIllustrations(this.artifacts, projectId, input.passages, input.illustrations.versions) } : {}),
     };
     return resolved;
   }
@@ -964,6 +971,10 @@ export class NativeCompilationService {
     }
     return project;
   }
+}
+
+function illustrationReference(value: NonNullable<ResolvedNativeCompilationInput["illustrations"]>) {
+  return { schemaVersion: 1 as const, versions: value.versions.map((v) => ({ versionId: v.versionId, contentFingerprint: stableFingerprint(v.content) })), presentationFingerprint: stableFingerprint(value.presentation) };
 }
 
 function visiblePlayerMechanics(mechanics: LongFormMechanicsPlan): NativePlayerVisibleMechanic[] {

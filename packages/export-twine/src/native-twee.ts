@@ -32,7 +32,10 @@ function passageName(title: string, id: string): string {
 const escapeNativeTweeProse = (value: string) => escapeTweeText(value).replace(/^::/gm, "&#58;:");
 
 export function analyzeNativeTweeCompatibility(bundleValue: unknown): TweeCompatibilityDiagnostic[] {
-  try { loadNativeGame(bundleValue); return []; }
+  try {
+    const { bundle } = loadNativeGame(bundleValue);
+    return bundle.illustratedPresentation?.scenes.length ? [{ code: "twee.illustrated-scenes-unsupported", message: "Illustrated scenes require native standalone HTML or static ZIP; this adapter cannot preserve scene presentation." }] : [];
+  }
   catch (error) { return [{ code: "twee.native-bundle-invalid", message: (error as Error).message }]; }
 }
 

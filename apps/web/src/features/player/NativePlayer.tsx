@@ -19,6 +19,7 @@ import {
   type NativePlayerStorage,
 } from "@story-to-cyoa/runtime";
 import { IndexedDbNativePlayerStorage } from "./native-player-storage.js";
+import { IllustratedScene } from "./IllustratedScene.js";
 
 export interface NativePlayerRoute {
   gameId: string;
@@ -271,6 +272,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
           <p className="eyebrow">{view.terminal.result ? "Ending" : `Turn ${session.state.turn + 1}`}</p>
           <h1 ref={headingRef} tabIndex={-1}>{view.passage.presentation.title}</h1>
         </header>
+        {installation.bundle.illustratedPresentation && <IllustratedScene presentation={installation.bundle.illustratedPresentation} passageId={view.passage.id} />}
         <div className="native-player-prose">
           {paragraphs(view.passage.proseMarkdown).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
         </div>

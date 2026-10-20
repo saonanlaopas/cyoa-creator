@@ -57,9 +57,14 @@ export class AssetLibraryService {
   }
   usage(projectId: string, assetId: string, offset = 0) {
     this.access(projectId); if (!this.repository.head(projectId, assetId)) throw new Error("image_asset_not_found");
-    // V1 has library versions, not scene assignments. Do not invent or infer consumers from prose.
     const history = this.repository.history(projectId, assetId);
-    return { assetId, assignments: [], totalAssignments: 0, totalLibraryVersions: history.length, offset, libraryVersions: history.slice(offset, offset + 25).map(({ id, content }) => ({ versionId: id, fileSha256: content.fileSha256, thumbnailSha256: content.thumbnailSha256, status: content.status })) };
+    const assignments = this.database.prepare(`SELECT v.id sceneVersionId,json_extract(v.content_json,'$.passageId') passageId,
+      json_extract(v.content_json,'$.passageVersionId') passageVersionId FROM artifact_versions v
+      JOIN passage_entity_heads h ON h.project_id=v.project_id AND h.entity_kind='passage' AND h.entity_id=json_extract(v.content_json,'$.passageId') AND h.tombstoned=0
+      WHERE v.project_id=? AND v.artifact_type='illustrated-scene' AND v.version=(SELECT MAX(n.version) FROM artifact_versions n WHERE n.project_id=v.project_id AND n.artifact_id=v.artifact_id)
+      AND (json_extract(v.content_json,'$.background.assetId')=? OR EXISTS(SELECT 1 FROM json_each(v.content_json,'$.portraits') p WHERE json_extract(p.value,'$.image.assetId')=?)) ORDER BY v.artifact_id`)
+      .all(projectId, assetId, assetId);
+    return { assetId, assignments: assignments.slice(offset, offset + 25), totalAssignments: assignments.length, totalLibraryVersions: history.length, offset, libraryVersions: history.slice(offset, offset + 25).map(({ id, content }) => ({ versionId: id, fileSha256: content.fileSha256, thumbnailSha256: content.thumbnailSha256, status: content.status })) };
   }
   review(projectId: string, assetId: string, versionId: string) {
     const detail = this.read(projectId, assetId, versionId);

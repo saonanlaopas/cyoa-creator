@@ -36,3 +36,4 @@ export * from "./image-asset-validation.js";
 export * from "./image-asset-repository.js";
 export { remapStudioValue } from "./studio-duplication.js";
 export { redactFoundationBootstrapRows, unavailableConversationEvidence } from "./foundation-bootstrap-portability.js";
+export * from "./illustrated-scene-validation.js";

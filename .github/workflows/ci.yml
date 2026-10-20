@@ -11,6 +11,7 @@ on:
       - codex/m2-original-game-foundations
       - codex/m3-complete-text-game
       - codex/v1-asset-library
+      - codex/v2-illustrated-scenes
   pull_request:
 
 permissions:

@@ -31,6 +31,7 @@ import {
   WorkflowRepository,
   readSourceMaterial,
   validateImageAssets,
+  validateIllustratedScenes,
   type StoryDatabase,
 } from "@story-to-cyoa/persistence";
 import {
@@ -60,7 +61,7 @@ export const PORTABLE_PROJECT_V1_ARTIFACT_POLICY = {
   excluded: ["source", "source-scope"],
   supported: [
     "adaptation", "adaptation-intent", "adaptation-intent-proposal", "bible", "brief", "creative-direction", "change-proposal", "drafts", "endings", "export", "mechanics",
-    "narrative-review", "native-build", "native-compilation-input", "native-player-config", "image-file", "image-asset",
+    "narrative-review", "native-build", "native-compilation-input", "native-player-config", "image-file", "image-asset", "illustrated-scene",
     "playtest-campaign", "repair-plan", "repair-proposal", "repair-proposal-generation", "review", "routes",
     "simulation", "simulation-input", "simulation-run", "source-dossier",
   ],
@@ -85,6 +86,7 @@ export function validatePortableAuthoringProject(database: StoryDatabase, projec
 
   validateSnapshotMetadata(database, projectId);
   validateImageAssets(database, projectId);
+  validateIllustratedScenes(database, projectId);
   validateArtifacts(database, projectId);
   validateDraftHistories(database, projectId);
   validateAcceptanceHistory(database, projectId);
@@ -152,7 +154,7 @@ function validateArtifactRow(input: {
   native: NativeCompilationService;
 }): void {
   const { row, projectId, database, content, simulation, playtest, native } = input;
-  if (row.artifact_type === "image-file" || row.artifact_type === "image-asset") return; // Complete byte and lifecycle history is validated above.
+  if (row.artifact_type === "image-file" || row.artifact_type === "image-asset" || row.artifact_type === "illustrated-scene") return; // Complete byte and lifecycle history is validated by persistence.
   if (row.artifact_type === "source-evidence-material") {
     const material = SourceEvidenceMaterialSchema.parse(content);
     if (row.schema_version !== 1 || row.artifact_id !== `source-evidence-material-${material.sourceVersionId}` || material.projectId !== projectId) fail("source material identity");
