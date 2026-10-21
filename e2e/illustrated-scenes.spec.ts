@@ -1,4 +1,4 @@
-import { expect, test } from "playwright/test";
+import { expect, test, type Locator } from "playwright/test";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -10,6 +10,35 @@ import { unzipSync } from "fflate";
 import { completeConnectedTextGame } from "./helpers/connected-text-game.js";
 import { fixtureImage, imageMetadata } from "./helpers/image-assets.js";
 import { portraitImage } from "./helpers/illustrated-assets.js";
+
+const portraitOrders = [
+  ["right", "left"], ["right", "center", "left"], ["left", "center", "right"],
+  ["left", "right", "center"], ["center", "left", "right"], ["center", "right", "left"],
+  ["right", "left", "center"], ["center", "left"],
+] as const;
+async function expectPortraitRow(scene: Locator, positions: readonly string[]) {
+  await expect(scene.locator(".scene-portrait")).toHaveCount(positions.length);
+  await expect(scene.locator(".scene-character img")).toHaveCount(positions.length);
+  for (const image of await scene.locator(".scene-character img").all()) await expect(image).toHaveJSProperty("naturalWidth", 180);
+  const bounds = await scene.locator(".scene-stage").evaluate((stage) => {
+    const rect = (element: Element) => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
+    return { stage: rect(stage), portraits: [...stage.querySelectorAll(".scene-portrait")].map((portrait) => ({
+      className: portrait.className, ...rect(portrait), content: [...portrait.querySelectorAll("img,figcaption")].map(rect),
+    })) };
+  });
+  expect(bounds.stage.height).toBeGreaterThan(0);
+  for (const [i, portrait] of bounds.portraits.entries()) {
+    expect(portrait.className).toContain(`scene-portrait-${positions[i]}`);
+    const column = ["left", "center", "right"].indexOf(positions[i]!);
+    expect(Math.abs(portrait.x - (bounds.stage.x + column * bounds.stage.width / 3))).toBeLessThanOrEqual(1);
+    for (const box of [portrait, ...portrait.content]) {
+      expect(box.width).toBeGreaterThan(0); expect(box.height).toBeGreaterThan(0);
+      expect(box.x).toBeGreaterThanOrEqual(bounds.stage.x - 1); expect(box.right).toBeLessThanOrEqual(bounds.stage.right + 1);
+      expect(box.y).toBeGreaterThanOrEqual(bounds.stage.y - 1); expect(box.bottom).toBeLessThanOrEqual(bounds.stage.bottom + 1);
+    }
+    expect(Math.abs(portrait.y - bounds.portraits[0]!.y)).toBeLessThanOrEqual(1);
+  }
+}
 
 test("V2 reviews browser scenes, replays lost Apply and plays packaged backgrounds, expressions and authored choices offline", async ({ page, browser, playwright }, info) => {
   test.setTimeout(120000);
@@ -48,9 +77,12 @@ test("V2 reviews browser scenes, replays lost Apply and plays packaged backgroun
       const harbor = await importImage("harbor.png", fixtureImage(), "Harbor daylight", "Red signal tower over blue harbor water");
       const concerned = await importImage("mira.png", portraitImage(), "Mira concerned", "Mira in a green coat, concerned expression");
       const smiling = await importImage("mira-smile.png", portraitImage(true), "Mira relieved", "Mira in a red coat, relieved expression");
-      for (const passage of proof.passages) {
+      const ordersByPassage = new Map<string, readonly string[]>(), titles = new Map<string, string>();
+      for (const [i, passage] of proof.passages.entries()) {
         const state = await call("read_scene", { projectId, passageId: passage.entityId }), ending = passage.entityId.startsWith("passage-ending-");
-        const scene = { ...state.scene, layout: "illustrated", background: harbor, portraits: [{ character: "Mira", expression: ending ? "Relieved" : "Concerned", position: "left", image: ending ? smiling : concerned }],
+        const positions = portraitOrders[i]!; ordersByPassage.set(passage.entityId, positions);
+        titles.set(passage.entityId, (await call("read_game_record", { projectId, kind: "passage", entityId: passage.entityId })).record.content.title);
+        const scene = { ...state.scene, layout: "illustrated", background: harbor, portraits: positions.map((position, index) => ({ character: ["Mira", "Tomas", "Anika"][index], expression: ending ? "Relieved" : "Concerned", position, image: ending ? smiling : concerned })),
           dialogue: [{ speaker: "Mira", text: ending ? "The harbor can answer for itself." : "Who lit that signal?" }] };
         const review = await call("review_scene", { projectId, scene }); await call("apply_scene", { projectId, operationId: randomUUID(), scene, fingerprint: review.fingerprint, approved: true });
       }
@@ -58,7 +90,28 @@ test("V2 reviews browser scenes, replays lost Apply and plays packaged backgroun
       await page.goto(`${address}/#long-form`);
       const editor = page.getByRole("region", { name: "Illustrated scenes", exact: true });
       await expect(editor).toBeVisible();
-      await editor.getByRole("combobox", { name: "Passage", exact: true }).selectOption("passage-shared-opening");
+      const selectPassage = async (passageId: string) => {
+        const select = editor.getByRole("combobox", { name: "Passage", exact: true }); await expect(select).toBeEnabled();
+        if (await select.inputValue() !== passageId) {
+          const loaded = page.waitForResponse((response) => response.url().endsWith("/scenes/read_scene") && response.request().postDataJSON().passageId === passageId);
+          await select.selectOption(passageId); expect((await loaded).status()).toBe(200);
+        }
+        await expect(editor.getByRole("button", { name: "Review scene", exact: true })).toBeEnabled();
+      };
+      for (const [passageId, positions] of ordersByPassage) {
+        await selectPassage(passageId);
+        for (const [width, height] of [[1280, 900], [390, 844]]) {
+          await page.setViewportSize({ width, height }); await expectPortraitRow(editor.locator(".illustrated-scene"), positions);
+          if (positions.join() === "right,center,left") { await editor.locator(".scene-stage").scrollIntoViewIfNeeded(); await page.screenshot({ path: info.outputPath(`v2-r01-editor-${width}.png`) }); }
+        }
+      }
+      await selectPassage("passage-shared-opening");
+      const openingOrder = ordersByPassage.get("passage-shared-opening")!;
+      for (const positions of [[openingOrder[1]!, openingOrder[0]!, ...openingOrder.slice(2)], openingOrder]) {
+        await editor.getByRole("combobox", { name: "Position 1", exact: true }).selectOption(positions[0]!);
+        await editor.getByRole("combobox", { name: "Position 2", exact: true }).selectOption(positions[1]!);
+        for (const [width, height] of [[1280, 900], [390, 844]]) { await page.setViewportSize({ width, height }); await expectPortraitRow(editor.locator(".illustrated-scene"), positions); }
+      }
       await expect(editor.getByLabel("Dialogue 1")).toHaveValue("Who lit that signal?");
       await editor.getByLabel("Dialogue 1").fill("Who lit the signal before the storm?");
       await editor.getByRole("button", { name: "Review scene", exact: true }).click();
@@ -87,29 +140,46 @@ test("V2 reviews browser scenes, replays lost Apply and plays packaged backgroun
       expect(gameFile).toBeTruthy(); const bundle = JSON.parse(Buffer.from(gameFile![1]).toString());
       expect(bundle.illustratedPresentation.assets).toHaveLength(3);
       expect(JSON.stringify(bundle)).not.toMatch(/sourceName|sourceSha256|assistant-import|operationId|Author request/);
-      const labels = new Map<string, string>(); for (const id of new Set([...proof.path, ...proof.alternate, ...proof.detourPath])) labels.set(id, (await call("read_game_record", { projectId, kind: "choice", entityId: id })).record.content.label);
+      const labels = new Map<string, string>(), destinations = new Map<string, string>();
+      for (const id of new Set([...proof.path, ...proof.alternate, ...proof.detourPath])) {
+        const choice = (await call("read_game_record", { projectId, kind: "choice", entityId: id })).record.content;
+        labels.set(id, choice.label); destinations.set(id, choice.destinationPassageId);
+      }
       const backup = await request.post(`/api/projects/${projectId}/recovery/backups`); await expect(backup).toBeOK(); expect(backup.headers()["x-cyoa-backup-verification"]).toBe("verified");
       await new Promise<void>((resolve) => { child.once("exit", () => resolve()); child.kill("SIGTERM"); });
+      const seenOrders = new Set<string>();
       for (const [path, title] of [[proof.path, "A Public Reckoning"], [proof.alternate, "A Shared Repair"], [proof.detourPath, "The Costly Warning"]] as const) {
         const context = await browser.newContext(), player = await context.newPage(), requests: string[] = [];
         try {
           player.on("request", (r) => requests.push(r.url())); await player.goto(pathToFileURL(htmlFile).href);
           await expect(player.getByRole("heading", { name: "A Signal in the Rain", exact: true })).toBeVisible();
           await expect(player.getByText("Who lit the signal before the storm?", { exact: true })).toBeVisible();
-          await expect(player.getByRole("img", { name: "Mira in a green coat, concerned expression" })).toHaveJSProperty("naturalWidth", 180);
+          await expect(player.getByRole("img", { name: "Mira in a green coat, concerned expression" }).first()).toHaveJSProperty("naturalWidth", 180);
           for (const [width, height] of [[1280, 900], [390, 844]]) {
             await player.setViewportSize({ width, height }); await player.screenshot({ path: info.outputPath(`v2-offline-player-${width}.png`), fullPage: true });
             expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
             expect(await player.locator(".illustrated-scene img").evaluateAll((images) => images.every((i) => (i as HTMLImageElement).naturalWidth > 0))).toBe(true);
+            await expectPortraitRow(player.locator(".illustrated-scene"), openingOrder);
           }
-          for (const choiceId of path) { const choice = player.getByRole("button", { name: labels.get(choiceId)!, exact: true }); await choice.focus(); await player.keyboard.press("Enter"); }
+          seenOrders.add(openingOrder.join());
+          for (const choiceId of path) {
+            const choice = player.getByRole("button", { name: labels.get(choiceId)!, exact: true }); await choice.focus(); await player.keyboard.press("Enter");
+            const passageId = destinations.get(choiceId)!, positions = ordersByPassage.get(passageId)!;
+            await expect(player.getByRole("heading", { name: titles.get(passageId)!, exact: true })).toBeVisible();
+            for (const [width, height] of [[1280, 900], [390, 844]]) {
+              await player.setViewportSize({ width, height }); await expectPortraitRow(player.locator(".illustrated-scene"), positions);
+              if (positions.join() === "right,center,left") await player.screenshot({ path: info.outputPath(`v2-r01-offline-${width}.png`), fullPage: true });
+            }
+            seenOrders.add(positions.join());
+          }
           await expect(player.getByRole("heading", { name: title, exact: true })).toBeVisible();
-          await expect(player.getByRole("img", { name: "Mira in a red coat, relieved expression" })).toHaveJSProperty("naturalWidth", 180);
+          await expect(player.getByRole("img", { name: "Mira in a red coat, relieved expression" }).first()).toHaveJSProperty("naturalWidth", 180);
           await player.getByRole("button", { name: "Rewind", exact: true }).click();
           await expect(player.getByRole("heading", { name: title, exact: true })).toHaveCount(0);
           expect(requests.some((url) => /\/api\/|openrouter|provider/i.test(url))).toBe(false);
         } finally { await context.close(); }
       }
+      expect([...seenOrders].sort()).toEqual(portraitOrders.map((positions) => positions.join()).sort());
       const staticServer = createServer((req, res) => {
         const path = req.url?.replace(/^\/nested\//, "") ?? "index.html", bytes = files[path];
         if (!bytes) { res.writeHead(404); res.end(); return; }
@@ -129,6 +199,21 @@ test("V2 reviews browser scenes, replays lost Apply and plays packaged backgroun
         await staticPage.getByRole("button", { name: "Load game", exact: true }).click(); await staticPage.getByRole("button", { name: "Load", exact: true }).click();
         await expect(staticPage.getByRole("heading", { name: "A Signal in the Rain", exact: true })).toBeVisible();
         await expect(staticPage.getByText("Who lit the signal before the storm?", { exact: true })).toBeVisible();
+        const staticOrders = new Set<string>();
+        for (const path of [proof.path, proof.alternate, proof.detourPath]) {
+          await staticPage.getByRole("button", { name: "Restart", exact: true }).click(); await staticPage.getByRole("button", { name: "Restart game", exact: true }).click();
+          await expect(staticPage.getByRole("heading", { name: "A Signal in the Rain", exact: true })).toBeVisible();
+          for (const [width, height] of [[1280, 900], [390, 844]]) { await staticPage.setViewportSize({ width, height }); await expectPortraitRow(staticPage.locator(".illustrated-scene"), openingOrder); }
+          staticOrders.add(openingOrder.join());
+          for (const choiceId of path) {
+            await staticPage.getByRole("button", { name: labels.get(choiceId)!, exact: true }).click();
+            const passageId = destinations.get(choiceId)!, positions = ordersByPassage.get(passageId)!;
+            await expect(staticPage.getByRole("heading", { name: titles.get(passageId)!, exact: true })).toBeVisible();
+            for (const [width, height] of [[1280, 900], [390, 844]]) { await staticPage.setViewportSize({ width, height }); await expectPortraitRow(staticPage.locator(".illustrated-scene"), positions); }
+            staticOrders.add(positions.join());
+          }
+        }
+        expect([...staticOrders].sort()).toEqual([...seenOrders].sort());
       } finally { await context.close(); await new Promise<void>((resolve) => staticServer.close(() => resolve())); }
     } finally { await request.dispose(); }
   } finally {
