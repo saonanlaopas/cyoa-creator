@@ -400,6 +400,7 @@ test("long-form passage workspace renders, filters, and jumps within a 300-passa
   }, projectId);
   await page.goto("/#long-form");
 
+  await expect(page.getByRole("link", { name: "Skip to main content" })).toBeAttached();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Skip to main content" })).toBeFocused();
   await page.keyboard.press("Enter");
