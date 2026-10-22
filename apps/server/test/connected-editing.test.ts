@@ -208,7 +208,10 @@ describe("M1 authenticated Streamable HTTP", () => {
       return result.structuredContent as any;
     };
     const tools = (await first.client.listTools()).tools;
-    expect(tools.map((t) => t.name)).toHaveLength(40); expect(tools.find((t) => t.name === "apply_edit")!.annotations?.readOnlyHint).toBe(false);
+    expect(tools.map((t) => t.name)).toHaveLength(43); expect(tools.find((t) => t.name === "apply_edit")!.annotations?.readOnlyHint).toBe(false);
+    expect(tools.find((t) => t.name === "read_world")!.annotations?.readOnlyHint).toBe(true);
+    expect(tools.find((t) => t.name === "review_world")!.annotations?.readOnlyHint).toBe(true);
+    expect(tools.find((t) => t.name === "apply_world")!.annotations?.destructiveHint).toBe(true);
     expect(tools.find((t) => t.name === "review_scene")!.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === "apply_scene")!.annotations?.destructiveHint).toBe(true);
     await expect(call(first.client, "project_state", { projectId: randomUUID() })).rejects.toThrow("access_denied");

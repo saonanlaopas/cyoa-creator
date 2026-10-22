@@ -8,6 +8,7 @@ import type { PassageDraftService } from "./passage-draft-service.js";
 import type { SimulationService } from "./simulation-service.js";
 import type { NativeCompilationService } from "./native-compilation-service.js";
 import { IllustratedSceneService, SceneInputs } from "./illustrated-scene-service.js";
+import { WorldInputs, WorldService } from "./world-service.js";
 
 const id = z.string().trim().min(1).max(240), digest = z.string().regex(/^[a-f0-9]{64}$/);
 const project = { projectId: id }, operation = { ...project, operationId: z.string().uuid() };
@@ -15,6 +16,7 @@ const bound = { ...operation, headFingerprint: digest, approved: z.literal(true)
 const selections = z.array(z.object({ passageId: id, candidateDraftVersionId: id }).strict()).min(1).max(12);
 export const ConnectedGameInputs = {
   ...SceneInputs,
+  ...WorldInputs,
   game_state: z.object({ ...project, kind: z.enum(["passage", "choice", "thread"]).default("passage"), offset: z.number().int().min(0).max(50000).default(0) }).strict(),
   read_game_record: z.object({ ...project, kind: z.enum(["structure", "passage", "choice", "thread", "draft"]), entityId: id.default("root"), versionId: id.optional() }).strict(),
   initialize_game_plan: z.object(bound).strict(),
@@ -30,7 +32,7 @@ export const ConnectedGameInputs = {
   export_game: z.object({ ...project, buildVersionId: id, format: z.enum(["standalone", "static", "markdown"]), allowHistorical: z.boolean().default(false) }).strict(),
 };
 export type ConnectedGameTool = keyof typeof ConnectedGameInputs;
-export const connectedGameMutations = new Set<ConnectedGameTool>(["apply_scene", "initialize_game_plan", "approve_game_plan", "submit_draft", "accept_drafts", "compile_game", "simulate_game"]);
+export const connectedGameMutations = new Set<ConnectedGameTool>(["apply_world", "apply_scene", "initialize_game_plan", "approve_game_plan", "submit_draft", "accept_drafts", "compile_game", "simulate_game"]);
 
 export class ConnectedGameService {
   private readonly passages: PassagePlanRepository;
@@ -45,6 +47,7 @@ export class ConnectedGameService {
     return sourceDigest({ project: this.edits.connectedState(projectId).headFingerprint,
       drafts: this.database.prepare("SELECT passage_id,current_version_id,accepted_version_id,accepted_locked FROM passage_draft_heads WHERE project_id=? ORDER BY passage_id").all(projectId),
       playerConfig: this.artifacts.getCurrent(projectId, "native-player-config")?.id ?? null,
+      world: this.artifacts.getCurrent(projectId, "world-definition")?.id ?? null,
       scenes: this.database.prepare("SELECT id FROM artifact_versions WHERE project_id=? AND artifact_type='illustrated-scene' ORDER BY id").all(projectId),
       overrides: this.passages.listOverrides(projectId) });
   }
@@ -73,6 +76,9 @@ export class ConnectedGameService {
   }
   call(tool: ConnectedGameTool, value: unknown): unknown {
     switch (tool) {
+      case "read_world": { const i = WorldInputs.read_world.parse(value); return new WorldService(this.database).read(i.projectId); }
+      case "review_world": { const i = WorldInputs.review_world.parse(value); return new WorldService(this.database).review(i.projectId, i.world); }
+      case "apply_world": { const i = WorldInputs.apply_world.parse(value); return new WorldService(this.database).apply(i.projectId, i.world, i.fingerprint); }
       case "read_scene": { const i = SceneInputs.read_scene.parse(value); return new IllustratedSceneService(this.database).read(i.projectId, i.passageId); }
       case "review_scene": { const i = SceneInputs.review_scene.parse(value); return new IllustratedSceneService(this.database).review(i.projectId, i.scene); }
       case "apply_scene": { const i = SceneInputs.apply_scene.parse(value); return new IllustratedSceneService(this.database).apply(i.projectId, i.scene, i.fingerprint); }
@@ -156,6 +162,7 @@ export class ConnectedGameService {
       }
       case "export_game": {
         const i = ConnectedGameInputs.export_game.parse(value), build = this.compilation.validateBuild(i.projectId, i.buildVersionId);
+        if (i.format === "markdown" && this.compilation.validateStoredInput(i.projectId, build.content.compilationInputArtifactVersionId).resolved.world?.presentation) throw new Error("connected_export_world_unsupported_use_standalone_or_static");
         if (i.format === "markdown" && this.compilation.validateStoredInput(i.projectId, build.content.compilationInputArtifactVersionId).resolved.illustrations?.presentation.scenes.length) {
           throw new Error("connected_export_illustrated_scenes_unsupported_use_standalone_or_static");
         }
@@ -171,7 +178,11 @@ export class ConnectedGameService {
     const equal = (a: unknown, b: unknown) => sourceCanonicalJson(a) === sourceCanonicalJson(b);
     const r = result as Record<string, any>, input = ConnectedGameInputs[tool].parse(value);
     if (r.providerCalls !== 0) throw new Error("connected_receipt_lineage_invalid");
-    if (tool === "apply_scene") {
+    if (tool === "apply_world") {
+      const i = WorldInputs.apply_world.parse(value), saved = this.artifacts.getVersion(r.versionId);
+      if (!saved || saved.projectId !== i.projectId || saved.artifactId !== "world-definition" || saved.artifactType !== "world-definition"
+        || !equal(saved.content, i.world) || r.status !== "applied" || r.providerCalls !== 0) throw new Error("connected_receipt_lineage_invalid");
+    } else if (tool === "apply_scene") {
       const i = SceneInputs.apply_scene.parse(value), saved = this.artifacts.getVersion(r.versionId);
       if (!saved || saved.projectId !== i.projectId || saved.artifactId !== `illustrated-scene:${i.scene.passageId}` || saved.artifactType !== "illustrated-scene"
         || !equal(saved.content, i.scene) || r.passageId !== i.scene.passageId || r.status !== "applied") throw new Error("connected_receipt_lineage_invalid");

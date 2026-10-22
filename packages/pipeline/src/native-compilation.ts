@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { IllustratedSceneSchema, type IllustratedScene } from "@story-to-cyoa/domain";
+import { IllustratedSceneSchema, WorldDefinitionSchema, type WorldDefinition, type IllustratedScene } from "@story-to-cyoa/domain";
 import {
   NATIVE_COMPILER_POLICY_ID,
   NATIVE_COMPILER_POLICY_VERSION,
@@ -16,6 +16,7 @@ import {
   IllustratedPresentationSchema,
   type IllustratedPresentation,
   type NativeGameBundle,
+  NativeWorldSchema, type NativeWorld,
   type RuntimeMechanicDefinition,
   type RuntimeCompileSource,
 } from "@story-to-cyoa/runtime";
@@ -117,6 +118,7 @@ export const NativeCompilationInputSchema = z.object({
     schemaVersion: z.literal(NATIVE_GAME_BUNDLE_SCHEMA_VERSION),
   }).strict(),
   sourceInputFingerprint: Fingerprint,
+  world: z.object({ schemaVersion: z.literal(1), versionId: StableId, contentFingerprint: Fingerprint, presentationFingerprint: Fingerprint }).strict().optional(),
   illustrations: z.object({ schemaVersion: z.literal(1), versions: z.array(z.object({ versionId: StableId, contentFingerprint: Fingerprint }).strict()).max(10000), presentationFingerprint: Fingerprint }).strict().optional(),
 }).strict();
 
@@ -140,6 +142,7 @@ export interface ResolvedNativeCompilationInput {
   }>;
   acceptedDrafts: Array<{ selection: NativeAcceptedDraftSelection; proseMarkdown: string }>;
   illustrations?: { versions: Array<{ versionId: string; content: IllustratedScene }>; presentation: IllustratedPresentation };
+  world?: { versionId: string; content: WorldDefinition; presentation: NativeWorld | null };
 }
 
 export class NativeCompilationInputError extends Error {
@@ -239,6 +242,7 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
     decisionIds: [...runtime.decisionIds],
     factIds: [...new Set(bible.canonFacts.map((fact) => fact.id))].sort(),
     ...(input.illustrations ? { illustratedPresentation: input.illustrations.presentation } : {}),
+    ...(input.world?.presentation ? { world: input.world.presentation } : {}),
     ...(exact.compilerPolicy.includeDebugProvenance ? {
       debug: {
         upstreamVersions,
@@ -246,6 +250,7 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
       },
     } : {}),
   };
+  if (provisional.world) provisional.initialState.world = { schemaVersion: 1, locationId: provisional.world.startLocationId, minutes: provisional.world.initialMinutes };
   provisional.bundleFingerprint = nativeBundleFingerprint(provisional);
   return validateNativeGameBundle(provisional);
 }
@@ -272,6 +277,20 @@ export function assertResolvedNativeCompilationInput(
     validateEntities(exact.threads, resolved.threads, NarrativeThreadSchema, "thread");
     validateUpstreamArtifacts(exact, resolved);
     validateAcceptedDrafts(exact, resolved);
+    if (Boolean(exact.world) !== Boolean(resolved.world)) throw new Error("native_world_lineage_invalid");
+    if (exact.world && resolved.world) {
+      const world = resolved.world;
+      if (exact.world.versionId !== world.versionId || stableFingerprint(WorldDefinitionSchema.parse(world.content)) !== exact.world.contentFingerprint
+        || stableFingerprint(world.presentation === null ? null : NativeWorldSchema.parse(world.presentation)) !== exact.world.presentationFingerprint
+        || Boolean(world.presentation) !== world.content.enabled) throw new Error("native_world_lineage_invalid");
+      for (const l of world.content.locations) if (l.passage && !exact.passages.some((p) => p.entityId === l.passage!.passageId && p.versionId === l.passage!.versionId)) throw new Error("native_world_passage_stale");
+      if (world.presentation) {
+        const expectedLocations = world.content.locations.map(({ passage, mapImage, ...l }) => ({ ...l, passageId: passage?.passageId ?? null, mapImage: mapImage?.versionId ?? null }));
+        if (stableFingerprint({ ...world.presentation, assets: [] }) !== stableFingerprint({ schemaId: "cyoa.native-world", schemaVersion: 1,
+          startLocationId: world.content.startLocationId, initialMinutes: world.content.initialMinutes, waitMinutes: world.content.waitMinutes,
+          locations: expectedLocations, connections: world.content.connections, actions: world.content.actions, assets: [] })) throw new Error("native_world_projection_invalid");
+      }
+    }
     if (Boolean(exact.illustrations) !== Boolean(resolved.illustrations)) throw new Error("native_illustration_lineage_invalid");
     if (exact.illustrations && resolved.illustrations) {
       const refs = exact.illustrations.versions, versions = resolved.illustrations.versions;

@@ -80,7 +80,7 @@ test("A2 author journey reviews, edits and explicitly applies foundations withou
   await expect(page.getByRole("button", { name: "Apply selected foundations" })).toBeDisabled();
   await page.getByRole("button", { name: "Save edits for review" }).click();
   await expect(proposal.getByText("Status: proposed", { exact: true })).toBeVisible();
-  await expect(proposal.getByText("Haru and Ren return to a mountain town with feelings neither has confessed.", { exact: true })).toBeVisible();
+  await expect(premise.locator("p.setup-value")).toHaveText("Haru and Ren return to a mountain town with feelings neither has confessed.");
   await page.screenshot({ path: testInfo.outputPath("a2-desktop-review.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: testInfo.outputPath("a2-mobile-review.png"), fullPage: true });

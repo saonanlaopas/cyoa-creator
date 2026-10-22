@@ -41,12 +41,13 @@ import { ConversationalEditWorkspace } from "./ConversationalEditWorkspace.js";
 import { SourceEvidenceRecovery } from "./SourceEvidenceRecovery.js";
 import { AssetLibraryWorkspace } from "./AssetLibraryWorkspace.js";
 import { IllustratedScenesWorkspace } from "./IllustratedScenesWorkspace.js";
+import { WorldWorkspace } from "./WorldWorkspace.js";
 
 const activeProjectKey = "story-to-cyoa.long-form-project-id";
 const activeStageKey = "story-to-cyoa.long-form-stage";
 const navigationKey = (projectId: string) => `story-to-cyoa.navigation.${projectId}`;
-type LongFormStage = "scenes" | "assets" | "setup" | "source-analysis" | "adaptation-intent" | "foundation-bootstrap" | "editing" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
-const stageIds: LongFormStage[] = ["scenes", "assets", "setup", "source-analysis", "adaptation-intent", "foundation-bootstrap", "editing", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
+type LongFormStage = "world" | "scenes" | "assets" | "setup" | "source-analysis" | "adaptation-intent" | "foundation-bootstrap" | "editing" | "brief" | "creative-direction" | "bible" | "routes" | "endings" | "mechanics" | "passage-plan" | "simulation" | "repair" | "publication" | "resume" | "health" | "recovery";
+const stageIds: LongFormStage[] = ["world", "scenes", "assets", "setup", "source-analysis", "adaptation-intent", "foundation-bootstrap", "editing", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", "simulation", "repair", "publication", "resume", "health", "recovery"];
 const isLongFormStage = (value: unknown): value is LongFormStage => typeof value === "string" && stageIds.includes(value as LongFormStage);
 const stages = ["Source analysis", "Project brief", "Creative Direction", "Story bible", "Routes", "Endings", "Mechanics", "Passage plan", "Drafts", "Playtest & analysis", "Repair planning", "Publication", "Resume work", "Project health", "Backup & recovery"];
 const navigationStageIds: Array<LongFormStage | null> = ["source-analysis", "brief", "creative-direction", "bible", "routes", "endings", "mechanics", "passage-plan", null, "simulation", "repair", "publication", "resume", "health", "recovery"];
@@ -55,6 +56,7 @@ type StudioLayer = "director" | "review" | "advanced";
 const layerKey = (projectId: string) => `story-to-cyoa.layer.${projectId}`;
 const stageLabels: Record<LongFormStage, string> = {
   scenes: "Illustrated scenes",
+  world: "Locations and time",
   assets: "Asset library",
   setup: "Talk it through",
   "source-analysis": "Source analysis",
@@ -319,6 +321,7 @@ export function LongFormWorkspace() {
       {layer === "director" && <button onClick={() => navigate("resume")}>Resume work</button>}
       <button aria-current={activeStage === "assets" ? "step" : undefined} onClick={() => navigate("assets")}>Asset library</button>
       <button aria-current={activeStage === "scenes" ? "step" : undefined} onClick={() => navigate("scenes")}>Illustrated scenes</button>
+      <button aria-current={activeStage === "world" ? "step" : undefined} onClick={() => navigate("world")}>Locations and time</button>
       <SourceEvidenceRecovery key={project.id} projectId={project.id} onReattached={async () => { await openProject(project.id); setSourceRevision((value) => value + 1); }} />
       <details open={activeStage !== "setup" || layer === "review"} hidden={layer === "director"}><summary>{layer === "review" ? "Review & production" : "Advanced workspace"}</summary><ol>
         {stages.map((stage, index) => {
@@ -397,7 +400,7 @@ export function LongFormWorkspace() {
       </details>
     </nav>
 
-    {activeStage !== "scenes" && activeStage !== "assets" && activeStage !== "editing" && activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "adaptation-intent" && activeStage !== "foundation-bootstrap" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
+    {activeStage !== "world" && activeStage !== "scenes" && activeStage !== "assets" && activeStage !== "editing" && activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "adaptation-intent" && activeStage !== "foundation-bootstrap" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <section className="artifact-tools">
       <ArtifactHistory
         projectId={project.id}
         artifactId={activeStage}
@@ -413,7 +416,7 @@ export function LongFormWorkspace() {
       </details>}
     </section>}
 
-    {activeStage === "scenes" ? <IllustratedScenesWorkspace key={project.id} projectId={project.id} /> : activeStage === "assets" ? <AssetLibraryWorkspace key={project.id} projectId={project.id} /> : activeStage === "editing" ? <ConversationalEditWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id).then(() => undefined)} onDraftRoute={(id) => { setPassagePlanJump(id); navigate("passage-plan", id); }} /> : activeStage === "setup" ? <ProjectSetupWorkspace key={project.id} projectId={project.id} onApplied={handoff} /> : activeStage === "foundation-bootstrap" ? <FoundationBootstrapWorkspace key={project.id} projectId={project.id} onApplied={handoff} /> : activeStage === "brief" ? <section className="artifact-pane">
+    {activeStage === "world" ? <WorldWorkspace key={project.id} projectId={project.id} /> : activeStage === "scenes" ? <IllustratedScenesWorkspace key={project.id} projectId={project.id} /> : activeStage === "assets" ? <AssetLibraryWorkspace key={project.id} projectId={project.id} /> : activeStage === "editing" ? <ConversationalEditWorkspace key={project.id} projectId={project.id} onApplied={() => openProject(project.id).then(() => undefined)} onDraftRoute={(id) => { setPassagePlanJump(id); navigate("passage-plan", id); }} /> : activeStage === "setup" ? <ProjectSetupWorkspace key={project.id} projectId={project.id} onApplied={handoff} /> : activeStage === "foundation-bootstrap" ? <FoundationBootstrapWorkspace key={project.id} projectId={project.id} onApplied={handoff} /> : activeStage === "brief" ? <section className="artifact-pane">
       <header className="artifact-header">
         <div>
           <p className="eyebrow">Stage 1</p>
@@ -531,7 +534,7 @@ export function LongFormWorkspace() {
         await openProject(restoredProjectId);
       }} />}
 
-    {activeStage !== "scenes" && activeStage !== "assets" && activeStage !== "editing" && activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "adaptation-intent" && activeStage !== "foundation-bootstrap" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
+    {activeStage !== "world" && activeStage !== "scenes" && activeStage !== "assets" && activeStage !== "editing" && activeStage !== "setup" && activeStage !== "source-analysis" && activeStage !== "adaptation-intent" && activeStage !== "foundation-bootstrap" && activeStage !== "passage-plan" && activeStage !== "simulation" && activeStage !== "repair" && activeStage !== "publication" && activeStage !== "resume" && activeStage !== "health" && activeStage !== "recovery" && <AssistantPanel
       key={project.id}
       project={project}
       brief={brief}

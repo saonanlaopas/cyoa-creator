@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { worldReference } from "./world-service.js";
 import { ArtifactRepository, PassageDraftRepository, PassagePlanRepository, ProjectRepository, WorkflowRepository, remapStudioValue, type StoryDatabase } from "@story-to-cyoa/persistence";
 import { repairApplicationDefinitionFromRecord, RepairApplicationRecordSchema, RepairPlanRecordSchema, RepairProposalRecordSchema, sourceCanonicalJson } from "@story-to-cyoa/domain";
 import { compileNativeGame, narrativeReviewDigest, repairProposalFingerprint as repairDigest, selectCreativeDirectionContext, sourceInputFingerprint, type NativeCompilationInput, type ResolvedNativeCompilationInput } from "@story-to-cyoa/pipeline";
@@ -103,6 +104,7 @@ export function prepareStudioHistoryDuplicate(db: StoryDatabase, projectId: stri
   for (const row of ofType("native-compilation-input")) {
     const original = JSON.parse(row.content_json) as NativeCompilationInput;
     const resolved = mapped(native.validateStoredInput(projectId, row.id).resolved);
+    if (resolved.world) resolved.input.world = worldReference(resolved.world);
     if (resolved.illustrations && resolved.input.illustrations) {
       resolved.input.illustrations.presentationFingerprint = stableFingerprint(resolved.illustrations.presentation);
       resolved.input.illustrations.versions = resolved.illustrations.versions.map((v) => ({ versionId: v.versionId, contentFingerprint: stableFingerprint(v.content) }));

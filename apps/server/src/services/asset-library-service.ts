@@ -64,6 +64,11 @@ export class AssetLibraryService {
       WHERE v.project_id=? AND v.artifact_type='illustrated-scene' AND v.version=(SELECT MAX(n.version) FROM artifact_versions n WHERE n.project_id=v.project_id AND n.artifact_id=v.artifact_id)
       AND (json_extract(v.content_json,'$.background.assetId')=? OR EXISTS(SELECT 1 FROM json_each(v.content_json,'$.portraits') p WHERE json_extract(p.value,'$.image.assetId')=?)) ORDER BY v.artifact_id`)
       .all(projectId, assetId, assetId);
+    const maps = this.database.prepare(`SELECT v.id worldVersionId,json_extract(l.value,'$.id') locationId
+      FROM artifact_versions v,json_each(v.content_json,'$.locations') l WHERE v.project_id=? AND v.artifact_id='world-definition'
+      AND v.version=(SELECT MAX(n.version) FROM artifact_versions n WHERE n.project_id=v.project_id AND n.artifact_id=v.artifact_id)
+      AND json_extract(l.value,'$.mapImage.assetId')=? ORDER BY locationId`).all(projectId, assetId);
+    assignments.push(...maps);
     return { assetId, assignments: assignments.slice(offset, offset + 25), totalAssignments: assignments.length, totalLibraryVersions: history.length, offset, libraryVersions: history.slice(offset, offset + 25).map(({ id, content }) => ({ versionId: id, fileSha256: content.fileSha256, thumbnailSha256: content.thumbnailSha256, status: content.status })) };
   }
   review(projectId: string, assetId: string, versionId: string) {

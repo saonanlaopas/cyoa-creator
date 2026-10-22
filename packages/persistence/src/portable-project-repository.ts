@@ -13,6 +13,7 @@ import { redactFoundationBootstrapRows, unavailableConversationEvidence } from "
 import { assertSetupProposalSource } from "./setup-proposal-repository.js";
 import { validateImageAssets } from "./image-asset-validation.js";
 import { validateIllustratedScenes } from "./illustrated-scene-validation.js";
+import { validateWorldHistory } from "./world-validation.js";
 
 export const PORTABLE_PROJECT_TABLES = [
   "projects", "artifact_versions", "artifact_workflow_state", "artifact_version_approvals", "artifact_dependencies",
@@ -126,6 +127,7 @@ export class PortableProjectRepository {
     validateFoundationBootstrapDatabase(this.database, projectId);
     validateImageAssets(this.database, projectId);
     validateIllustratedScenes(this.database, projectId);
+    validateWorldHistory(this.database, projectId);
     const tables = {} as Record<PortableProjectTable, PortableRow[]>;
     const sourceRows = project.mode === "long-form" ? this.database.prepare("SELECT content_json FROM artifact_versions WHERE project_id = ? AND artifact_id = 'source'").all(projectId) as Array<{ content_json: string }> : [];
     const retainSourceEvidence = sourceRows.some((row) => AnalysisSourceSchema.safeParse(JSON.parse(row.content_json)).success || UnavailableSourceSchema.safeParse(JSON.parse(row.content_json)).success);
@@ -245,6 +247,7 @@ export class PortableProjectRepository {
     this.validateExactLineage(bundle.projectId);
     validateImageAssets(this.database, bundle.projectId);
     validateIllustratedScenes(this.database, bundle.projectId);
+    validateWorldHistory(this.database, bundle.projectId);
     validateSourceAnalysisDatabase(this.database, bundle.projectId);
     validateAdaptationDatabase(this.database, bundle.projectId);
     validateFoundationBootstrapDatabase(this.database, bundle.projectId);

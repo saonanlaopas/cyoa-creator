@@ -19,6 +19,8 @@ import {
 } from "./native-bundle.js";
 import { cloneRuntimeState } from "./semantics.js";
 import type { RuntimeResult, RuntimeState, RuntimeStateDelta } from "./types.js";
+import { enterPassage } from "./engine.js";
+import { transitionWorld, type WorldCommand } from "./world.js";
 
 export const NATIVE_PLAYER_CONFIG_SCHEMA_ID = "cyoa.native-player-config" as const;
 export const NATIVE_PLAYER_CONFIG_SCHEMA_VERSION = 1 as const;
@@ -298,6 +300,13 @@ export function assertNativeRuntimeState(game: LoadedNativeGame, value: unknown)
     throw new NativePlayerError("save_state_invalid", "Runtime state has an invalid or unsupported shape");
   }
   const state = parsed.data;
+  if (Boolean(game.bundle.world) !== Boolean(state.world)
+    || state.world && (!game.bundle.world!.locations.some((l) => l.id === state.world!.locationId && l.passageId)
+      || state.world.minutes < game.bundle.world!.initialMinutes)) {
+    throw new NativePlayerError("save_state_invalid", "World state does not match the published world");
+  }
+  const mappedLocation = game.bundle.world?.locations.find((l) => l.passageId === state.currentPassageId);
+  if (mappedLocation && mappedLocation.id !== state.world?.locationId) throw new NativePlayerError("save_state_invalid", "Passage and world location disagree");
   if (!game.passages.has(state.currentPassageId)) {
     throw new NativePlayerError("save_state_invalid", `Runtime state references missing passage ${state.currentPassageId}`);
   }
@@ -339,7 +348,7 @@ export function assertNativeRuntimeState(game: LoadedNativeGame, value: unknown)
     }
     visitTotal += count;
   }
-  if ((state.visitCounts[state.currentPassageId] ?? 0) < 1 || visitTotal !== state.turn + 1) {
+  if ((state.visitCounts[state.currentPassageId] ?? 0) < 1 || visitTotal !== state.turn + 1 - (state.world?.stationaryTurns ?? 0)) {
     throw new NativePlayerError("save_state_invalid", "Runtime visit history is inconsistent with its turn and current passage");
   }
   return cloneRuntimeState(state);
@@ -435,6 +444,21 @@ export function chooseNativePlayerSession(
     stateDelta: transition.step.stateDelta,
     choiceId,
   };
+}
+
+export function actNativePlayerWorld(bundleValue: unknown, configValue: unknown, sessionValue: unknown, command: WorldCommand): { session: NativePlayerSession; message: string } {
+  const game = loadNativeGame(bundleValue), config = assertNativePlayerConfig(configValue, game.bundle);
+  const session = assertNativePlayerSession(game.bundle, config, sessionValue);
+  if (!game.bundle.world || nativeGameTerminal(game, session.state).result) throw new NativePlayerError("player_choice_rejected", "World actions are unavailable");
+  const transition = transitionWorld(game.bundle.world, session.state, command);
+  const state = transition.state;
+  state.turn += 1;
+  // Waiting and local actions advance a turn, but do not fabricate passage visits or re-enter the scene.
+  const next = command.kind === "travel"
+    ? enterPassage(game.runtime, state, game.bundle.world.locations.find((l) => l.id === state.world!.locationId)!.passageId!)
+    : state;
+  if (command.kind !== "travel") next.world!.stationaryTurns = (next.world!.stationaryTurns ?? 0) + 1;
+  return { session: buildSession(game, config, next, historyAfterTransition(game, config, session, next, null), next.turn), message: transition.message };
 }
 
 export function rewindNativePlayerSession(
@@ -739,7 +763,7 @@ function historyAfterTransition(
   config: NativePlayerConfig,
   session: NativePlayerSession,
   nextState: RuntimeState,
-  choiceId: string,
+  choiceId: string | null,
 ): NativePlayerCheckpoint[] {
   if (config.rewindPolicy.kind === "disabled") return [];
   const checkpointState = config.rewindPolicy.kind === "designated-checkpoints" ? nextState : session.state;

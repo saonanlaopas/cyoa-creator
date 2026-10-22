@@ -193,6 +193,7 @@ function setMechanicValue(state: RuntimeState, definition: RuntimeMechanicDefini
 
 export function cloneRuntimeState(state: RuntimeState): RuntimeState {
   return {
+    ...(state.world ? { world: { ...state.world } } : {}),
     currentPassageId: state.currentPassageId,
     stats: { ...state.stats }, relationships: { ...state.relationships }, flags: { ...state.flags }, resources: { ...state.resources },
     decisions: [...state.decisions], routes: [...state.routes], knownFacts: [...state.knownFacts],

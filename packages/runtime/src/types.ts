@@ -124,6 +124,7 @@ export interface CompiledRuntime {
 }
 
 export interface RuntimeState {
+  world?: { schemaVersion: 1; locationId: string; minutes: number; stationaryTurns?: number };
   currentPassageId: string;
   stats: Record<string, number>;
   relationships: Record<string, number>;

@@ -96,7 +96,7 @@ export function AssetLibraryWorkspace({ projectId }: { projectId: string }) {
             <dl className="asset-review-metadata">{(Object.keys(metadata) as Array<keyof ImageAssetMetadata>).map((key) => <div key={key}><dt>{key}</dt>
               <dd>{String(review.selected.content.metadata[key]) || "Unspecified"}</dd>{review.approved && <dd>Approved: {String(review.approved.content.metadata[key]) || "Unspecified"}</dd>}</div>)}</dl>
             {review.findings.map((f) => <p key={f.code} className="warning">{f.message}</p>)}
-            <p>{review.usage.totalAssignments} scene assignments</p>
+            <p>{review.usage.totalAssignments} scene/map assignments</p>
             <label className="checkbox-line"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />I reviewed this exact image and metadata.</label>
             <div className="asset-actions">{(["approve", "reject"] as const).map((action) => <button key={action} disabled={busy || !consent} onClick={async () => {
               setBusy(true); try { await mutate(`${base}/${detail.assetId}/${action}`, { versionId: review.selected.id, fingerprint: review.fingerprint }); setMessage(action === "approve" ? "Exact image candidate approved." : "Candidate rejected. Approved image unchanged."); }
@@ -108,7 +108,7 @@ export function AssetLibraryWorkspace({ projectId }: { projectId: string }) {
           <div className="asset-pagination"><button aria-label="Previous image versions" disabled={busy || detail.offset === 0} onClick={() => void open(detail.assetId, detail.selected.id, Math.max(0, detail.offset - 20))}>&larr;</button>
             <span>{detail.offset + 1}-{Math.min(detail.offset + 20, detail.totalVersions)} / {detail.totalVersions}</span><button aria-label="Next image versions" disabled={busy || detail.offset + 20 >= detail.totalVersions} onClick={() => void open(detail.assetId, detail.selected.id, detail.offset + 20)}>&rarr;</button></div>
           <button disabled={busy} onClick={async () => { try { const usage = await assetRequest<{ totalAssignments: number; totalLibraryVersions: number }>(`${base}/${detail.assetId}/usage`);
-            setMessage(`${usage.totalAssignments} scene assignments; ${usage.totalLibraryVersions} immutable library versions.`); } catch (e) { setMessage((e as Error).message); } }}>Inspect usage</button>
+            setMessage(`${usage.totalAssignments} scene/map assignments; ${usage.totalLibraryVersions} immutable library versions.`); } catch (e) { setMessage((e as Error).message); } }}>Inspect usage</button>
           {!current && <button disabled={busy} onClick={() => void open(detail.assetId)}>Return to current version</button>}
         </section>}
       </section>

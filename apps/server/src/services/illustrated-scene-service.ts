@@ -62,19 +62,23 @@ export function resolveIllustrations(artifacts: Pick<ArtifactRepository, "getVer
     if (version.artifactId !== `illustrated-scene:${scene.passageId}` || version.artifactType !== "illustrated-scene" || version.schemaVersion !== 1
       || !passages.some((p) => p.entityId === scene.passageId && p.versionId === scene.passageVersionId)) throw new Error("scene_passage_stale_reload_and_review");
     for (const ref of sceneAssetReferences(scene)) if (!seen.has(ref.versionId)) {
-      const asset = artifacts.getVersion(ref.versionId);
-      if (!asset || asset.projectId !== projectId || asset.artifactId !== `image-asset:${ref.assetId}` || asset.artifactType !== "image-asset" || asset.schemaVersion !== 1) throw new Error("scene_asset_lineage_invalid");
-      const content = ImageAssetSchema.parse(asset.content);
-      if (content.assetId !== ref.assetId || content.status !== "approved") throw new Error("scene_approved_asset_required");
-      const fileVersion = artifacts.getCurrent(projectId, `image-file:${content.fileSha256}`);
-      if (!fileVersion || fileVersion.artifactType !== "image-file" || fileVersion.version !== 1) throw new Error("scene_file_missing");
-      const file = validateImageFile(fileVersion.content);
-      if (file.sha256 !== content.fileSha256) throw new Error("scene_file_hash_invalid");
-      presentation.assets.push({ id: ref.versionId, dataUrl: `data:image/png;base64,${file.base64}`, altText: content.metadata.altText, credit: content.metadata.credit, license: content.metadata.license });
+      presentation.assets.push(resolveApprovedImage(artifacts, projectId, ref));
       seen.add(ref.versionId);
     }
     if (scene.layout === "illustrated") presentation.scenes.push({ passageId: scene.passageId, background: scene.background?.versionId ?? null,
       portraits: scene.portraits.map((p) => ({ ...p, image: p.image.versionId })), dialogue: scene.dialogue });
   }
   return { versions: versions.map((v) => ({ versionId: v.id, content: v.content })), presentation };
+}
+
+export function resolveApprovedImage(artifacts: Pick<ArtifactRepository, "getVersion" | "getCurrent">, projectId: string, ref: { assetId: string; versionId: string }): IllustratedPresentation["assets"][number] {
+  const asset = artifacts.getVersion(ref.versionId);
+  if (!asset || asset.projectId !== projectId || asset.artifactId !== `image-asset:${ref.assetId}` || asset.artifactType !== "image-asset" || asset.schemaVersion !== 1) throw new Error("scene_asset_lineage_invalid");
+  const content = ImageAssetSchema.parse(asset.content);
+  if (content.assetId !== ref.assetId || content.status !== "approved") throw new Error("scene_approved_asset_required");
+  const fileVersion = artifacts.getCurrent(projectId, `image-file:${content.fileSha256}`);
+  if (!fileVersion || fileVersion.artifactType !== "image-file" || fileVersion.version !== 1) throw new Error("scene_file_missing");
+  const file = validateImageFile(fileVersion.content);
+  if (file.sha256 !== content.fileSha256) throw new Error("scene_file_hash_invalid");
+  return { id: ref.versionId, dataUrl: `data:image/png;base64,${file.base64}`, altText: content.metadata.altText, credit: content.metadata.credit, license: content.metadata.license };
 }

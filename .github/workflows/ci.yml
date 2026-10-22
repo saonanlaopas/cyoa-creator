@@ -12,6 +12,7 @@ on:
       - codex/m3-complete-text-game
       - codex/v1-asset-library
       - codex/v2-illustrated-scenes
+      - codex/w1-locations-time
   pull_request:
 
 permissions:

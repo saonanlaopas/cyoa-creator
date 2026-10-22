@@ -38,7 +38,7 @@ function sortedUnion(values: string[], additions: string[]): string[] {
   return [...new Set([...values, ...additions])].sort();
 }
 
-function enterPassage(runtime: CompiledRuntime, state: RuntimeState, passageId: string): RuntimeState {
+export function enterPassage(runtime: CompiledRuntime, state: RuntimeState, passageId: string): RuntimeState {
   const passage = runtime.passages[passageId];
   if (!passage) return { ...cloneRuntimeState(state), currentPassageId: passageId };
   const next = cloneRuntimeState(state);

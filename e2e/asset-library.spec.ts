@@ -92,7 +92,7 @@ test("V1 imports through MCP, uploads/reviews/replaces in Creator and restores/d
       expect(createHash("sha256").update(await oldFile.body()).digest("hex")).toBe(originalHash);
       await page.getByRole("button", { name: "Refresh assets", exact: true }).click();
       await page.getByRole("button", { name: "Inspect usage", exact: true }).click();
-      await expect(page.getByRole("status")).toContainText("0 scene assignments; 7 immutable library versions");
+      await expect(page.getByRole("status")).toContainText("0 scene/map assignments; 7 immutable library versions");
       await page.getByLabel("Replacement image", { exact: true }).setInputFiles({ name: "invalid.svg", mimeType: "image/svg+xml", buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') });
       await page.getByRole("button", { name: "Upload replacement candidate", exact: true }).click();
       await expect(page.getByRole("status")).toContainText("image_static_png_jpeg_webp_required");

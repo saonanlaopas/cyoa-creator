@@ -1,5 +1,6 @@
 import { unavailableConversationEvidence, type ArtifactRepository, type ArtifactVersion, type PortableProjectRows, type PortableRow } from "@story-to-cyoa/persistence";
 import { resolveIllustrations } from "./illustrated-scene-service.js";
+import { resolveWorld } from "./world-service.js";
 import { CreativeDirectionSchema, sourceCanonicalJson } from "@story-to-cyoa/domain";
 import { assertResolvedNativeCompilationInput, compileNativeGame, sourceInputFingerprint, repairProposalFingerprint, type NativeCompilationInput, type ResolvedNativeCompilationInput } from "@story-to-cyoa/pipeline";
 import { serializedBytes, stableFingerprint, type NativeGameBundle } from "@story-to-cyoa/runtime";
@@ -61,6 +62,7 @@ export function resealRedactedNativeHistory(original: PortableProjectRows, redac
         return { selection, proseMarkdown: String(draft.prose_markdown) };
       }),
       ...(input.illustrations ? { illustrations: resolveIllustrations(reader, input.projectId, input.passages, input.illustrations.versions) } : {}),
+      ...(input.world ? { world: resolveWorld(reader, input.projectId, input.passages, input.world) } : {}),
     };
     assertResolvedNativeCompilationInput(resolved);
     const before = compileNativeGame(resolved);

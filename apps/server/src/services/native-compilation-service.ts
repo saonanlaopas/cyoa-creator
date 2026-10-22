@@ -1,4 +1,5 @@
 import { resolveIllustrations } from "./illustrated-scene-service.js";
+import { resolveWorld, worldReference } from "./world-service.js";
 import {
   LongFormEndingPlanSchema,
   LongFormMechanicsPlanSchema,
@@ -769,12 +770,16 @@ export class NativeCompilationService {
         },
       };
       let illustrations: ResolvedNativeCompilationInput["illustrations"];
+      let world: ResolvedNativeCompilationInput["world"];
+      try { world = resolveWorld(this.artifacts, projectId, identity.passages); }
+      catch (error) { blocker("publication.world-invalid", (error as Error).message, "project", projectId); }
       try { illustrations = resolveIllustrations(this.artifacts, projectId, identity.passages); }
       catch (error) { blocker("publication.illustration-invalid", (error as Error).message, "illustrated-scene", projectId); }
       const input = NativeCompilationInputSchema.parse({
         ...identity,
         ...(illustrations ? { illustrations: illustrationReference(illustrations) } : {}),
-        sourceInputFingerprint: sourceInputFingerprint({ ...identity, ...(illustrations ? { illustrations: illustrationReference(illustrations) } : {}) }),
+        ...(world ? { world: worldReference(world) } : {}),
+        sourceInputFingerprint: sourceInputFingerprint({ ...identity, ...(illustrations ? { illustrations: illustrationReference(illustrations) } : {}), ...(world ? { world: worldReference(world) } : {}) }),
       });
       const resolvedCandidate: ResolvedNativeCompilationInput = {
         input,
@@ -788,6 +793,7 @@ export class NativeCompilationService {
         })) as ResolvedNativeCompilationInput["upstreamArtifacts"],
         acceptedDrafts,
         ...(illustrations ? { illustrations } : {}),
+        ...(world ? { world } : {}),
       };
       resolved = resolvedCandidate;
       try {
@@ -892,6 +898,7 @@ export class NativeCompilationService {
       })) as ResolvedNativeCompilationInput["upstreamArtifacts"],
       acceptedDrafts,
       ...(input.illustrations ? { illustrations: resolveIllustrations(this.artifacts, projectId, input.passages, input.illustrations.versions) } : {}),
+      ...(input.world ? { world: resolveWorld(this.artifacts, projectId, input.passages, input.world) } : {}),
     };
     return resolved;
   }

@@ -7,6 +7,9 @@ import { ConnectedEditInputs, boundedConnectedResult, type ConnectedEditService,
 import type { ConnectedEditingConfig } from "../config.js";
 
 const descriptions: Record<ConnectedEditTool, string> = {
+  read_world: "Read the durable location/time definition and current version. No gameplay mutation, provider call or transcript required. Maps bind exact approved image versions; passages bind exact plan versions.",
+  review_world: "Review a complete authored location/time definition against the current world and passage structure. Includes hierarchy, approved maps, percentage markers, directed travel durations, daily opening hours, local actions and waiting. Ask for separate author approval of this exact fingerprint. No chapters, schedules, items or generation.",
+  apply_world: "After explicit author approval, atomically store the exact reviewed world with retry-safe UUID and stale-base checks. No implicit compilation or publication. Disable by reviewing a cleared definition; historical worlds/builds remain immutable.",
   read_scene: "Read the current scene, exact passage binding and staleness. Text layout clears artwork. Asset references must name exact approved versions; expressions and dialogue are authored presentation, not gameplay or prose approval.",
   review_scene: "Review one authored scene against its previous version and exact current passage. Assign only approved image versions, up to three positioned portraits with explicit expressions, optional background and speaker dialogue. No generation. Ask the author to approve the returned exact fingerprint separately.",
   apply_scene: "After explicit author approval, apply the exact reviewed scene/fingerprint atomically with a retry-safe operation UUID. Does not approve prose, change choices or publish. Stale passage/scene bases require a new review. Historical approved assets remain pinned until explicitly reassigned.",
@@ -52,6 +55,7 @@ const reads = new Set<ConnectedEditTool>(["list_projects", "project_state", "lis
 for (const name of ["game_state", "read_game_record", "review_game_plan", "review_drafts", "publication_readiness", "read_simulation", "export_game"] as const) reads.add(name);
 for (const name of ["list_assets", "read_asset", "asset_usage", "list_staged_assets", "review_asset"] as const) reads.add(name);
 for (const name of ["read_scene", "review_scene"] as const) reads.add(name);
+for (const name of ["read_world", "review_world"] as const) reads.add(name);
 
 export function registerConnectedEditing(app: FastifyInstance, service: ConnectedEditService, config: ConnectedEditingConfig) {
   const token = Buffer.from(`Bearer ${config.token}`);
@@ -71,7 +75,7 @@ export function registerConnectedEditing(app: FastifyInstance, service: Connecte
       const server = new McpServer({ name: "cyoa-connected-editing", version: "1.0.0" });
       for (const name of Object.keys(ConnectedEditInputs) as ConnectedEditTool[]) {
         server.registerTool(name, { description: descriptions[name], inputSchema: ConnectedEditInputs[name],
-          annotations: { readOnlyHint: reads.has(name), destructiveHint: ["apply_scene", "apply_edit", "reject_edit", "approve_foundation", "approve_game_plan", "accept_drafts", "approve_asset", "reject_asset"].includes(name), idempotentHint: true, openWorldHint: false } },
+          annotations: { readOnlyHint: reads.has(name), destructiveHint: ["apply_world", "apply_scene", "apply_edit", "reject_edit", "approve_foundation", "approve_game_plan", "accept_drafts", "approve_asset", "reject_asset"].includes(name), idempotentHint: true, openWorldHint: false } },
         async (args: unknown): Promise<CallToolResult> => {
           try {
             const result = boundedConnectedResult(await service.call(name, args)) as Record<string, unknown>;

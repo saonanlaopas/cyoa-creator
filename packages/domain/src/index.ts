@@ -24,3 +24,4 @@ export * from "./long-form-foundation.js";
 export * from "./studio-archive.js";
 export * from "./image-asset.js";
 export * from "./illustrated-scene.js";
+export * from "./world-definition.js";

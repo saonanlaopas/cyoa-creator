@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { IllustratedPresentationSchema } from "./illustrated-scenes.js";
+import { NativeWorldSchema, WorldStateSchema } from "./world.js";
 import { canonical, serializedBytes, stableFingerprint } from "./canonical.js";
 import { compiledRuntimeFingerprint } from "./compile.js";
 import {
@@ -123,6 +124,7 @@ const EndingSchema = z.object({
 }).strict();
 
 export const NativeRuntimeStateSchema = z.object({
+  world: WorldStateSchema.optional(),
   currentPassageId: StableId,
   stats: z.record(z.number().finite()),
   relationships: z.record(z.number().finite()),
@@ -166,6 +168,7 @@ export const NativeGameBundleSchema = z.object({
   decisionIds: z.array(StableId).max(20_000),
   factIds: z.array(StableId).max(NATIVE_BUNDLE_LIMITS.maximumFacts),
   illustratedPresentation: IllustratedPresentationSchema.optional(),
+  world: NativeWorldSchema.optional(),
   debug: z.object({
     upstreamVersions: z.record(StableId),
     threadVersionIds: z.array(StableId).max(5_000),
@@ -220,6 +223,7 @@ function gameplayPayload(bundle: NativeGameBundle): unknown {
     decisionIds: bundle.decisionIds,
     factIds: bundle.factIds,
     ...(bundle.illustratedPresentation ? { illustratedPresentation: bundle.illustratedPresentation } : {}),
+    ...(bundle.world ? { world: bundle.world } : {}),
   };
 }
 
@@ -310,6 +314,13 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
   }
   const bundle = parsed.data;
   const findings: NativeBundleFinding[] = [];
+  if (bundle.world) {
+    const world = bundle.world;
+    if (world.locations.find((l) => l.id === world.startLocationId)?.passageId !== bundle.startPassageId
+      || world.locations.some((l) => l.passageId && !bundle.passages.some((p) => p.id === l.passageId))) {
+      findings.push({ code: "world.passage-invalid", message: "World locations require existing passages and a matching start passage" });
+    }
+  }
   if (bundle.illustratedPresentation) {
     const { assets, scenes } = bundle.illustratedPresentation;
     const ids = new Set(assets.map((a) => a.id)), used = new Set<string>();
@@ -448,6 +459,7 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
     code: "native.bundle.fingerprint-mismatch", message: "Native bundle fingerprint does not match its semantic payload",
   });
   const expectedInitial = initializeRuntimeState(runtime);
+  if (bundle.world) expectedInitial.world = { schemaVersion: 1, locationId: bundle.world.startLocationId, minutes: bundle.world.initialMinutes };
   if (canonical(expectedInitial) !== canonical(bundle.initialState)) add({
     code: "native.bundle.initial-state-invalid", message: "Native bundle initial state does not match its mechanics and start passage",
   });
@@ -505,7 +517,16 @@ export function chooseNativeGameChoice(
   state: RuntimeState,
   choiceId: string,
 ): RuntimeChoiceTransition {
-  return applyRuntimeChoice(game.runtime, game.bundle.source.inputFingerprint, state, choiceId, state.turn);
+  const transition = applyRuntimeChoice(game.runtime, game.bundle.source.inputFingerprint, state, choiceId, state.turn);
+  if (transition.ok && game.bundle.world && transition.state.world) {
+    const location = game.bundle.world.locations.find((l) => l.passageId === transition.state.currentPassageId);
+    if (location && location.id !== transition.state.world.locationId) {
+      transition.step.stateDelta.push({ path: "world.locationId", before: transition.state.world.locationId, after: location.id });
+      transition.state.world.locationId = location.id;
+    }
+    transition.step.stateAfter = cloneRuntimeState(transition.state);
+  }
+  return transition;
 }
 
 export function nativeGameTerminal(game: LoadedNativeGame, state: RuntimeState) {
