@@ -46,6 +46,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
   const [slots, setSlots] = useState<SlotView[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("Loading game…");
+  const [actionOutcome, setActionOutcome] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"save" | "load" | "restart" | "overwrite" | "delete" | null>(null);
   const [pendingSlot, setPendingSlot] = useState<SlotView | null>(null);
@@ -70,6 +71,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
 
   useEffect(() => {
     let current = true;
+    setActionOutcome(null);
     void (async () => {
       try {
         const raw = await storage.readInstallation(route.gameId, route.bundleFingerprint);
@@ -128,9 +130,10 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
     await storage.writeAutosave(installed.gameId, installed.bundleFingerprint, save);
   };
 
-  const commitSession = async (next: NativePlayerSession, success: string): Promise<void> => {
+  const commitSession = async (next: NativePlayerSession, success: string, outcome: string | null = null): Promise<void> => {
     if (!installation) return;
     setSession(next);
+    setActionOutcome(outcome);
     setRecoveryRequired(false);
     setError(null);
     focusPassage();
@@ -280,6 +283,9 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
         <div className="native-player-prose">
           {paragraphs(view.passage.proseMarkdown).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
         </div>
+        {actionOutcome && <section className="native-player-prose" aria-label="Action outcome" aria-live="polite">
+          {paragraphs(actionOutcome).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
+        </section>}
         {recoveryRequired && <section className="native-player-recovery" aria-label="Save recovery">
           <strong>Saved progress needs attention.</strong>
           <p>Start a new game explicitly or load a compatible manual save. The unreadable autosave has not been deleted.</p>
@@ -356,7 +362,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
       <button autoFocus disabled={busy} onClick={() => setWorldAction(null)}>Cancel</button>
       <button disabled={busy || recoveryRequired} onClick={() => { if (busy || recoveryRequired) return; setBusy(true);
         void (async () => { try { const next = actNativePlayerWorld(installation.bundle, installation.config, session, worldAction.command);
-          setWorldAction(null); await commitSession(next.session, next.message); } catch (e) { setError(playerErrorMessage(e)); } finally { setBusy(false); } })();
+          setWorldAction(null); await commitSession(next.session, "Progress autosaved.", next.message); } catch (e) { setError(playerErrorMessage(e)); } finally { setBusy(false); } })();
       }}>Confirm action</button>
     </PlayerDialog>}
     {dialog === "load" && <PlayerDialog labelId="load-game-title" onClose={closeDialog}>

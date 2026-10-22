@@ -5,8 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MemoryNativePlayerStorage,
   NativePlayerError,
+  assertNativePlayerManualSlot,
   createNativePlayerConfig,
   createNativePlayerInstallation,
+  loadNativePlayerSave,
   nativeBundleFingerprint,
   type NativePlayerSave,
 } from "@story-to-cyoa/runtime";
@@ -27,7 +29,106 @@ async function installedPlayer(passageCount = 4, storage = new MemoryNativePlaye
   return { bundle, config, storage, route };
 }
 
+async function installedWorldPlayer(autosaveEnabled = true) {
+  const bundle = playerFixture(3);
+  bundle.world = {
+    schemaId: "cyoa.native-world", schemaVersion: 1, startLocationId: "station", initialMinutes: 1455,
+    waitMinutes: [15], assets: [], connections: [],
+    locations: [{ id: "station", name: "Station", parentId: null, passageId: "passage-0", mapImage: null, marker: null, hours: null }],
+    actions: [{ id: "board", locationId: "station", label: "Read departure board", minutes: 7, result: "The early train leaves at dawn.\n\nPlatform three." }],
+  };
+  bundle.initialState.world = { schemaVersion: 1, locationId: "station", minutes: 1455 };
+  bundle.bundleFingerprint = nativeBundleFingerprint(bundle);
+  const config = createNativePlayerConfig({ ...playerConfigInput(bundle), autosaveEnabled }, bundle);
+  const storage = new MemoryNativePlayerStorage();
+  await storage.install(createNativePlayerInstallation(bundle, config));
+  return { bundle, config, storage, route: { gameId: bundle.gameId, bundleFingerprint: bundle.bundleFingerprint, debug: false } };
+}
+
 describe("NativePlayer", () => {
+  it.each(["enabled", "disabled", "failed"] as const)("retains the authored action outcome independently of %s autosave, committing time once", async (mode) => {
+    const fixture = await installedWorldPlayer(mode !== "disabled");
+    const write = vi.spyOn(fixture.storage, "writeAutosave");
+    if (mode === "failed") write.mockRejectedValueOnce(new NativePlayerError("storage_quota_exceeded", "Test quota reached"));
+    const user = userEvent.setup();
+    render(<NativePlayer route={fixture.route} storage={fixture.storage} />);
+    await user.click(await screen.findByRole("button", { name: "Read departure board · 7 min" }));
+    await user.click(screen.getByRole("button", { name: "Confirm action" }));
+    const outcome = await screen.findByRole("region", { name: "Action outcome" });
+    expect(outcome.textContent).toBe("The early train leaves at dawn.Platform three.");
+    expect(outcome.querySelectorAll("p")).toHaveLength(2);
+    expect(screen.getByLabelText("Game time").textContent).toBe("Day 2 · 00:22");
+    expect(screen.getByText("Turn 2")).toBeTruthy();
+    expect(write).toHaveBeenCalledTimes(mode === "disabled" ? 0 : 1);
+    if (mode === "failed") {
+      expect(screen.getByRole("alert").textContent).toContain("Progress changed, but it is not saved.");
+      expect(screen.getByRole("alert").textContent).toContain("storage_quota_exceeded");
+      expect(await fixture.storage.readAutosave(fixture.bundle.gameId, fixture.bundle.bundleFingerprint)).toBeNull();
+      await user.click(screen.getByRole("button", { name: "Retry autosave" }));
+      await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+      expect(write).toHaveBeenCalledTimes(2);
+      expect(write.mock.calls[1]![2].state).toEqual(write.mock.calls[0]![2].state);
+      expect(screen.getByRole("status").textContent).toBe("Progress is saved.");
+    } else {
+      expect(screen.getByRole("status").textContent).toBe(mode === "enabled" ? "Progress autosaved." : "Progress updated. Autosave is disabled.");
+    }
+    await user.click(screen.getByRole("button", { name: "Save game" }));
+    await user.type(screen.getByLabelText("Save name"), "After reading");
+    await user.click(screen.getByRole("button", { name: "Create save" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Saved “After reading”"));
+    const [slot] = await fixture.storage.listManualSlots(fixture.bundle.gameId);
+    const saved = loadNativePlayerSave(fixture.bundle, fixture.config, assertNativePlayerManualSlot(slot).save);
+    expect(saved.state.turn).toBe(1);
+    expect(saved.state.world).toEqual({ schemaVersion: 1, locationId: "station", minutes: 1462, stationaryTurns: 1 });
+    expect(screen.getByRole("region", { name: "Action outcome" })).toBe(outcome);
+    expect(screen.getByLabelText("Game time").textContent).toBe("Day 2 · 00:22");
+    expect(screen.getByText("Turn 2")).toBeTruthy();
+  });
+
+  it.each(["choice", "rewind", "restart", "load", "route"] as const)("clears an earlier action outcome when %s replaces the session", async (transition) => {
+    const fixture = await installedWorldPlayer();
+    const user = userEvent.setup();
+    const mounted = render(<NativePlayer route={fixture.route} storage={fixture.storage} />);
+    await user.click(await screen.findByRole("button", { name: "Save game" }));
+    await user.type(screen.getByLabelText("Save name"), "Before reading");
+    await user.click(screen.getByRole("button", { name: "Create save" }));
+    await user.click(screen.getByRole("button", { name: "Read departure board · 7 min" }));
+    await user.click(screen.getByRole("button", { name: "Confirm action" }));
+    expect(screen.getByRole("region", { name: "Action outcome" }).textContent).toContain("The early train leaves at dawn.");
+    if (transition === "choice") await user.click(screen.getByRole("button", { name: "Continue 1" }));
+    if (transition === "rewind") await user.click(screen.getByRole("button", { name: "Rewind" }));
+    if (transition === "restart") {
+      await user.click(screen.getByRole("button", { name: "Restart" }));
+      await user.click(screen.getByRole("button", { name: "Restart game" }));
+    }
+    if (transition === "load") {
+      await user.click(screen.getByRole("button", { name: "Load game" }));
+      await user.click(screen.getByRole("button", { name: "Load" }));
+    }
+    if (transition === "route") {
+      const other = await installedPlayer(3, fixture.storage);
+      mounted.rerender(<NativePlayer route={other.route} storage={fixture.storage} />);
+      await waitFor(() => expect(screen.queryByLabelText("Game time")).toBeNull());
+    }
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Action outcome" })).toBeNull());
+  });
+
+  it("retains the outcome when another action is cancelled and replaces it only when that action commits", async () => {
+    const fixture = await installedWorldPlayer();
+    const user = userEvent.setup();
+    render(<NativePlayer route={fixture.route} storage={fixture.storage} />);
+    await user.click(await screen.findByRole("button", { name: "Read departure board · 7 min" }));
+    await user.click(screen.getByRole("button", { name: "Confirm action" }));
+    await user.click(screen.getByRole("button", { name: "Wait 15 min" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("region", { name: "Action outcome" }).textContent).toContain("The early train leaves at dawn.");
+    expect(screen.getByLabelText("Game time").textContent).toBe("Day 2 · 00:22");
+    await user.click(screen.getByRole("button", { name: "Wait 15 min" }));
+    await user.click(screen.getByRole("button", { name: "Confirm action" }));
+    expect(screen.getByRole("region", { name: "Action outcome" }).textContent).not.toContain("The early train leaves at dawn.");
+    expect(screen.getByLabelText("Game time").textContent).toBe("Day 2 · 00:37");
+  });
+
   it("plays, autosaves, reloads, manually saves/loads, rewinds, and restarts without API calls", async () => {
     const fixture = await installedPlayer(4);
     const fetchSpy = vi.spyOn(globalThis, "fetch");

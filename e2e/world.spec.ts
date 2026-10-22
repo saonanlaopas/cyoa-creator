@@ -117,7 +117,9 @@ test("W1 reviews shared world operations and travels home/cafe/station with free
         await worldPanel.getByRole("button", { name: "Station · 10 min", exact: true }).click(); await confirm();
         await expect(clock).toHaveText("Day 2 · 00:15"); await expect(worldPanel.locator("header strong")).toHaveText("Station");
         await worldPanel.getByRole("button", { name: "Read departure board · 7 min", exact: true }).click(); await confirm();
-        await expect(clock).toHaveText("Day 2 · 00:22"); await expect(player.getByRole("status")).toContainText("The early train leaves at dawn.");
+        await expect(clock).toHaveText("Day 2 · 00:22");
+        await expect(player.getByRole("region", { name: "Action outcome", exact: true })).toHaveText("The early train leaves at dawn.");
+        await expect(player.getByRole("status")).toHaveText("Progress autosaved.");
         await worldPanel.getByRole("button", { name: "Wait 15 min", exact: true }).click(); await confirm(); await expect(clock).toHaveText("Day 2 · 00:37");
         await player.getByRole("button", { name: "Rewind", exact: true }).click(); await expect(clock).toHaveText("Day 2 · 00:22");
         await player.getByRole("button", { name: "Load game", exact: true }).click(); await player.getByRole("button", { name: "Load", exact: true }).click();
