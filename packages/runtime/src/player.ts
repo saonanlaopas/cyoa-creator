@@ -20,6 +20,7 @@ import {
 import { cloneRuntimeState } from "./semantics.js";
 import type { RuntimeResult, RuntimeState, RuntimeStateDelta } from "./types.js";
 import { enterPassage } from "./engine.js";
+import { assertProgressionState, revealProgressionEvents } from "./progression.js";
 import { transitionWorld, type WorldCommand } from "./world.js";
 
 export const NATIVE_PLAYER_CONFIG_SCHEMA_ID = "cyoa.native-player-config" as const;
@@ -305,6 +306,9 @@ export function assertNativeRuntimeState(game: LoadedNativeGame, value: unknown)
       || state.world.minutes < game.bundle.world!.initialMinutes)) {
     throw new NativePlayerError("save_state_invalid", "World state does not match the published world");
   }
+  if (game.bundle.world) {
+    try { assertProgressionState(game.bundle.world, state); } catch (error) { throw new NativePlayerError("save_state_invalid", (error as Error).message); }
+  }
   const mappedLocation = game.bundle.world?.locations.find((l) => l.passageId === state.currentPassageId);
   if (mappedLocation && mappedLocation.id !== state.world?.locationId) throw new NativePlayerError("save_state_invalid", "Passage and world location disagree");
   if (!game.passages.has(state.currentPassageId)) {
@@ -454,10 +458,11 @@ export function actNativePlayerWorld(bundleValue: unknown, configValue: unknown,
   const state = transition.state;
   state.turn += 1;
   // Waiting and local actions advance a turn, but do not fabricate passage visits or re-enter the scene.
-  const next = command.kind === "travel"
-    ? enterPassage(game.runtime, state, game.bundle.world.locations.find((l) => l.id === state.world!.locationId)!.passageId!)
+  const next = transition.passageId
+    ? enterPassage(game.runtime, state, transition.passageId)
     : state;
-  if (command.kind !== "travel") next.world!.stationaryTurns = (next.world!.stationaryTurns ?? 0) + 1;
+  revealProgressionEvents(game.bundle.world, next);
+  if (!transition.passageId) next.world!.stationaryTurns = (next.world!.stationaryTurns ?? 0) + 1;
   return { session: buildSession(game, config, next, historyAfterTransition(game, config, session, next, null), next.turn), message: transition.message };
 }
 

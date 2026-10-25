@@ -10,3 +10,5 @@ export * from "./native-bundle.js";
 export * from "./player.js";
 export * from "./illustrated-scenes.js";
 export * from "./world.js";
+
+export * from "./progression.js";

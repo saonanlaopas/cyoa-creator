@@ -193,7 +193,7 @@ function setMechanicValue(state: RuntimeState, definition: RuntimeMechanicDefini
 
 export function cloneRuntimeState(state: RuntimeState): RuntimeState {
   return {
-    ...(state.world ? { world: { ...state.world } } : {}),
+    ...(state.world ? { world: { ...state.world, ...(state.world.progression ? { progression: { ...state.world.progression, milestones: [...state.world.progression.milestones], knownEventIds: [...state.world.progression.knownEventIds], expiredEventIds: [...state.world.progression.expiredEventIds], transitions: { ...state.world.progression.transitions }, events: Object.fromEntries(Object.entries(state.world.progression.events).map(([id, event]) => [id, { ...event, chapterIds: [...event.chapterIds] }])) } } : {}) } } : {}),
     currentPassageId: state.currentPassageId,
     stats: { ...state.stats }, relationships: { ...state.relationships }, flags: { ...state.flags }, resources: { ...state.resources },
     decisions: [...state.decisions], routes: [...state.routes], knownFacts: [...state.knownFacts],

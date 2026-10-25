@@ -19,3 +19,7 @@
 .world-editor .world-check { display: flex; align-items: center; gap: .5rem; }
 .world-editor .world-check input { width: auto; }
 @media (max-width: 700px) { .world-editor .world-row { grid-template-columns: minmax(0, 1fr); } }
+
+.world-editor .progression-card { border: 1px solid #63716b; padding: 1rem; margin-block: 1rem; }
+.world-editor .progression-card > fieldset { margin-block: 1rem; }
+.world-editor legend { max-width: 100%; overflow-wrap: anywhere; }

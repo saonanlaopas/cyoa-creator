@@ -1,8 +1,15 @@
 import { WorldDefinitionSchema, ImageAssetSchema } from "@story-to-cyoa/domain";
+import { NativeProgressionSchema, projectWorldProgression } from "@story-to-cyoa/runtime";
 import type { StoryDatabase } from "./database.js";
 
 export function validateWorld(database: StoryDatabase, projectId: string, value: unknown) {
   const world = WorldDefinitionSchema.parse(value);
+  if (world.progression) NativeProgressionSchema.parse(projectWorldProgression(world.progression));
+  for (const item of [...(world.progression?.events ?? []), ...(world.progression?.transitions ?? [])]) {
+    if (item.passage && !database.prepare("SELECT 1 FROM passage_entity_versions WHERE project_id=? AND id=? AND entity_kind='passage' AND entity_id=?").get(projectId, item.passage.versionId, item.passage.passageId)) throw new Error("progression_passage_lineage_invalid");
+    for (const c of item.prerequisites) if (c.kind === "location" && !world.locations.some((l) => l.id === c.locationId && l.passage)) throw new Error("progression_location_reference_invalid");
+    if (world.locations.filter((l) => l.passage).every((l) => item.prerequisites.some((c) => c.kind === "location" && !c.present && c.locationId === l.id))) throw new Error("progression_contradictory_location");
+  }
   for (const location of world.locations) {
     if (location.passage && !database.prepare("SELECT 1 FROM passage_entity_versions WHERE project_id=? AND id=? AND entity_kind='passage' AND entity_id=?")
       .get(projectId, location.passage.versionId, location.passage.passageId)) throw new Error("world_passage_lineage_invalid");

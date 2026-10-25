@@ -1,0 +1,122 @@
+[
+  {
+    "path": "apps/server/src/routes/connected-editing.ts",
+    "sha256": "cc6354db6423e63e036fbeeaeaeb841a119e03078669c518d763e0ce27e8d139"
+  },
+  {
+    "path": "apps/server/src/services/connected-game-service.ts",
+    "sha256": "5d117f7911d143ac71ec3254a52fc1049317bb1c7f5bc159dc611326c30e2637"
+  },
+  {
+    "path": "apps/server/src/services/native-compilation-service.ts",
+    "sha256": "30ac1df17b717eefadadce7e55af0be78f9ad74a0422ee30f5f6e9ef2c415a01"
+  },
+  {
+    "path": "apps/server/src/services/publication-export-service.ts",
+    "sha256": "5f19c042f7b066a94eb49549aaff847bf91d48b60528f519852a8a1d53706e36"
+  },
+  {
+    "path": "apps/server/src/services/world-service.ts",
+    "sha256": "c8735db4e8c83edc02487669a43911ccba996a8965cb6f65ae3cbc94c8d2bc9b"
+  },
+  {
+    "path": "apps/server/test/connected-editing.test.ts",
+    "sha256": "1f92c709d2d76861c5981e0b40a9cce186ce4552088ec10befeaa3d6b0dbe40f"
+  },
+  {
+    "path": "apps/server/test/progression.test.ts",
+    "sha256": "4ac71982a0288788a5a747ea4e5e57fe76a4618226f86c47c0dd3ea33208e07e"
+  },
+  {
+    "path": "apps/web/src/features/player/NativePlayer.tsx",
+    "sha256": "3abd31d789f922796704621e1e6837b03ce5be7e605ac54eb0924bc6c495f121"
+  },
+  {
+    "path": "apps/web/src/features/player/WorldPanel.tsx",
+    "sha256": "6e8edc5209a594f14a1943bd88f5cd7ff259216e3822c1b9306ce2b5603a8079"
+  },
+  {
+    "path": "apps/web/src/features/player/world.css",
+    "sha256": "cc493fa19f78b86d907dbc4d0bdeb31e35f49e297ef1a2866057dae1f6c6ef93"
+  },
+  {
+    "path": "apps/web/src/features/workspace/ProgressionEditor.tsx",
+    "sha256": "beb5a071b82ef2f11fd4f435be3d16253263030d7a7700342676ab322002a7ed"
+  },
+  {
+    "path": "apps/web/src/features/workspace/WorldWorkspace.tsx",
+    "sha256": "70f4249c9b8612630593a026fdb4aecb2edba0b838d909411d9a1553080c3531"
+  },
+  {
+    "path": "apps/web/test/progression.test.tsx",
+    "sha256": "4ff54433889e9f3de792d30ebe2b3b512d75c30c303c6389967e9a6afc6f3901"
+  },
+  {
+    "path": "e2e/helpers/progression.ts",
+    "sha256": "876b7393c94b33cc5f47a369231b93ae39a7c992e05dd21cf47dc7bc0c8bdc14"
+  },
+  {
+    "path": "e2e/progression.spec.ts",
+    "sha256": "079a8dbccc2a71dccff4e93f56c442415b0fe25f42aedb3e92bef5257fdf4e1d"
+  },
+  {
+    "path": "packages/domain/src/index.ts",
+    "sha256": "9e0280096019b68ec540e362a4e4823bc3615f4098346a157a26a5cc129852a6"
+  },
+  {
+    "path": "packages/domain/src/world-definition.ts",
+    "sha256": "01e26b8f878ec2da5b7f21c5c314cd8728b28757af0129272752fa5c46239cff"
+  },
+  {
+    "path": "packages/domain/src/world-progression.ts",
+    "sha256": "e8f9735ef07852499e7b285273f07364569363eb14a3897f9d6658b9f03606a4"
+  },
+  {
+    "path": "packages/export-twine/src/native-twee.ts",
+    "sha256": "be12b14aab08f42097abbd4ac9353e67da95739256cf9ef29529c2b6aba95d6e"
+  },
+  {
+    "path": "packages/persistence/src/world-validation.ts",
+    "sha256": "811f637bf518b9866a5633d9ff0d2516433cde2334d0ffff33099d52a735d421"
+  },
+  {
+    "path": "packages/pipeline/src/native-compilation.ts",
+    "sha256": "21eaed0b7ff1cc70f846b5db87ec8d15cf7df9f18a3b27089e125a2eee56161b"
+  },
+  {
+    "path": "packages/runtime/src/index.ts",
+    "sha256": "ed9747e6ebcdfd79b3f54e933c5185fcf930f4506da339a809e7bfeaa79f9b79"
+  },
+  {
+    "path": "packages/runtime/src/native-bundle.ts",
+    "sha256": "6e0c14aa237f21624b680d27ca95efd901609f29ffb27a7b359d9740605fd855"
+  },
+  {
+    "path": "packages/runtime/src/player.ts",
+    "sha256": "629540c871c205f76ffd47faad049306d1f0905e0f982837287b95279b091c53"
+  },
+  {
+    "path": "packages/runtime/src/progression.ts",
+    "sha256": "337e0a6c6fc3cde6f5831b0138af4e9fe5e187c5821c1ad5ea63e93c93640f18"
+  },
+  {
+    "path": "packages/runtime/src/semantics.ts",
+    "sha256": "2dd2af3ffaa22f08780dc8cba954458fcbe59d83164df619208ac824fda43606"
+  },
+  {
+    "path": "packages/runtime/src/types.ts",
+    "sha256": "7163862b3e94b87c79bc420d6c63889f794bbaf3473ba4b0d29183c94f2c4dcf"
+  },
+  {
+    "path": "packages/runtime/src/world.ts",
+    "sha256": "96ebc18274d91cb1adf1b5e820d82672aa9b7d5d9c9c11940001ceaddb7c5850"
+  },
+  {
+    "path": "packages/runtime/test/progression-fixture.ts",
+    "sha256": "bf891c94c88be84743dc489716d84e6c0112403335239937079deb9bd7acf93b"
+  },
+  {
+    "path": "packages/runtime/test/progression.test.ts",
+    "sha256": "fa6203c5dd7a2d42033a3999d7ba5ee8c8ee742cf9d6d2e1f5d4c9eeeeaac529"
+  }
+]

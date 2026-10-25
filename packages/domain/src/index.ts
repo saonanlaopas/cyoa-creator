@@ -25,3 +25,5 @@ export * from "./studio-archive.js";
 export * from "./image-asset.js";
 export * from "./illustrated-scene.js";
 export * from "./world-definition.js";
+
+export * from "./world-progression.js";

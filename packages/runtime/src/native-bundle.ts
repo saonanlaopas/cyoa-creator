@@ -1,6 +1,7 @@
+import { revealProgressionEvents } from "./progression.js";
 import { z } from "zod";
 import { IllustratedPresentationSchema } from "./illustrated-scenes.js";
-import { NativeWorldSchema, WorldStateSchema } from "./world.js";
+import { NativeWorldSchema, WorldStateSchema, initialWorldState } from "./world.js";
 import { canonical, serializedBytes, stableFingerprint } from "./canonical.js";
 import { compiledRuntimeFingerprint } from "./compile.js";
 import {
@@ -317,7 +318,8 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
   if (bundle.world) {
     const world = bundle.world;
     if (world.locations.find((l) => l.id === world.startLocationId)?.passageId !== bundle.startPassageId
-      || world.locations.some((l) => l.passageId && !bundle.passages.some((p) => p.id === l.passageId))) {
+      || world.locations.some((l) => l.passageId && !bundle.passages.some((p) => p.id === l.passageId))
+      || [...(world.progression?.events ?? []), ...(world.progression?.transitions ?? [])].some((item) => item.passageId && !bundle.passages.some((p) => p.id === item.passageId))) {
       findings.push({ code: "world.passage-invalid", message: "World locations require existing passages and a matching start passage" });
     }
   }
@@ -459,7 +461,7 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
     code: "native.bundle.fingerprint-mismatch", message: "Native bundle fingerprint does not match its semantic payload",
   });
   const expectedInitial = initializeRuntimeState(runtime);
-  if (bundle.world) expectedInitial.world = { schemaVersion: 1, locationId: bundle.world.startLocationId, minutes: bundle.world.initialMinutes };
+  if (bundle.world) expectedInitial.world = initialWorldState(bundle.world);
   if (canonical(expectedInitial) !== canonical(bundle.initialState)) add({
     code: "native.bundle.initial-state-invalid", message: "Native bundle initial state does not match its mechanics and start passage",
   });
@@ -524,6 +526,8 @@ export function chooseNativeGameChoice(
       transition.step.stateDelta.push({ path: "world.locationId", before: transition.state.world.locationId, after: location.id });
       transition.state.world.locationId = location.id;
     }
+    revealProgressionEvents(game.bundle.world, transition.state);
+    for (const id of transition.state.world.progression?.knownEventIds ?? []) if (!state.world?.progression?.knownEventIds.includes(id)) transition.step.stateDelta.push({ path: `world.progression.knownEventIds.${id}`, before: false, after: true });
     transition.step.stateAfter = cloneRuntimeState(transition.state);
   }
   return transition;

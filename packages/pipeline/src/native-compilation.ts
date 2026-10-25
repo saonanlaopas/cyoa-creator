@@ -16,7 +16,7 @@ import {
   IllustratedPresentationSchema,
   type IllustratedPresentation,
   type NativeGameBundle,
-  NativeWorldSchema, type NativeWorld,
+  NativeWorldSchema, type NativeWorld, initialWorldState, projectWorldProgression,
   type RuntimeMechanicDefinition,
   type RuntimeCompileSource,
 } from "@story-to-cyoa/runtime";
@@ -250,7 +250,7 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
       },
     } : {}),
   };
-  if (provisional.world) provisional.initialState.world = { schemaVersion: 1, locationId: provisional.world.startLocationId, minutes: provisional.world.initialMinutes };
+  if (provisional.world) provisional.initialState.world = initialWorldState(provisional.world);
   provisional.bundleFingerprint = nativeBundleFingerprint(provisional);
   return validateNativeGameBundle(provisional);
 }
@@ -283,12 +283,12 @@ export function assertResolvedNativeCompilationInput(
       if (exact.world.versionId !== world.versionId || stableFingerprint(WorldDefinitionSchema.parse(world.content)) !== exact.world.contentFingerprint
         || stableFingerprint(world.presentation === null ? null : NativeWorldSchema.parse(world.presentation)) !== exact.world.presentationFingerprint
         || Boolean(world.presentation) !== world.content.enabled) throw new Error("native_world_lineage_invalid");
-      for (const l of world.content.locations) if (l.passage && !exact.passages.some((p) => p.entityId === l.passage!.passageId && p.versionId === l.passage!.versionId)) throw new Error("native_world_passage_stale");
+      for (const l of [...world.content.locations, ...(world.content.progression?.events ?? []), ...(world.content.progression?.transitions ?? [])]) if (l.passage && !exact.passages.some((p) => p.entityId === l.passage!.passageId && p.versionId === l.passage!.versionId)) throw new Error("native_world_passage_stale");
       if (world.presentation) {
         const expectedLocations = world.content.locations.map(({ passage, mapImage, ...l }) => ({ ...l, passageId: passage?.passageId ?? null, mapImage: mapImage?.versionId ?? null }));
         if (stableFingerprint({ ...world.presentation, assets: [] }) !== stableFingerprint({ schemaId: "cyoa.native-world", schemaVersion: 1,
           startLocationId: world.content.startLocationId, initialMinutes: world.content.initialMinutes, waitMinutes: world.content.waitMinutes,
-          locations: expectedLocations, connections: world.content.connections, actions: world.content.actions, assets: [] })) throw new Error("native_world_projection_invalid");
+          locations: expectedLocations, connections: world.content.connections, actions: world.content.actions, assets: [], ...(world.content.progression ? { progression: projectWorldProgression(world.content.progression) } : {}) })) throw new Error("native_world_projection_invalid");
       }
     }
     if (Boolean(exact.illustrations) !== Boolean(resolved.illustrations)) throw new Error("native_illustration_lineage_invalid");

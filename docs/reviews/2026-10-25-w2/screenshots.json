@@ -1,0 +1,62 @@
+[
+  {
+    "file": "w2-editor-controls-1280.png",
+    "sha256": "5ce3fea5663ea900b20f223111c8f6f2e0840e2db3fe20b6992564b461d1f077",
+    "pixels": {
+      "width": 1280,
+      "height": 900
+    },
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-editor-controls-1280.png",
+    "unedited": true
+  },
+  {
+    "file": "w2-editor-controls-390.png",
+    "sha256": "ab02f9fccc508c422d2d9e61b5c817e4632b94ae10c355068bd36732f707ed75",
+    "pixels": {
+      "width": 390,
+      "height": 844
+    },
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-editor-controls-390.png",
+    "unedited": true
+  },
+  {
+    "file": "w2-standalone-transition-preview-1280.png",
+    "sha256": "5d1f2ac89175269ae428a54aa4d77d8a8be331bfeed0c785d3e2df8b19fe3f04",
+    "pixels": {
+      "width": 1280,
+      "height": 900
+    },
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-standalone-transition-preview-1280.png",
+    "unedited": true
+  },
+  {
+    "file": "w2-standalone-transition-preview-390.png",
+    "sha256": "96343921a0d0a80cb0732af7bc318e573216944bd08c056f751026de2922b6ec",
+    "pixels": {
+      "width": 390,
+      "height": 844
+    },
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-standalone-transition-preview-390.png",
+    "unedited": true
+  },
+  {
+    "file": "w2-static-second-chapter-390.png",
+    "sha256": "12653a045f65f58b52fa47c9ae9ef87ffedc72399a7554d00bdfc2e666c01f9c",
+    "pixels": {
+      "width": 390,
+      "height": 2000
+    },
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-static-second-chapter-390.png",
+    "unedited": true
+  },
+  {
+    "file": "w2-static-free-390.png",
+    "sha256": "a50c7802e1a83881f66325aa52c1106fecd22dbd911af2fa59f0bf1837c8538f",
+    "pixels": {
+      "width": 390,
+      "height": 1591
+    },
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-static-free-390.png",
+    "unedited": true
+  }
+]

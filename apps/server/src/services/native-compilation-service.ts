@@ -1,3 +1,4 @@
+import { progressionDiagnostics } from "@story-to-cyoa/runtime";
 import { resolveIllustrations } from "./illustrated-scene-service.js";
 import { resolveWorld, worldReference } from "./world-service.js";
 import {
@@ -773,6 +774,7 @@ export class NativeCompilationService {
       let world: ResolvedNativeCompilationInput["world"];
       try { world = resolveWorld(this.artifacts, projectId, identity.passages); }
       catch (error) { blocker("publication.world-invalid", (error as Error).message, "project", projectId); }
+      if (world?.presentation?.progression) for (const finding of progressionDiagnostics(world.presentation.progression, world.presentation.initialMinutes)) warningDiagnostics.push(diagnostic(finding.code, "warning", `${finding.message} Limited static analysis; not exhaustive.`, "world-progression", finding.entityId));
       try { illustrations = resolveIllustrations(this.artifacts, projectId, identity.passages); }
       catch (error) { blocker("publication.illustration-invalid", (error as Error).message, "illustrated-scene", projectId); }
       const input = NativeCompilationInputSchema.parse({

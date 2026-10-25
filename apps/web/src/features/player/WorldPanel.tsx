@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { worldClock, worldLocationOpen, type NativeWorld, type RuntimeState, type WorldCommand } from "@story-to-cyoa/runtime";
+import { worldClock, worldLocationOpen, prerequisitesMet, progressionEventAvailability, previewChapterTransition, type ChapterTransitionPreview, type NativeWorld, type RuntimeState, type WorldCommand } from "@story-to-cyoa/runtime";
 import "./world.css";
 
-export function WorldPanel({ world, state, disabled, onAction }: { world: NativeWorld; state: RuntimeState; disabled: boolean; onAction: (command: WorldCommand, label: string) => void }) {
+export function WorldPanel({ world, state, disabled, onAction }: { world: NativeWorld; state: RuntimeState; disabled: boolean; onAction: (command: WorldCommand, label: string, preview?: ChapterTransitionPreview) => void }) {
   const current = world.locations.find((l) => l.id === state.world!.locationId)!;
   const [mapId, setMapId] = useState<string | null>(null), [inspected, setInspected] = useState<string | null>(null);
   const [failedImages, setFailedImages] = useState<string[]>([]);
@@ -12,6 +12,14 @@ export function WorldPanel({ world, state, disabled, onAction }: { world: Native
   const travel = (id: string) => world.connections.filter((c) => c.from === current.id && c.to === id);
   return <section className="world-panel" aria-label="Locations and time">
     <header><strong>{current.name}</strong><time aria-label="Game time">{worldClock(state.world!.minutes)}</time></header>
+    {world.progression && state.world!.progression && <section aria-label="Chapters and milestones">
+      <p><strong>{state.world!.progression!.chapterId ? `Chapter: ${world.progression.chapters.find((c) => c.id === state.world!.progression!.chapterId)!.name}` : "Chapter-free play"}</strong></p>
+      <p>Milestones: {world.progression.milestones.filter((m) => state.world!.progression!.milestones.includes(m.id)).map((m) => m.name).join(", ") || "None yet"}</p>
+      <nav aria-label="Events">{world.progression.events.map((event) => { const availability = progressionEventAvailability(world, state, event.id); return availability.visible && <button key={event.id} disabled={disabled || !availability.enabled} title={availability.reason ?? event.label}
+        onClick={() => onAction({ kind: "event", id: event.id }, `${event.label} (${event.minutes} min)`)}>{event.label} · {event.minutes} min{availability.reason ? ` · ${availability.reason}` : ""}</button>; })}</nav>
+      <nav aria-label="Chapter transitions">{world.progression.transitions.filter((transition) => transition.fromChapterId === state.world!.progression!.chapterId).map((transition) => <button key={transition.id} disabled={disabled || state.world!.minutes + transition.minutes > 52_560_000 || !prerequisitesMet(transition.prerequisites, state)}
+        onClick={() => { const preview = previewChapterTransition(world, state, transition.id); onAction({ kind: "chapter-transition", id: transition.id, previewFingerprint: preview.fingerprint }, `${transition.label} (${transition.minutes} min)`, preview); }}>{transition.label} · {transition.minutes} min</button>)}</nav>
+    </section>}
     <details><summary>Map</summary>
       <label>Area<select value={map.id} onChange={(e) => { setMapId(e.target.value); setInspected(null); }}>{world.locations.map((l) => <option value={l.id} key={l.id}>{l.name}</option>)}</select></label>
       <div className="world-map">

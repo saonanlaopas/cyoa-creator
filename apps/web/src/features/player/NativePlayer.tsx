@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   NativePlayerError,
-  actNativePlayerWorld, type WorldCommand,
+  actNativePlayerWorld, type WorldCommand, type ChapterTransitionPreview,
   assertNativePlayerInstallation,
   assertNativePlayerManualSlot,
   canRewindNativePlayerSession,
@@ -50,7 +50,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"save" | "load" | "restart" | "overwrite" | "delete" | null>(null);
   const [pendingSlot, setPendingSlot] = useState<SlotView | null>(null);
-  const [worldAction, setWorldAction] = useState<{ command: WorldCommand; label: string } | null>(null);
+  const [worldAction, setWorldAction] = useState<{ command: WorldCommand; label: string; preview?: ChapterTransitionPreview } | null>(null);
   const [recoveryRequired, setRecoveryRequired] = useState(false);
   const [saveLabel, setSaveLabel] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -278,7 +278,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
           <p className="eyebrow">{view.terminal.result ? "Ending" : `Turn ${session.state.turn + 1}`}</p>
           <h1 ref={headingRef} tabIndex={-1}>{view.passage.presentation.title}</h1>
         </header>
-        {installation.bundle.world && <WorldPanel world={installation.bundle.world} state={session.state} disabled={busy || recoveryRequired || Boolean(view.terminal.result)} onAction={(command, label) => setWorldAction({ command, label })} />}
+        {installation.bundle.world && <WorldPanel world={installation.bundle.world} state={session.state} disabled={busy || recoveryRequired || Boolean(view.terminal.result)} onAction={(command, label, preview) => setWorldAction({ command, label, ...(preview ? { preview } : {}) })} />}
         {installation.bundle.illustratedPresentation && <IllustratedScene presentation={installation.bundle.illustratedPresentation} passageId={view.passage.id} />}
         <div className="native-player-prose">
           {paragraphs(view.passage.proseMarkdown).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
@@ -359,6 +359,12 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
 
     {worldAction && <PlayerDialog labelId="world-action-title" onClose={() => setWorldAction(null)}>
       <h2 id="world-action-title">{worldAction.label}?</h2>
+      {worldAction.preview && <section aria-label="Chapter transition preview"><p>{worldAction.preview.fromChapter} → {worldAction.preview.toChapter}</p>
+        <p>Milestones kept: {worldAction.preview.carriedMilestones.map((m) => m.name).join(", ") || "None"}</p>
+        <p>Milestones expiring: {worldAction.preview.expiredMilestones.map((m) => m.name).join(", ") || "None"}</p>
+        <h3>Known opportunities affected</h3>{worldAction.preview.lostOpportunities.length ? <ul>{worldAction.preview.lostOpportunities.map((event) => <li key={event.id}>{event.label}: {event.permanent ? "expires permanently" : event.reason}</li>)}</ul> : <p>No known opportunities lost.</p>}
+        <p>Some opportunities may not be known yet. Cancel to continue exploring.</p>
+      </section>}
       <button autoFocus disabled={busy} onClick={() => setWorldAction(null)}>Cancel</button>
       <button disabled={busy || recoveryRequired} onClick={() => { if (busy || recoveryRequired) return; setBusy(true);
         void (async () => { try { const next = actNativePlayerWorld(installation.bundle, installation.config, session, worldAction.command);
