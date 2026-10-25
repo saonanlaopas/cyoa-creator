@@ -52,7 +52,8 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
     schemaId: "cyoa.native-world", schemaVersion: 1, startLocationId: world.startLocationId!, initialMinutes: world.initialMinutes, waitMinutes: world.waitMinutes,
     locations: world.locations.map(({ passage, mapImage, ...l }) => ({ ...l, passageId: passage?.passageId ?? null, mapImage: mapImage?.versionId ?? null })),
     connections: world.connections, actions: world.actions, ...(world.progression ? { progression: projectWorldProgression(world.progression) } : {}),
-    assets: Object.values(images).map((a) => ({ id: a.id, dataUrl: a.image.url, altText: a.content.metadata.altText, credit: a.content.metadata.credit, license: a.content.metadata.license })),
+    assets: Object.values(images).filter((a) => world.locations.some((location) => location.mapImage?.versionId === a.id))
+      .map((a) => ({ id: a.id, dataUrl: a.image.url, altText: a.content.metadata.altText, credit: a.content.metadata.credit, license: a.content.metadata.license })),
   } : null;
   // Editor artwork uses authenticated asset URLs; published bundles require embedded PNGs.
   // Validate the gameplay projection with placeholders while retaining its editor URLs for rendering.

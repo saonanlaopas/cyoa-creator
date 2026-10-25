@@ -2,7 +2,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
-import { MemoryNativePlayerStorage, createNativePlayerInstallation } from "@story-to-cyoa/runtime";
+import { MemoryNativePlayerStorage, NativeProgressionSchema, projectWorldProgression, createNativePlayerInstallation } from "@story-to-cyoa/runtime";
 import type { WorldDefinition } from "@story-to-cyoa/domain";
 import { progressionFixture } from "../../../packages/runtime/test/progression-fixture.js";
 import { WorldWorkspace } from "../src/features/workspace/WorldWorkspace.js";
@@ -31,6 +31,74 @@ it("defaults newly enabled progression to chapter-led play while allowing the au
   expect((screen.getByLabelText("Initial chapter") as HTMLSelectElement).selectedOptions[0]!.textContent).toBe("Chapter 1");
   await user.click(screen.getByRole("button", { name: "Remove chapter 1", exact: true }));
   expect(screen.getByText(/Chapter-free play: events and milestones/)).toBeTruthy();
+});
+it("blocks milestone removal with named grant, carry and prerequisite dependencies until the author clears each reference", async () => {
+  let latest = authored().progression!; latest.initialMilestoneIds = ["clue"];
+  function Editor() {
+    const [progression, setProgression] = useState(latest);
+    return <ProgressionEditor progression={progression} onChange={(next) => { latest = next!; setProgression(next!); }} locations={authored().locations} passages={[]} />;
+  }
+  const user = userEvent.setup(); render(<Editor />);
+  const remove = screen.getByRole("button", { name: "Remove milestone 1", exact: true });
+  expect((remove as HTMLButtonElement).disabled).toBe(true);
+  const description = document.getElementById(remove.getAttribute("aria-describedby")!);
+  expect(description?.textContent).toContain("Event 1 (Read the signal notice): milestone grant");
+  expect(description?.textContent).toContain("Event 6 (Remember the crossing): prerequisite");
+  expect(description?.textContent).toContain("Transition 1 (Begin the next chapter): carried milestone");
+  expect(description?.textContent).toContain("Transition 1 (Begin the next chapter): prerequisite");
+  await user.click(remove); expect(latest.milestones.some((m) => m.id === "clue")).toBe(true);
+  await user.click(screen.getByLabelText("Grant Signal clue for event 1"));
+  await user.click(screen.getByLabelText("Carry Signal clue at transition 1"));
+  await user.click(screen.getByRole("button", { name: "Remove Event 6 prerequisite 2", exact: true }));
+  expect((remove as HTMLButtonElement).disabled).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Remove Transition 1 prerequisite 1", exact: true }));
+  expect((remove as HTMLButtonElement).disabled).toBe(false);
+  await user.click(remove);
+  expect(latest.milestones.some((m) => m.id === "clue")).toBe(false);
+  expect(latest.initialMilestoneIds).toEqual([]);
+  expect(NativeProgressionSchema.safeParse(projectWorldProgression(latest)).success).toBe(true);
+});
+it("blocks event removal until its visible transition expiry reference is cleared", async () => {
+  let latest = authored().progression!;
+  function Editor() {
+    const [progression, setProgression] = useState(latest);
+    return <ProgressionEditor progression={progression} onChange={(next) => { latest = next!; setProgression(next!); }} locations={authored().locations} passages={[]} />;
+  }
+  const user = userEvent.setup(); render(<Editor />);
+  const remove = screen.getByRole("button", { name: "Remove event 2", exact: true });
+  expect((remove as HTMLButtonElement).disabled).toBe(true);
+  expect(document.getElementById(remove.getAttribute("aria-describedby")!)?.textContent).toContain("Transition 1 (Begin the next chapter): event expiry");
+  await user.click(remove); expect(latest.events.some((e) => e.id === "conversation")).toBe(true);
+  await user.click(screen.getByLabelText("Expire A last conversation at transition 1"));
+  expect((remove as HTMLButtonElement).disabled).toBe(false);
+  await user.click(remove);
+  expect(latest.events.some((e) => e.id === "conversation")).toBe(false);
+  expect(NativeProgressionSchema.safeParse(projectWorldProgression(latest)).success).toBe(true);
+});
+it("keeps the preview when shared map artwork is removed, and reuses its cache only when referenced again", async () => {
+  const world = authored(), mapId = "00000000-0000-4000-8000-000000000001", ref = { assetId: mapId, versionId: "map-v1" };
+  world.locations[0]!.mapImage = ref; world.locations[1]!.mapImage = ref;
+  const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (path) => {
+    if (String(path).endsWith("read_world")) return response({ world });
+    if (String(path).endsWith("passage-plan")) return response({ passages: [] });
+    if (String(path).includes(`/${mapId}?`)) return response({ selected: { id: ref.versionId, image: { url: "/api/map-image" }, content: { metadata: { altText: "Shared harbor map", credit: "", license: "" } } } });
+    return response({ items: [{ assetId: mapId, approvedVersionId: ref.versionId, metadata: { title: "Harbor map" } }], total: 1 });
+  });
+  const user = userEvent.setup(); render(<WorldWorkspace projectId="p" />);
+  await user.click(await screen.findByText("Map preview", { exact: true })); await user.click(screen.getByText("Map", { exact: true }));
+  expect(screen.getByAltText("Shared harbor map")).toBeTruthy();
+  const initialReads = fetch.mock.calls.filter(([path]) => String(path).includes(`/${mapId}?`)).length;
+  await user.selectOptions(screen.getByLabelText("Map artwork 1"), "");
+  expect(screen.getByText("Map preview", { exact: true })).toBeTruthy();
+  await user.selectOptions(screen.getByLabelText("Area"), "cafe");
+  expect(screen.getByAltText("Shared harbor map")).toBeTruthy();
+  await user.selectOptions(screen.getByLabelText("Map artwork 2"), "");
+  expect(screen.getByText("Map preview", { exact: true })).toBeTruthy();
+  expect(screen.queryByAltText("Shared harbor map")).toBeNull();
+  await user.selectOptions(screen.getByLabelText("Map artwork 1"), ref.versionId);
+  await user.selectOptions(screen.getByLabelText("Area"), "home");
+  expect(screen.getByAltText("Shared harbor map").getAttribute("src")).toBe("/api/map-image");
+  expect(fetch.mock.calls.filter(([path]) => String(path).includes(`/${mapId}?`))).toHaveLength(initialReads);
 });
 it("edits W2 prerequisites/policies through shared world review, clears consent on edits, and retries a lost Apply with the same UUID", async () => {
   let world = authored(); const posts: Array<{ tool: string; input: any }> = [];

@@ -265,7 +265,7 @@ export function transitionProgressionWorld(world: NativeWorld, state: RuntimeSta
     nextProgress.chapterId = transition.toChapterId;
     nextProgress.milestones = progress.milestones.filter((id) => transition.carryMilestoneIds.includes(id));
     nextProgress.expiredEventIds = [...new Set([...progress.expiredEventIds, ...transition.expireEventIds])].sort();
-    nextProgress.transitions[transition.id] = (progress.transitions[transition.id] ?? 0) + 1;
+    nextProgress.transitions[transition.id] = (Object.hasOwn(progress.transitions, transition.id) ? progress.transitions[transition.id]! : 0) + 1;
   }
   const location = world.locations.find((l) => l.passageId && l.passageId === item.passageId);
   if (location) next.world!.locationId = location.id;

@@ -47,6 +47,8 @@ test("W2 authors optional chapters/events and previews carry/expiry before offli
       const assetReview = await call("review_asset", { projectId, assetId: candidate.assetId, versionId: candidate.versionId });
       const approved = await call("approve_asset", { projectId, operationId: randomUUID(), approved: true, assetId: candidate.assetId, versionId: candidate.versionId, fingerprint: assetReview.fingerprint });
       let world = await withAuthoredProgression(call, projectId, await authoredWorld(call, projectId, { assetId: approved.assetId, versionId: approved.versionId }));
+      // A valid ID inherited by ordinary objects must still execute in both exported players.
+      world.progression!.transitions[0]!.id = "toString";
       const review = await call("review_world", { projectId, world }); expect(review.diagnostics.exhaustive).toBe(false);
       const input = { projectId, world, fingerprint: review.fingerprint, operationId: randomUUID(), approved: true };
       const applied = await call("apply_world", input); expect(await call("apply_world", input)).toEqual(applied);
@@ -54,6 +56,46 @@ test("W2 authors optional chapters/events and previews carry/expiry before offli
       await page.goto(`${address}/#long-form`);
       const editor = page.getByRole("region", { name: "World authoring", exact: true });
       await expect(editor.getByLabel("Chapter name 1", { exact: true })).toHaveValue("Before dawn");
+      await editor.getByText("Map preview", { exact: true }).click();
+      const previewPanel = editor.getByRole("region", { name: "Locations and time", exact: true });
+      await previewPanel.getByText("Map", { exact: true }).click();
+      await expect(previewPanel.getByAltText("Home, cafe and station along roads beside the harbor")).toBeVisible();
+      await editor.getByRole("combobox", { name: "Map artwork 1", exact: true }).selectOption("");
+      await expect(editor.getByText("Map preview", { exact: true })).toBeVisible();
+      await expect(previewPanel.locator("img")).toHaveCount(0);
+      for (const [width, height] of [[1280, 900], [390, 844]]) {
+        await page.setViewportSize({ width, height }); await previewPanel.locator(".world-map").scrollIntoViewIfNeeded();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: info.outputPath(`w2-map-removed-${width}.png`) });
+      }
+      await editor.getByRole("combobox", { name: "Map artwork 1", exact: true }).selectOption(approved.versionId);
+      await expect(previewPanel.getByAltText("Home, cafe and station along roads beside the harbor")).toBeVisible();
+      const removeMilestone = editor.getByRole("button", { name: "Remove milestone 1", exact: true });
+      const removeEvent = editor.getByRole("button", { name: "Remove event 2", exact: true });
+      await expect(removeMilestone).toBeDisabled(); await expect(removeEvent).toBeDisabled();
+      expect(await removeMilestone.evaluate((button) => document.getElementById(button.getAttribute("aria-describedby")!)!.textContent)).toContain("Event 1 (Read the signal notice): milestone grant");
+      expect(await removeEvent.evaluate((button) => document.getElementById(button.getAttribute("aria-describedby")!)!.textContent)).toContain("Transition 1 (Begin the next chapter): event expiry");
+      for (const [width, height] of [[1280, 900], [390, 844]]) {
+        await page.setViewportSize({ width, height });
+        await editor.getByLabel("Milestone name 1", { exact: true }).evaluate((element) => window.scrollTo(0, scrollY + element.getBoundingClientRect().top - 130));
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: info.outputPath(`w2-deletion-dependencies-${width}.png`) });
+      }
+      await removeEvent.evaluate((button) => document.getElementById(button.getAttribute("aria-describedby")!)!.scrollIntoView({ block: "center" }));
+      await page.screenshot({ path: info.outputPath("w2-event-expiry-reference-390.png") });
+      await editor.getByLabel("Grant Signal clue for event 1", { exact: true }).uncheck();
+      await editor.getByLabel("Carry Signal clue at transition 1", { exact: true }).uncheck();
+      await editor.getByRole("button", { name: "Remove Event 6 prerequisite 2", exact: true }).click();
+      await editor.getByRole("button", { name: "Remove Transition 1 prerequisite 1", exact: true }).click();
+      await expect(removeMilestone).toBeEnabled(); await removeMilestone.click();
+      await editor.getByLabel("Expire A last conversation at transition 1", { exact: true }).uncheck();
+      await expect(removeEvent).toBeEnabled(); await removeEvent.click();
+      await editor.getByRole("button", { name: "Review world", exact: true }).click();
+      await expect(editor.getByRole("button", { name: "Apply world", exact: true })).toBeDisabled();
+      await expect(editor.getByRole("alert")).toHaveCount(0);
+      await editor.getByRole("button", { name: "Reload world", exact: true }).click();
+      await expect(editor.getByLabel("Milestone name 1", { exact: true })).toHaveValue("Signal clue");
+      await expect(editor.getByLabel("Event label 2", { exact: true })).toHaveValue("A last conversation");
       await editor.getByLabel("Chapters and events enabled", { exact: true }).uncheck();
       await editor.getByLabel("Chapters and events enabled", { exact: true }).check();
       await expect(editor.getByLabel("Chapter name 1", { exact: true })).toHaveValue("Chapter 1");

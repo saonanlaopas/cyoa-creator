@@ -1,0 +1,30 @@
+[
+  {
+    "path": "apps/web/src/features/player/world.css",
+    "sha256": "3e09cc725581562ac52a25c692e9fae2de00400462acb85d3cbc96ed5b8973da"
+  },
+  {
+    "path": "apps/web/src/features/workspace/ProgressionEditor.tsx",
+    "sha256": "faef2a11cdb1fb54df018444cedd0ecbd42c6208faa132e823119119b01df602"
+  },
+  {
+    "path": "apps/web/src/features/workspace/WorldWorkspace.tsx",
+    "sha256": "cf6ac19f1cbd2480628e438023eebf84eba029d0e4f9f9516b89c2c2a114f20a"
+  },
+  {
+    "path": "apps/web/test/progression.test.tsx",
+    "sha256": "51cf8f68113995248e241ef9ddc7a6af5b661045987e3c446894db75ee4ee864"
+  },
+  {
+    "path": "e2e/progression.spec.ts",
+    "sha256": "2336531e08d06cc7ed471252915379b05d0b078e5b9ebdc87b4c6b4a9f503bde"
+  },
+  {
+    "path": "packages/runtime/src/progression.ts",
+    "sha256": "b4191b3fa0b919a1b39bfe5e764fba5e43846021faf2144cc2330a17340a0958"
+  },
+  {
+    "path": "packages/runtime/test/progression.test.ts",
+    "sha256": "869eb12ce09270bf24eca0d84880fb4941de27e2e9f2f7cc2c3d498fd8f1a473"
+  }
+]

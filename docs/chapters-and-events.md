@@ -25,6 +25,8 @@ Transitions explicitly select **carried milestone IDs** and **expired event IDs*
 
 All passage destinations bind exact passage-plan versions. **Rebind current passages** includes location, event and transition bindings; absent/deleted references are not silently repaired. Changing a field clears review/consent. Apply retains immutable history, rejects stale reviews and uses the existing retry-safe operation UUID/receipt transaction, including after restart/restore. Disabling progression removes only that optional definition from the newly applied world; historical builds remain playable.
 
+Creator blocks removal of a referenced milestone until its event grants, prerequisites and transition carry rules are cleared. Event removal similarly requires clearing transition expiry rules. The disabled Remove control names the affected events/transitions and explains which controls to clear. Removing an unreferenced milestone also clears its initial-achievement selection. Removing map artwork keeps the area preview available with its text fallback.
+
 ## Transition preview and player state
 
 Opening the confirmation shows carried/expiring named milestones and known opportunities affected by the transition. Authored expiry is distinguished from a repeat rule or prerequisite becoming unavailable (which may be recoverable through authored return paths). Already-completed once-only events are not presented as lost opportunities.

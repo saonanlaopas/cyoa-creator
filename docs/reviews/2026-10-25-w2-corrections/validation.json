@@ -1,0 +1,48 @@
+{
+  "correctionBase": "20061db1a899801d2a0bdbb16a2946c884b5c34b",
+  "acceptedBase": "7e977089cea561bbe4e69a8ec80731414b8339b0",
+  "branch": "codex/w1-locations-time",
+  "reviewTarget": "Commit containing this report; full head and CI URL in delivery message",
+  "node": "24.19.0",
+  "pnpm": "11.9.0",
+  "playwright": "1.62.0",
+  "chromium": "151.0.7922.34 revision1234",
+  "checks": [
+    {
+      "command": "pnpm lint",
+      "exit": 0,
+      "result": "Passed",
+      "localLog": "complete-lint.log",
+      "logSha256": "b573aa02e705c95f826b33b227a59155eb7f80792e7d9e40419f51f570e1699c"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit": 0,
+      "result": "Passed",
+      "localLog": "complete-typecheck.log",
+      "logSha256": "b6bc52c25d7caf4500d836d6085b6e01e44fa00e14e2bcd35156b4040d87ac84"
+    },
+    {
+      "command": "pnpm build",
+      "exit": 0,
+      "result": "Passed; existing Vite chunk-size warning",
+      "localLog": "complete-build.log",
+      "logSha256": "fac7c6630f2af03e26e34884a90f55062c3462fb6f69b8ae905325489f3e5379"
+    },
+    {
+      "command": "pnpm test",
+      "exit": 0,
+      "result": "150 files /1398 tests passed",
+      "localLog": "complete-unit.log",
+      "logSha256": "b2d282876e343952a938fc5ab6b2197fb1fcbc2b8095817328a8d4cf06f2ebdc"
+    },
+    {
+      "command": "pnpm test:e2e --workers=1 --trace=on",
+      "exit": 0,
+      "result": "46 passed; zero skipped;4.5minutes",
+      "localLog": "complete-browser.log",
+      "logSha256": "92d475b1f40bb53b87e82bbafd917939cfbc2778fa5f8fd39dd3f23ec6176943"
+    }
+  ],
+  "w2IndependentlyAccepted": false
+}

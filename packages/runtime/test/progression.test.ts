@@ -5,6 +5,22 @@ import { NativeProgressionSchema, NativeWorldSchema, actNativePlayerWorld, choos
 import { progressionFixture } from "./progression-fixture.js";
 
 describe("W2 deterministic chapters and events", () => {
+  it.each(["toString", "valueOf", "hasOwnProperty", "__defineGetter__"])("executes valid inherited-name transition %s, saves it and increments its own ledger on repeat", (id) => {
+    const f = progressionFixture(), transition = f.progression.transitions[0]!;
+    transition.id = id; f.progression.chapters[1]!.final = false;
+    f.progression.transitions.push({ ...transition, id: "back", fromChapterId: "second", toChapterId: "first", passageId: "passage-0", expireEventIds: [], minutes: 0 });
+    expect(NativeProgressionSchema.safeParse(f.progression).success).toBe(true);
+    const noticed = f.act(f.refresh(), { kind: "event", id: "notice" }), before = structuredClone(noticed);
+    let next = f.act(noticed, { kind: "chapter-transition", id, previewFingerprint: previewChapterTransition(f.world, noticed.state, id).fingerprint });
+    expect(next.state.world!.progression!.transitions[id]).toBe(1);
+    expect(Object.hasOwn(next.state.world!.progression!.transitions, id)).toBe(true);
+    expect(noticed).toEqual(before);
+    next = loadNativePlayerSave(f.bundle, f.config, createNativePlayerSave(f.bundle, f.config, next));
+    next = f.act(next, { kind: "chapter-transition", id: "back", previewFingerprint: previewChapterTransition(f.world, next.state, "back").fingerprint });
+    next = f.act(next, { kind: "chapter-transition", id, previewFingerprint: previewChapterTransition(f.world, next.state, id).fingerprint });
+    expect(next.state.world!.progression!.transitions[id]).toBe(2);
+    expect(loadNativePlayerSave(f.bundle, f.config, createNativePlayerSave(f.bundle, f.config, next)).state).toEqual(next.state);
+  });
   it("previews losses without mutation, then atomically carries/clears/expires and enters the authored passage across midnight", () => {
     const f = progressionFixture(), initialCopy = structuredClone(f.initial);
     expect(() => previewChapterTransition(f.world, f.initial.state, "next")).toThrow("unavailable");

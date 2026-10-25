@@ -23,3 +23,4 @@
 .world-editor .progression-card { border: 1px solid #63716b; padding: 1rem; margin-block: 1rem; }
 .world-editor .progression-card > fieldset { margin-block: 1rem; }
 .world-editor legend { max-width: 100%; overflow-wrap: anywhere; }
+.world-editor .progression-dependencies { grid-column: 1 / -1; }

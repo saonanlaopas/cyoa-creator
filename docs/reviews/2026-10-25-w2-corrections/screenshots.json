@@ -1,0 +1,62 @@
+[
+  {
+    "file": "w2-deletion-dependencies-1280.png",
+    "sha256": "2b33ead69d5a6666f866deaad8910f8adfe2c6408fa48b61711a8ad94a3a5d5c",
+    "pixels": {
+      "width": 1280,
+      "height": 900
+    },
+    "unedited": true,
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-deletion-dependencies-1280.png"
+  },
+  {
+    "file": "w2-deletion-dependencies-390.png",
+    "sha256": "a9215327dfcc8d66bb890d34e2312b8fd4dcf69d41b9bc6037138f6f74413ea7",
+    "pixels": {
+      "width": 390,
+      "height": 844
+    },
+    "unedited": true,
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-deletion-dependencies-390.png"
+  },
+  {
+    "file": "w2-event-expiry-reference-390.png",
+    "sha256": "d411126a912393ae3f1f490387b195a9fdc5d939aa246a9fe6108aa70ef639ab",
+    "pixels": {
+      "width": 390,
+      "height": 844
+    },
+    "unedited": true,
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-event-expiry-reference-390.png"
+  },
+  {
+    "file": "w2-map-removed-1280.png",
+    "sha256": "56e1baecf7cbff80a8e2e16c9e4c67de0580b1d2fc29b6fbca85dac720d20ba8",
+    "pixels": {
+      "width": 1280,
+      "height": 900
+    },
+    "unedited": true,
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-map-removed-1280.png"
+  },
+  {
+    "file": "w2-map-removed-390.png",
+    "sha256": "d5b78510b4928fa28a31d6a8a617d519efe33c96400e5fe71a171609085e4dcf",
+    "pixels": {
+      "width": 390,
+      "height": 844
+    },
+    "unedited": true,
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-map-removed-390.png"
+  },
+  {
+    "file": "w2-static-second-chapter-390.png",
+    "sha256": "12653a045f65f58b52fa47c9ae9ef87ffedc72399a7554d00bdfc2e666c01f9c",
+    "pixels": {
+      "width": 390,
+      "height": 2000
+    },
+    "unedited": true,
+    "source": "complete-browser/progression-W2-authors-opt-adb9e-andalone-static-save-resume/w2-static-second-chapter-390.png"
+  }
+]
