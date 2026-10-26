@@ -34,7 +34,7 @@ const escapeNativeTweeProse = (value: string) => escapeTweeText(value).replace(/
 export function analyzeNativeTweeCompatibility(bundleValue: unknown): TweeCompatibilityDiagnostic[] {
   try {
     const { bundle } = loadNativeGame(bundleValue);
-    return bundle.world ? [{ code: "twee.world-unsupported", message: "Locations, time, chapters, events, people and schedules require native standalone HTML or static ZIP." }]
+    return bundle.world ? [{ code: "twee.world-unsupported", message: "Locations, time, chapters, events, people, schedules, inventory and shops require native standalone HTML or static ZIP." }]
       : bundle.illustratedPresentation?.scenes.length ? [{ code: "twee.illustrated-scenes-unsupported", message: "Illustrated scenes require native standalone HTML or static ZIP; this adapter cannot preserve scene presentation." }] : [];
   }
   catch (error) { return [{ code: "twee.native-bundle-invalid", message: (error as Error).message }]; }

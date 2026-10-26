@@ -29,3 +29,4 @@ export * from "./world-definition.js";
 export * from "./world-progression.js";
 
 export * from "./world-people.js";
+export * from "./world-economy.js";

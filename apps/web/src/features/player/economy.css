@@ -1,0 +1,9 @@
+.economy-panel { margin-block: 1rem; border-block: 1px solid #394352; padding-block: .6rem; }
+.economy-panel nav { display: flex; flex-wrap: wrap; gap: .5rem; }
+.economy-panel button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.economy-panel nav button[aria-pressed="true"] { border-color: #e6b65f; }
+.economy-panel section { margin-block: .8rem; }
+.economy-panel small { display: block; margin: .3rem 0 .7rem; }
+.economy-editor fieldset { min-width: 0; margin-block: .8rem; }
+.economy-editor label { overflow-wrap: anywhere; }
+.world-editor .economy-editor .world-row > button { width: auto; height: auto; min-height: 2.5rem; padding: .5rem; justify-self: start; max-width: 100%; overflow-wrap: anywhere; }

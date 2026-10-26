@@ -774,7 +774,7 @@ export class NativeCompilationService {
       let world: ResolvedNativeCompilationInput["world"];
       try { world = resolveWorld(this.artifacts, projectId, identity.passages); }
       catch (error) { blocker("publication.world-invalid", (error as Error).message, "project", projectId); }
-      if (world?.presentation?.progression) for (const finding of progressionDiagnostics(world.presentation.progression, world.presentation.initialMinutes)) warningDiagnostics.push(diagnostic(finding.code, "warning", `${finding.message} Limited static analysis; not exhaustive.`, "world-progression", finding.entityId));
+      if (world?.presentation?.progression) for (const finding of progressionDiagnostics(world.presentation.progression, world.presentation.initialMinutes, world.presentation.economy)) warningDiagnostics.push(diagnostic(finding.code, "warning", `${finding.message} Limited static analysis; not exhaustive.`, "world-progression", finding.entityId));
       if (world?.presentation?.people) for (const finding of peopleDiagnostics(world.presentation.people, world.presentation.progression)) warningDiagnostics.push(diagnostic(finding.code, "warning", finding.message, "world-people", finding.entityId));
       try { illustrations = resolveIllustrations(this.artifacts, projectId, identity.passages); }
       catch (error) { blocker("publication.illustration-invalid", (error as Error).message, "illustrated-scene", projectId); }
@@ -901,7 +901,7 @@ export class NativeCompilationService {
       })) as ResolvedNativeCompilationInput["upstreamArtifacts"],
       acceptedDrafts,
       ...(input.illustrations ? { illustrations: resolveIllustrations(this.artifacts, projectId, input.passages, input.illustrations.versions) } : {}),
-      ...(input.world ? { world: resolveWorld(this.artifacts, projectId, input.passages, input.world) } : {}),
+      ...(input.world ? { world: resolveWorld(this.artifacts, projectId, input.passages, input.world, LongFormMechanicsPlanSchema.parse(parsedUpstream.mechanics).relationships) } : {}),
     };
     return resolved;
   }

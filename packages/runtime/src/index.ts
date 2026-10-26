@@ -10,6 +10,8 @@ export * from "./native-bundle.js";
 export * from "./player.js";
 export * from "./illustrated-scenes.js";
 export * from "./world.js";
+export * from "./economy-schema.js";
+export * from "./economy.js";
 
 export * from "./progression.js";
 

@@ -24,7 +24,7 @@ export async function approveFoundation(call: FoundationCall, projectId: string,
 }
 
 // Deterministic authored content exercises all six existing schemas and their cross-artifact references.
-export async function completeOriginalFoundations(call: FoundationCall, projectId: string, onProposal?: (artifactId: string, proposal: any) => Promise<void>) {
+export async function completeOriginalFoundations(call: FoundationCall, projectId: string, onProposal?: (artifactId: string, proposal: any) => Promise<void>, afterBible?: () => Promise<void>) {
   const authored = async (id: string, changes: Record<string, unknown>, extra: unknown[] = []) => {
     const proposal = await proposeFoundation(call, projectId, id, changes, extra);
     await onProposal?.(id, proposal);
@@ -51,7 +51,8 @@ export async function completeOriginalFoundations(call: FoundationCall, projectI
       endings: content.endings.map((e: any) => ({ ...e, thematicPayoff: "Safety becomes durable only when its costs are shared honestly.", contributingDecisionIds: ["decision-route-selection"],
         foreshadowing: ["The damaged signal and hidden ledger"], characterOutcomes: [{ characterId: "character-protagonist", outcome: "Mira accepts public responsibility for her decision." }], stateConsequences: ["The town records the cost of its chosen repair."] })) });
     if (artifactId === "mechanics") await authored(artifactId, { overview: "Resolve sustains difficult action, insight exposes the ledger, and integrity makes the public compact credible." },
-      [{ targetKey: "mechanics:root", kind: "add-item", collection: "choiceEffectPlans", item: { id: "$new:signal-consequence", label: "The signal decision", sourceDecisionIds: ["decision-route-selection"], mechanicKeys: ["resolve", "insight", "integrity"], effectGuidance: ["Public testimony favors integrity and insight; negotiated repair requires resolve. Neither commitment erases the other costs."] } }]);
+      [{ targetKey: "mechanics:root", kind: "add-item", collection: "choiceEffectPlans", item: { id: "$new:signal-consequence", label: "The signal decision", sourceDecisionIds: ["decision-route-selection"], mechanicKeys: ["resolve", "insight", "integrity", ...(afterBible ? content.relationships.map((r: { key: string }) => r.key) : [])], effectGuidance: ["Public testimony favors integrity and insight; negotiated repair requires resolve. Neither commitment erases the other costs."] } }]);
+    if (artifactId === "bible") await afterBible?.();
   }
   return call("project_state", { projectId });
 }

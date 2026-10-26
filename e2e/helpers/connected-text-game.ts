@@ -25,8 +25,8 @@ export async function acceptGameDrafts(call: FoundationCall, projectId: string, 
   return call("accept_drafts", { projectId, operationId: randomUUID(), selections, fingerprint: review.fingerprint, approved: true });
 }
 
-export async function completeConnectedTextGame(call: FoundationCall, projectId: string, onCandidate?: (passageId: string, draft: any) => Promise<void>) {
-  await completeOriginalFoundations(call, projectId);
+export async function completeConnectedTextGame(call: FoundationCall, projectId: string, onCandidate?: (passageId: string, draft: any) => Promise<void>, afterBible?: () => Promise<void>) {
+  await completeOriginalFoundations(call, projectId, undefined, afterBible);
   const initial = await call("game_state", { projectId });
   await call("initialize_game_plan", { projectId, operationId: randomUUID(), headFingerprint: initial.headFingerprint, approved: true });
   const structure = (await call("read_game_record", { projectId, kind: "structure" })).record;

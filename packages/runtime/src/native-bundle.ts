@@ -317,6 +317,7 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
   const findings: NativeBundleFinding[] = [];
   if (bundle.world) {
     const world = bundle.world;
+    if (world.economy && (world.economy.relationships.length !== bundle.mechanics.filter((m) => m.category === "relationship").length || world.economy.relationships.some((r) => !bundle.mechanics.some((d) => d.category === "relationship" && d.key === r.key && (d.minimum ?? -1_000_000_000) === r.minimum && (d.maximum ?? 1_000_000_000) === r.maximum && d.initial === r.initial)))) findings.push({ code: "economy.relationship-bindings-invalid", message: "Economy relationship bounds must match canonical mechanics" });
     if (world.locations.find((l) => l.id === world.startLocationId)?.passageId !== bundle.startPassageId
       || world.locations.some((l) => l.passageId && !bundle.passages.some((p) => p.id === l.passageId))
       || [...(world.progression?.events ?? []), ...(world.progression?.transitions ?? [])].some((item) => item.passageId && !bundle.passages.some((p) => p.id === item.passageId))) {

@@ -7,6 +7,8 @@ export const WorldPrerequisiteSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("milestone"), milestoneId: id, achieved: z.boolean() }).strict(),
   z.object({ kind: z.literal("location"), locationId: id, present: z.boolean() }).strict(),
   z.object({ kind: z.literal("time"), from: minutes.nullable(), until: minutes.nullable() }).strict(),
+  z.object({ kind: z.literal("item"), itemId: id, minimum: z.number().int().min(0).max(10000), maximum: z.number().int().min(0).max(10000).nullable() }).strict(),
+  z.object({ kind: z.literal("relationship"), key: id, minimum: z.number().finite().min(-1_000_000_000).max(1_000_000_000).nullable(), maximum: z.number().finite().min(-1_000_000_000).max(1_000_000_000).nullable() }).strict(),
 ]);
 export const WorldEventRepeatSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("once") }).strict(),

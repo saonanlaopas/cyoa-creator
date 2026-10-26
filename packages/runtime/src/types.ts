@@ -1,3 +1,4 @@
+import type { EconomyState } from "./economy-schema.js";
 import type { PeopleState } from "./people.js";
 import type { ProgressionState } from "./progression.js";
 export type RuntimeScalar = number | boolean | string;
@@ -126,7 +127,7 @@ export interface CompiledRuntime {
 }
 
 export interface RuntimeState {
-  world?: { schemaVersion: 1; locationId: string; minutes: number; stationaryTurns?: number; progression?: ProgressionState; people?: PeopleState };
+  world?: { schemaVersion: 1; locationId: string; minutes: number; stationaryTurns?: number; progression?: ProgressionState; people?: PeopleState; economy?: EconomyState };
   currentPassageId: string;
   stats: Record<string, number>;
   relationships: Record<string, number>;

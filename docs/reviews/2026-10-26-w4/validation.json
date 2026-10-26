@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "checkpoint": "W4 Inventory and Shops",
+  "acceptedBase": "6dfe8957626dcdc3c093e86cf7eca1d69e772507",
+  "reviewTarget": "The commit containing this file; delivery supplies its exact SHA and exact-head CI URL.",
+  "branch": "codex/w1-locations-time",
+  "environment": {
+    "node": "24.19.0",
+    "pnpm": "11.9.0",
+    "playwright": "1.62.0",
+    "chromium": "151.0.7922.34",
+    "headlessShell": "151.0.7922.34",
+    "revision": "1234",
+    "browserWorkers": 1,
+    "providerCalls": 0
+  },
+  "sourceManifest": "source-manifest.json",
+  "sourceFiles": 43,
+  "checks": [
+    {
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "result": "passed",
+      "log": "release-lint.log",
+      "logSha256": "b573aa02e705c95f826b33b227a59155eb7f80792e7d9e40419f51f570e1699c"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "result": "passed",
+      "log": "release-typecheck.log",
+      "logSha256": "a4e4e2dc73c155c05207396d95cfb2899e536154947c06ca308ac50e402a4ad3"
+    },
+    {
+      "command": "pnpm build",
+      "exitCode": 0,
+      "result": "passed",
+      "log": "release-build.log",
+      "logSha256": "f9127808c5dcf233fc7b6b4c804c9f4107c3d6db762901743c5c6278c762cad8"
+    },
+    {
+      "command": "pnpm test",
+      "exitCode": 0,
+      "result": "157 files; 1514 tests passed; 392.55 seconds",
+      "log": "release-unit-complete.log",
+      "logSha256": "9a071adf8b813ba33cc405da258382ab3d3c31d5f4f001db86a98c6b068c86ca"
+    },
+    {
+      "command": "pnpm test:e2e --workers=1 --trace=on --output=/workspace/.setup/w4-review-20261026/release-browser",
+      "exitCode": 0,
+      "result": "49 passed; 6.4 minutes",
+      "log": "release-browser.log",
+      "logSha256": "a93b2f6d009cf2348ce299843e6e2bedec4a91daa1978d99b3a8e7712c32e53a"
+    }
+  ],
+  "protectedFiles": "protected-files.json",
+  "screenshots": "screenshots.json",
+  "screenshotSource": "release-browser/economy-W4-authors-trade-w-e3dca-inventory-and-shops-offline",
+  "w4TraceSha256": "4605242b910ab56eeb2a63416ce25a84a70667b421645a4a1e9f18f4742940ff",
+  "preservedEvidenceDirectory": "/workspace/.setup/w4-review-20261026",
+  "interruptedAttempt": {
+    "log": "release-unit.log",
+    "logSha256": "858e2d5bae70e89ff6ced82a9c582935b5407d6e846eeb749d9f4c185e834c77",
+    "result": "No completion result; excluded from passes. Full unit rerun release-unit-complete passed."
+  },
+  "acceptance": "Pending independent W4 review; W5/W6 paused.",
+  "postValidationFormatting": {
+    "path": "apps/server/test/economy.test.ts",
+    "change": "Remove one surplus blank line at EOF detected by the first staged diff check. No TypeScript tokens changed.",
+    "validatedSha256": "aa3630c21c74bfc4f7f2cc8ece0dfa05db84781cfa9ef6aff3cbad149eb8dbe8",
+    "committedSha256": "bd0004dcb12b10db8b5c3108af837f8c7bba7b272ebfdb4041144a9eb1f97918",
+    "verification": "Final staged diff check; exact-head CI validates committed bytes."
+  }
+}

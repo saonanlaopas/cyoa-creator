@@ -1,0 +1,17 @@
+{
+  "base": "6dfe8957626dcdc3c093e86cf7eca1d69e772507",
+  "files": [
+    {
+      "path": "apps/web/src/features/player/illustrated-scene.css",
+      "acceptedBaseBlob": "41623c8eea3159cd1db98bb3f9cc876bdc6cc854",
+      "workingBlob": "41623c8eea3159cd1db98bb3f9cc876bdc6cc854",
+      "equal": true
+    },
+    {
+      "path": "e2e/illustrated-scenes.spec.ts",
+      "acceptedBaseBlob": "3e347e43110ee42bf6b7a0a9cc091cc9df6df24f",
+      "workingBlob": "3e347e43110ee42bf6b7a0a9cc091cc9df6df24f",
+      "equal": true
+    }
+  ]
+}

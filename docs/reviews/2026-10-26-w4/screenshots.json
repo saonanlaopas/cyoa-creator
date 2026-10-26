@@ -1,0 +1,58 @@
+[
+  {
+    "path": "w4-creator-quantities-1280.png",
+    "sha256": "8526eb722645be4c283c4f29461ff8aa1e661c4801d80bea414d853c7b8dec48",
+    "width": 1280,
+    "height": 900,
+    "unedited": true
+  },
+  {
+    "path": "w4-creator-quantities-390.png",
+    "sha256": "d60db1eaeeee1377142118f13c87269c2266f034e254719658cb6c8066daae54",
+    "width": 390,
+    "height": 844,
+    "unedited": true
+  },
+  {
+    "path": "w4-creator-shop-1280.png",
+    "sha256": "10b9f52db573a152e24fd3e9d92d0f1e76ab046d00bb99611b04834b6495e1db",
+    "width": 1280,
+    "height": 900,
+    "unedited": true
+  },
+  {
+    "path": "w4-creator-shop-390.png",
+    "sha256": "096ef1b04e32145cb95bbe3608919893a4b1e95df7995a8769d4dcb8b10a46f4",
+    "width": 390,
+    "height": 844,
+    "unedited": true
+  },
+  {
+    "path": "w4-standalone-stock-1280.png",
+    "sha256": "6cc7466af774f42475af09e97c4164c98744352a14c5fe24de8075733b01693b",
+    "width": 1280,
+    "height": 1770,
+    "unedited": true
+  },
+  {
+    "path": "w4-static-stock-390.png",
+    "sha256": "db5a075d8dd1cf444ef49b4c4b7c4faaa75327e826017462611faedffb3b087f",
+    "width": 390,
+    "height": 2372,
+    "unedited": true
+  },
+  {
+    "path": "w4-standalone-gift-limit-390.png",
+    "sha256": "4549deb362b3764962e5d8aa1446fa1516029ac4b42dc0ccce5a21291fb0a8c6",
+    "width": 390,
+    "height": 2125,
+    "unedited": true
+  },
+  {
+    "path": "w4-static-inventory-1280.png",
+    "sha256": "2692092e507539c78d216b31bb4956e31af7d7796387e6e77a5ec4976c728719",
+    "width": 1280,
+    "height": 1517,
+    "unedited": true
+  }
+]

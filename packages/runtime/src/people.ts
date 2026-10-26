@@ -57,7 +57,7 @@ export function validatePeopleReferences(peopleValue: NativePeople, progression:
     if (r.mandatory && other.mandatory && r.priority === other.priority && !prerequisiteContradictions([...events.find((e) => e.id === r.eventId)!.prerequisites, ...events.find((e) => e.id === other.eventId)!.prerequisites]).length) throw new Error(`people_mandatory_priority_conflict:${r.eventId}:${other.eventId}`);
   }
 }
-export function characterLocation(world: NativeWorld, state: Pick<RuntimeState, "world">, characterId: string): string | null {
+export function characterLocation(world: NativeWorld, state: Pick<RuntimeState, "world"> & Partial<Pick<RuntimeState, "relationships">>, characterId: string): string | null {
   const p = world.people, w = state.world;
   if (!p || !w) return null;
   const overrides = p.overrides.filter((o) => o.characterId === characterId && prerequisitesMet(o.prerequisites, state)).sort((a, b) => b.priority - a.priority);
@@ -71,13 +71,13 @@ export function characterLocation(world: NativeWorld, state: Pick<RuntimeState, 
   return active[0]?.locationId ?? null;
 }
 /** Player-safe projection: no off-site people, future destinations, override conditions or timetable. */
-export function presentCharacters(world: NativeWorld, state: Pick<RuntimeState, "world">): Array<{ id: string; name: string }> {
+export function presentCharacters(world: NativeWorld, state: Pick<RuntimeState, "world"> & Partial<Pick<RuntimeState, "relationships">>): Array<{ id: string; name: string }> {
   return world.people?.characters.filter((c) => characterLocation(world, state, c.id) === state.world?.locationId).map(({ id, name }) => ({ id, name })) ?? [];
 }
-export function encounterPeoplePresent(world: NativeWorld, state: Pick<RuntimeState, "world">, eventId: string): boolean {
+export function encounterPeoplePresent(world: NativeWorld, state: Pick<RuntimeState, "world"> & Partial<Pick<RuntimeState, "relationships">>, eventId: string): boolean {
   return world.people?.events.find((r) => r.eventId === eventId)?.characterIds.every((id) => characterLocation(world, state, id) === state.world?.locationId) ?? true;
 }
-export function revealPeople(world: NativeWorld, state: Pick<RuntimeState, "world">): void {
+export function revealPeople(world: NativeWorld, state: Pick<RuntimeState, "world"> & Partial<Pick<RuntimeState, "relationships">>): void {
   if (state.world?.people) state.world.people.knownCharacterIds = [...new Set([...state.world.people.knownCharacterIds, ...presentCharacters(world, state).map((c) => c.id)])].sort();
 }
 export function assertPeopleState(world: NativeWorld, state: RuntimeState): void {

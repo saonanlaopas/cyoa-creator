@@ -1,3 +1,4 @@
+import { economyDependencies } from "./economy-authoring.js";
 import { emptyWorldPeople, emptyWorldProgression, type WorldDefinition, type WorldPeople } from "@story-to-cyoa/domain";
 import { Prerequisites, RemovalButton } from "./ProgressionEditor.js";
 type Props = { world: WorldDefinition; onChange: (people: WorldPeople | undefined) => void };
@@ -7,12 +8,14 @@ export function PeopleEditor({ world, onChange }: Props) {
   const options = (items: Array<{ id: string; name: string }>) => <><option value="">Select…</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name || "Untitled"}</option>)}</>;
   const priority = (label: string, value: number, change: (value: number) => void) => <label>{label}<input type="number" min={-1000} max={1000} step={1} value={value} onChange={(e) => change(Number(e.target.value))} /></label>;
   return <section aria-label="People and schedules"><h3>People and schedules</h3>
-    <label className="world-check"><input type="checkbox" checked={Boolean(p)} onChange={(e) => onChange(e.target.checked ? { ...emptyWorldPeople(), events: progression.events.map((event) => ({ eventId: event.id, priority: 0, mandatory: false, characterIds: [] })) } : undefined)} />People and schedules enabled</label>
+    <label className="world-check"><input type="checkbox" checked={Boolean(p)} disabled={Boolean(world.economy?.gifts.length)} onChange={(e) => onChange(e.target.checked ? { ...emptyWorldPeople(), events: progression.events.map((event) => ({ eventId: event.id, priority: 0, mandatory: false, characterIds: [] })) } : undefined)} />People and schedules enabled</label>
+    {world.economy?.gifts.length ? <p>Remove the authored gift rules before disabling people.</p> : null}
     {p && <>
       <p>Day 1–7 repeat weekly from the beginning of game time. Select all seven days for daily routines. Start minutes are inclusive; end minutes exclusive. Use 1440 for the end of a day; an earlier end crosses midnight.</p>
       <h4>People</h4>{p.characters.map((character, i) => <div className="world-row" key={character.id}>
         <label>Person name {i + 1}<input maxLength={200} value={character.name} onChange={(e) => onChange({ ...p, characters: p.characters.map((c, j) => i === j ? { ...c, name: e.target.value } : c) })} /></label>
-        <RemovalButton label={`Remove person ${i + 1}`} instructions="Remove the listed schedules/overrides or clear the encounter presence selections." dependencies={[
+        <RemovalButton label={`Remove person ${i + 1}`} instructions="Remove the listed schedules/overrides or clear the encounter presence selections and authored gift rules." dependencies={[
+          ...economyDependencies(world, "person", character.id),
           ...p.schedules.flatMap((s, j) => s.characterId === character.id ? [`Schedule ${j + 1}`] : []),
           ...p.overrides.flatMap((o, j) => o.characterId === character.id ? [`Story override ${j + 1}`] : []),
           ...p.events.flatMap((r) => r.characterIds.includes(character.id) ? [`Encounter ${progression.events.find((e) => e.id === r.eventId)?.label ?? r.eventId}`] : []),
@@ -56,7 +59,7 @@ export function PeopleSummary({ world }: { world: WorldDefinition }) {
   if (!p) return null;
   const character = (id: string) => p.characters.find((c) => c.id === id)?.name ?? id;
   const location = (id: string | null) => world.locations.find((l) => l.id === id)?.name ?? "Absent";
-  const condition = (c: NonNullable<WorldDefinition["progression"]>["events"][number]["prerequisites"][number]) => c.kind === "chapter" ? `Chapter ${world.progression?.chapters.find((x) => x.id === c.chapterId)?.name ?? c.chapterId} ${c.current ? "current" : "not current"}` : c.kind === "milestone" ? `${world.progression?.milestones.find((x) => x.id === c.milestoneId)?.name ?? c.milestoneId} ${c.achieved ? "achieved" : "not achieved"}` : c.kind === "location" ? `${c.present ? "At" : "Not at"} ${location(c.locationId)}` : `Minutes ${c.from ?? "start"}–${c.until ?? "no end"} (end exclusive)`;
+  const condition = (c: NonNullable<WorldDefinition["progression"]>["events"][number]["prerequisites"][number]) => c.kind === "chapter" ? `Chapter ${world.progression?.chapters.find((x) => x.id === c.chapterId)?.name ?? c.chapterId} ${c.current ? "current" : "not current"}` : c.kind === "milestone" ? `${world.progression?.milestones.find((x) => x.id === c.milestoneId)?.name ?? c.milestoneId} ${c.achieved ? "achieved" : "not achieved"}` : c.kind === "location" ? `${c.present ? "At" : "Not at"} ${location(c.locationId)}` : c.kind === "item" ? `Item ${c.itemId}: ${c.minimum}–${c.maximum ?? "no maximum"}` : c.kind === "relationship" ? `Relationship ${c.key}: ${c.minimum ?? "no minimum"}–${c.maximum ?? "no maximum"}` : `Minutes ${c.from ?? "start"}–${c.until ?? "no end"} (end exclusive)`;
   return <section aria-label="People and schedules summary"><h4>People and schedules</h4>
     {p.characters.map((c) => <p key={c.id}>{c.name}</p>)}
     {p.schedules.map((s) => <p key={s.id}>{character(s.characterId)} · {location(s.locationId)} · Day {s.days.map((d) => d + 1).join(", ")} weekly · {s.from}–{s.until} minutes{ s.until <= s.from ? " (overnight)" : ""}</p>)}

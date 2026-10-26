@@ -1,0 +1,174 @@
+[
+  {
+    "path": "apps/server/src/routes/connected-editing.ts",
+    "sha256": "ffc287efb6ab1b8ee6d79966db09bf2ee662b2a47b77c831f10c517f7a7146b2"
+  },
+  {
+    "path": "apps/server/src/services/connected-game-service.ts",
+    "sha256": "90132f3b9eb71277f5cfe3fa2ac7e0f9f6db42aad384cc8ec2b64c01825b1e40"
+  },
+  {
+    "path": "apps/server/src/services/native-compilation-service.ts",
+    "sha256": "0d3f550b3b4fe5433ded92f7b0bbf3d503dab2f6d36b7dfd30b976c93a9751ac"
+  },
+  {
+    "path": "apps/server/src/services/publication-export-service.ts",
+    "sha256": "c49d0336308be2d776282547e8d14573217ad995407fffbcd6001d6c4dd42717"
+  },
+  {
+    "path": "apps/server/src/services/world-service.ts",
+    "sha256": "c8546a471900c54fec01b1d169c15c791cd09aece851dbc7d67079ac3a09f533"
+  },
+  {
+    "path": "apps/server/test/connected-editing.test.ts",
+    "sha256": "00aa1f862e0e2203029887eed60018bd5a70602e9f14771e04742c693c3090fb"
+  },
+  {
+    "path": "apps/server/test/economy.test.ts",
+    "sha256": "bd0004dcb12b10db8b5c3108af837f8c7bba7b272ebfdb4041144a9eb1f97918"
+  },
+  {
+    "path": "apps/web/src/features/player/EconomyPanel.tsx",
+    "sha256": "55fa3d0bf7f14ecfb6ba25795676bf75e720b8a771a17c84f89229b682a31e15"
+  },
+  {
+    "path": "apps/web/src/features/player/WorldPanel.tsx",
+    "sha256": "8c24a829099e43d7db6fda56a78bcd25d371fa9dec993941dd301fb39b7774fd"
+  },
+  {
+    "path": "apps/web/src/features/player/economy-feedback.ts",
+    "sha256": "0c1592a406d0b0c647add909a8a33d2f060c21e8bb99be4bf7dcd06fcd4d58ce"
+  },
+  {
+    "path": "apps/web/src/features/player/economy.css",
+    "sha256": "6d4fef571d2025716625a5e92079c64828836b8dc9f8ac861932b153bffe7d4f"
+  },
+  {
+    "path": "apps/web/src/features/workspace/EconomyEditor.tsx",
+    "sha256": "c0f3a576a7b4ee8f32756b5d5cb5804b233448a4f107c36e278a35c203eaad3d"
+  },
+  {
+    "path": "apps/web/src/features/workspace/PeopleEditor.tsx",
+    "sha256": "1b3b59df73ccd97a899171698e6c11722b12420d888a98ab17a6f22d38ad8670"
+  },
+  {
+    "path": "apps/web/src/features/workspace/ProgressionEditor.tsx",
+    "sha256": "90917e5be88fd946d8266aff9a68b7ffbd1bcecc75ba28c73b327ab27c66c3d5"
+  },
+  {
+    "path": "apps/web/src/features/workspace/WorldWorkspace.tsx",
+    "sha256": "31391c645ff5d771c368b96bb317f6e8064cd1b4f26eecc405d64877799f8e9f"
+  },
+  {
+    "path": "apps/web/src/features/workspace/economy-authoring.ts",
+    "sha256": "d84126697a18eeaa9d5858cff81d3e6b20687c33a10c8c43894bab229c84b3af"
+  },
+  {
+    "path": "apps/web/test/economy.test.tsx",
+    "sha256": "b4987053bd839f6a656143934e367390b692ac4a175df7bdd6aa987fe675033c"
+  },
+  {
+    "path": "docs/inventory-and-shops.md",
+    "sha256": "0239ae71b87819bd5cd4d402d62b2fd188cee2b77b9ddf79f24713d29617f917"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-26-w4-inventory-shops.md",
+    "sha256": "36cc4c086e91bed00a93c103c70df0fc99f3215e293ebb5482e846164ca38111"
+  },
+  {
+    "path": "e2e/economy.spec.ts",
+    "sha256": "875939b35544ead82912827a054f82cf57b9196161efef8f5b1e996c588d0f40"
+  },
+  {
+    "path": "e2e/helpers/connected-text-game.ts",
+    "sha256": "39762d3475c4d600df1b62eb7a200503848092d8ec0fe108177881e144548b3d"
+  },
+  {
+    "path": "e2e/helpers/economy.ts",
+    "sha256": "0efe187a2f85cb6dc86a25b4e0658f302b66fd0ccd14c6e5dca17931a2f9e73d"
+  },
+  {
+    "path": "e2e/helpers/original-foundations.ts",
+    "sha256": "a0c386cf4aa49a16bdf6fcacc1dac55a1cffb7405532fb26b68dd1af2a54b3a4"
+  },
+  {
+    "path": "packages/domain/src/index.ts",
+    "sha256": "d591ccabad544ea6c2477ceddfca2168ef87709d691a864a7c9e7835287ebd12"
+  },
+  {
+    "path": "packages/domain/src/world-definition.ts",
+    "sha256": "7c2ec66db68cbf47d9bda7ea562ae5c46ff0bb48685fe4a21d987a85c399cc9e"
+  },
+  {
+    "path": "packages/domain/src/world-economy.ts",
+    "sha256": "29da228fa8a06c14cdc292d2fd7396dbe4951b9682224af63be4a61b92fa89db"
+  },
+  {
+    "path": "packages/domain/src/world-progression.ts",
+    "sha256": "7153912c5e66e1d34cb40c68cab81b2e429b9b71773cef2336172cfd9e80be37"
+  },
+  {
+    "path": "packages/export-twine/src/native-twee.ts",
+    "sha256": "5df7eb529543d537c7690cb15697bde25f5dd837b25dd469f177b7d33837b839"
+  },
+  {
+    "path": "packages/persistence/src/world-validation.ts",
+    "sha256": "6864c03cf812c0ecbfff8bae201808e2f267d96cdfe75a58915fa793a75f659b"
+  },
+  {
+    "path": "packages/pipeline/src/native-compilation.ts",
+    "sha256": "77bdc5158b8e1287270129408c57da3eb508129ebe025a18fde6aee788486549"
+  },
+  {
+    "path": "packages/runtime/src/economy-schema.ts",
+    "sha256": "b35bd491d73a2a298219713de3851e63b9c9cf08d26d0865534403a4f7312a7d"
+  },
+  {
+    "path": "packages/runtime/src/economy.ts",
+    "sha256": "88a37d8021ecd246e0f2724aa846ca9cd95716f4fb91e620d21b14bfa4d04a59"
+  },
+  {
+    "path": "packages/runtime/src/index.ts",
+    "sha256": "3ddfcdc63eb9e78d67a634a190cee8d6949eadebfb24ee666348c77981ebdb9a"
+  },
+  {
+    "path": "packages/runtime/src/native-bundle.ts",
+    "sha256": "a254806a520985596b3308610b734a0ecf602f5b4a22a20025e0b07b6ecf6070"
+  },
+  {
+    "path": "packages/runtime/src/people.ts",
+    "sha256": "9fabbab176faf83078b6274135e84b03c61c0bdfee5d1d6d03aa1848cbda6158"
+  },
+  {
+    "path": "packages/runtime/src/player.ts",
+    "sha256": "d8db0e7d6bfdffb54f2db9ece44bffb83d569bdb9f304b7f564f57d83fa00754"
+  },
+  {
+    "path": "packages/runtime/src/progression.ts",
+    "sha256": "60cf20d0c11e210198b8d8e6260127c1d301a4c086da9ee8ad35d4092149cf0b"
+  },
+  {
+    "path": "packages/runtime/src/semantics.ts",
+    "sha256": "8c3af6d00851280db16aaff4dcfd514f513063e4d7da76095b8db599eb287561"
+  },
+  {
+    "path": "packages/runtime/src/types.ts",
+    "sha256": "98600690d352b02f5ebc9238c41a25ade0e93253e852dfddba9b7774b0df8d6f"
+  },
+  {
+    "path": "packages/runtime/src/world-conditions.ts",
+    "sha256": "6daf958ec22addcf5900395bd3a41a5026f384cb13c1e51f90a006ca3e8e0016"
+  },
+  {
+    "path": "packages/runtime/src/world.ts",
+    "sha256": "fd5b83098dd3800cd658052732a2863ce2b901d8c60e14e3a4b7a34e326fde5b"
+  },
+  {
+    "path": "packages/runtime/test/economy-fixture.ts",
+    "sha256": "378bae90453b7897def7b3da12b426faa45e4c639ae34abf2a9c207d6399c707"
+  },
+  {
+    "path": "packages/runtime/test/economy.test.ts",
+    "sha256": "e30bc97515fcb17b0868b059f149b36024beff9f83fe7c338cadb7a6a27f59ab"
+  }
+]

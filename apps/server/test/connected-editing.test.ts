@@ -208,8 +208,8 @@ describe("M1 authenticated Streamable HTTP", () => {
       return result.structuredContent as any;
     };
     const tools = (await first.client.listTools()).tools;
-    expect(tools.map((t) => t.name)).toHaveLength(45); expect(tools.find((t) => t.name === "apply_edit")!.annotations?.readOnlyHint).toBe(false);
-    expect(tools.find((t) => t.name === "inspect_world_presence")!.annotations?.readOnlyHint).toBe(true);
+    expect(tools.map((t) => t.name)).toHaveLength(46); expect(tools.find((t) => t.name === "apply_edit")!.annotations?.readOnlyHint).toBe(false);
+    expect(tools.find((t) => t.name === "inspect_world_economy")!.annotations?.readOnlyHint).toBe(true); expect(tools.find((t) => t.name === "inspect_world_presence")!.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === "preview_chapter_transition")!.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === "read_world")!.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === "review_world")!.annotations?.readOnlyHint).toBe(true);

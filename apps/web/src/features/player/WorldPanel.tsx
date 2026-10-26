@@ -1,3 +1,5 @@
+import { economyFeedback } from "./economy-feedback.js";
+import { EconomyPanel } from "./EconomyPanel.js";
 import { useState } from "react";
 import { worldClock, worldLocationOpen, presentCharacters, mandatoryEventStatus, prerequisitesMet, progressionEventAvailability, previewChapterTransition, type ChapterTransitionPreview, type NativeWorld, type RuntimeState, type WorldCommand } from "@story-to-cyoa/runtime";
 import "./world.css";
@@ -21,11 +23,12 @@ export function WorldPanel({ world, state, disabled, onAction }: { world: Native
     {world.progression && state.world!.progression && <section aria-label="Chapters and milestones">
       <p><strong>{state.world!.progression!.chapterId ? `Chapter: ${world.progression.chapters.find((c) => c.id === state.world!.progression!.chapterId)!.name}` : "Chapter-free play"}</strong></p>
       <p>Milestones: {world.progression.milestones.filter((m) => state.world!.progression!.milestones.includes(m.id)).map((m) => m.name).join(", ") || "None yet"}</p>
-      <nav aria-label="Events">{events.map((event) => { const availability = progressionEventAvailability(world, state, event.id); return availability.visible && <button key={event.id} disabled={disabled || !availability.enabled} title={availability.reason ?? event.label}
-        onClick={() => onAction({ kind: "event", id: event.id }, `${event.label} (${event.minutes} min)`)}>{event.label} · {event.minutes} min{availability.reason ? ` · ${availability.reason}` : ""}</button>; })}</nav>
+      <nav aria-label="Events">{events.map((event) => { const availability = progressionEventAvailability(world, state, event.id), trade = world.economy?.eventEffects.find((r) => r.eventId === event.id), feedback = trade && world.economy ? economyFeedback(world.economy, trade.costs, trade.effects) : ""; return availability.visible && <button key={event.id} disabled={disabled || !availability.enabled} title={availability.reason ?? event.label}
+        onClick={() => onAction({ kind: "event", id: event.id }, `${event.label} (${event.minutes} min)${feedback ? "; " + feedback : ""}`)}>{event.label} · {event.minutes} min{feedback ? ` · ${feedback}` : ""}{availability.reason ? ` · ${availability.reason}` : ""}</button>; })}</nav>
       <nav aria-label="Chapter transitions">{world.progression.transitions.filter((transition) => transition.fromChapterId === state.world!.progression!.chapterId).map((transition) => <button key={transition.id} disabled={actionDisabled || state.world!.minutes + transition.minutes > 52_560_000 || !prerequisitesMet(transition.prerequisites, state)}
         onClick={() => { const preview = previewChapterTransition(world, state, transition.id); onAction({ kind: "chapter-transition", id: transition.id, previewFingerprint: preview.fingerprint }, `${transition.label} (${transition.minutes} min)`, preview); }}>{transition.label} · {transition.minutes} min</button>)}</nav>
     </section>}
+    {world.economy && <EconomyPanel world={world} state={state} disabled={actionDisabled} onAction={onAction} />}
     <details><summary>Map</summary>
       <label>Area<select value={map.id} onChange={(e) => { setMapId(e.target.value); setInspected(null); }}>{world.locations.map((l) => <option value={l.id} key={l.id}>{l.name}</option>)}</select></label>
       <div className="world-map">

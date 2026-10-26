@@ -1,21 +1,27 @@
-import { emptyWorldProgression, type WorldProgression, type WorldDefinition, type WorldPeople } from "@story-to-cyoa/domain";
+import { economyDependencies, economyNeedsProgression } from "./economy-authoring.js";
+import { emptyWorldProgression, type WorldProgression, type WorldDefinition, type WorldPeople, type WorldEconomy } from "@story-to-cyoa/domain";
 import type { PassagePlanState } from "../../api/passage-plan.js";
-import { useId, type ReactNode } from "react";
+import { createContext, useContext, useId, type ReactNode } from "react";
 
+export const WorldConditionOptionsContext = createContext<{ world?: WorldDefinition; economy?: WorldEconomy; relationships: Array<{ key: string; label: string }> }>({ relationships: [] });
 type Conditions = WorldProgression["events"][number]["prerequisites"];
 type Props = { progression: WorldProgression | undefined; onChange: (value: WorldProgression | undefined) => void;
   people?: WorldPeople; locations: WorldDefinition["locations"]; passages: PassagePlanState["passages"] };
 const toggle = (ids: string[], id: string, checked: boolean) => checked ? [...new Set([...ids, id])] : ids.filter((value) => value !== id);
 export function ProgressionEditor({ progression: p, onChange, locations, passages, people }: Props) {
+  const { world } = useContext(WorldConditionOptionsContext);
+  const economyRefs = (kind: "chapter" | "milestone" | "event", id: string) => world ? economyDependencies(world, kind, id) : [];
+  const economyBlocksProgression = world ? economyNeedsProgression(world) : false;
   const options = (items: Array<{ id: string; name: string }>) => <><option value="">Select…</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name || "Untitled"}</option>)}</>;
   const passageSelect = (value: WorldProgression["events"][number]["passage"], change: (next: WorldProgression["events"][number]["passage"]) => void, label: string) => <label>{label}<select value={value?.passageId ?? ""} onChange={(e) => { const passage = passages.find((item) => item.entityId === e.target.value); change(passage ? { passageId: passage.entityId, versionId: passage.id } : null); }}><option value="">Stay in the current passage</option>{value && !passages.some((item) => item.entityId === value.passageId) && <option value={value.passageId}>Missing bound passage</option>}{passages.map((item) => <option value={item.entityId} key={item.entityId}>{item.content.title}</option>)}</select></label>;
   const number = (label: string, value: number, change: (value: number) => void) => <label>{label}<input type="number" min={0} max={1440} step={1} value={value} onChange={(e) => change(Number(e.target.value))} /></label>;
   return <section aria-label="Chapters and events"><h3>Chapters and events</h3>
-    <label className="world-check"><input type="checkbox" checked={Boolean(p)} disabled={Boolean(p) && Boolean(people?.overrides.some((o) => o.prerequisites.some((c) => c.kind === "chapter" || c.kind === "milestone")))} onChange={(e) => {
+    <label className="world-check"><input type="checkbox" checked={Boolean(p)} disabled={Boolean(p) && (economyBlocksProgression || Boolean(people?.overrides.some((o) => o.prerequisites.some((c) => c.kind === "chapter" || c.kind === "milestone"))))} onChange={(e) => {
       if (!e.target.checked) { onChange(undefined); return; }
       const chapter = { id: crypto.randomUUID(), name: "Chapter 1", final: false };
       onChange({ ...emptyWorldProgression(), chapters: [chapter], initialChapterId: chapter.id });
     }} />Chapters and events enabled</label>
+    {p && economyBlocksProgression && <p>Clear event transactions, chapter-dependent repeat rules, chapter/milestone prerequisites and milestone grants in inventory rules before disabling progression.</p>}
     {p && people?.overrides.some((o) => o.prerequisites.some((c) => c.kind === "chapter" || c.kind === "milestone")) && <p>Clear chapter/milestone prerequisites in story overrides before disabling progression.</p>}
     {p && <>
       <p>Chapters are optional. Events are authored opportunities the player chooses to begin; reading and transition previews do not advance time.</p>
@@ -25,12 +31,12 @@ export function ProgressionEditor({ progression: p, onChange, locations, passage
       {p.chapters.map((chapter, i) => <div className="world-row" key={chapter.id}>
         <label>Chapter name {i + 1}<input maxLength={200} value={chapter.name} onChange={(e) => onChange({ ...p, chapters: p.chapters.map((c, j) => i === j ? { ...c, name: e.target.value } : c) })} /></label>
         <label className="world-check"><input type="checkbox" checked={chapter.final} onChange={(e) => onChange({ ...p, chapters: p.chapters.map((c, j) => i === j ? { ...c, final: e.target.checked } : c) })} />Final chapter {i + 1}</label>
-        <RemovalButton label={`Remove chapter ${i + 1}`} dependencies={people?.overrides.flatMap((o, j) => o.prerequisites.some((c) => c.kind === "chapter" && c.chapterId === chapter.id) ? [`Story override ${j + 1}: chapter prerequisite`] : []) ?? []} onRemove={() => onChange({ ...p, chapters: p.chapters.filter((_, j) => i !== j), initialChapterId: p.initialChapterId === chapter.id ? null : p.initialChapterId })}>×</RemovalButton>
+        <RemovalButton label={`Remove chapter ${i + 1}`} dependencies={[...economyRefs("chapter", chapter.id), ...(people?.overrides.flatMap((o, j) => o.prerequisites.some((c) => c.kind === "chapter" && c.chapterId === chapter.id) ? [`Story override ${j + 1}: chapter prerequisite`] : []) ?? [])]} onRemove={() => onChange({ ...p, chapters: p.chapters.filter((_, j) => i !== j), initialChapterId: p.initialChapterId === chapter.id ? null : p.initialChapterId })}>×</RemovalButton>
       </div>)}
       <button disabled={p.chapters.length >= 20} onClick={() => { const id = crypto.randomUUID(); onChange({ ...p, chapters: [...p.chapters, { id, name: "", final: false }], initialChapterId: p.chapters.length ? p.initialChapterId : id }); }}>Add chapter</button>
       <h4>Named milestones</h4>
       {p.milestones.map((milestone, i) => {
-        const dependencies = [...(people?.overrides.flatMap((o, j) => o.prerequisites.some((c) => c.kind === "milestone" && c.milestoneId === milestone.id) ? [`Story override ${j + 1}: milestone prerequisite`] : []) ?? []), ...p.events.flatMap((event, j) => [
+        const dependencies = [...economyRefs("milestone", milestone.id), ...(people?.overrides.flatMap((o, j) => o.prerequisites.some((c) => c.kind === "milestone" && c.milestoneId === milestone.id) ? [`Story override ${j + 1}: milestone prerequisite`] : []) ?? []), ...p.events.flatMap((event, j) => [
           ...(event.milestoneIds.includes(milestone.id) ? [`Event ${j + 1} (${event.label || "Untitled"}): milestone grant`] : []),
           ...(event.prerequisites.some((c) => c.kind === "milestone" && c.milestoneId === milestone.id) ? [`Event ${j + 1} (${event.label || "Untitled"}): prerequisite`] : []),
         ]), ...p.transitions.flatMap((transition, j) => [
@@ -56,7 +62,7 @@ export function ProgressionEditor({ progression: p, onChange, locations, passage
         </div>
         <fieldset><legend>Milestones granted by event {i + 1}</legend>{p.milestones.map((m) => <label className="world-check" key={m.id}><input type="checkbox" checked={event.milestoneIds.includes(m.id)} onChange={(e) => patch({ milestoneIds: toggle(event.milestoneIds, m.id, e.target.checked) })} />Grant {m.name || "untitled milestone"} for event {i + 1}</label>)}</fieldset>
         <Prerequisites label={`Event ${i + 1}`} conditions={event.prerequisites} onChange={(prerequisites) => patch({ prerequisites })} progression={p} locations={locations} />
-        <RemovalButton label={`Remove event ${i + 1}`} dependencies={p.transitions.flatMap((transition, j) => transition.expireEventIds.includes(event.id) ? [`Transition ${j + 1} (${transition.label || "Untitled"}): event expiry`] : [])}
+        <RemovalButton label={`Remove event ${i + 1}`} instructions={economyRefs("event", event.id).length ? "Remove the listed event transaction under Inventory and shops, and clear any listed transition expiry controls." : undefined} dependencies={[...economyRefs("event", event.id), ...p.transitions.flatMap((transition, j) => transition.expireEventIds.includes(event.id) ? [`Transition ${j + 1} (${transition.label || "Untitled"}): event expiry`] : [])]}
           onRemove={() => onChange({ ...p, events: p.events.filter((_, j) => i !== j) })}>Remove event</RemovalButton>
       </fieldset>; })}
       <button disabled={p.events.length >= 100} onClick={() => onChange({ ...p, events: [...p.events, { id: crypto.randomUUID(), label: "", prerequisites: [], repeat: { kind: "once" }, visibility: "always", passage: null, minutes: 0, milestoneIds: [], result: "" }] })}>Add event</button>
@@ -85,16 +91,18 @@ export function RemovalButton({ label, dependencies, onRemove, children, instruc
     {dependencies.length > 0 && <p id={descriptionId} className="progression-dependencies">Clear these references before removal: {dependencies.join("; ")}. {instructions}</p>}</>;
 }
 export function Prerequisites({ label, conditions, onChange, progression, locations }: { label: string; conditions: Conditions; onChange: (value: Conditions) => void; progression: WorldProgression; locations: Props["locations"] }) {
+  const { economy, relationships } = useContext(WorldConditionOptionsContext);
   const defaults = (kind: Conditions[number]["kind"]): Conditions[number] => kind === "chapter" ? { kind, chapterId: progression.initialChapterId ?? "", current: true }
     : kind === "milestone" ? { kind, milestoneId: progression.milestones[0]?.id ?? "", achieved: true }
-    : kind === "location" ? { kind, locationId: locations.find((l) => l.passage)?.id ?? "", present: true } : { kind, from: 0, until: null };
+    : kind === "location" ? { kind, locationId: locations.find((l) => l.passage)?.id ?? "", present: true } : kind === "item" ? { kind, itemId: economy?.items[0]?.id ?? "", minimum: 1, maximum: null } : kind === "relationship" ? { kind, key: relationships[0]?.key ?? "", minimum: 0, maximum: null } : { kind, from: 0, until: null };
   return <fieldset><legend>{label} prerequisites (all must hold)</legend>{conditions.map((condition, i) => {
     const change = (value: Conditions[number]) => onChange(conditions.map((c, j) => i === j ? value : c));
     const prefix = `${label} prerequisite ${i + 1}`;
-    return <div className="world-row" key={i}><label>{prefix} type<select value={condition.kind} onChange={(e) => change(defaults(e.target.value as typeof condition.kind))}><option value="chapter">Chapter</option><option value="milestone">Milestone</option><option value="location">Location</option><option value="time">Game minutes</option></select></label>
+    return <div className="world-row" key={i}><label>{prefix} type<select value={condition.kind} onChange={(e) => change(defaults(e.target.value as typeof condition.kind))}><option value="chapter">Chapter</option><option value="milestone">Milestone</option><option value="location">Location</option><option value="time">Game minutes</option><option value="item" disabled={!economy?.items.length}>Item quantity</option><option value="relationship" disabled={!economy || !relationships.length}>Relationship</option></select></label>
       {condition.kind === "time" ? <>{(["from", "until"] as const).map((field) => <label key={field}>{prefix} {field === "from" ? "from minute (inclusive)" : "before minute (exclusive)"}<input type="number" min={0} max={52_560_000} step={1} value={condition[field] ?? ""} onChange={(e) => change({ ...condition, [field]: e.target.value === "" ? null : Number(e.target.value) })} /></label>)}</>
       : condition.kind === "chapter" ? <><label>{prefix} chapter<select value={condition.chapterId} onChange={(e) => change({ ...condition, chapterId: e.target.value })}><option value="">Select…</option>{progression.chapters.map((c) => <option key={c.id} value={c.id}>{c.name || "Untitled"}</option>)}</select></label><label>{prefix} rule<select value={String(condition.current)} onChange={(e) => change({ ...condition, current: e.target.value === "true" })}><option value="true">Current chapter</option><option value="false">Not current chapter</option></select></label></>
       : condition.kind === "milestone" ? <><label>{prefix} milestone<select value={condition.milestoneId} onChange={(e) => change({ ...condition, milestoneId: e.target.value })}><option value="">Select…</option>{progression.milestones.map((m) => <option key={m.id} value={m.id}>{m.name || "Untitled"}</option>)}</select></label><label>{prefix} rule<select value={String(condition.achieved)} onChange={(e) => change({ ...condition, achieved: e.target.value === "true" })}><option value="true">Achieved</option><option value="false">Not achieved</option></select></label></>
+      : condition.kind === "item" || condition.kind === "relationship" ? <><label>{prefix} {condition.kind === "item" ? "item" : "relationship"}<select value={condition.kind === "item" ? condition.itemId : condition.key} onChange={(e) => change(condition.kind === "item" ? { ...condition, itemId: e.target.value } : { ...condition, key: e.target.value })}><option value="">Select…</option>{condition.kind === "item" ? economy?.items.map((i) => <option value={i.id} key={i.id}>{i.name || "Untitled item"}</option>) : relationships.map((r) => <option value={r.key} key={r.key}>{r.label}</option>)}</select></label>{(["minimum", "maximum"] as const).map((field) => <label key={field}>{prefix} {field} (inclusive)<input type="number" value={condition[field] ?? ""} step={condition.kind === "item" ? 1 : "any"} min={condition.kind === "item" ? 0 : -1_000_000_000} max={condition.kind === "item" ? 10000 : 1_000_000_000} onChange={(e) => change(condition.kind === "item" ? { ...condition, [field]: e.target.value === "" ? field === "minimum" ? 0 : null : Number(e.target.value) } : { ...condition, [field]: e.target.value === "" ? null : Number(e.target.value) })} /></label>)}</>
       : <><label>{prefix} location<select value={condition.locationId} onChange={(e) => change({ ...condition, locationId: e.target.value })}><option value="">Select…</option>{locations.filter((l) => l.passage).map((l) => <option key={l.id} value={l.id}>{l.name || "Untitled"}</option>)}</select></label><label>{prefix} rule<select value={String(condition.present)} onChange={(e) => change({ ...condition, present: e.target.value === "true" })}><option value="true">At location</option><option value="false">Not at location</option></select></label></>}
       <button aria-label={`Remove ${prefix}`} onClick={() => onChange(conditions.filter((_, j) => i !== j))}>×</button>
     </div>;
@@ -105,7 +113,7 @@ export function ProgressionSummary({ progression: p, locations = [] }: { progres
   const milestone = (id: string) => p.milestones.find((m) => m.id === id)?.name ?? id;
   const event = (id: string) => p.events.find((e) => e.id === id)?.label ?? id;
   const conditions = (items: Conditions) => items.map((c) => c.kind === "chapter" ? `${c.current ? "Current" : "Not"} chapter: ${chapter(c.chapterId)}`
-    : c.kind === "milestone" ? `${milestone(c.milestoneId)}: ${c.achieved ? "achieved" : "not achieved"}` : c.kind === "location" ? `${c.present ? "At" : "Not at"} location: ${locations.find((l) => l.id === c.locationId)?.name ?? c.locationId}` : `Minutes ${c.from ?? "start"}–${c.until ?? "no end"} (end exclusive)`).join("; ") || "None";
+    : c.kind === "milestone" ? `${milestone(c.milestoneId)}: ${c.achieved ? "achieved" : "not achieved"}` : c.kind === "location" ? `${c.present ? "At" : "Not at"} location: ${locations.find((l) => l.id === c.locationId)?.name ?? c.locationId}` : c.kind === "item" ? `Item ${c.itemId}: ${c.minimum}–${c.maximum ?? "no maximum"}` : c.kind === "relationship" ? `Relationship ${c.key}: ${c.minimum ?? "no minimum"}–${c.maximum ?? "no maximum"}` : `Minutes ${c.from ?? "start"}–${c.until ?? "no end"} (end exclusive)`).join("; ") || "None";
   return <section aria-label="Chapters and events summary"><h4>Chapters and events</h4><p>Initial chapter: {p.initialChapterId ? chapter(p.initialChapterId) : "Chapter-free"}</p>
     {p.chapters.map((c) => <p key={c.id}>{c.name}{c.final ? " (final chapter)" : ""}</p>)}<p>Initial milestones: {p.initialMilestoneIds.map(milestone).join(", ") || "None"}</p>
     {p.events.map((event) => <p key={event.id}><strong>{event.label}</strong> · {event.minutes} min · {event.repeat.kind}{event.repeat.kind === "repeatable" ? `, cooldown ${event.repeat.cooldownMinutes} min` : ""} · {event.visibility} · Prerequisites: {conditions(event.prerequisites)} · Grants: {event.milestoneIds.map(milestone).join(", ") || "None"} · {event.result}</p>)}

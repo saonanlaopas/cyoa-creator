@@ -1,3 +1,4 @@
+import { assertEconomyState } from "./economy.js";
 import { assertPeopleState } from "./people.js";
 import { z } from "zod";
 import { canonical, serializedBytes, stableFingerprint } from "./canonical.js";
@@ -308,7 +309,7 @@ export function assertNativeRuntimeState(game: LoadedNativeGame, value: unknown)
     throw new NativePlayerError("save_state_invalid", "World state does not match the published world");
   }
   if (game.bundle.world) {
-    try { assertProgressionState(game.bundle.world, state); assertPeopleState(game.bundle.world, state); } catch (error) { throw new NativePlayerError("save_state_invalid", (error as Error).message); }
+    try { assertProgressionState(game.bundle.world, state); assertPeopleState(game.bundle.world, state); assertEconomyState(game.bundle.world, state); } catch (error) { throw new NativePlayerError("save_state_invalid", (error as Error).message); }
   }
   const mappedLocation = game.bundle.world?.locations.find((l) => l.passageId === state.currentPassageId);
   if (mappedLocation && mappedLocation.id !== state.world?.locationId) throw new NativePlayerError("save_state_invalid", "Passage and world location disagree");
