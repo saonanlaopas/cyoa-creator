@@ -1,10 +1,11 @@
 import { WorldDefinitionSchema, ImageAssetSchema } from "@story-to-cyoa/domain";
-import { NativeProgressionSchema, projectWorldProgression } from "@story-to-cyoa/runtime";
+import { NativeProgressionSchema, projectWorldProgression, projectWorldPeople, validatePeopleReferences } from "@story-to-cyoa/runtime";
 import type { StoryDatabase } from "./database.js";
 
 export function validateWorld(database: StoryDatabase, projectId: string, value: unknown) {
   const world = WorldDefinitionSchema.parse(value);
   if (world.progression) NativeProgressionSchema.parse(projectWorldProgression(world.progression));
+  if (world.people) validatePeopleReferences(projectWorldPeople(world.people), world.progression ? projectWorldProgression(world.progression) : undefined, world.locations.map((l) => ({ id: l.id, passageId: l.passage?.passageId ?? null })));
   for (const item of [...(world.progression?.events ?? []), ...(world.progression?.transitions ?? [])]) {
     if (item.passage && !database.prepare("SELECT 1 FROM passage_entity_versions WHERE project_id=? AND id=? AND entity_kind='passage' AND entity_id=?").get(projectId, item.passage.versionId, item.passage.passageId)) throw new Error("progression_passage_lineage_invalid");
     for (const c of item.prerequisites) if (c.kind === "location" && !world.locations.some((l) => l.id === c.locationId && l.passage)) throw new Error("progression_location_reference_invalid");

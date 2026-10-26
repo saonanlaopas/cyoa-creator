@@ -1,16 +1,17 @@
+import { NativePeopleSchema, PeopleStateSchema, validatePeopleReferences, assertPeopleState } from "./people.js";
 import { z } from "zod";
-import { NativeProgressionSchema, ProgressionStateSchema, initialProgressionState, revealProgressionEvents, transitionProgressionWorld, type ProgressionCommand } from "./progression.js";
+import { NativeProgressionSchema, ProgressionStateSchema, initialProgressionState, revealProgressionEvents, transitionProgressionWorld, type ProgressionCommand, assertWorldActionAllowed, advancePeopleTime, mandatoryEventStatus } from "./progression.js";
 import { IllustratedPresentationSchema } from "./illustrated-scenes.js";
 import { cloneRuntimeState } from "./semantics.js";
 import type { RuntimeState } from "./types.js";
 
 const id = z.string().min(1).max(200), label = z.string().min(1).max(200);
 export const WorldStateSchema = z.object({ schemaVersion: z.literal(1), locationId: id,
-  progression: ProgressionStateSchema.optional(),
+  progression: ProgressionStateSchema.optional(), people: PeopleStateSchema.optional(),
   minutes: z.number().int().min(0).max(52_560_000), stationaryTurns: z.number().int().min(0).max(1_000_000).optional() }).strict();
 export const NativeWorldSchema = z.object({
   schemaId: z.literal("cyoa.native-world"), schemaVersion: z.literal(1),
-  progression: NativeProgressionSchema.optional(),
+  progression: NativeProgressionSchema.optional(), people: NativePeopleSchema.optional(),
   startLocationId: id, initialMinutes: z.number().int().min(0).max(52_560_000),
   waitMinutes: z.array(z.number().int().min(1).max(1440)).min(1).max(6),
   locations: z.array(z.object({ id, name: label, parentId: id.nullable(), passageId: id.nullable(), mapImage: id.nullable(),
@@ -21,6 +22,7 @@ export const NativeWorldSchema = z.object({
   actions: z.array(z.object({ id, locationId: id, label, minutes: z.number().int().min(0).max(1440), result: z.string().min(1).max(1000) }).strict()).max(100),
   assets: IllustratedPresentationSchema.shape.assets,
 }).strict().superRefine((world, ctx) => {
+  if (world.people) { try { validatePeopleReferences(world.people, world.progression, world.locations); } catch (e) { ctx.addIssue({ code: "custom", message: (e as Error).message }); } }
   const fail = () => ctx.addIssue({ code: "custom", message: "world_definition_invalid" });
   const locations = new Map(world.locations.map((l) => [l.id, l]));
   for (const list of [world.locations, world.connections, world.actions, world.assets]) if (new Set(list.map((x) => x.id)).size !== list.length) fail();
@@ -44,7 +46,7 @@ export const NativeWorldSchema = z.object({
 export type NativeWorld = z.infer<typeof NativeWorldSchema>;
 export type WorldCommand = ProgressionCommand | { kind: "travel"; id: string } | { kind: "action"; id: string } | { kind: "wait"; minutes: number };
 export function initialWorldState(world: NativeWorld): NonNullable<RuntimeState["world"]> {
-  const state: NonNullable<RuntimeState["world"]> = { schemaVersion: 1, locationId: world.startLocationId, minutes: world.initialMinutes, ...(world.progression ? { progression: initialProgressionState(world.progression) } : {}) };
+  const state: NonNullable<RuntimeState["world"]> = { schemaVersion: 1, locationId: world.startLocationId, minutes: world.initialMinutes, ...(world.progression ? { progression: initialProgressionState(world.progression) } : {}), ...(world.people ? { people: { schemaVersion: 1 as const, knownCharacterIds: [] } } : {}) };
   revealProgressionEvents(world, { world: state });
   return state;
 }
@@ -65,6 +67,8 @@ export function worldLocationOpen(world: NativeWorld, locationId: string, minute
 }
 export function transitionWorld(world: NativeWorld, state: RuntimeState, command: WorldCommand): { state: RuntimeState; message: string; passageId?: string } {
   if (!state.world) throw new Error("world_state_missing");
+  assertPeopleState(world, state);
+  assertWorldActionAllowed(world, state, command.kind === "event" ? command.id : undefined);
   if (command.kind === "event" || command.kind === "chapter-transition") return transitionProgressionWorld(world, state, command);
   let destination = state.world.locationId, minutes: number, message: string;
   if (command.kind === "travel") {
@@ -83,8 +87,10 @@ export function transitionWorld(world: NativeWorld, state: RuntimeState, command
   const nextMinutes = state.world.minutes + minutes;
   if (!Number.isSafeInteger(nextMinutes) || nextMinutes > 52_560_000) throw new Error("world_time_limit_reached");
   if (command.kind === "travel" && !worldLocationOpen(world, destination, nextMinutes)) throw new Error("world_destination_closed_at_arrival");
-  const next = cloneRuntimeState(state);
-  next.world = { ...next.world!, locationId: destination, minutes: nextMinutes };
+  const next = command.kind === "travel" ? cloneRuntimeState(state) : advancePeopleTime(world, state, nextMinutes, command.kind === "wait");
+  next.world = { ...next.world!, locationId: destination, minutes: command.kind === "travel" ? nextMinutes : next.world!.minutes };
+  if (command.kind === "wait" && next.world.minutes !== nextMinutes) message = `Waited ${next.world.minutes - state.world.minutes} minutes. A required encounter is available.`;
   revealProgressionEvents(world, next);
+  if (mandatoryEventStatus(world, next).conflict) throw new Error("people_mandatory_priority_conflict");
   return { state: next, message, ...(command.kind === "travel" ? { passageId: world.locations.find((l) => l.id === destination)!.passageId! } : {}) };
 }

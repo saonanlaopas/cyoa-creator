@@ -76,6 +76,7 @@ export class ConnectedGameService {
   }
   call(tool: ConnectedGameTool, value: unknown): unknown {
     switch (tool) {
+      case "inspect_world_presence": { const i = WorldInputs.inspect_world_presence.parse(value); return new WorldService(this.database).inspectPresence(i.projectId, i.state); }
       case "preview_chapter_transition": { const i = WorldInputs.preview_chapter_transition.parse(value); return new WorldService(this.database).preview(i.projectId, i.transitionId, i.state); }
       case "read_world": { const i = WorldInputs.read_world.parse(value); return new WorldService(this.database).read(i.projectId); }
       case "review_world": { const i = WorldInputs.review_world.parse(value); return new WorldService(this.database).review(i.projectId, i.world); }

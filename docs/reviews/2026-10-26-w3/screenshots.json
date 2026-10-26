@@ -1,0 +1,58 @@
+[
+  {
+    "path": "w3-creator-people-1280.png",
+    "sha256": "ac53d42998976af788bd35c320d88fd19b0a829a2ca797aa06b9514f012b324a",
+    "width": 1280,
+    "height": 900,
+    "unedited": true
+  },
+  {
+    "path": "w3-creator-people-390.png",
+    "sha256": "ad830b1891bbb220100459e856c6bb2d10a330e23fd9dab4d492510737fa38a7",
+    "width": 390,
+    "height": 844,
+    "unedited": true
+  },
+  {
+    "path": "w3-creator-priorities-1280.png",
+    "sha256": "97a2a7996a6c3befca40e47b574643efb9e7a49d3d4835538e93158f49da18f1",
+    "width": 1280,
+    "height": 900,
+    "unedited": true
+  },
+  {
+    "path": "w3-creator-priority-conflict-390.png",
+    "sha256": "574f811f60d7b417abe0b206a96acc91cf328790e1fe34db66d17bec053342a3",
+    "width": 390,
+    "height": 844,
+    "unedited": true
+  },
+  {
+    "path": "w3-standalone-midnight-1280.png",
+    "sha256": "730760273d7ffbe4cd3a82d3da48ced0cef427df14e953efa7b1f3a5174830df",
+    "width": 1280,
+    "height": 1286,
+    "unedited": true
+  },
+  {
+    "path": "w3-standalone-midnight-390.png",
+    "sha256": "cab26422acfc706ae77d44d37258c81ec73fec1d09df2af645f5b2bff5ca2f09",
+    "width": 390,
+    "height": 1874,
+    "unedited": true
+  },
+  {
+    "path": "w3-static-override-absence-390.png",
+    "sha256": "8f22cab25c80f9f1171d6a5fafaf6fcaf04ba625c6ea058c360b3d7de46db8a7",
+    "width": 390,
+    "height": 2058,
+    "unedited": true
+  },
+  {
+    "path": "w3-static-free-midnight-390.png",
+    "sha256": "a18271812d909b0cb7749bd77aedee47275e24228413a6483ad3ae608822ff61",
+    "width": 390,
+    "height": 1827,
+    "unedited": true
+  }
+]

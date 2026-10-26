@@ -1,3 +1,6 @@
+import { encounterPeoplePresent, revealPeople, assertPeopleState, peopleTimeBoundaries, presentCharacters } from "./people.js";
+import { ProgressionPrerequisiteSchema, prerequisitesMet, prerequisiteContradictions, type ProgressionPrerequisite } from "./world-conditions.js";
+export { ProgressionPrerequisiteSchema, prerequisitesMet, type ProgressionPrerequisite } from "./world-conditions.js";
 import { z } from "zod";
 import { stableFingerprint } from "./canonical.js";
 import { cloneRuntimeState } from "./semantics.js";
@@ -6,12 +9,6 @@ import type { NativeWorld } from "./world.js";
 
 const id = z.string().min(1).max(200), name = z.string().trim().min(1).max(200);
 const minutes = z.number().int().min(0).max(52_560_000);
-export const ProgressionPrerequisiteSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("chapter"), chapterId: id, current: z.boolean() }).strict(),
-  z.object({ kind: z.literal("milestone"), milestoneId: id, achieved: z.boolean() }).strict(),
-  z.object({ kind: z.literal("location"), locationId: id, present: z.boolean() }).strict(),
-  z.object({ kind: z.literal("time"), from: minutes.nullable(), until: minutes.nullable() }).strict(),
-]);
 export const ProgressionRepeatSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("once") }).strict(),
   z.object({ kind: z.literal("repeatable"), cooldownMinutes: z.number().int().min(0).max(1440) }).strict(),
@@ -36,32 +33,9 @@ export const NativeProgressionBaseSchema = z.object({
   }).strict()).max(60),
 }).strict();
 export type NativeProgression = z.infer<typeof NativeProgressionBaseSchema>;
-export type ProgressionPrerequisite = z.infer<typeof ProgressionPrerequisiteSchema>;
+
 
 export interface ProgressionDiagnostic { code: string; severity: "warning"; entityId: string; message: string }
-function contradictions(conditions: ProgressionPrerequisite[], chapter?: string): string[] {
-  const errors: string[] = [], positive = new Map<string, string>(), negatives = new Map<string, Set<string>>();
-  const milestones = new Map<string, boolean>();
-  if (chapter) positive.set("chapter", chapter);
-  let from = 0, until = 52_560_001;
-  for (const condition of conditions) {
-    if (condition.kind === "time") {
-      if (condition.from === null && condition.until === null) errors.push("empty_time_condition");
-      from = Math.max(from, condition.from ?? 0); until = Math.min(until, condition.until ?? 52_560_001);
-    } else if (condition.kind === "milestone") {
-      if (milestones.has(condition.milestoneId) && milestones.get(condition.milestoneId) !== condition.achieved) errors.push("contradictory_milestone");
-      milestones.set(condition.milestoneId, condition.achieved);
-    } else {
-      const key = condition.kind, value = condition.kind === "chapter" ? condition.chapterId : condition.locationId;
-      const required = condition.kind === "chapter" ? condition.current : condition.present;
-      if (required) { if (positive.has(key) && positive.get(key) !== value) errors.push(`contradictory_${key}`); positive.set(key, value); }
-      else { const set = negatives.get(key) ?? new Set(); set.add(value); negatives.set(key, set); }
-    }
-  }
-  for (const [key, value] of positive) if (negatives.get(key)?.has(value)) errors.push(`contradictory_${key}`);
-  if (from >= until) errors.push("contradictory_time_interval");
-  return [...new Set(errors)];
-}
 export const NativeProgressionSchema = NativeProgressionBaseSchema.superRefine((definition, ctx) => {
   const fail = (message: string) => ctx.addIssue({ code: "custom", message: `progression_${message}` });
   const unique = (values: string[], valid?: Set<string>) => new Set(values).size === values.length && values.every((value) => !valid || valid.has(value));
@@ -75,7 +49,7 @@ export const NativeProgressionSchema = NativeProgressionBaseSchema.superRefine((
     for (const condition of item.prerequisites) {
       if (condition.kind === "chapter" && !chapters.has(condition.chapterId) || condition.kind === "milestone" && !milestones.has(condition.milestoneId)) fail(`prerequisite_reference_invalid:${item.id}`);
     }
-    for (const error of contradictions(item.prerequisites, "fromChapterId" in item ? item.fromChapterId : undefined)) fail(`${error}:${item.id}`);
+    for (const error of prerequisiteContradictions(item.prerequisites, "fromChapterId" in item ? item.fromChapterId : undefined)) fail(`${error}:${item.id}`);
     if (definition.chapters.length && definition.chapters.every((chapter) => item.prerequisites.some((c) => c.kind === "chapter" && !c.current && c.chapterId === chapter.id))) fail(`contradictory_chapter:${item.id}`);
   }
   for (const event of definition.events) {
@@ -136,22 +110,14 @@ export type ProgressionState = z.infer<typeof ProgressionStateSchema>;
 export const initialProgressionState = (definition: NativeProgression): ProgressionState => ({ schemaVersion: 1,
   chapterId: definition.initialChapterId, milestones: [...definition.initialMilestoneIds].sort(), knownEventIds: [], events: {}, expiredEventIds: [], transitions: {} });
 
-export function prerequisitesMet(conditions: ProgressionPrerequisite[], state: Pick<RuntimeState, "world">): boolean {
-  return conditions.every((condition) => {
-    const world = state.world, progression = world?.progression;
-    if (condition.kind === "chapter") return Boolean(progression) && (progression!.chapterId === condition.chapterId) === condition.current;
-    if (condition.kind === "milestone") return Boolean(progression) && progression!.milestones.includes(condition.milestoneId) === condition.achieved;
-    if (condition.kind === "location") return Boolean(world) && (world!.locationId === condition.locationId) === condition.present;
-    return Boolean(world) && world!.minutes >= (condition.from ?? 0) && world!.minutes < (condition.until ?? 52_560_001);
-  });
-}
 /** Call only on an owned/new state. Discovery is remembered on initialization and committed actions, never by preview. */
 export function revealProgressionEvents(world: NativeWorld, state: Pick<RuntimeState, "world">): void {
+  revealPeople(world, state);
   const progression = state.world?.progression;
   if (!world.progression || !progression) return;
-  progression.knownEventIds = [...new Set([...progression.knownEventIds, ...world.progression.events.filter((event) => event.visibility === "always" || !progression.expiredEventIds.includes(event.id) && prerequisitesMet(event.prerequisites, state)).map((event) => event.id)])].sort();
+  progression.knownEventIds = [...new Set([...progression.knownEventIds, ...world.progression.events.filter((event) => event.visibility === "always" || !progression.expiredEventIds.includes(event.id) && prerequisitesMet(event.prerequisites, state) && encounterPeoplePresent(world, state, event.id)).map((event) => event.id)])].sort();
 }
-export function progressionEventAvailability(world: NativeWorld, state: RuntimeState, eventId: string): { visible: boolean; enabled: boolean; reason: string | null } {
+function baseEventAvailability(world: NativeWorld, state: RuntimeState, eventId: string): { visible: boolean; enabled: boolean; reason: string | null } {
   const event = world.progression?.events.find((e) => e.id === eventId), progress = state.world?.progression;
   if (!event || !progress || !state.world) return { visible: false, enabled: false, reason: "Progression unavailable" };
   const previous = Object.hasOwn(progress.events, event.id) ? progress.events[event.id] : undefined;
@@ -159,6 +125,7 @@ export function progressionEventAvailability(world: NativeWorld, state: RuntimeS
   if (progress.expiredEventIds.includes(event.id)) reason = "Expired";
   else if (event.repeat.kind === "once" && previous) reason = "Completed";
   else if (!prerequisitesMet(event.prerequisites, state)) reason = "Prerequisites not met";
+  else if (!encounterPeoplePresent(world, state, event.id)) reason = "Encounter unavailable";
   else if (event.repeat.kind === "once-per-chapter" && previous?.chapterIds.includes(progress.chapterId!)) reason = "Already played in this chapter";
   else if (event.repeat.kind === "once-per-day" && previous && Math.floor(previous.lastMinutes / 1440) === Math.floor(state.world.minutes / 1440)) reason = "Already played today";
   else if (event.repeat.kind === "repeatable" && previous && state.world.minutes - previous.lastMinutes < event.repeat.cooldownMinutes) reason = "Cooldown has not elapsed";
@@ -176,7 +143,7 @@ export function assertProgressionState(world: NativeWorld, state: RuntimeState):
   const validSet = (values: string[], allowed: Set<string>) => new Set(values).size === values.length && values.every((id) => allowed.has(id));
   if (chapterIds.size ? !progress.chapterId || !chapterIds.has(progress.chapterId) : progress.chapterId !== null) throw new Error("progression_chapter_state_invalid");
   if (!validSet(progress.milestones, milestoneIds) || !validSet(progress.expiredEventIds, eventIds) || !validSet(progress.knownEventIds, eventIds)) throw new Error("progression_state_reference_invalid");
-  if (definition.events.some((event) => (event.visibility === "always" || !progress.expiredEventIds.includes(event.id) && prerequisitesMet(event.prerequisites, state) || Object.hasOwn(progress.events, event.id)) && !progress.knownEventIds.includes(event.id))) throw new Error("progression_discovery_state_invalid");
+  if (definition.events.some((event) => (event.visibility === "always" || !progress.expiredEventIds.includes(event.id) && prerequisitesMet(event.prerequisites, state) && encounterPeoplePresent(world, state, event.id) || Object.hasOwn(progress.events, event.id)) && !progress.knownEventIds.includes(event.id))) throw new Error("progression_discovery_state_invalid");
   let actions = 0;
   const possibleMilestones = new Set(definition.initialMilestoneIds), expired = new Set<string>();
   const balance = new Map(definition.chapters.map((c) => [c.id, c.id === definition.initialChapterId ? 1 : 0]));
@@ -213,6 +180,7 @@ export interface ChapterTransitionPreview {
 }
 export function previewChapterTransition(world: NativeWorld, state: RuntimeState, transitionId: string): ChapterTransitionPreview {
   assertProgressionState(world, state);
+  assertPeopleState(world, state);
   const definition = world.progression, progress = state.world?.progression;
   const transition = definition?.transitions.find((t) => t.id === transitionId);
   if (!definition || !progress || !state.world || !transition || progress.chapterId !== transition.fromChapterId || !prerequisitesMet(transition.prerequisites, state)) throw new Error("chapter_transition_unavailable");
@@ -233,17 +201,19 @@ export function previewChapterTransition(world: NativeWorld, state: RuntimeState
     if (!known) continue;
     if (transition.expireEventIds.includes(event.id)) lostOpportunities.push({ id: event.id, label: event.label, reason: "Authored expiry at this transition", permanent: true });
     else if (event.prerequisites.some((condition) => prerequisitesMet([condition], state) && !prerequisitesMet([condition], next))) lostOpportunities.push({ id: event.id, label: event.label, reason: "A prerequisite is lost at this transition", permanent: false });
-    else if (progressionEventAvailability(world, state, event.id).enabled && !progressionEventAvailability(world, next, event.id).enabled) lostOpportunities.push({ id: event.id, label: event.label, reason: "Repeat rule prevents replay in the destination chapter", permanent: false });
+    else if (progressionEventAvailability(world, state, event.id).enabled && !progressionEventAvailability(world, next, event.id).enabled) lostOpportunities.push({ id: event.id, label: event.label, reason: encounterPeoplePresent(world, next, event.id) ? "Repeat rule prevents replay in the destination chapter" : "Encounter is no longer available", permanent: false });
   }
   const preview = { transitionId, fromChapter: definition.chapters.find((c) => c.id === transition.fromChapterId)!.name,
     toChapter: definition.chapters.find((c) => c.id === transition.toChapterId)!.name,
     carriedMilestones: definition.milestones.filter((m) => progress.milestones.includes(m.id) && transition.carryMilestoneIds.includes(m.id)),
     expiredMilestones: definition.milestones.filter((m) => progress.milestones.includes(m.id) && !transition.carryMilestoneIds.includes(m.id)), lostOpportunities };
-  return { ...preview, fingerprint: stableFingerprint({ definition, state, preview }) };
+  return { ...preview, fingerprint: stableFingerprint({ definition, ...(world.people ? { people: world.people } : {}), state, preview }) };
 }
 export type ProgressionCommand = { kind: "event"; id: string } | { kind: "chapter-transition"; id: string; previewFingerprint: string };
 export function transitionProgressionWorld(world: NativeWorld, state: RuntimeState, command: ProgressionCommand): { state: RuntimeState; message: string; passageId?: string } {
   assertProgressionState(world, state);
+  assertPeopleState(world, state);
+  assertWorldActionAllowed(world, state, command.kind === "event" ? command.id : undefined);
   const definition = world.progression, progress = state.world?.progression;
   if (!definition || !progress || !state.world) throw new Error("progression_unavailable");
   const item = command.kind === "event" ? definition.events.find((e) => e.id === command.id) : definition.transitions.find((t) => t.id === command.id);
@@ -253,7 +223,8 @@ export function transitionProgressionWorld(world: NativeWorld, state: RuntimeSta
   } else if (previewChapterTransition(world, state, command.id).fingerprint !== command.previewFingerprint) throw new Error("chapter_transition_preview_stale");
   const minutes = state.world.minutes + item.minutes;
   if (!Number.isSafeInteger(minutes) || minutes > 52_560_000) throw new Error("world_time_limit_reached");
-  const next = cloneRuntimeState(state), nextProgress = next.world!.progression!;
+  const destination = world.locations.find((l) => l.passageId && l.passageId === item.passageId);
+  const next = world.people && (!destination || destination.id === state.world.locationId) ? advancePeopleTime(world, state, minutes, false) : cloneRuntimeState(state), nextProgress = next.world!.progression!;
   next.world!.minutes = minutes;
   if (command.kind === "event") {
     const event = item as NativeProgression["events"][number], old = Object.hasOwn(progress.events, event.id) ? progress.events[event.id] : undefined;
@@ -270,5 +241,49 @@ export function transitionProgressionWorld(world: NativeWorld, state: RuntimeSta
   const location = world.locations.find((l) => l.passageId && l.passageId === item.passageId);
   if (location) next.world!.locationId = location.id;
   revealProgressionEvents(world, next);
+  if (mandatoryEventStatus(world, next).conflict) throw new Error("people_mandatory_priority_conflict");
   return { state: next, message: item.result, ...(item.passageId ? { passageId: item.passageId } : {}) };
+}
+
+export function mandatoryEventStatus(world: NativeWorld, state: RuntimeState, ignore: Set<string> = new Set()): { eventId: string | null; conflict: boolean } {
+  const candidates = world.people?.events.filter((r) => r.mandatory && !ignore.has(r.eventId) && baseEventAvailability(world, state, r.eventId).enabled).sort((a, b) => b.priority - a.priority || (a.eventId < b.eventId ? -1 : a.eventId > b.eventId ? 1 : 0)) ?? [];
+  if (!candidates.length) return { eventId: null, conflict: false };
+  const conflict = candidates[1]?.priority === candidates[0]!.priority;
+  return { eventId: conflict ? null : candidates[0]!.eventId, conflict };
+}
+export function assertWorldActionAllowed(world: NativeWorld, state: RuntimeState, eventId?: string): void {
+  const pending = mandatoryEventStatus(world, state);
+  if (pending.conflict) throw new Error("people_mandatory_priority_conflict");
+  if (pending.eventId && pending.eventId !== eventId) throw new Error("people_mandatory_event_pending");
+}
+export function progressionEventAvailability(world: NativeWorld, state: RuntimeState, eventId: string) {
+  const availability = baseEventAvailability(world, state, eventId);
+  if (!availability.enabled || !world.people) return availability;
+  const pending = mandatoryEventStatus(world, state);
+  return pending.conflict ? { ...availability, enabled: false, reason: "Competing required encounters; author must resolve priorities" }
+    : pending.eventId && pending.eventId !== eventId ? { ...availability, enabled: false, reason: "Complete the required encounter first" } : availability;
+}
+/** Only waits may stop partway. Other stationary costs reject skipped required encounters atomically. */
+export function advancePeopleTime(world: NativeWorld, state: RuntimeState, end: number, waiting: boolean): RuntimeState {
+  const next = cloneRuntimeState(state);
+  if (!world.people) { next.world!.minutes = end; return next; }
+  const alreadyAvailable = new Set(world.people.events.filter((r) => r.mandatory && baseEventAvailability(world, state, r.eventId).enabled).map((r) => r.eventId));
+  for (const minute of peopleTimeBoundaries(world, state, end)) {
+    next.world!.minutes = minute;
+    revealProgressionEvents(world, next);
+    if (minute === end && !waiting) continue; // Effects commit at completion before final arbitration.
+    const pending = mandatoryEventStatus(world, next, alreadyAvailable);
+    if (pending.conflict) throw new Error("people_mandatory_priority_conflict");
+    if (pending.eventId) {
+      if (waiting) return next;
+      throw new Error("people_required_encounter_boundary_use_wait");
+    }
+  }
+  return next;
+}
+export function inspectWorldPresence(world: NativeWorld, state: RuntimeState) {
+  assertProgressionState(world, state); assertPeopleState(world, state);
+  const pending = mandatoryEventStatus(world, state);
+  return { present: presentCharacters(world, state), encounters: (world.progression?.events ?? [])
+    .map((e) => ({ id: e.id, label: e.label, ...progressionEventAvailability(world, state, e.id) })).filter((e) => e.visible), mandatory: pending };
 }

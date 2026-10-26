@@ -1,0 +1,126 @@
+[
+  {
+    "path": "apps/server/src/routes/connected-editing.ts",
+    "sha256": "cd71d963c084d3b6cdea8b3002ee1f2b0a9751fcfaef60434e14fa239b56b536"
+  },
+  {
+    "path": "apps/server/src/services/connected-game-service.ts",
+    "sha256": "439fef515e5d010624edc92d5428bdc16e76e2cdd0df073da290cc1758f7fee8"
+  },
+  {
+    "path": "apps/server/src/services/native-compilation-service.ts",
+    "sha256": "194fba20fb2f98075e0c2e6ebee5759df485f3d99feda777dfcbd656d174c7c5"
+  },
+  {
+    "path": "apps/server/src/services/publication-export-service.ts",
+    "sha256": "63cc04ca128956ddbf0bddc85ad581642dd0b52b729a255864039eb7f76b8f9b"
+  },
+  {
+    "path": "apps/server/src/services/world-service.ts",
+    "sha256": "d1f5845172862e3b4cd68ef082bc1e15c99c3b6749e6959878a408167a0d0310"
+  },
+  {
+    "path": "apps/server/test/connected-editing.test.ts",
+    "sha256": "5b4c783a6422346cf7c3639779ba689db90a59f79df5e5007bfb628bac252e77"
+  },
+  {
+    "path": "apps/server/test/people.test.ts",
+    "sha256": "54ba2918f05b0fc151bee231f03428772b8cd25f9b27483d1db05dd0e9d03012"
+  },
+  {
+    "path": "apps/web/src/features/player/WorldPanel.tsx",
+    "sha256": "61a5c0cd6c0a92495fc6d77fd6dbb8e890f1c2e4bb984d0a51f6243e958a2bde"
+  },
+  {
+    "path": "apps/web/src/features/workspace/PeopleEditor.tsx",
+    "sha256": "d823706a12ab2e60bd41104d543c063c4416990c12e5878ad88e46751e8d9627"
+  },
+  {
+    "path": "apps/web/src/features/workspace/ProgressionEditor.tsx",
+    "sha256": "60377bc37a538c2e4cb053c6c3391801e328e7cfcde3d263b8dc2e3351f8f7a6"
+  },
+  {
+    "path": "apps/web/src/features/workspace/WorldWorkspace.tsx",
+    "sha256": "6d5e7cb6857c20a7f79db24167ed8498a0b3aab52eab97d9b92c6ee2213f06ec"
+  },
+  {
+    "path": "apps/web/test/people.test.tsx",
+    "sha256": "d1ab58797cc03ee096465eb2e63b33d6ce3dfce19b4867977bbc849194d00560"
+  },
+  {
+    "path": "e2e/helpers/people.ts",
+    "sha256": "89d1170510ee0e68e186c3bdbf84cabdb0b4c1bf75d0845fd276fb450b9af684"
+  },
+  {
+    "path": "e2e/people.spec.ts",
+    "sha256": "ff0bb6cfdd76319b593d0b9d15e1e589e31eb45fb5c0245c423cd23455336f13"
+  },
+  {
+    "path": "packages/domain/src/index.ts",
+    "sha256": "ba8df822ae80f0964ba6e2d5964ed89e056edb2b7d91dd139ec06027de645f67"
+  },
+  {
+    "path": "packages/domain/src/world-definition.ts",
+    "sha256": "eba63cdd9f73eed316f3d000282c585ef6e5a8d912b3ce7dccd3b6ae06f67c3b"
+  },
+  {
+    "path": "packages/domain/src/world-people.ts",
+    "sha256": "185a7b712a555cd84e4bc43b1b042e83e3fb8ed9fc3400bf9ddbe20a650b3d2f"
+  },
+  {
+    "path": "packages/export-twine/src/native-twee.ts",
+    "sha256": "719e3ad4ab43edc9c1791d69184a8afeaffc15f4dec5b5283bb80631f8c152e5"
+  },
+  {
+    "path": "packages/persistence/src/world-validation.ts",
+    "sha256": "474800b9b84aa353876ac69bdcdf3a2b22ab25a4cde8835ab5b7974bb9b27157"
+  },
+  {
+    "path": "packages/pipeline/src/native-compilation.ts",
+    "sha256": "26747ddfc9d5b5da879107af9e0864e2dbaa75a80c03101c26f6ed9a36f4b113"
+  },
+  {
+    "path": "packages/runtime/src/index.ts",
+    "sha256": "a01c612294f23747d72bfef63ed2d66648473ea1f5569412baa3193d76456a9a"
+  },
+  {
+    "path": "packages/runtime/src/native-bundle.ts",
+    "sha256": "aeb147f7d6a93995cf96b8f3470d6e7ff1043813d9820a6808cf4ee4e47b5ae1"
+  },
+  {
+    "path": "packages/runtime/src/people.ts",
+    "sha256": "fa3fadd8fe23decfb325f5eb8fd18ed2caeeb6e0a3158cb86c12e0e2fab74844"
+  },
+  {
+    "path": "packages/runtime/src/player.ts",
+    "sha256": "0c3ced5925d86efe7ab25a2061964ca5214f6b5ba0e65ad784b71f1a285140c8"
+  },
+  {
+    "path": "packages/runtime/src/progression.ts",
+    "sha256": "bdd6bcf7c4e4e517108073220c00c5b0716d46e9c94be5e6c96b17fa075f9084"
+  },
+  {
+    "path": "packages/runtime/src/semantics.ts",
+    "sha256": "4f9c41eeea82f6e84401c363f36f5d51056e40ebf3ed83d4aa3e17c77212a73d"
+  },
+  {
+    "path": "packages/runtime/src/types.ts",
+    "sha256": "e810f9f9a81d0b971883360afe1a3279a805c7ece10655dd0512750249de5f56"
+  },
+  {
+    "path": "packages/runtime/src/world-conditions.ts",
+    "sha256": "06eee2e9c36891c678a55cdbb0816d2c1bc04bbdec5331ead8107a4b3d7dc598"
+  },
+  {
+    "path": "packages/runtime/src/world.ts",
+    "sha256": "ea91e809c679d95eec8dc86f8f217a9f269ba5a77d29fa500e1a0aa15af6180e"
+  },
+  {
+    "path": "packages/runtime/test/people-fixture.ts",
+    "sha256": "da51b8089cf5449fc8089d076032f3ca76d00a43dccb21f33c50d9d3788d3461"
+  },
+  {
+    "path": "packages/runtime/test/people.test.ts",
+    "sha256": "6a340876c5886b36939a325ab822a3bb03115f10be8f8c39a08a6e1b5aa659c2"
+  }
+]

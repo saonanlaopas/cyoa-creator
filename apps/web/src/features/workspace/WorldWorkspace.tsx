@@ -1,10 +1,11 @@
+import { PeopleEditor, PeopleSummary } from "./PeopleEditor.js";
 import { useEffect, useRef, useState } from "react";
 import { emptyWorld, WorldDefinitionSchema, type WorldDefinition } from "@story-to-cyoa/domain";
 import { loadPassagePlan, type PassagePlanState } from "../../api/passage-plan.js";
 import { assetPath, assetRequest, type AssetList, type AssetDetail } from "../../api/asset-library.js";
 import { WorldPanel } from "../player/WorldPanel.js";
 import { ProgressionEditor, ProgressionSummary } from "./ProgressionEditor.js";
-import { NativeWorldSchema, initialWorldState, projectWorldProgression, type NativeWorld, type RuntimeState } from "@story-to-cyoa/runtime";
+import { NativeWorldSchema, initialWorldState, projectWorldProgression, projectWorldPeople, type NativeWorld, type RuntimeState } from "@story-to-cyoa/runtime";
 import "../player/world.css";
 
 type Review = { fingerprint: string; world: WorldDefinition; previous: WorldDefinition | null; diagnostics?: { findings: Array<{ code: string; entityId: string; message: string }>; total: number; omitted: number; exhaustive: false } };
@@ -46,12 +47,16 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
   };
   if (!world) return <section aria-label="Locations and time">{error ? <p role="alert">{error}</p> : <p role="status">Loading…</p>}</section>;
   const locationOptions = (none = false) => <>{none && <option value="">None</option>}{world.locations.map((l) => <option key={l.id} value={l.id}>{l.name || l.id}</option>)}</>;
+  const peopleLocationReferences = (id: string) => [
+    ...(world.people?.schedules.flatMap((slot, i) => slot.locationId === id ? [`Schedule ${i + 1}`] : []) ?? []),
+    ...(world.people?.overrides.flatMap((o, i) => o.locationId === id || o.prerequisites.some((c) => c.kind === "location" && c.locationId === id) ? [`Story override ${i + 1}`] : []) ?? []),
+  ];
   const patchLocation = (index: number, patch: Partial<WorldDefinition["locations"][number]>) => edit({ ...world, locations: world.locations.map((l, i) => i === index ? { ...l, ...patch } : l) });
   const numeric = (value: number, change: (n: number) => void, max = 1440, min = 0) => <input type="number" min={min} max={max} step={1} value={value} onChange={(e) => change(Number(e.target.value))} />;
   const projection: NativeWorld | null = world.enabled && WorldDefinitionSchema.safeParse(world).success ? {
     schemaId: "cyoa.native-world", schemaVersion: 1, startLocationId: world.startLocationId!, initialMinutes: world.initialMinutes, waitMinutes: world.waitMinutes,
     locations: world.locations.map(({ passage, mapImage, ...l }) => ({ ...l, passageId: passage?.passageId ?? null, mapImage: mapImage?.versionId ?? null })),
-    connections: world.connections, actions: world.actions, ...(world.progression ? { progression: projectWorldProgression(world.progression) } : {}),
+    connections: world.connections, actions: world.actions, ...(world.progression ? { progression: projectWorldProgression(world.progression) } : {}), ...(world.people ? { people: projectWorldPeople(world.people) } : {}),
     assets: Object.values(images).filter((a) => world.locations.some((location) => location.mapImage?.versionId === a.id))
       .map((a) => ({ id: a.id, dataUrl: a.image.url, altText: a.content.metadata.altText, credit: a.content.metadata.credit, license: a.content.metadata.license })),
   } : null;
@@ -83,7 +88,8 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
             {l.marker && <><label>Marker X {i + 1}{numeric(l.marker.x, (x) => patchLocation(i, { marker: { ...l.marker!, x } }), 100)}</label><label>Marker Y {i + 1}{numeric(l.marker.y, (y) => patchLocation(i, { marker: { ...l.marker!, y } }), 100)}</label></>}</>}
           <label className="world-check"><input type="checkbox" checked={Boolean(l.hours)} onChange={(e) => patchLocation(i, { hours: e.target.checked ? { opens: 480, closes: 1320 } : null })} />Opening hours {i + 1}</label>
           {l.hours && <><label>Opens at minute {i + 1}{numeric(l.hours.opens, (opens) => patchLocation(i, { hours: { ...l.hours!, opens } }), 1439)}</label><label>Closes at minute {i + 1}{numeric(l.hours.closes, (closes) => patchLocation(i, { hours: { ...l.hours!, closes } }), 1439)}</label></>}
-          <button title={`Remove location ${i + 1}`} onClick={() => edit({ ...world, locations: world.locations.filter((_, j) => i !== j) })}>&times;</button>
+          <button title={`Remove location ${i + 1}`} disabled={peopleLocationReferences(l.id).length > 0} onClick={() => edit({ ...world, locations: world.locations.filter((_, j) => i !== j) })}>&times;</button>
+          {peopleLocationReferences(l.id).length > 0 && <p className="progression-dependencies">Clear these references before removing {l.name}: {peopleLocationReferences(l.id).join(", ")}. Remove or retarget the listed schedule/override controls.</p>}
         </div>)}
         <button disabled={world.locations.length >= 60} onClick={() => edit({ ...world, locations: [...world.locations, { id: crypto.randomUUID(), name: "", parentId: null, passage: null, mapImage: null, marker: null, hours: null }] })}>Add location</button>
         <button onClick={() => {
@@ -111,7 +117,8 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
         <h3>Waiting</h3><div className="world-row">{world.waitMinutes.map((minutes, i) => <label key={i}>Wait minutes {i + 1}{numeric(minutes, (n) => edit({ ...world, waitMinutes: world.waitMinutes.map((x, j) => j === i ? n : x) }), 1440, 1)}
           <button disabled={world.waitMinutes.length <= 1} title={`Remove wait ${i + 1}`} onClick={() => edit({ ...world, waitMinutes: world.waitMinutes.filter((_, j) => i !== j) })}>&times;</button></label>)}</div>
         <button disabled={world.waitMinutes.length >= 6} onClick={() => edit({ ...world, waitMinutes: [...world.waitMinutes, 30] })}>Add wait duration</button>
-        <ProgressionEditor progression={world.progression} locations={world.locations} passages={passages} onChange={(progression) => { const { progression: _old, ...base } = world; edit(progression ? { ...base, progression } : base); }} />
+        <ProgressionEditor progression={world.progression} locations={world.locations} passages={passages} people={world.people} onChange={(progression) => { const { progression: _old, ...base } = world; const next = progression ? { ...base, progression } : base; edit(world.people ? { ...next, people: { ...world.people, events: (progression?.events ?? []).map((e) => world.people!.events.find((r) => r.eventId === e.id) ?? { eventId: e.id, priority: 0, mandatory: false, characterIds: [] }) } } : next); }} />
+        <PeopleEditor world={world} onChange={(people) => { const { people: _old, ...base } = world; edit(people ? { ...base, people } : base); }} />
       </>}
       <button onClick={() => void inspect()}>Review world</button>
     </fieldset>
@@ -133,6 +140,7 @@ function WorldSummary({ world }: { world: WorldDefinition }) {
     {world.connections.map((c) => <p key={c.id}>{name(c.from)} → {name(c.to)} · {c.minutes} min</p>)}
     {world.actions.map((a) => <p key={a.id}>{name(a.locationId)} · {a.label} · {a.minutes} min · {a.result}</p>)}
     {world.progression && <ProgressionSummary progression={world.progression} locations={world.locations} />}
+    {world.people && <PeopleSummary world={world} />}
     <p>Wait: {world.waitMinutes.join(", ")} min</p>
   </div>;
 }

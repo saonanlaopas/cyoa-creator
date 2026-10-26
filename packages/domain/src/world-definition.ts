@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WorldPeopleSchema } from "./world-people.js";
 import { WorldProgressionSchema } from "./world-progression.js";
 import { SceneAssetReferenceSchema } from "./illustrated-scene.js";
 
@@ -7,6 +8,7 @@ const label = z.string().trim().min(1).max(200);
 export const WorldDefinitionSchema = z.object({
   schemaId: z.literal("cyoa.world-definition"), schemaVersion: z.literal(1),
   progression: WorldProgressionSchema.optional(),
+  people: WorldPeopleSchema.optional(),
   enabled: z.boolean(), startLocationId: id.nullable(),
   initialMinutes: z.number().int().min(0).max(52_560_000),
   waitMinutes: z.array(z.number().int().min(1).max(1440)).min(1).max(6),
@@ -23,7 +25,7 @@ export const WorldDefinitionSchema = z.object({
   const fail = (message: string) => ctx.addIssue({ code: "custom", message });
   if (new TextEncoder().encode(JSON.stringify(world)).byteLength > 48_000) fail("world_definition_byte_limit");
   if (!world.enabled) {
-    if (world.progression || world.startLocationId || world.locations.length || world.connections.length || world.actions.length) fail("disabled_world_must_clear_definitions");
+    if (world.people || world.progression || world.startLocationId || world.locations.length || world.connections.length || world.actions.length) fail("disabled_world_must_clear_definitions");
     return;
   }
   const locations = new Map(world.locations.map((l) => [l.id, l]));

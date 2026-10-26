@@ -1,12 +1,12 @@
-import { revealProgressionEvents } from "./progression.js";
+import { assertWorldActionAllowed, mandatoryEventStatus, revealProgressionEvents } from "./progression.js";
 import { z } from "zod";
 import { IllustratedPresentationSchema } from "./illustrated-scenes.js";
 import { NativeWorldSchema, WorldStateSchema, initialWorldState } from "./world.js";
 import { canonical, serializedBytes, stableFingerprint } from "./canonical.js";
 import { compiledRuntimeFingerprint } from "./compile.js";
 import {
-  applyRuntimeChoice,
   evaluateRuntimeChoice,
+  applyRuntimeChoice,
   initializeRuntimeState,
   listRuntimeChoices,
   resolveRuntimeTerminal,
@@ -497,8 +497,9 @@ export function currentNativePassage(game: LoadedNativeGame, state: RuntimeState
 }
 
 export function listNativeGameChoices(game: LoadedNativeGame, state: RuntimeState): NativeChoiceView[] {
+  const pending = game.bundle.world ? mandatoryEventStatus(game.bundle.world, state) : null;
   return listRuntimeChoices(game.runtime, state).map((availability) => ({
-    choice: game.choices.get(availability.choiceId)!, availability,
+    choice: game.choices.get(availability.choiceId)!, availability: pending?.eventId || pending?.conflict ? { ...availability, enabled: false, reason: "Complete the required encounter first" } : availability,
   }));
 }
 
@@ -511,7 +512,9 @@ export function evaluateNativeGameChoice(
   if (!choice) throw new NativeBundleValidationError([{
     code: "native.choice.missing", message: `Native choice ${choiceId} does not exist`, choiceId,
   }]);
-  return { choice, availability: evaluateRuntimeChoice(game.runtime, state, choiceId) };
+  const availability = evaluateRuntimeChoice(game.runtime, state, choiceId);
+  const pending = game.bundle.world ? mandatoryEventStatus(game.bundle.world, state) : null;
+  return { choice, availability: pending?.eventId || pending?.conflict ? { ...availability, enabled: false, reason: "Complete the required encounter first" } : availability };
 }
 
 export function chooseNativeGameChoice(
@@ -519,6 +522,7 @@ export function chooseNativeGameChoice(
   state: RuntimeState,
   choiceId: string,
 ): RuntimeChoiceTransition {
+  if (game.bundle.world) assertWorldActionAllowed(game.bundle.world, state);
   const transition = applyRuntimeChoice(game.runtime, game.bundle.source.inputFingerprint, state, choiceId, state.turn);
   if (transition.ok && game.bundle.world && transition.state.world) {
     const location = game.bundle.world.locations.find((l) => l.passageId === transition.state.currentPassageId);
@@ -527,7 +531,9 @@ export function chooseNativeGameChoice(
       transition.state.world.locationId = location.id;
     }
     revealProgressionEvents(game.bundle.world, transition.state);
+    if (mandatoryEventStatus(game.bundle.world, transition.state).conflict) throw new Error("people_mandatory_priority_conflict");
     for (const id of transition.state.world.progression?.knownEventIds ?? []) if (!state.world?.progression?.knownEventIds.includes(id)) transition.step.stateDelta.push({ path: `world.progression.knownEventIds.${id}`, before: false, after: true });
+    for (const id of transition.state.world.people?.knownCharacterIds ?? []) if (!state.world?.people?.knownCharacterIds.includes(id)) transition.step.stateDelta.push({ path: `world.people.knownCharacterIds.${id}`, before: false, after: true });
     transition.step.stateAfter = cloneRuntimeState(transition.state);
   }
   return transition;

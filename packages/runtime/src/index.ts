@@ -12,3 +12,5 @@ export * from "./illustrated-scenes.js";
 export * from "./world.js";
 
 export * from "./progression.js";
+
+export * from "./people.js";

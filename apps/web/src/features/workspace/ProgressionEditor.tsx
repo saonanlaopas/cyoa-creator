@@ -1,21 +1,22 @@
-import { emptyWorldProgression, type WorldProgression, type WorldDefinition } from "@story-to-cyoa/domain";
+import { emptyWorldProgression, type WorldProgression, type WorldDefinition, type WorldPeople } from "@story-to-cyoa/domain";
 import type { PassagePlanState } from "../../api/passage-plan.js";
 import { useId, type ReactNode } from "react";
 
 type Conditions = WorldProgression["events"][number]["prerequisites"];
 type Props = { progression: WorldProgression | undefined; onChange: (value: WorldProgression | undefined) => void;
-  locations: WorldDefinition["locations"]; passages: PassagePlanState["passages"] };
+  people?: WorldPeople; locations: WorldDefinition["locations"]; passages: PassagePlanState["passages"] };
 const toggle = (ids: string[], id: string, checked: boolean) => checked ? [...new Set([...ids, id])] : ids.filter((value) => value !== id);
-export function ProgressionEditor({ progression: p, onChange, locations, passages }: Props) {
+export function ProgressionEditor({ progression: p, onChange, locations, passages, people }: Props) {
   const options = (items: Array<{ id: string; name: string }>) => <><option value="">Select…</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name || "Untitled"}</option>)}</>;
   const passageSelect = (value: WorldProgression["events"][number]["passage"], change: (next: WorldProgression["events"][number]["passage"]) => void, label: string) => <label>{label}<select value={value?.passageId ?? ""} onChange={(e) => { const passage = passages.find((item) => item.entityId === e.target.value); change(passage ? { passageId: passage.entityId, versionId: passage.id } : null); }}><option value="">Stay in the current passage</option>{value && !passages.some((item) => item.entityId === value.passageId) && <option value={value.passageId}>Missing bound passage</option>}{passages.map((item) => <option value={item.entityId} key={item.entityId}>{item.content.title}</option>)}</select></label>;
   const number = (label: string, value: number, change: (value: number) => void) => <label>{label}<input type="number" min={0} max={1440} step={1} value={value} onChange={(e) => change(Number(e.target.value))} /></label>;
   return <section aria-label="Chapters and events"><h3>Chapters and events</h3>
-    <label className="world-check"><input type="checkbox" checked={Boolean(p)} onChange={(e) => {
+    <label className="world-check"><input type="checkbox" checked={Boolean(p)} disabled={Boolean(p) && Boolean(people?.overrides.some((o) => o.prerequisites.some((c) => c.kind === "chapter" || c.kind === "milestone")))} onChange={(e) => {
       if (!e.target.checked) { onChange(undefined); return; }
       const chapter = { id: crypto.randomUUID(), name: "Chapter 1", final: false };
       onChange({ ...emptyWorldProgression(), chapters: [chapter], initialChapterId: chapter.id });
     }} />Chapters and events enabled</label>
+    {p && people?.overrides.some((o) => o.prerequisites.some((c) => c.kind === "chapter" || c.kind === "milestone")) && <p>Clear chapter/milestone prerequisites in story overrides before disabling progression.</p>}
     {p && <>
       <p>Chapters are optional. Events are authored opportunities the player chooses to begin; reading and transition previews do not advance time.</p>
       <h4>Chapters</h4>
@@ -24,12 +25,12 @@ export function ProgressionEditor({ progression: p, onChange, locations, passage
       {p.chapters.map((chapter, i) => <div className="world-row" key={chapter.id}>
         <label>Chapter name {i + 1}<input maxLength={200} value={chapter.name} onChange={(e) => onChange({ ...p, chapters: p.chapters.map((c, j) => i === j ? { ...c, name: e.target.value } : c) })} /></label>
         <label className="world-check"><input type="checkbox" checked={chapter.final} onChange={(e) => onChange({ ...p, chapters: p.chapters.map((c, j) => i === j ? { ...c, final: e.target.checked } : c) })} />Final chapter {i + 1}</label>
-        <button aria-label={`Remove chapter ${i + 1}`} onClick={() => onChange({ ...p, chapters: p.chapters.filter((_, j) => i !== j), initialChapterId: p.initialChapterId === chapter.id ? null : p.initialChapterId })}>×</button>
+        <RemovalButton label={`Remove chapter ${i + 1}`} dependencies={people?.overrides.flatMap((o, j) => o.prerequisites.some((c) => c.kind === "chapter" && c.chapterId === chapter.id) ? [`Story override ${j + 1}: chapter prerequisite`] : []) ?? []} onRemove={() => onChange({ ...p, chapters: p.chapters.filter((_, j) => i !== j), initialChapterId: p.initialChapterId === chapter.id ? null : p.initialChapterId })}>×</RemovalButton>
       </div>)}
       <button disabled={p.chapters.length >= 20} onClick={() => { const id = crypto.randomUUID(); onChange({ ...p, chapters: [...p.chapters, { id, name: "", final: false }], initialChapterId: p.chapters.length ? p.initialChapterId : id }); }}>Add chapter</button>
       <h4>Named milestones</h4>
       {p.milestones.map((milestone, i) => {
-        const dependencies = [...p.events.flatMap((event, j) => [
+        const dependencies = [...(people?.overrides.flatMap((o, j) => o.prerequisites.some((c) => c.kind === "milestone" && c.milestoneId === milestone.id) ? [`Story override ${j + 1}: milestone prerequisite`] : []) ?? []), ...p.events.flatMap((event, j) => [
           ...(event.milestoneIds.includes(milestone.id) ? [`Event ${j + 1} (${event.label || "Untitled"}): milestone grant`] : []),
           ...(event.prerequisites.some((c) => c.kind === "milestone" && c.milestoneId === milestone.id) ? [`Event ${j + 1} (${event.label || "Untitled"}): prerequisite`] : []),
         ]), ...p.transitions.flatMap((transition, j) => [
@@ -78,12 +79,12 @@ export function ProgressionEditor({ progression: p, onChange, locations, passage
     </>}
   </section>;
 }
-function RemovalButton({ label, dependencies, onRemove, children }: { label: string; dependencies: string[]; onRemove: () => void; children: ReactNode }) {
+export function RemovalButton({ label, dependencies, onRemove, children, instructions = "Uncheck the grant, carry or expiry controls, or remove the listed prerequisites." }: { label: string; dependencies: string[]; onRemove: () => void; children: ReactNode; instructions?: string }) {
   const descriptionId = useId();
   return <><button aria-label={label} disabled={dependencies.length > 0} aria-describedby={dependencies.length ? descriptionId : undefined} onClick={onRemove}>{children}</button>
-    {dependencies.length > 0 && <p id={descriptionId} className="progression-dependencies">Clear these references before removal: {dependencies.join("; ")}. Uncheck the grant, carry or expiry controls, or remove the listed prerequisites.</p>}</>;
+    {dependencies.length > 0 && <p id={descriptionId} className="progression-dependencies">Clear these references before removal: {dependencies.join("; ")}. {instructions}</p>}</>;
 }
-function Prerequisites({ label, conditions, onChange, progression, locations }: { label: string; conditions: Conditions; onChange: (value: Conditions) => void; progression: WorldProgression; locations: Props["locations"] }) {
+export function Prerequisites({ label, conditions, onChange, progression, locations }: { label: string; conditions: Conditions; onChange: (value: Conditions) => void; progression: WorldProgression; locations: Props["locations"] }) {
   const defaults = (kind: Conditions[number]["kind"]): Conditions[number] => kind === "chapter" ? { kind, chapterId: progression.initialChapterId ?? "", current: true }
     : kind === "milestone" ? { kind, milestoneId: progression.milestones[0]?.id ?? "", achieved: true }
     : kind === "location" ? { kind, locationId: locations.find((l) => l.passage)?.id ?? "", present: true } : { kind, from: 0, until: null };

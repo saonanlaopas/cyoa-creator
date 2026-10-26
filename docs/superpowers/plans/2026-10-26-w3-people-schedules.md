@@ -1,0 +1,9 @@
+# W3 implementation plan
+
+Authorized accepted base: `5258223a156cb01a92a56fc02e96518f0e7e6a41`, branch `codex/w1-locations-time`, clean at start. This supersedes older saved acceptance notes. W3 delivery remains subject to independent review; W4 is not authorized.
+
+Add an optional versioned people extension to the existing world aggregate/native bundle and discovered-character save state. Use weekly integer-time slots with midnight/week wrap, condition-driven prioritized overrides, and explicit priorities/required flags/presence selections for existing W2 events. Derive presence at arrival/effects and relevant boundaries; hide future placements from player projections. Stop waiting at the first required encounter, guard all confirmed action paths, reject unresolved ties and reject skipped stationary mandatory boundaries atomically.
+
+Keep read/review/apply shared between Creator and MCP; add read-only presence inspection. Reuse exact world history, receipts, compilation, archives/backups/duplication and offline native export paths. Preserve absent-extension compatibility and accepted illustrated CSS/assertion. Provide structured authoring, summaries, reference deletion guards and safe player confirmation/availability.
+
+Validate deterministic boundaries, overnight/week wrap, transient discovery, priorities/conflicts, overrides, arrival, trace deltas, save/replay, authoring concurrency/retry/rollback, actual MCP SDK transport, portable history and actual Creator + standalone/static packages at desktop/mobile widths. Use deterministic offline fixtures; no paid calls/subagents. Run lint, typecheck, build, full units and matching-Chromium browser suite sequentially; normal commit/push, verify local/remote equality and exact-head CI, publish committed report/screenshots, then stop for independent review.

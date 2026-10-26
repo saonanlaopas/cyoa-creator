@@ -1,0 +1,60 @@
+{
+  "base": "5258223a156cb01a92a56fc02e96518f0e7e6a41",
+  "branch": "codex/w1-locations-time",
+  "reviewTarget": "The commit containing this file; exact head and CI URL are pinned in the delivery message.",
+  "environment": {
+    "node": "24.19.0",
+    "pnpm": "11.9.0",
+    "playwright": "1.62.0",
+    "chromium": "151.0.7922.34",
+    "revision": 1234,
+    "workers": 1,
+    "fixtures": "deterministic offline"
+  },
+  "checks": [
+    {
+      "command": "pnpm lint",
+      "exit": 0,
+      "evidenceLog": "final-lint.log",
+      "logSha256": "b573aa02e705c95f826b33b227a59155eb7f80792e7d9e40419f51f570e1699c"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit": 0,
+      "evidenceLog": "final-typecheck.log",
+      "logSha256": "a4e4e2dc73c155c05207396d95cfb2899e536154947c06ca308ac50e402a4ad3"
+    },
+    {
+      "command": "pnpm build",
+      "exit": 0,
+      "evidenceLog": "final-build.log",
+      "logSha256": "676e52ec660d1f707150389012168138e184613eec059fa2dc8d8e718c57191d"
+    },
+    {
+      "command": "pnpm test",
+      "exit": 0,
+      "evidenceLog": "final-unit-recheck.log",
+      "logSha256": "7f1be1e2893c994c00b78e52185da25c4a5d0674dc133fc076adcbeeefbb930b"
+    },
+    {
+      "command": "pnpm test:e2e --workers=1 --trace=on",
+      "exit": 0,
+      "evidenceLog": "final-browser.log",
+      "logSha256": "38fc4ba8a6df52dbe415e611f87b5dd75747e593986ceb488f921a20f6245d07"
+    }
+  ],
+  "unit": {
+    "filesPassed": 153,
+    "testsPassed": 1443,
+    "failed": 0
+  },
+  "browser": {
+    "passed": 47,
+    "failed": 0,
+    "skipped": 0
+  },
+  "protectedFiles": "protected-files.json",
+  "sourceFiles": "source-manifest.json",
+  "screenshots": "screenshots.json",
+  "acceptance": "Pending independent review; no W4 work."
+}

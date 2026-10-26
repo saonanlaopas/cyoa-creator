@@ -16,7 +16,7 @@ import {
   IllustratedPresentationSchema,
   type IllustratedPresentation,
   type NativeGameBundle,
-  NativeWorldSchema, type NativeWorld, initialWorldState, projectWorldProgression,
+  NativeWorldSchema, type NativeWorld, initialWorldState, projectWorldProgression, projectWorldPeople,
   type RuntimeMechanicDefinition,
   type RuntimeCompileSource,
 } from "@story-to-cyoa/runtime";
@@ -288,7 +288,7 @@ export function assertResolvedNativeCompilationInput(
         const expectedLocations = world.content.locations.map(({ passage, mapImage, ...l }) => ({ ...l, passageId: passage?.passageId ?? null, mapImage: mapImage?.versionId ?? null }));
         if (stableFingerprint({ ...world.presentation, assets: [] }) !== stableFingerprint({ schemaId: "cyoa.native-world", schemaVersion: 1,
           startLocationId: world.content.startLocationId, initialMinutes: world.content.initialMinutes, waitMinutes: world.content.waitMinutes,
-          locations: expectedLocations, connections: world.content.connections, actions: world.content.actions, assets: [], ...(world.content.progression ? { progression: projectWorldProgression(world.content.progression) } : {}) })) throw new Error("native_world_projection_invalid");
+          locations: expectedLocations, connections: world.content.connections, actions: world.content.actions, assets: [], ...(world.content.progression ? { progression: projectWorldProgression(world.content.progression) } : {}), ...(world.content.people ? { people: projectWorldPeople(world.content.people) } : {}) })) throw new Error("native_world_projection_invalid");
       }
     }
     if (Boolean(exact.illustrations) !== Boolean(resolved.illustrations)) throw new Error("native_illustration_lineage_invalid");
