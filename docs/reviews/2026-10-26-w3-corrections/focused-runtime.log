@@ -1,0 +1,15 @@
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| packages/runtime/test/people-review-regressions.test.ts (8 tests) 868ms
+ ✓ |0| packages/runtime/test/progression.test.ts (32 tests) 2342ms
+   ✓ W2 deterministic chapters and events > executes valid inherited-name transition toString, saves it and increments its own ledger on repeat  345ms
+ ✓ |0| packages/runtime/test/people.test.ts (33 tests) 1600ms
+   ✓ W3 authored people and deterministic encounter boundaries > stops a long wait at midnight, requires the highest-priority encounter first, and replays/saves exactly  319ms
+ ✓ |0| packages/runtime/test/world.test.ts (29 tests) 597ms
+
+ Test Files  4 passed (4)
+      Tests  102 passed (102)
+   Start at  11:15:22
+   Duration  4.44s (transform 441ms, setup 0ms, collect 1.05s, tests 5.41s, environment 1ms, prepare 363ms)

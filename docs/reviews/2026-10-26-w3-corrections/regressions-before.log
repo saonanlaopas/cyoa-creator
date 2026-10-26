@@ -1,0 +1,76 @@
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ❯ |0| packages/runtime/test/people-review-regressions.test.ts (8 tests | 5 failed) 376ms
+   × W3 independent review regressions > finishes a confirmed required encounter before arbitrating a newly eligible priority 10 encounter 106ms
+     → people_required_encounter_boundary_use_wait
+   × W3 independent review regressions > finishes a confirmed required encounter before arbitrating a newly eligible priority 30 encounter 102ms
+     → people_required_encounter_boundary_use_wait
+   × W3 independent review regressions > observes event completion only after effects hide a scheduled person and encounter 38ms
+     → expected [ 'mara' ] to not include 'mara'
+   × W3 independent review regressions > observes chapter-transition completion only after effects hide a scheduled person and encounter 29ms
+     → expected [ 'mara' ] to not include 'mara'
+   ✓ W3 independent review regressions > still discovers an actually present person at action completion 24ms
+   ✓ W3 independent review regressions > still discovers an actually present person at event completion 30ms
+   ✓ W3 independent review regressions > still discovers an actually present person at chapter-transition completion 28ms
+   × W3 independent review regressions > does not call temporary mandatory blocking a transition loss, and the opportunity returns after the required event 18ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |0| packages/runtime/test/people-review-regressions.test.ts > W3 independent review regressions > finishes a confirmed required encounter before arbitrating a newly eligible priority 10 encounter
+ FAIL  |0| packages/runtime/test/people-review-regressions.test.ts > W3 independent review regressions > finishes a confirmed required encounter before arbitrating a newly eligible priority 30 encounter
+Error: people_required_encounter_boundary_use_wait
+ ❯ advancePeopleTime packages/runtime/src/progression.ts:279:13
+    277|     if (pending.eventId) {
+    278|       if (waiting) return next;
+    279|       throw new Error("people_required_encounter_boundary_use_wait");
+       |             ^
+    280|     }
+    281|   }
+ ❯ transitionProgressionWorld packages/runtime/src/progression.ts:227:94
+ ❯ transitionWorld packages/runtime/src/world.ts:72:81
+ ❯ actNativePlayerWorld packages/runtime/src/player.ts:458:22
+ ❯ Object.act packages/runtime/test/progression-fixture.ts:27:67
+ ❯ packages/runtime/test/people-review-regressions.test.ts:17:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |0| packages/runtime/test/people-review-regressions.test.ts > W3 independent review regressions > observes event completion only after effects hide a scheduled person and encounter
+ FAIL  |0| packages/runtime/test/people-review-regressions.test.ts > W3 independent review regressions > observes chapter-transition completion only after effects hide a scheduled person and encounter
+AssertionError: expected [ 'mara' ] to not include 'mara'
+ ❯ packages/runtime/test/people-review-regressions.test.ts:43:65
+     41|     expect(finished.state.world!.minutes).toBe(1435);
+     42|     expect(presentCharacters(f.world, finished.state)).toEqual([]);
+     43|     expect(finished.state.world!.people!.knownCharacterIds).not.toCont…
+       |                                                                 ^
+     44|     expect(finished.state.world!.progression!.knownEventIds).not.toCon…
+     45|     expect(progressionEventAvailability(f.world, finished.state, "hell…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |0| packages/runtime/test/people-review-regressions.test.ts > W3 independent review regressions > does not call temporary mandatory blocking a transition loss, and the opportunity returns after the required event
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ packages/runtime/test/people-review-regressions.test.ts:72:69
+     70|     const initial = f.refresh(), before = structuredClone(initial), pr…
+     71|     expect(progressionEventAvailability(f.world, initial.state, "hello…
+     72|     expect(preview.lostOpportunities.some((e) => e.id === "hello")).to…
+       |                                                                     ^
+     73|     expect(initial).toEqual(before);
+     74|     const next = f.act(initial, { kind: "chapter-transition", id: "nex…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 3 passed (8)
+   Start at  11:14:49
+   Duration  1.02s (transform 272ms, setup 0ms, collect 381ms, tests 376ms, environment 0ms, prepare 70ms)

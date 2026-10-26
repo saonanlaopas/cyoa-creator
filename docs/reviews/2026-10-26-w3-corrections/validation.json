@@ -1,0 +1,63 @@
+{
+  "reviewedBase": "ca6f4c94fb1ddbcc558dea48818b6e58866b3e9d",
+  "acceptedW2Base": "5258223a156cb01a92a56fc02e96518f0e7e6a41",
+  "reviewTarget": "The commit containing this report; delivery pins full SHA and exact-head CI.",
+  "environment": {
+    "node": "24.19.0",
+    "pnpm": "11.9.0",
+    "playwright": "1.62.0",
+    "chromium": "151.0.7922.34",
+    "revision": 1234,
+    "browserWorkers": 1,
+    "fixtures": "deterministic offline"
+  },
+  "beforeFix": {
+    "casesFailed": 5,
+    "positiveControlsPassed": 3,
+    "log": "regressions-before.log"
+  },
+  "focusedRuntimeTestsPassed": 102,
+  "checks": [
+    {
+      "command": "pnpm lint",
+      "exit": 0,
+      "log": "lint.log",
+      "logSha256": "b573aa02e705c95f826b33b227a59155eb7f80792e7d9e40419f51f570e1699c"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit": 0,
+      "log": "typecheck.log",
+      "logSha256": "b6bc52c25d7caf4500d836d6085b6e01e44fa00e14e2bcd35156b4040d87ac84"
+    },
+    {
+      "command": "pnpm build",
+      "exit": 0,
+      "log": "build.log",
+      "logSha256": "3af533230dd444ce7282025c77fc2130bf16b29617deac4dcb2fd5c91fd4e99a"
+    },
+    {
+      "command": "pnpm test",
+      "exit": 0,
+      "log": "unit.log",
+      "logSha256": "8ef77fe71b172d5fe1bfc9fa6a6e6831d8b1be1dbb5650de155017979aa8a4a4"
+    },
+    {
+      "command": "pnpm test:e2e --workers=1 --trace=on",
+      "exit": 0,
+      "log": "browser.log",
+      "logSha256": "cf187d7992f4907797af1c13487e5cec1eaaadd49a0914c909367de91cbade5b"
+    }
+  ],
+  "fullUnit": {
+    "filesPassed": 154,
+    "testsPassed": 1451,
+    "failed": 0
+  },
+  "fullBrowser": {
+    "passed": 48,
+    "failed": 0,
+    "skipped": 0
+  },
+  "acceptance": "W3 pending independent review; W4 paused."
+}

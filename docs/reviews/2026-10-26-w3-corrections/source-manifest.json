@@ -1,0 +1,18 @@
+[
+  {
+    "path": "packages/runtime/src/progression.ts",
+    "sha256": "5999df49c7617c8c3f9d957d82775d94fe26eb9000e4002ddbb97777215c212a"
+  },
+  {
+    "path": "packages/runtime/test/people-review-regressions.test.ts",
+    "sha256": "8ecb0fa3067d3cefba8ca715d68303fd1e92533cb81a5903c17408a9f1249ba3"
+  },
+  {
+    "path": "e2e/people-review.spec.ts",
+    "sha256": "55005f346efa8bf51941a626b6638953616440861fbcb684bf45d6e5acce2219"
+  },
+  {
+    "path": "docs/people-and-schedules.md",
+    "sha256": "aca62b58136b7a2c6496abff1c1d7b7950d97d875d16b82e3020419d1696ad28"
+  }
+]

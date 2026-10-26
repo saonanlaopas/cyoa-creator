@@ -201,7 +201,7 @@ export function previewChapterTransition(world: NativeWorld, state: RuntimeState
     if (!known) continue;
     if (transition.expireEventIds.includes(event.id)) lostOpportunities.push({ id: event.id, label: event.label, reason: "Authored expiry at this transition", permanent: true });
     else if (event.prerequisites.some((condition) => prerequisitesMet([condition], state) && !prerequisitesMet([condition], next))) lostOpportunities.push({ id: event.id, label: event.label, reason: "A prerequisite is lost at this transition", permanent: false });
-    else if (progressionEventAvailability(world, state, event.id).enabled && !progressionEventAvailability(world, next, event.id).enabled) lostOpportunities.push({ id: event.id, label: event.label, reason: encounterPeoplePresent(world, next, event.id) ? "Repeat rule prevents replay in the destination chapter" : "Encounter is no longer available", permanent: false });
+    else if (baseEventAvailability(world, state, event.id).enabled && !baseEventAvailability(world, next, event.id).enabled) lostOpportunities.push({ id: event.id, label: event.label, reason: encounterPeoplePresent(world, next, event.id) ? "Repeat rule prevents replay in the destination chapter" : "Encounter is no longer available", permanent: false });
   }
   const preview = { transitionId, fromChapter: definition.chapters.find((c) => c.id === transition.fromChapterId)!.name,
     toChapter: definition.chapters.find((c) => c.id === transition.toChapterId)!.name,
@@ -224,7 +224,7 @@ export function transitionProgressionWorld(world: NativeWorld, state: RuntimeSta
   const minutes = state.world.minutes + item.minutes;
   if (!Number.isSafeInteger(minutes) || minutes > 52_560_000) throw new Error("world_time_limit_reached");
   const destination = world.locations.find((l) => l.passageId && l.passageId === item.passageId);
-  const next = world.people && (!destination || destination.id === state.world.locationId) ? advancePeopleTime(world, state, minutes, false) : cloneRuntimeState(state), nextProgress = next.world!.progression!;
+  const next = world.people && (!destination || destination.id === state.world.locationId) ? advancePeopleTime(world, state, minutes, false, command.kind === "event" ? command.id : undefined) : cloneRuntimeState(state), nextProgress = next.world!.progression!;
   next.world!.minutes = minutes;
   if (command.kind === "event") {
     const event = item as NativeProgression["events"][number], old = Object.hasOwn(progress.events, event.id) ? progress.events[event.id] : undefined;
@@ -263,15 +263,17 @@ export function progressionEventAvailability(world: NativeWorld, state: RuntimeS
   return pending.conflict ? { ...availability, enabled: false, reason: "Competing required encounters; author must resolve priorities" }
     : pending.eventId && pending.eventId !== eventId ? { ...availability, enabled: false, reason: "Complete the required encounter first" } : availability;
 }
-/** Only waits may stop partway. Other stationary costs reject skipped required encounters atomically. */
-export function advancePeopleTime(world: NativeWorld, state: RuntimeState, end: number, waiting: boolean): RuntimeState {
+/** Confirmed required encounters finish atomically; only waits may stop partway. */
+export function advancePeopleTime(world: NativeWorld, state: RuntimeState, end: number, waiting: boolean, completingEventId?: string): RuntimeState {
   const next = cloneRuntimeState(state);
   if (!world.people) { next.world!.minutes = end; return next; }
   const alreadyAvailable = new Set(world.people.events.filter((r) => r.mandatory && baseEventAvailability(world, state, r.eventId).enabled).map((r) => r.eventId));
+  const completingMandatory = !waiting && completingEventId !== undefined && mandatoryEventStatus(world, state).eventId === completingEventId;
   for (const minute of peopleTimeBoundaries(world, state, end)) {
     next.world!.minutes = minute;
-    revealProgressionEvents(world, next);
     if (minute === end && !waiting) continue; // Effects commit at completion before final arbitration.
+    revealProgressionEvents(world, next);
+    if (completingMandatory) continue; // New encounters arbitrate after this confirmed encounter's effects.
     const pending = mandatoryEventStatus(world, next, alreadyAvailable);
     if (pending.conflict) throw new Error("people_mandatory_priority_conflict");
     if (pending.eventId) {

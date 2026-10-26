@@ -1,0 +1,30 @@
+[
+  {
+    "path": "w3-review-standalone-completion-390.png",
+    "sha256": "a93eafa5a7bc926cd81d91bac9e2042bcd88792427b1797609001eef797f52be",
+    "width": 390,
+    "height": 1822,
+    "unedited": true
+  },
+  {
+    "path": "w3-review-static-completion-1280.png",
+    "sha256": "6d85580c54911987c4441e969531eae50be5f8952d8cb68a4da0e379e83d3377",
+    "width": 1280,
+    "height": 1231,
+    "unedited": true
+  },
+  {
+    "path": "w3-review-standalone-preview-1280.png",
+    "sha256": "8f7ba8430c5b4e3191203e0be4b292f02b6527b5238da9fe55cde2d7f7ba8803",
+    "width": 1280,
+    "height": 1139,
+    "unedited": true
+  },
+  {
+    "path": "w3-review-static-preview-390.png",
+    "sha256": "88663e0ea2a32f64a75545da9f240df7d9e61ce0cc6bec78cb1837c72f5dbf02",
+    "width": 390,
+    "height": 1740,
+    "unedited": true
+  }
+]
