@@ -1,0 +1,13 @@
+.world-views nav { display: flex; flex-wrap: wrap; gap: .5rem; margin-block: .75rem; }
+.world-views nav button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; min-height: 2.75rem; }
+.world-views nav button[aria-pressed="true"] { border-color: #e6b65f; }
+.world-view-context { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .75rem; }
+.world-views article { display: grid; gap: .5rem; margin-block: 1rem; border: 1px solid #394352; border-radius: .5rem; padding: .75rem; background: #11151e; color: #f4efe7; }
+.world-views article h5, .world-views article p { margin: 0; }
+.world-views article h5 { font: inherit; font-weight: 700; }
+.world-views h3:focus { outline: 2px solid #e6b65f; outline-offset: 3px; }
+.world-views dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; }
+.journal-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.journal-editor fieldset { min-width: 0; margin-block: .8rem; }
+.journal-editor label { overflow-wrap: anywhere; }
+.world-editor .journal-editor .world-row > button { width: auto; height: auto; min-height: 2.75rem; padding: .5rem; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }

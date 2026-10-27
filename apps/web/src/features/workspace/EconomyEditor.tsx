@@ -44,7 +44,7 @@ export function EconomyEditor({ world, onChange }: { world: WorldDefinition; onC
   };
   return <section className="economy-editor" aria-label="Inventory and shops authoring"><h3>Inventory and shops</h3>
     <label className="world-check"><input type="checkbox" checked={true} disabled={hasEconomyPredicates(world)} onChange={() => onChange(undefined)} />Inventory and shops enabled</label>
-    {hasEconomyPredicates(world) && <p>Clear item/relationship prerequisites in events, transitions and story overrides before disabling inventory.</p>}
+    {hasEconomyPredicates(world) && <p>Clear item/relationship prerequisites in events, transitions story overrides and journal item triggers before disabling inventory.</p>}
     <p>One integer currency, counted items and finite stock. Costs and effects commit together. Relationship changes use the scales configured in Mechanics and must stay within their limits.</p>
     <h4>Currency</h4><div className="world-row">{text("Currency name", e.currency.name, (name) => onChange({ ...e, currency: { ...e.currency, name } }))}{number("Starting currency", e.currency.initial, (initial) => onChange({ ...e, currency: { ...e.currency, initial } }))}{number("Maximum currency", e.currency.maximum, (maximum) => onChange({ ...e, currency: { ...e.currency, maximum } }))}</div>
     <h4>Items</h4>{items.map((v, i) => { const patch = (next: Partial<typeof v>) => onChange({ ...e, items: items.map((r, j) => i === j ? { ...r, ...next } : r) }); return <fieldset key={v.id}><legend>Item {i + 1}</legend><div className="world-row">

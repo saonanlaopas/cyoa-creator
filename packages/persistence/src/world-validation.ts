@@ -1,5 +1,5 @@
 import { WorldDefinitionSchema, ImageAssetSchema, LongFormMechanicsPlanSchema } from "@story-to-cyoa/domain";
-import { NativeProgressionSchema, projectWorldProgression, projectWorldPeople, validatePeopleReferences, validateEconomyReferences, projectWorldEconomy } from "@story-to-cyoa/runtime";
+import { NativeProgressionSchema, projectWorldProgression, projectWorldPeople, validatePeopleReferences, projectWorldJournal, validateJournalReferences, validateEconomyReferences, projectWorldEconomy } from "@story-to-cyoa/runtime";
 import type { StoryDatabase } from "./database.js";
 
 export function validateWorld(database: StoryDatabase, projectId: string, value: unknown, historical = false) {
@@ -8,12 +8,12 @@ export function validateWorld(database: StoryDatabase, projectId: string, value:
   if (world.people) validatePeopleReferences(projectWorldPeople(world.people), world.progression ? projectWorldProgression(world.progression) : undefined, world.locations.map((l) => ({ id: l.id, passageId: l.passage?.passageId ?? null })));
   const progression = world.progression ? projectWorldProgression(world.progression) : undefined, people = world.people ? projectWorldPeople(world.people) : undefined;
   const locations = world.locations.map((l) => ({ id: l.id, passageId: l.passage?.passageId ?? null }));
-  if (world.economy) {
+  if (world.economy || world.journal) {
     // Current writes bind to current mechanics; retained history may use any retained canonical version.
     const rows = database.prepare("SELECT content_json FROM artifact_versions WHERE project_id=? AND artifact_id='mechanics' ORDER BY version DESC" + (historical ? "" : " LIMIT 1")).all(projectId) as { content_json: string }[];
     let valid = false, failure: unknown;
     for (const row of rows.length ? rows : [{ content_json: JSON.stringify({ title: "No mechanics" }) }]) {
-      try { const mechanics = LongFormMechanicsPlanSchema.parse(JSON.parse(row.content_json)); validateEconomyReferences(projectWorldEconomy(world.economy, mechanics.relationships), progression, people, locations); valid = true; break; } catch (e) { failure = e; }
+      try { const mechanics = LongFormMechanicsPlanSchema.parse(JSON.parse(row.content_json)); validateEconomyReferences(world.economy ? projectWorldEconomy(world.economy, mechanics.relationships) : undefined, progression, people, locations); validateJournalReferences({ journal: world.journal ? projectWorldJournal(world.journal, mechanics) : undefined, progression, economy: world.economy ? projectWorldEconomy(world.economy, mechanics.relationships) : undefined, locations }); valid = true; break; } catch (e) { failure = e; }
     }
     if (!valid) throw failure;
   } else validateEconomyReferences(undefined, progression, people, locations);

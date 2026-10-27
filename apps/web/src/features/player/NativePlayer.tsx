@@ -40,6 +40,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
   route: NativePlayerRoute;
   storage?: NativePlayerStorage;
 }) {
+  const [worldView, setWorldView] = useState("explore");
   const [storage] = useState<NativePlayerStorage>(() => suppliedStorage ?? new IndexedDbNativePlayerStorage());
   const [installation, setInstallation] = useState<NativePlayerInstallation | null>(null);
   const [session, setSession] = useState<NativePlayerSession | null>(null);
@@ -269,6 +270,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
   </main>;
 
   const view = nativePlayerView(installation.bundle, installation.config, session);
+  const secondaryView = Boolean(installation.bundle.world?.journal) && worldView !== "explore";
   const canRewind = canRewindNativePlayerSession(installation.bundle, installation.config, session);
 
   return <main id="main-content" className="native-player-shell" tabIndex={-1}>
@@ -278,12 +280,12 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
           <p className="eyebrow">{view.terminal.result ? "Ending" : `Turn ${session.state.turn + 1}`}</p>
           <h1 ref={headingRef} tabIndex={-1}>{view.passage.presentation.title}</h1>
         </header>
-        {installation.bundle.world && <WorldPanel world={installation.bundle.world} state={session.state} disabled={busy || recoveryRequired || Boolean(view.terminal.result)} onAction={(command, label, preview) => setWorldAction({ command, label, ...(preview ? { preview } : {}) })} />}
-        {installation.bundle.illustratedPresentation && <IllustratedScene presentation={installation.bundle.illustratedPresentation} passageId={view.passage.id} />}
-        <div className="native-player-prose">
+        {installation.bundle.world && <WorldPanel world={installation.bundle.world} state={session.state} onViewChange={setWorldView} disabled={busy || recoveryRequired || Boolean(view.terminal.result)} onAction={(command, label, preview) => setWorldAction({ command, label, ...(preview ? { preview } : {}) })} />}
+        {!secondaryView && installation.bundle.illustratedPresentation && <IllustratedScene presentation={installation.bundle.illustratedPresentation} passageId={view.passage.id} />}
+        {!secondaryView && <div className="native-player-prose">
           {paragraphs(view.passage.proseMarkdown).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
-        </div>
-        {actionOutcome && <section className="native-player-prose" aria-label="Action outcome" aria-live="polite">
+        </div>}
+        {!secondaryView && actionOutcome && <section className="native-player-prose" aria-label="Action outcome" aria-live="polite">
           {paragraphs(actionOutcome).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
         </section>}
         {recoveryRequired && <section className="native-player-recovery" aria-label="Save recovery">
@@ -295,7 +297,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
           </div>
         </section>}
         {view.terminal.result && <p className="native-player-ending" role="status">This ending is complete.</p>}
-        {!view.terminal.result && <section className="native-player-choices" aria-label="Choices">
+        {!secondaryView && !view.terminal.result && <section className="native-player-choices" aria-label="Choices">
           {view.choices.map(({ choice, availability }) => <button
             key={choice.id}
             disabled={busy || recoveryRequired || !availability.enabled}
@@ -310,7 +312,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
       </article>
 
       <aside className="native-player-sidebar" aria-label="Game status and saves">
-        {view.visibleState.length > 0 && <section className="native-player-state">
+        {!installation.bundle.world?.journal && view.visibleState.length > 0 && <section className="native-player-state">
           <h2>Status</h2>
           <dl>{view.visibleState.map((item) => <div key={item.key}>
             <dt>{item.label}</dt><dd>{item.value}{item.bandLabel ? ` · ${item.bandLabel}` : ""}</dd>

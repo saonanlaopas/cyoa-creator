@@ -1,3 +1,5 @@
+import { NativeJournalSchema, JournalStateSchema, initialJournalState } from "./journal-schema.js";
+import { validateJournalReferences, assertJournalState } from "./journal.js";
 import { NativeEconomySchema, EconomyStateSchema } from "./economy-schema.js";
 import { initialEconomyState, validateEconomyReferences, assertEconomyState, transitionEconomyWorld, type EconomyCommand } from "./economy.js";
 import { NativePeopleSchema, PeopleStateSchema, validatePeopleReferences, assertPeopleState } from "./people.js";
@@ -9,11 +11,11 @@ import type { RuntimeState } from "./types.js";
 
 const id = z.string().min(1).max(200), label = z.string().min(1).max(200);
 export const WorldStateSchema = z.object({ schemaVersion: z.literal(1), locationId: id,
-  progression: ProgressionStateSchema.optional(), people: PeopleStateSchema.optional(), economy: EconomyStateSchema.optional(),
+  progression: ProgressionStateSchema.optional(), people: PeopleStateSchema.optional(), economy: EconomyStateSchema.optional(), journal: JournalStateSchema.optional(),
   minutes: z.number().int().min(0).max(52_560_000), stationaryTurns: z.number().int().min(0).max(1_000_000).optional() }).strict();
 export const NativeWorldSchema = z.object({
   schemaId: z.literal("cyoa.native-world"), schemaVersion: z.literal(1),
-  progression: NativeProgressionSchema.optional(), people: NativePeopleSchema.optional(), economy: NativeEconomySchema.optional(),
+  progression: NativeProgressionSchema.optional(), people: NativePeopleSchema.optional(), economy: NativeEconomySchema.optional(), journal: NativeJournalSchema.optional(),
   startLocationId: id, initialMinutes: z.number().int().min(0).max(52_560_000),
   waitMinutes: z.array(z.number().int().min(1).max(1440)).min(1).max(6),
   locations: z.array(z.object({ id, name: label, parentId: id.nullable(), passageId: id.nullable(), mapImage: id.nullable(),
@@ -26,6 +28,7 @@ export const NativeWorldSchema = z.object({
 }).strict().superRefine((world, ctx) => {
   if (world.people) { try { validatePeopleReferences(world.people, world.progression, world.locations); } catch (e) { ctx.addIssue({ code: "custom", message: (e as Error).message }); } }
   try { validateEconomyReferences(world.economy, world.progression, world.people, world.locations); } catch (e) { ctx.addIssue({ code: "custom", message: (e as Error).message }); }
+  try { validateJournalReferences(world); } catch (e) { ctx.addIssue({ code: "custom", message: (e as Error).message }); }
   const fail = () => ctx.addIssue({ code: "custom", message: "world_definition_invalid" });
   const locations = new Map(world.locations.map((l) => [l.id, l]));
   for (const list of [world.locations, world.connections, world.actions, world.assets]) if (new Set(list.map((x) => x.id)).size !== list.length) fail();
@@ -49,8 +52,8 @@ export const NativeWorldSchema = z.object({
 export type NativeWorld = z.infer<typeof NativeWorldSchema>;
 export type WorldCommand = EconomyCommand | ProgressionCommand | { kind: "travel"; id: string } | { kind: "action"; id: string } | { kind: "wait"; minutes: number };
 export function initialWorldState(world: NativeWorld): NonNullable<RuntimeState["world"]> {
-  const state: NonNullable<RuntimeState["world"]> = { schemaVersion: 1, locationId: world.startLocationId, minutes: world.initialMinutes, ...(world.progression ? { progression: initialProgressionState(world.progression) } : {}), ...(world.economy ? { economy: initialEconomyState(world.economy) } : {}), ...(world.people ? { people: { schemaVersion: 1 as const, knownCharacterIds: [] } } : {}) };
-  revealProgressionEvents(world, { world: state, relationships: Object.fromEntries(world.economy?.relationships.map((r) => [r.key, r.initial]) ?? []) });
+  const state: NonNullable<RuntimeState["world"]> = { schemaVersion: 1, locationId: world.startLocationId, minutes: world.initialMinutes, ...(world.journal ? { journal: initialJournalState() } : {}), ...(world.progression ? { progression: initialProgressionState(world.progression) } : {}), ...(world.economy ? { economy: initialEconomyState(world.economy) } : {}), ...(world.people ? { people: { schemaVersion: 1 as const, knownCharacterIds: [] } } : {}) };
+  revealProgressionEvents(world, { world: state, stats: Object.fromEntries(world.journal?.mechanics.filter((m) => m.category === "stat").map((m) => [m.key, m.initial]) ?? []), relationships: Object.fromEntries((world.journal?.mechanics.filter((m) => m.category === "relationship") ?? world.economy?.relationships ?? []).map((r) => [r.key, r.initial])) });
   return state;
 }
 export function worldClock(minutes: number): string {
@@ -71,6 +74,7 @@ export function worldLocationOpen(world: NativeWorld, locationId: string, minute
 export function transitionWorld(world: NativeWorld, state: RuntimeState, command: WorldCommand): { state: RuntimeState; message: string; passageId?: string } {
   if (!state.world) throw new Error("world_state_missing");
   assertPeopleState(world, state);
+  assertJournalState(world, state);
   assertEconomyState(world, state);
   assertWorldActionAllowed(world, state, command.kind === "event" ? command.id : undefined);
   if (command.kind === "purchase" || command.kind === "gift" || command.kind === "use") return transitionEconomyWorld(world, state, command);
@@ -79,6 +83,7 @@ export function transitionWorld(world: NativeWorld, state: RuntimeState, command
   if (command.kind === "travel") {
     const connection = world.connections.find((c) => c.id === command.id && c.from === destination);
     if (!connection) throw new Error("world_connection_unavailable");
+    if (world.journal && !state.world.journal!.knownLocationIds.includes(connection.to)) throw new Error("world_destination_undiscovered");
     destination = connection.to; minutes = connection.minutes;
     message = `Arrived at ${world.locations.find((l) => l.id === destination)!.name}.`;
   } else if (command.kind === "action") {

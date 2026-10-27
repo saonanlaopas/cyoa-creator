@@ -1,0 +1,72 @@
+[
+  {
+    "path": "w5-creator-character-1280.png",
+    "sha256": "63de04d1c52d14565e17a419e8d565c434266e86de25f13053489fff670bfd94",
+    "width": 1280,
+    "height": 900,
+    "unedited": true
+  },
+  {
+    "path": "w5-creator-character-390.png",
+    "sha256": "73516648bed9d81dfe1c9fbf3c8989a9625c463ed3c684404bfa5000937393f7",
+    "width": 390,
+    "height": 844,
+    "unedited": true
+  },
+  {
+    "path": "w5-creator-entries-1280.png",
+    "sha256": "922732ea1ffbb423125373a6c97cb01a62124b65275d31a092240fc0aa1234e2",
+    "width": 1280,
+    "height": 900,
+    "unedited": true
+  },
+  {
+    "path": "w5-creator-entries-390.png",
+    "sha256": "1ebfdd485a417af922844c1cd49e20ca7b112e8f9b5a9dca6a9257b44cff5b10",
+    "width": 390,
+    "height": 844,
+    "unedited": true
+  },
+  {
+    "path": "w5-creator-objectives-390.png",
+    "sha256": "8ed1650ac9d016a30bf0f046777c710d81f5886c18eac0c28fe0cce4d7b9ccd2",
+    "width": 390,
+    "height": 844,
+    "unedited": true
+  },
+  {
+    "path": "w5-standalone-character-1280.png",
+    "sha256": "86982e6d5f5fc7009798c28a0c1ba109aefbb0bc3a9202bae6e0cf5a5280e6c0",
+    "width": 1280,
+    "height": 977,
+    "unedited": true
+  },
+  {
+    "path": "w5-static-character-390.png",
+    "sha256": "55865a81e7d17f4474a77a8dfef8a8d8e729c21331054a8893270933acd7791c",
+    "width": 390,
+    "height": 868,
+    "unedited": true
+  },
+  {
+    "path": "w5-standalone-objectives-390.png",
+    "sha256": "403f53128b8429b425fed6e78780cc0c7142818721728fd31eb8f458135a90c2",
+    "width": 390,
+    "height": 1091,
+    "unedited": true
+  },
+  {
+    "path": "w5-static-entries-1280.png",
+    "sha256": "26b3c677bbdbed82dfedc595510aca9186b8621861cb9027088c27e9d8df1700",
+    "width": 1280,
+    "height": 977,
+    "unedited": true
+  },
+  {
+    "path": "w5-static-events-390.png",
+    "sha256": "fe7b47336a049afebaeb51a4ba8eb4c922de162a3699914e4da3b6f099aeb521",
+    "width": 390,
+    "height": 1030,
+    "unedited": true
+  }
+]

@@ -1,3 +1,4 @@
+import { observeJournal, assertJournalState } from "./journal.js";
 import { assertEconomyState, economyEventReason, applyEconomyEvent } from "./economy.js";
 import type { NativeEconomy } from "./economy-schema.js";
 import { encounterPeoplePresent, revealPeople, assertPeopleState, peopleTimeBoundaries, presentCharacters } from "./people.js";
@@ -115,11 +116,12 @@ export const initialProgressionState = (definition: NativeProgression): Progress
   chapterId: definition.initialChapterId, milestones: [...definition.initialMilestoneIds].sort(), knownEventIds: [], events: {}, expiredEventIds: [], transitions: {} });
 
 /** Call only on an owned/new state. Discovery is remembered on initialization and committed actions, never by preview. */
-export function revealProgressionEvents(world: NativeWorld, state: Pick<RuntimeState, "world"> & Partial<Pick<RuntimeState, "relationships">>): void {
+export function revealProgressionEvents(world: NativeWorld, state: Pick<RuntimeState, "world"> & Partial<Pick<RuntimeState, "relationships" | "stats">>): void {
   revealPeople(world, state);
   const progression = state.world?.progression;
-  if (!world.progression || !progression) return;
+  if (!world.progression || !progression) { observeJournal(world, state); return; }
   progression.knownEventIds = [...new Set([...progression.knownEventIds, ...world.progression.events.filter((event) => event.visibility === "always" || !progression.expiredEventIds.includes(event.id) && prerequisitesMet(event.prerequisites, state) && encounterPeoplePresent(world, state, event.id)).map((event) => event.id)])].sort();
+  observeJournal(world, state);
 }
 function baseEventAvailability(world: NativeWorld, state: RuntimeState, eventId: string): { visible: boolean; enabled: boolean; reason: string | null } {
   const event = world.progression?.events.find((e) => e.id === eventId), progress = state.world?.progression;
@@ -188,7 +190,7 @@ export interface ChapterTransitionPreview {
 export function previewChapterTransition(world: NativeWorld, state: RuntimeState, transitionId: string): ChapterTransitionPreview {
   assertProgressionState(world, state);
   assertPeopleState(world, state);
-  assertEconomyState(world, state);
+  assertEconomyState(world, state); assertJournalState(world, state);
   const definition = world.progression, progress = state.world?.progression;
   const transition = definition?.transitions.find((t) => t.id === transitionId);
   if (!definition || !progress || !state.world || !transition || progress.chapterId !== transition.fromChapterId || !prerequisitesMet(transition.prerequisites, state)) throw new Error("chapter_transition_unavailable");
@@ -221,7 +223,7 @@ export type ProgressionCommand = { kind: "event"; id: string } | { kind: "chapte
 export function transitionProgressionWorld(world: NativeWorld, state: RuntimeState, command: ProgressionCommand): { state: RuntimeState; message: string; passageId?: string } {
   assertProgressionState(world, state);
   assertPeopleState(world, state);
-  assertEconomyState(world, state);
+  assertEconomyState(world, state); assertJournalState(world, state);
   assertWorldActionAllowed(world, state, command.kind === "event" ? command.id : undefined);
   const definition = world.progression, progress = state.world?.progression;
   if (!definition || !progress || !state.world) throw new Error("progression_unavailable");
@@ -277,7 +279,7 @@ export function progressionEventAvailability(world: NativeWorld, state: RuntimeS
 /** Confirmed required encounters finish atomically; only waits may stop partway. */
 export function advancePeopleTime(world: NativeWorld, state: RuntimeState, end: number, waiting: boolean, completingEventId?: string): RuntimeState {
   const next = cloneRuntimeState(state);
-  if (!world.people && !world.economy) { next.world!.minutes = end; return next; }
+  if (!world.people && !world.economy && !world.journal) { next.world!.minutes = end; return next; }
   const alreadyAvailable = new Set((world.people?.events ?? []).filter((r) => r.mandatory && baseEventAvailability(world, state, r.eventId).enabled).map((r) => r.eventId));
   const completingMandatory = !waiting && completingEventId !== undefined && mandatoryEventStatus(world, state).eventId === completingEventId;
   for (const minute of peopleTimeBoundaries(world, state, end)) {
@@ -295,7 +297,7 @@ export function advancePeopleTime(world: NativeWorld, state: RuntimeState, end: 
   return next;
 }
 export function inspectWorldPresence(world: NativeWorld, state: RuntimeState) {
-  assertProgressionState(world, state); assertPeopleState(world, state); assertEconomyState(world, state);
+  assertProgressionState(world, state); assertPeopleState(world, state); assertEconomyState(world, state); assertJournalState(world, state);
   const pending = mandatoryEventStatus(world, state);
   return { present: presentCharacters(world, state), encounters: (world.progression?.events ?? [])
     .map((e) => ({ id: e.id, label: e.label, ...progressionEventAvailability(world, state, e.id) })).filter((e) => e.visible), mandatory: pending };

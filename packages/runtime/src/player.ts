@@ -1,3 +1,4 @@
+import { assertJournalState, inspectWorldJournal } from "./journal.js";
 import { assertEconomyState } from "./economy.js";
 import { assertPeopleState } from "./people.js";
 import { z } from "zod";
@@ -309,7 +310,7 @@ export function assertNativeRuntimeState(game: LoadedNativeGame, value: unknown)
     throw new NativePlayerError("save_state_invalid", "World state does not match the published world");
   }
   if (game.bundle.world) {
-    try { assertProgressionState(game.bundle.world, state); assertPeopleState(game.bundle.world, state); assertEconomyState(game.bundle.world, state); } catch (error) { throw new NativePlayerError("save_state_invalid", (error as Error).message); }
+    try { assertProgressionState(game.bundle.world, state); assertPeopleState(game.bundle.world, state); assertEconomyState(game.bundle.world, state); assertJournalState(game.bundle.world, state); } catch (error) { throw new NativePlayerError("save_state_invalid", (error as Error).message); }
   }
   const mappedLocation = game.bundle.world?.locations.find((l) => l.passageId === state.currentPassageId);
   if (mappedLocation && mappedLocation.id !== state.world?.locationId) throw new NativePlayerError("save_state_invalid", "Passage and world location disagree");
@@ -416,7 +417,7 @@ export function nativePlayerView(
     passage: currentNativePassage(game, session.state),
     choices: listNativeGameChoices(game, session.state).filter((item) => item.availability.visible),
     terminal: nativeGameTerminal(game, session.state),
-    visibleState: config.visibleMechanics.map((item) => {
+    visibleState: game.bundle.world?.journal ? inspectWorldJournal(game.bundle.world, session.state).character : config.visibleMechanics.map((item) => {
       const definition = game.runtime.mechanics[item.key]!;
       const value = definition.category === "stat" ? session.state.stats[item.key]!
         : definition.category === "relationship" ? session.state.relationships[item.key]!

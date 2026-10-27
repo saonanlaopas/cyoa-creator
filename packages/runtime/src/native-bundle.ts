@@ -317,6 +317,7 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
   const findings: NativeBundleFinding[] = [];
   if (bundle.world) {
     const world = bundle.world;
+    if (world.journal && (world.journal.mechanics.length !== bundle.mechanics.filter((m) => m.category === "stat" || m.category === "relationship").length || world.journal.mechanics.some((r) => !bundle.mechanics.some((d) => d.category === r.category && d.key === r.key && (d.minimum ?? -1_000_000_000) === r.minimum && (d.maximum ?? 1_000_000_000) === r.maximum && d.initial === r.initial)))) findings.push({ code: "journal.mechanic-bindings-invalid", message: "Journal mechanics must match exact canonical definitions" });
     if (world.economy && (world.economy.relationships.length !== bundle.mechanics.filter((m) => m.category === "relationship").length || world.economy.relationships.some((r) => !bundle.mechanics.some((d) => d.category === "relationship" && d.key === r.key && (d.minimum ?? -1_000_000_000) === r.minimum && (d.maximum ?? 1_000_000_000) === r.maximum && d.initial === r.initial)))) findings.push({ code: "economy.relationship-bindings-invalid", message: "Economy relationship bounds must match canonical mechanics" });
     if (world.locations.find((l) => l.id === world.startLocationId)?.passageId !== bundle.startPassageId
       || world.locations.some((l) => l.passageId && !bundle.passages.some((p) => p.id === l.passageId))

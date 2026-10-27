@@ -1,3 +1,4 @@
+import { journalConditionLists } from "./journal.js";
 import { z } from "zod";
 import { ProgressionPrerequisiteSchema, prerequisiteContradictions, prerequisitesMet } from "./world-conditions.js";
 import type { RuntimeState } from "./types.js";
@@ -97,6 +98,7 @@ export function peopleTimeBoundaries(world: NativeWorld, state: RuntimeState, en
     for (const slot of world.people?.schedules ?? []) if (slot.days.includes(weekday(day))) { add(day * 1440 + slot.from); add(day * 1440 + slot.until + (slot.until <= slot.from ? 1440 : 0)); }
   }
   for (const item of [...(world.people?.overrides ?? []), ...(world.progression?.events ?? [])]) for (const c of item.prerequisites) if (c.kind === "time") { if (c.from !== null) add(c.from); if (c.until !== null) add(c.until); }
+  for (const conditions of journalConditionLists(world.journal)) for (const c of conditions) if (c.kind === "time") { if (c.from !== null) add(c.from); if (c.until !== null) add(c.until); }
   for (const event of world.progression?.events ?? []) if (event.repeat.kind === "repeatable" && state.world?.progression && Object.hasOwn(state.world.progression.events, event.id)) add(state.world.progression.events[event.id]!.lastMinutes + event.repeat.cooldownMinutes);
   return [...times].sort((a, b) => a - b);
 }

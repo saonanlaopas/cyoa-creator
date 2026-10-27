@@ -1,0 +1,10 @@
+node --version
+v24.19.0
+pnpm --version
+11.9.0
+pnpm exec playwright --version
+Version 1.62.0
+/workspace/.setup/playwright-browsers/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell
+Google Chrome for Testing 151.0.7922.34
+/workspace/.setup/playwright-browsers/chromium-1234/chrome-linux64/chrome
+Google Chrome for Testing 151.0.7922.34

@@ -1,3 +1,5 @@
+import "../player/journal.css";
+import { JournalEditor, JournalSummary, type CharacterOption } from "./JournalEditor.js";
 import { EconomyEditor, EconomySummary } from "./EconomyEditor.js";
 import { economyDependencies } from "./economy-authoring.js";
 import { PeopleEditor, PeopleSummary } from "./PeopleEditor.js";
@@ -7,13 +9,14 @@ import { loadPassagePlan, type PassagePlanState } from "../../api/passage-plan.j
 import { assetPath, assetRequest, type AssetList, type AssetDetail } from "../../api/asset-library.js";
 import { WorldPanel } from "../player/WorldPanel.js";
 import { ProgressionEditor, ProgressionSummary, WorldConditionOptionsContext } from "./ProgressionEditor.js";
-import { NativeWorldSchema, initialWorldState, projectWorldProgression, projectWorldPeople, projectWorldEconomy, type NativeWorld, type RuntimeState } from "@story-to-cyoa/runtime";
+import { NativeWorldSchema, initialWorldState, projectWorldProgression, projectWorldPeople, projectWorldEconomy, projectWorldJournal, type NativeWorld, type RuntimeState } from "@story-to-cyoa/runtime";
 import "../player/world.css";
 
 type Review = { fingerprint: string; world: WorldDefinition; previous: WorldDefinition | null; diagnostics?: { findings: Array<{ code: string; entityId: string; message: string }>; total: number; omitted: number; exhaustive: false } };
 export function WorldWorkspace({ projectId }: { projectId: string }) {
   const [world, setWorld] = useState<WorldDefinition | null>(null), [review, setReview] = useState<Review | null>(null);
   const [passages, setPassages] = useState<PassagePlanState["passages"]>([]), [assets, setAssets] = useState<AssetList["items"]>([]);
+  const [statOptions, setStatOptions] = useState<CharacterOption[]>([]);
   const [relationshipOptions, setRelationshipOptions] = useState<Array<{ key: string; label: string; minimum: number; maximum: number; initial: number }>>([]);
   const [images, setImages] = useState<Record<string, AssetDetail["selected"]>>({});
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState(""), [consent, setConsent] = useState(false);
@@ -22,10 +25,10 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
   const load = async () => {
     const n = ++generation.current; setBusy(true); setReview(null); setConsent(false); setError(null);
     try {
-      const result = await call<{ world: WorldDefinition; relationshipOptions?: typeof relationshipOptions }>("read_world", {}), plan = await loadPassagePlan(projectId);
+      const result = await call<{ world: WorldDefinition; relationshipOptions?: typeof relationshipOptions; statOptions?: CharacterOption[] }>("read_world", {}), plan = await loadPassagePlan(projectId);
       const images: AssetList["items"] = [];
       for (let offset = 0; ; offset += 25) { const page = await assetRequest<AssetList>(`${assetPath(projectId)}?offset=${offset}`); images.push(...page.items); if (offset + 25 >= page.total) break; }
-      if (generation.current === n) { setWorld(result.world); setRelationshipOptions(result.relationshipOptions ?? []); setPassages(plan.passages); setAssets(images); }
+      if (generation.current === n) { setWorld(result.world); setRelationshipOptions(result.relationshipOptions ?? []); setStatOptions(result.statOptions ?? []); setPassages(plan.passages); setAssets(images); }
     } catch (e) { if (generation.current === n) setError(String(e)); }
     finally { if (generation.current === n) setBusy(false); }
   };
@@ -60,7 +63,7 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
   const projection: NativeWorld | null = world.enabled && WorldDefinitionSchema.safeParse(world).success ? {
     schemaId: "cyoa.native-world", schemaVersion: 1, startLocationId: world.startLocationId!, initialMinutes: world.initialMinutes, waitMinutes: world.waitMinutes,
     locations: world.locations.map(({ passage, mapImage, ...l }) => ({ ...l, passageId: passage?.passageId ?? null, mapImage: mapImage?.versionId ?? null })),
-    connections: world.connections, actions: world.actions, ...(world.economy ? { economy: projectWorldEconomy(world.economy, relationshipOptions) } : {}), ...(world.progression ? { progression: projectWorldProgression(world.progression) } : {}), ...(world.people ? { people: projectWorldPeople(world.people) } : {}),
+    connections: world.connections, actions: world.actions, ...(world.journal ? { journal: projectWorldJournal(world.journal, { visibleStats: statOptions, relationships: relationshipOptions }) } : {}), ...(world.economy ? { economy: projectWorldEconomy(world.economy, relationshipOptions) } : {}), ...(world.progression ? { progression: projectWorldProgression(world.progression) } : {}), ...(world.people ? { people: projectWorldPeople(world.people) } : {}),
     assets: Object.values(images).filter((a) => world.locations.some((location) => location.mapImage?.versionId === a.id))
       .map((a) => ({ id: a.id, dataUrl: a.image.url, altText: a.content.metadata.altText, credit: a.content.metadata.credit, license: a.content.metadata.license })),
   } : null;
@@ -71,7 +74,7 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
   const previewWorld = previewParsed?.success ? projection : null;
   const previewState: RuntimeState | null = previewWorld ? { currentPassageId: previewWorld.locations.find((l) => l.id === previewWorld.startLocationId)!.passageId!,
     world: initialWorldState(previewWorld), turn: 0,
-    stats: {}, relationships: Object.fromEntries(relationshipOptions.map((r) => [r.key, r.initial])), resources: {}, flags: {}, decisions: [], routes: [], knownFacts: [], visitCounts: {} } : null;
+    stats: Object.fromEntries(statOptions.map((m) => [m.key, m.initial])), relationships: Object.fromEntries(relationshipOptions.map((r) => [r.key, r.initial])), resources: {}, flags: {}, decisions: [], routes: [], knownFacts: [], visitCounts: {} } : null;
   return <WorldConditionOptionsContext.Provider value={{ world, economy: world.economy, relationships: relationshipOptions }}><section className="artifact-pane world-editor" aria-label="World authoring"><h2>Locations and time</h2>
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
     <button disabled={busy} onClick={() => void load()}>Reload world</button>
@@ -122,6 +125,7 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
           <button disabled={world.waitMinutes.length <= 1} title={`Remove wait ${i + 1}`} onClick={() => edit({ ...world, waitMinutes: world.waitMinutes.filter((_, j) => i !== j) })}>&times;</button></label>)}</div>
         <button disabled={world.waitMinutes.length >= 6} onClick={() => edit({ ...world, waitMinutes: [...world.waitMinutes, 30] })}>Add wait duration</button>
         <ProgressionEditor progression={world.progression} locations={world.locations} passages={passages} people={world.people} onChange={(progression) => { const { progression: _old, ...base } = world; const next = progression ? { ...base, progression } : base; edit(world.people ? { ...next, people: { ...world.people, events: (progression?.events ?? []).map((e) => world.people!.events.find((r) => r.eventId === e.id) ?? { eventId: e.id, priority: 0, mandatory: false, characterIds: [] }) } } : next); }} />
+        <JournalEditor world={world} stats={statOptions} relationships={relationshipOptions} onChange={(journal) => { const { journal: _old, ...base } = world; edit(journal ? { ...base, journal } : base); }} />
         <EconomyEditor world={world} onChange={(economy) => { const { economy: _old, ...base } = world; edit(economy ? { ...base, economy } : base); }} />
         <PeopleEditor world={world} onChange={(people) => { const { people: _old, ...base } = world; edit(people ? { ...base, people } : base); }} />
       </>}
@@ -145,7 +149,7 @@ function WorldSummary({ world }: { world: WorldDefinition }) {
     {world.connections.map((c) => <p key={c.id}>{name(c.from)} → {name(c.to)} · {c.minutes} min</p>)}
     {world.actions.map((a) => <p key={a.id}>{name(a.locationId)} · {a.label} · {a.minutes} min · {a.result}</p>)}
     {world.progression && <ProgressionSummary progression={world.progression} locations={world.locations} />}
-    {world.people && <PeopleSummary world={world} />}{world.economy && <EconomySummary economy={world.economy} world={world} />}
+    {world.journal && <JournalSummary world={world} />}{world.people && <PeopleSummary world={world} />}{world.economy && <EconomySummary economy={world.economy} world={world} />}
     <p>Wait: {world.waitMinutes.join(", ")} min</p>
   </div>;
 }

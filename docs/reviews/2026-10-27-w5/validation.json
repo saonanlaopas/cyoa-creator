@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "checkpoint": "W5 Character and Journal",
+  "acceptedBase": "098b4e7d269164628cbb23eb8364a0e0f7555794",
+  "branch": "codex/w1-locations-time",
+  "reviewTarget": "The commit containing this report; delivery pins its exact head and exact-head CI URL.",
+  "environment": {
+    "node": "24.19.0",
+    "pnpm": "11.9.0",
+    "playwright": "1.62.0",
+    "chromium": "151.0.7922.34",
+    "headlessShell": "151.0.7922.34",
+    "revision": "1234",
+    "browserWorkers": 1,
+    "providerCalls": 0
+  },
+  "toolingLog": "validation/tooling.log",
+  "toolingLogSha256": "a31b15a49bd7506e1ca567348a5682208de27be566d33a1857161acca624a07d",
+  "sourceManifest": "source-manifest.json",
+  "sourceFiles": 42,
+  "protectedFiles": "protected-files.json",
+  "checks": [
+    {
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "result": "passed",
+      "log": "validation/release-lint.log",
+      "logSha256": "64e1ff32baff2a6db8f80a16c073f79153a998fb8a934b9d01e12ddae06eb76e",
+      "capturedLogSha256": "64e1ff32baff2a6db8f80a16c073f79153a998fb8a934b9d01e12ddae06eb76e",
+      "normalization": "Only surplus blank lines at EOF removed for Git whitespace checks; captured original retained."
+    },
+    {
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "result": "passed",
+      "log": "validation/release-typecheck.log",
+      "logSha256": "a4e4e2dc73c155c05207396d95cfb2899e536154947c06ca308ac50e402a4ad3",
+      "capturedLogSha256": "a4e4e2dc73c155c05207396d95cfb2899e536154947c06ca308ac50e402a4ad3",
+      "normalization": "Only surplus blank lines at EOF removed for Git whitespace checks; captured original retained."
+    },
+    {
+      "command": "pnpm build",
+      "exitCode": 0,
+      "result": "passed",
+      "log": "validation/release-build.log",
+      "logSha256": "f64c1a46371e669613fe67acb33cdf65160b972952d421bf7bef5acb9e648940",
+      "capturedLogSha256": "f64c1a46371e669613fe67acb33cdf65160b972952d421bf7bef5acb9e648940",
+      "normalization": "Only surplus blank lines at EOF removed for Git whitespace checks; captured original retained."
+    },
+    {
+      "command": "pnpm test",
+      "exitCode": 0,
+      "result": "160 files; 1562 tests passed; 332.70 seconds",
+      "log": "validation/release-unit.log",
+      "logSha256": "2e9723642c97ce0bf4d1f4e6c9ce7e583db8bcf168b90b6f28606a930a149928",
+      "capturedLogSha256": "642d159ca59e279b8c788f54757e41d8d196b25d7eb764d6609f27665c74ea87",
+      "normalization": "Only surplus blank lines at EOF removed for Git whitespace checks; captured original retained."
+    },
+    {
+      "command": "pnpm test:e2e --workers=1 --trace=on",
+      "exitCode": 0,
+      "result": "50 passed; 6.3m",
+      "log": "validation/release-browser.log",
+      "logSha256": "e8c396df705c821b8916f9a42ce6a444e8a0a418d6e6f9862535e1b00b4e5266",
+      "capturedLogSha256": "e8c396df705c821b8916f9a42ce6a444e8a0a418d6e6f9862535e1b00b4e5266",
+      "normalization": "Only surplus blank lines at EOF removed for Git whitespace checks; captured original retained."
+    }
+  ],
+  "screenshots": "screenshots.json",
+  "screenshotSource": "release-browser/journal-W5-authors-visibil-92dd9-aracter-and-journal-offline",
+  "w5TraceSha256": "0b220d4573c521ac69b9041131a19b95b90ebdb9585a19b66e2f0f19833037b2",
+  "preservedEvidenceDirectory": "/workspace/.setup/w5-review-20261027",
+  "earlierAttempts": "Preserved separately; excluded from final pass counts. See report.",
+  "acceptance": "W5 pending independent review; W6 paused."
+}

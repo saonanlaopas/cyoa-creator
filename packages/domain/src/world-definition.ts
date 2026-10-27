@@ -1,3 +1,4 @@
+import { WorldJournalSchema } from "./world-journal.js";
 import { z } from "zod";
 import { WorldPeopleSchema } from "./world-people.js";
 import { WorldEconomySchema } from "./world-economy.js";
@@ -10,7 +11,7 @@ export const WorldDefinitionSchema = z.object({
   schemaId: z.literal("cyoa.world-definition"), schemaVersion: z.literal(1),
   progression: WorldProgressionSchema.optional(),
   people: WorldPeopleSchema.optional(),
-  economy: WorldEconomySchema.optional(),
+  economy: WorldEconomySchema.optional(), journal: WorldJournalSchema.optional(),
   enabled: z.boolean(), startLocationId: id.nullable(),
   initialMinutes: z.number().int().min(0).max(52_560_000),
   waitMinutes: z.array(z.number().int().min(1).max(1440)).min(1).max(6),
@@ -27,7 +28,7 @@ export const WorldDefinitionSchema = z.object({
   const fail = (message: string) => ctx.addIssue({ code: "custom", message });
   if (new TextEncoder().encode(JSON.stringify(world)).byteLength > 48_000) fail("world_definition_byte_limit");
   if (!world.enabled) {
-    if (world.economy || world.people || world.progression || world.startLocationId || world.locations.length || world.connections.length || world.actions.length) fail("disabled_world_must_clear_definitions");
+    if (world.journal || world.economy || world.people || world.progression || world.startLocationId || world.locations.length || world.connections.length || world.actions.length) fail("disabled_world_must_clear_definitions");
     return;
   }
   const locations = new Map(world.locations.map((l) => [l.id, l]));

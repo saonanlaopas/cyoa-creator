@@ -1,0 +1,170 @@
+[
+  {
+    "path": "apps/server/src/routes/connected-editing.ts",
+    "sha256": "ab3a47ddd5c3c84ea3d48c086d66f836c595e3b68ff1f8dc2defe14d3257a756"
+  },
+  {
+    "path": "apps/server/src/services/connected-game-service.ts",
+    "sha256": "c947b1025febe2598565a5124e0776f7255c2ae3953381045e7fe581b1f0cdeb"
+  },
+  {
+    "path": "apps/server/src/services/native-compilation-service.ts",
+    "sha256": "df7a25d5dc16d8fdbca9cd9797510e229e8ae3a967ca1794e94493a45aa260dd"
+  },
+  {
+    "path": "apps/server/src/services/publication-export-service.ts",
+    "sha256": "5984810d7f58c2871373fa76e47ba73a4ced83b4dff867c0a82c8d0698ed2a40"
+  },
+  {
+    "path": "apps/server/src/services/world-service.ts",
+    "sha256": "f4c39d6b5471aff59e9bfb7b1e9f5fc3a8b10e614cd7747d3e1fc2646b677823"
+  },
+  {
+    "path": "apps/server/test/connected-editing.test.ts",
+    "sha256": "4d32f4826640e6c67da0cd1ac44dd81037f62a2bf146e95f529de780cc047223"
+  },
+  {
+    "path": "apps/server/test/journal.test.ts",
+    "sha256": "9360e8c27293bec704e1473e150a94f3055ebf6c65f5a3cd041fce0e430d2201"
+  },
+  {
+    "path": "apps/web/src/features/player/EconomyPanel.tsx",
+    "sha256": "5ffba0c6832645742a7565842bc2efc821a5ee91d7cd6e405a49ce4d7aef84ee"
+  },
+  {
+    "path": "apps/web/src/features/player/JournalPanel.tsx",
+    "sha256": "6e2579726e215d4fb62955ece1b690862fc8726396fd122454064f3845e17663"
+  },
+  {
+    "path": "apps/web/src/features/player/NativePlayer.tsx",
+    "sha256": "a3a7e2499ed8f557b94e50d2819817a20dce679a5029d7495dd785a342dc7785"
+  },
+  {
+    "path": "apps/web/src/features/player/WorldPanel.tsx",
+    "sha256": "c7a828b2897f9f5f91abc1ecbef6e18f00cdb91cc8df8416f516abc15a922f82"
+  },
+  {
+    "path": "apps/web/src/features/player/WorldViews.tsx",
+    "sha256": "22670ac83b5bd845321337d923bbb1e4ace6abfc9899cec4fe217f5fd5a155cd"
+  },
+  {
+    "path": "apps/web/src/features/player/journal.css",
+    "sha256": "f1fb7401bc54d79e3d4119c179fc97e2f76bb161d937bd23475f0e8de2edea9b"
+  },
+  {
+    "path": "apps/web/src/features/workspace/EconomyEditor.tsx",
+    "sha256": "941ab78cf8c1b59ea0ac53f6be27d5499ca68b738ab4c791d0088f980f1fefeb"
+  },
+  {
+    "path": "apps/web/src/features/workspace/JournalEditor.tsx",
+    "sha256": "02c30aed5089055f382cc91b271fdb3f4dd0080a08f7fd410e034ad964f39c11"
+  },
+  {
+    "path": "apps/web/src/features/workspace/ProgressionEditor.tsx",
+    "sha256": "dbabb716911ea7327be9049f5aacee8b2bd8ce8cb5628574f9b0138d8c4edfec"
+  },
+  {
+    "path": "apps/web/src/features/workspace/WorldWorkspace.tsx",
+    "sha256": "e82f03941c4e26f17e6605d9caa45bcf595299a736898a4438c5db19839d8e59"
+  },
+  {
+    "path": "apps/web/src/features/workspace/economy-authoring.ts",
+    "sha256": "e4cddeac1d692b9cd14d2a062092cb4618aa57467d511fad92d069f8e3e97c94"
+  },
+  {
+    "path": "apps/web/src/features/workspace/journal-authoring.ts",
+    "sha256": "a844e193425e12affd49a7dc2c3c85f163b4376aeb7a6907649655b7cade9314"
+  },
+  {
+    "path": "apps/web/test/journal.test.tsx",
+    "sha256": "5a0719ffe7fe5d8e64ef298209c2ad33ca97635671a89a6fe5280478b7404b87"
+  },
+  {
+    "path": "docs/character-and-journal.md",
+    "sha256": "f436c63025cf7fbbd3d3d6670827cc554818e760d939840f4fdede82581ed7f3"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-27-w5-character-journal.md",
+    "sha256": "a8f62724b92af463f463e9248ad5c3204a263c99b61645c588d0c7e6a6eeaa29"
+  },
+  {
+    "path": "e2e/helpers/journal.ts",
+    "sha256": "a174041aa2b205d8f23b9414b93f319e42b412988ce54e456472a477d0cbb060"
+  },
+  {
+    "path": "e2e/journal.spec.ts",
+    "sha256": "d65592900e10d4cfc5cd43fdc9372e827b54803390cf25ba25b5bc7ad8fc6773"
+  },
+  {
+    "path": "packages/domain/src/index.ts",
+    "sha256": "009fba7a3f5b787c7eed688bf834f033130387751bddd0f6c568f1524c4905f9"
+  },
+  {
+    "path": "packages/domain/src/world-definition.ts",
+    "sha256": "5711b8146a79692bce81835ccf8e367c1642622569afd5f7d7bb2447fcd578e5"
+  },
+  {
+    "path": "packages/domain/src/world-journal.ts",
+    "sha256": "f92368f8d49306f66af22530140542ada7b5b2f2e4dc965a5f8ed3b13700318e"
+  },
+  {
+    "path": "packages/export-twine/src/native-twee.ts",
+    "sha256": "4e1475da65906d62fe3d9ede2ce335bf40cd598267f47878eb789b93a63abbce"
+  },
+  {
+    "path": "packages/persistence/src/world-validation.ts",
+    "sha256": "a75a416a696aac577be1c9b2a4dc6b10b4e12a2913cd02b1970911246ee47942"
+  },
+  {
+    "path": "packages/pipeline/src/native-compilation.ts",
+    "sha256": "4105ec141353ed50400f105b558cbbec4ae0045c96bb2186f1bca2bda5f52bbb"
+  },
+  {
+    "path": "packages/runtime/src/index.ts",
+    "sha256": "6d064c2439972b3b62d329cfdfab2919a9c9be3f93532e574e3e574bb824ebf9"
+  },
+  {
+    "path": "packages/runtime/src/journal-schema.ts",
+    "sha256": "3190bbbefa27fcba80cc9831daac00927f636f4f10b011946eea094694142ef2"
+  },
+  {
+    "path": "packages/runtime/src/journal.ts",
+    "sha256": "a6f1fda648f8f6a5ecca042f9e06f23c3edc1cbdb3c28ec66b82afab6bbfb61f"
+  },
+  {
+    "path": "packages/runtime/src/native-bundle.ts",
+    "sha256": "3297136232bcd9bc6f83f7440245bf6999204e0e848ad5b2ceca9f71f9ae0d04"
+  },
+  {
+    "path": "packages/runtime/src/people.ts",
+    "sha256": "07585c536b9509c9c6a260821a865d2890f30772ea06037490ad191d631747c8"
+  },
+  {
+    "path": "packages/runtime/src/player.ts",
+    "sha256": "7ce1238e0011830509c2074ddfbe57587a371a89b3f948185a76f5bd1dd06806"
+  },
+  {
+    "path": "packages/runtime/src/progression.ts",
+    "sha256": "8af35d6846521659d8bfdb3ee1274dee284f707a5f015f1bbe642544a2dc9162"
+  },
+  {
+    "path": "packages/runtime/src/semantics.ts",
+    "sha256": "273e3dfcdec6716eabc5806b843e3d2c4707953f55ba682d74e2569f65bbeff2"
+  },
+  {
+    "path": "packages/runtime/src/types.ts",
+    "sha256": "32da4b0bcbab0d63c4c1b977c3c320a536d8491fec2d6d33e091ee0e122b75d7"
+  },
+  {
+    "path": "packages/runtime/src/world.ts",
+    "sha256": "1b81341560922e590a941a4a0d9b6313786bfe5d9d595bfb7a5e562c514e2708"
+  },
+  {
+    "path": "packages/runtime/test/journal-fixture.ts",
+    "sha256": "3160630107bb596d286f9a65114fe4aecb22d654b71f9a249aa16925fba4cf3f"
+  },
+  {
+    "path": "packages/runtime/test/journal.test.ts",
+    "sha256": "270c0fa80dba1e28d15ee41fe1204c27ae6112b8063bb7f66841a8e34011ba4c"
+  }
+]

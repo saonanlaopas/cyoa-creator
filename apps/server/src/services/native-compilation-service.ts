@@ -901,7 +901,7 @@ export class NativeCompilationService {
       })) as ResolvedNativeCompilationInput["upstreamArtifacts"],
       acceptedDrafts,
       ...(input.illustrations ? { illustrations: resolveIllustrations(this.artifacts, projectId, input.passages, input.illustrations.versions) } : {}),
-      ...(input.world ? { world: resolveWorld(this.artifacts, projectId, input.passages, input.world, LongFormMechanicsPlanSchema.parse(parsedUpstream.mechanics).relationships) } : {}),
+      ...(input.world ? { world: resolveWorld(this.artifacts, projectId, input.passages, input.world, LongFormMechanicsPlanSchema.parse(parsedUpstream.mechanics).relationships, LongFormMechanicsPlanSchema.parse(parsedUpstream.mechanics)) } : {}),
     };
     return resolved;
   }

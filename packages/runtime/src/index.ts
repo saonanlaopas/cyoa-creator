@@ -16,3 +16,6 @@ export * from "./economy.js";
 export * from "./progression.js";
 
 export * from "./people.js";
+
+export * from "./journal-schema.js";
+export * from "./journal.js";

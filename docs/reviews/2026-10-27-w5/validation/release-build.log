@@ -1,0 +1,33 @@
+$ pnpm -r build
+Scope: 9 of 10 workspace projects
+packages/domain build$ tsc -p tsconfig.json
+packages/importers build$ tsc -p tsconfig.json
+packages/importers build: Done
+packages/openrouter build$ tsc -p tsconfig.json
+packages/openrouter build: Done
+packages/runtime build$ tsc -p tsconfig.json
+packages/domain build: Done
+packages/runtime build: Done
+apps/web build$ vite build
+packages/export-twine build$ tsc -p tsconfig.json
+apps/web build: vite v7.3.6 building client environment for production...
+apps/web build: transforming...
+apps/web build: ✓ 172 modules transformed.
+apps/web build: rendering chunks...
+apps/web build: computing gzip size...
+apps/web build: dist/index.html                   0.40 kB │ gzip:   0.27 kB
+apps/web build: dist/assets/index-CJcU9r5v.css   62.53 kB │ gzip:  11.99 kB
+apps/web build: dist/assets/index-Q8VejhJh.js   940.93 kB │ gzip: 236.61 kB
+apps/web build: ✓ built in 4.10s
+apps/web build: (!) Some chunks are larger than 500 kB after minification. Consider:
+apps/web build: - Using dynamic import() to code-split the application
+apps/web build: - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+apps/web build: - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+apps/web build: Done
+packages/persistence build$ tsc -p tsconfig.json
+packages/export-twine build: Done
+packages/persistence build: Done
+packages/pipeline build$ tsc -p tsconfig.json
+packages/pipeline build: Done
+apps/server build$ tsc -p tsconfig.json
+apps/server build: Done

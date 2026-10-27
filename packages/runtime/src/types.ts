@@ -1,3 +1,4 @@
+import type { JournalState } from "./journal-schema.js";
 import type { EconomyState } from "./economy-schema.js";
 import type { PeopleState } from "./people.js";
 import type { ProgressionState } from "./progression.js";
@@ -127,7 +128,7 @@ export interface CompiledRuntime {
 }
 
 export interface RuntimeState {
-  world?: { schemaVersion: 1; locationId: string; minutes: number; stationaryTurns?: number; progression?: ProgressionState; people?: PeopleState; economy?: EconomyState };
+  world?: { schemaVersion: 1; locationId: string; minutes: number; stationaryTurns?: number; progression?: ProgressionState; people?: PeopleState; economy?: EconomyState; journal?: JournalState };
   currentPassageId: string;
   stats: Record<string, number>;
   relationships: Record<string, number>;
