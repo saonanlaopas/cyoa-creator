@@ -1,0 +1,14 @@
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| packages/runtime/test/journal-progression.test.ts (6 tests) 996ms
+   ✓ journal-only progression time boundaries > records a short window during a 15-minute stationary event, saves and replays  417ms
+ ✓ |0| packages/runtime/test/journal.test.ts (32 tests) 2043ms
+ ✓ |0| packages/runtime/test/progression.test.ts (32 tests) 1439ms
+ ✓ |0| packages/runtime/test/people.test.ts (33 tests) 1074ms
+
+ Test Files  4 passed (4)
+      Tests  103 passed (103)
+   Start at  13:32:20
+   Duration  4.83s (transform 362ms, setup 0ms, collect 1.00s, tests 5.55s, environment 1ms, prepare 314ms)

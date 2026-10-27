@@ -1,0 +1,65 @@
+{
+  "base": "0a10ac7ebc11b8766ae85f01cf230c8ae7c99cac",
+  "branch": "codex/w1-locations-time",
+  "checks": {
+    "before-unit": {
+      "exit": 1,
+      "capturedSha256": "755d81ea71850e03615b32206e741e7e6fa63f857fc98b1f1eef6ddc49b91bcc",
+      "publishedSha256": "49d43258f23a09ba56645c5670bea999ffec52ef133b84cc699e990b0cb540b0"
+    },
+    "focused-unit": {
+      "exit": 0,
+      "capturedSha256": "0125ebdb8e58370f8ce4bcb73fe760e726cdb793669e1171348eba5755ff57c0",
+      "publishedSha256": "4835f552bf33ee370d2bd77e9604f44a94c184682bd61b3867af13ab176a2bc4"
+    },
+    "focused-browser": {
+      "exit": 0,
+      "capturedSha256": "52cdeb4f7bf459e330ac0982745fef9bff3a56a5b05bbfd7d8ce378aca3e59e6",
+      "publishedSha256": "52cdeb4f7bf459e330ac0982745fef9bff3a56a5b05bbfd7d8ce378aca3e59e6"
+    },
+    "build": {
+      "exit": 0,
+      "capturedSha256": "4395778ec4592ef7acb12fd237a8cc02d03988a5e5546c16a7d7c902b51877e3",
+      "publishedSha256": "4395778ec4592ef7acb12fd237a8cc02d03988a5e5546c16a7d7c902b51877e3"
+    },
+    "lint": {
+      "exit": 0,
+      "capturedSha256": "b573aa02e705c95f826b33b227a59155eb7f80792e7d9e40419f51f570e1699c",
+      "publishedSha256": "b573aa02e705c95f826b33b227a59155eb7f80792e7d9e40419f51f570e1699c"
+    },
+    "typecheck": {
+      "exit": 0,
+      "capturedSha256": "c7c08204bdec1d842472de81e443524702abcced8930a10df7675fabdd459f2e",
+      "publishedSha256": "c7c08204bdec1d842472de81e443524702abcced8930a10df7675fabdd459f2e"
+    },
+    "unit": {
+      "exit": 0,
+      "capturedSha256": "d31225668444bae501c399107eb9b458beb687501e106187afbd39c81f37ba2b",
+      "publishedSha256": "2c42380ce61dabadd9c6e1719a2494feeca77a75cd503590ddb6e007d2f35b7c"
+    },
+    "browser": {
+      "exit": 0,
+      "capturedSha256": "5d8208440507fda025f1b9904843c88905019e87ddfa5e289a0c8b831302e6ca",
+      "publishedSha256": "5d8208440507fda025f1b9904843c88905019e87ddfa5e289a0c8b831302e6ca"
+    }
+  },
+  "fullUnit": {
+    "files": 161,
+    "passed": 1568,
+    "durationSeconds": 416.14
+  },
+  "fullBrowser": {
+    "passed": 51,
+    "workers": 1,
+    "trace": "on",
+    "chromiumRevision": 1234
+  },
+  "sourceHashesVerified": true,
+  "protectedFilesUnchanged": true,
+  "logPublication": "Only surplus CR/LF at EOF normalized; raw logs retained outside Git.",
+  "toolingLog": {
+    "capturedSha256": "95c7625fe01a6f0a69cad3c8ca882f4ca2e1d17b81a0f49ffb36d5899a6016d5",
+    "publishedSha256": "f315702982613db22b9f622351d8545dd77aca159754069acf62e93fa0221c18",
+    "normalization": "Strip trailing whitespace from browser version output; original retained outside Git."
+  }
+}

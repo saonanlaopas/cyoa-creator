@@ -1,0 +1,56 @@
+{
+  "screenshots": [
+    {
+      "file": "w5-correction-standalone-1280-event-entries.png",
+      "sha256": "0af17448e4d1c7a0147e8a05c6c9f8f265d772a265cdb597797cae8231975311",
+      "width": 1280,
+      "height": 977,
+      "visuallyInspected": true,
+      "source": "full browser validation"
+    },
+    {
+      "file": "w5-correction-standalone-390-chapter-objectives.png",
+      "sha256": "d6ef46e73af0dc55e0540b8a380a707d2f5aff369183905da3646debe4fa27b8",
+      "width": 390,
+      "height": 948,
+      "visuallyInspected": true,
+      "source": "full browser validation"
+    },
+    {
+      "file": "w5-correction-static-1280-chapter-objectives.png",
+      "sha256": "e2506e763838f9f1138083f5b2ba63f3854c9b2ac3a0093d7dca9a44206be89a",
+      "width": 1280,
+      "height": 977,
+      "visuallyInspected": true,
+      "source": "full browser validation"
+    },
+    {
+      "file": "w5-correction-static-390-chapter-entries.png",
+      "sha256": "5069b6f1cbcfebb3608c56d15daf59a368bb1730cca359cbcd1e4b0636d50cb9",
+      "width": 390,
+      "height": 1033,
+      "visuallyInspected": true,
+      "source": "full browser validation"
+    }
+  ],
+  "finalStates": [
+    {
+      "file": "w5-correction-standalone-1280-state.json",
+      "sha256": "79af7feabe37be8b831ca4b6e278aa05880a47ff50c55d2f3b27b6f94fe961df"
+    },
+    {
+      "file": "w5-correction-standalone-390-state.json",
+      "sha256": "79af7feabe37be8b831ca4b6e278aa05880a47ff50c55d2f3b27b6f94fe961df"
+    },
+    {
+      "file": "w5-correction-static-1280-state.json",
+      "sha256": "79af7feabe37be8b831ca4b6e278aa05880a47ff50c55d2f3b27b6f94fe961df"
+    },
+    {
+      "file": "w5-correction-static-390-state.json",
+      "sha256": "79af7feabe37be8b831ca4b6e278aa05880a47ff50c55d2f3b27b6f94fe961df"
+    }
+  ],
+  "allFourFinalStatesByteIdentical": true,
+  "creatorStoppedBeforeOfflinePlay": true
+}

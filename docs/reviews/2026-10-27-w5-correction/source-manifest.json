@@ -1,0 +1,5 @@
+{
+  "packages/runtime/src/progression.ts": "d8976280b45b6bba5652ade3e8117be2be0a5bfac71f893f13b4d2d4bc68bb98",
+  "packages/runtime/test/journal-progression.test.ts": "e5cf84ab50f9ed5330d368931d9cd2d61fd94b5d4c903550feba4be0cc5b809d",
+  "e2e/journal-progression.spec.ts": "8d6f000d4d35164479c9fed6fb3c3dea1109c21dc0054cdfdd671ab002f8e428"
+}

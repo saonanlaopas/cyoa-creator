@@ -235,7 +235,7 @@ export function transitionProgressionWorld(world: NativeWorld, state: RuntimeSta
   const minutes = state.world.minutes + item.minutes;
   if (!Number.isSafeInteger(minutes) || minutes > 52_560_000) throw new Error("world_time_limit_reached");
   const destination = world.locations.find((l) => l.passageId && l.passageId === item.passageId);
-  let next = (world.people || world.economy) && (!destination || destination.id === state.world.locationId) ? advancePeopleTime(world, state, minutes, false, command.kind === "event" ? command.id : undefined) : cloneRuntimeState(state);
+  let next = (world.people || world.economy || world.journal) && (!destination || destination.id === state.world.locationId) ? advancePeopleTime(world, state, minutes, false, command.kind === "event" ? command.id : undefined) : cloneRuntimeState(state);
   const nextProgress = next.world!.progression!;
   next.world!.minutes = minutes;
   if (command.kind === "event") {

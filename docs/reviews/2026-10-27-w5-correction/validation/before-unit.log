@@ -1,0 +1,43 @@
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ❯ |0| packages/runtime/test/journal-progression.test.ts (6 tests | 2 failed) 600ms
+   × journal-only progression time boundaries > records a short window during a 15-minute stationary event, saves and replays 156ms
+     → expected [ 'arrival' ] to deeply equal [ 'arrival', 'window' ]
+   × journal-only progression time boundaries > records a short window during a 15-minute stationary chapter-transition, saves and replays 89ms
+     → expected [ 'arrival' ] to deeply equal [ 'arrival', 'window' ]
+   ✓ journal-only progression time boundaries > keeps a event journey destination-only and completion discovery after effects 94ms
+   ✓ journal-only progression time boundaries > keeps a chapter-transition journey destination-only and completion discovery after effects 87ms
+   ✓ journal-only progression time boundaries > preserves legacy event state with all three extensions absent 106ms
+   ✓ journal-only progression time boundaries > preserves legacy chapter-transition state with all three extensions absent 66ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |0| packages/runtime/test/journal-progression.test.ts > journal-only progression time boundaries > records a short window during a 15-minute stationary event, saves and replays
+ FAIL  |0| packages/runtime/test/journal-progression.test.ts > journal-only progression time boundaries > records a short window during a 15-minute stationary chapter-transition, saves and replays
+AssertionError: expected [ 'arrival' ] to deeply equal [ 'arrival', 'window' ]
+
+- Expected
++ Received
+
+  [
+    "arrival",
+-   "window",
+  ]
+
+ ❯ packages/runtime/test/journal-progression.test.ts:32:53
+     30|       expect(f.world.people).toBeUndefined(); expect(f.world.economy).…
+     31|       expect(result.state.world!.minutes).toBe(1445); expect(result.st…
+     32|       expect(result.state.world!.journal!.entryIds).toEqual(["arrival"…
+       |                                                     ^
+     33|       expect(result.state.world!.journal!.revealedObjectiveIds).toEqua…
+     34|       expect(result.state.world!.journal!.completedObjectiveIds).toEqu…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+   Start at  13:32:04
+   Duration  1.35s (transform 340ms, setup 0ms, collect 481ms, tests 600ms, environment 0ms, prepare 78ms)

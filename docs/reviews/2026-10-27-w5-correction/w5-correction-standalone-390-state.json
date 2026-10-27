@@ -1,0 +1,66 @@
+{
+  "world": {
+    "schemaVersion": 1,
+    "locationId": "home",
+    "progression": {
+      "schemaVersion": 1,
+      "chapterId": "second",
+      "milestones": [
+        "clue"
+      ],
+      "knownEventIds": [
+        "notice"
+      ],
+      "events": {
+        "notice": {
+          "count": 1,
+          "lastMinutes": 1430,
+          "chapterIds": [
+            "first"
+          ]
+        }
+      },
+      "expiredEventIds": [],
+      "transitions": {
+        "next": 1
+      }
+    },
+    "journal": {
+      "schemaVersion": 1,
+      "knownLocationIds": [
+        "home",
+        "town"
+      ],
+      "entryIds": [
+        "chapter-window",
+        "event-window"
+      ],
+      "revealedObjectiveIds": [
+        "chapter-window",
+        "event-window"
+      ],
+      "completedObjectiveIds": [
+        "chapter-window",
+        "event-window"
+      ]
+    },
+    "minutes": 1460,
+    "stationaryTurns": 2
+  },
+  "currentPassageId": "passage-shared-opening",
+  "stats": {
+    "insight": 0,
+    "integrity": 0,
+    "resolve": 0
+  },
+  "relationships": {},
+  "flags": {},
+  "resources": {},
+  "decisions": [],
+  "routes": [],
+  "knownFacts": [],
+  "visitCounts": {
+    "passage-shared-opening": 1
+  },
+  "turn": 2
+}
