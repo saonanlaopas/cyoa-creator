@@ -1,0 +1,128 @@
+[
+  {
+    "file": "w6-chapter-led-creator-1280.png",
+    "sha256": "114fcbd2feadb46c0bca8fda98fcd5b972a3e11cde8d3fd357b8c3933bb9f2c1",
+    "width": 1280,
+    "height": 900,
+    "visuallyReviewed": true,
+    "inspection": "byte-identical to previously directly inspected release image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-chapter-free-creator-390.png",
+    "sha256": "bfa909e092ee212efaf867d0b36e654c41f3ceb1886b43d63be343715f8cbc1b",
+    "width": 390,
+    "height": 844,
+    "visuallyReviewed": true,
+    "inspection": "byte-identical to previously directly inspected release image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-chapter-led-creator-preview.png",
+    "sha256": "b8a2e83d19b9446f75b55012d110ad87fd9294942796e638be786b43338c12d9",
+    "width": 1280,
+    "height": 1979,
+    "visuallyReviewed": true,
+    "inspection": "byte-identical to previously directly inspected release image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-chapter-led-standalone-1280-explore.png",
+    "sha256": "a6d592e1eba61369f8eb66cfa9e83cfd7362f415045f1ad2691fcceeb162b371",
+    "width": 1280,
+    "height": 2941,
+    "visuallyReviewed": true,
+    "inspection": "byte-identical to previously directly inspected release image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-chapter-led-static-390-encounter.png",
+    "sha256": "6fbc21fa132175ba92ed6b305be2d4ba4601637fe9ef98b9c6b47e6337df639d",
+    "width": 390,
+    "height": 2654,
+    "visuallyReviewed": true,
+    "inspection": "direct final-run image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-chapter-led-standalone-390-ending.png",
+    "sha256": "b5d4d9780c3d011e69658f1ca8b92a259c8008dcaeccd26c12b7e0fe2b04d4d1",
+    "width": 390,
+    "height": 2204,
+    "visuallyReviewed": true,
+    "inspection": "byte-identical to previously directly inspected release image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-chapter-free-static-1280-journal.png",
+    "sha256": "8819ca1065f719b8a9c3217d84961975eaf0d94a7aae3a4ab32514295740a353",
+    "width": 1280,
+    "height": 977,
+    "visuallyReviewed": true,
+    "inspection": "byte-identical to previously directly inspected release image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-chapter-free-standalone-390-ending.png",
+    "sha256": "4b7a7d3b3ed04a2b6222f40096b702b3d4dd7a321982884d1fbf1c9efd9d7507",
+    "width": 390,
+    "height": 2281,
+    "visuallyReviewed": true,
+    "inspection": "byte-identical to previously directly inspected release image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-restored-static-390-ending.png",
+    "sha256": "b5d4d9780c3d011e69658f1ca8b92a259c8008dcaeccd26c12b7e0fe2b04d4d1",
+    "width": 390,
+    "height": 2204,
+    "visuallyReviewed": true,
+    "inspection": "byte-identical to previously directly inspected release image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-duplicate-static-390-ending.png",
+    "sha256": "b5d4d9780c3d011e69658f1ca8b92a259c8008dcaeccd26c12b7e0fe2b04d4d1",
+    "width": 390,
+    "height": 2204,
+    "visuallyReviewed": true,
+    "inspection": "byte-identical to previously directly inspected release image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-chapter-led-static-390-shared-ending.png",
+    "sha256": "cfcfaf31487627f709c7cbfb4d83b2b0d66d5b963fdb0f2d022395852355baa7",
+    "width": 390,
+    "height": 2126,
+    "visuallyReviewed": true,
+    "inspection": "direct final-run image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-chapter-free-standalone-390-shared-ending.png",
+    "sha256": "92955b4c0bab37241c805e54663ca7a286bd133aee4dd00c9e333f2a7ff993f3",
+    "width": 390,
+    "height": 2203,
+    "visuallyReviewed": true,
+    "inspection": "direct final-run image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-chapter-led-standalone-1280-shop.png",
+    "sha256": "58fd89089af59e1b3115fcf0009f2ceb31bbc84490b314d8ed8027866ea6aedb",
+    "width": 1280,
+    "height": 977,
+    "visuallyReviewed": true,
+    "inspection": "direct final-run image",
+    "source": "final full browser run"
+  },
+  {
+    "file": "w6-chapter-free-static-390-gift.png",
+    "sha256": "f91c7dc4c575031946a23fcc29e70a64f7764999475a3c704261dc7cc15080ea",
+    "width": 390,
+    "height": 967,
+    "visuallyReviewed": true,
+    "inspection": "direct final-run image",
+    "source": "final full browser run"
+  }
+]

@@ -1,0 +1,130 @@
+{
+  "world": {
+    "schemaVersion": 1,
+    "locationId": "station",
+    "progression": {
+      "schemaVersion": 1,
+      "chapterId": "signal",
+      "milestones": [
+        "memory",
+        "prepared",
+        "warning"
+      ],
+      "knownEventIds": [
+        "prepare",
+        "tide",
+        "warning"
+      ],
+      "events": {
+        "tide": {
+          "count": 1,
+          "lastMinutes": 420,
+          "chapterIds": [
+            "gather"
+          ]
+        },
+        "warning": {
+          "count": 1,
+          "lastMinutes": 438,
+          "chapterIds": [
+            "gather"
+          ]
+        },
+        "prepare": {
+          "count": 1,
+          "lastMinutes": 445,
+          "chapterIds": [
+            "signal"
+          ]
+        }
+      },
+      "expiredEventIds": [
+        "tide"
+      ],
+      "transitions": {
+        "next": 1
+      }
+    },
+    "people": {
+      "schemaVersion": 1,
+      "knownCharacterIds": [
+        "mara"
+      ]
+    },
+    "economy": {
+      "schemaVersion": 1,
+      "currency": 3,
+      "items": {
+        "tea": 0
+      },
+      "receipts": {
+        "buy-tea": {
+          "count": 1,
+          "lastMinutes": 430,
+          "chapterIds": [
+            "gather"
+          ]
+        },
+        "share-tea": {
+          "count": 1,
+          "lastMinutes": 437,
+          "chapterIds": [
+            "gather"
+          ]
+        }
+      }
+    },
+    "journal": {
+      "schemaVersion": 1,
+      "knownLocationIds": [
+        "cafe",
+        "harbor",
+        "home",
+        "station"
+      ],
+      "entryIds": [
+        "guide",
+        "memory",
+        "ready",
+        "warning"
+      ],
+      "revealedObjectiveIds": [
+        "cup",
+        "signal",
+        "warning"
+      ],
+      "completedObjectiveIds": [
+        "cup",
+        "signal",
+        "warning"
+      ]
+    },
+    "minutes": 448,
+    "stationaryTurns": 6
+  },
+  "currentPassageId": "passage-ending-1",
+  "stats": {
+    "insight": 0,
+    "integrity": 0,
+    "resolve": 0
+  },
+  "relationships": {
+    "relationship_1": 3
+  },
+  "flags": {},
+  "resources": {},
+  "decisions": [
+    "decision-route-selection"
+  ],
+  "routes": [
+    "route-1"
+  ],
+  "knownFacts": [],
+  "visitCounts": {
+    "passage-shared-opening": 1,
+    "passage-shared-route-pivot": 1,
+    "passage-route-1-act": 1,
+    "passage-ending-1": 1
+  },
+  "turn": 9
+}

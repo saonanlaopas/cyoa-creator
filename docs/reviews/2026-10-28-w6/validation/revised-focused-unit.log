@@ -1,0 +1,11 @@
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| apps/server/test/w6-demo.test.ts (1 test) 16911ms
+   ✓ W6 authors a complete visual game through the real MCP SDK and replays both configurations, optional paths and next-day encounters  16910ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  06:54:50
+   Duration  19.91s (transform 1.76s, setup 0ms, collect 2.76s, tests 16.91s, environment 0ms, prepare 66ms)

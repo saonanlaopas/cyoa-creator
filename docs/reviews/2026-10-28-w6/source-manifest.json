@@ -1,0 +1,15 @@
+{
+  "apps/server/test/w6-demo.test.ts": "f2baeb70ea5f67784767dead1332e7d789500e89c6bb6f76ef9e1c32144f77d4",
+  "demos/last-harbor-signal/README.md": "d1ff8809cee84b7e4e4801bfa641916956b80ae1e1ab1a1892f9197eeb3576fa",
+  "demos/last-harbor-signal/artifacts.ts": "1126c1b7613eff892daf666a9a311ce97bbed15f462e316c3c45da0689b7bb18",
+  "demos/last-harbor-signal/assets.ts": "b6e136d441edf72159b0b31ffc42b5302df8e3b019068f979f4ad9dc67299558",
+  "demos/last-harbor-signal/author.ts": "2c3619f88abcbbed673ad67cfd68f117ec2749af2af85b02a0e10b008ce06a22",
+  "demos/last-harbor-signal/generate.ts": "f01cad810927ac7e4ca286f529b7d360ea66eeebec92446bda8828ea1b674a3d",
+  "demos/last-harbor-signal/host.ts": "8a05f56e17d439333dfa649676aec5faf41f5f90a63cdeab9df82b98e6b2d3dd",
+  "demos/last-harbor-signal/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+  "demos/last-harbor-signal/play.ts": "dc6e8e9e50c8ad00cb3efcc6a848ec64c67cf3d132982737920b4f41091d310d",
+  "demos/last-harbor-signal/tsconfig.json": "ebcba5f7e98989713100b23d2060d36b97d55116734f0fe49c36b9198a93778a",
+  "demos/last-harbor-signal/world.ts": "6f23d183bdc9295939497b56a3f4008f9ca049b42b044b6c60d6c34e3f7d4d58",
+  "docs/superpowers/plans/2026-10-28-w6-complete-visual-game.md": "fbc486607846fd9087bd988009711fe407a0c456cdaa23693933b6acdd0cc0e2",
+  "e2e/complete-visual-game.spec.ts": "41df3ed0291e64494313d31492cf6f295679ce654434c85e916a85c714284398"
+}

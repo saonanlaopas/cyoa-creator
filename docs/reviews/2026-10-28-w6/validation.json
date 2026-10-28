@@ -1,0 +1,82 @@
+{
+  "base": "9111866558accd3679921859a688d6831e318a67",
+  "branch": "codex/w1-locations-time",
+  "checks": {
+    "final-cli": {
+      "exit": 0,
+      "capturedSha256": "2b5e0ec57509cd0f378f20cca6015944ef195cd92006abfcff98cfe3ade6f527",
+      "publishedSha256": "2b5e0ec57509cd0f378f20cca6015944ef195cd92006abfcff98cfe3ade6f527"
+    },
+    "final-demo-typecheck": {
+      "exit": 0,
+      "capturedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "publishedSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    "final-lint": {
+      "exit": 0,
+      "capturedSha256": "b573aa02e705c95f826b33b227a59155eb7f80792e7d9e40419f51f570e1699c",
+      "publishedSha256": "b573aa02e705c95f826b33b227a59155eb7f80792e7d9e40419f51f570e1699c"
+    },
+    "final-typecheck": {
+      "exit": 0,
+      "capturedSha256": "a4e4e2dc73c155c05207396d95cfb2899e536154947c06ca308ac50e402a4ad3",
+      "publishedSha256": "a4e4e2dc73c155c05207396d95cfb2899e536154947c06ca308ac50e402a4ad3"
+    },
+    "final-build": {
+      "exit": 0,
+      "capturedSha256": "76ac5db23649cbedc517cd8676ffbcc59e6cc953d773784dbb5695150ef9fcdc",
+      "publishedSha256": "76ac5db23649cbedc517cd8676ffbcc59e6cc953d773784dbb5695150ef9fcdc"
+    },
+    "final-unit": {
+      "exit": 0,
+      "capturedSha256": "b7f470715dbf9a8034413778b18d59a8c5f0bff114cdc41646db7c8217248300",
+      "publishedSha256": "7fe8ff4848077afccb98982be38b556c565561da09f482a3c7f5b6d57ce5981f"
+    },
+    "final-browser": {
+      "exit": 0,
+      "capturedSha256": "0b2fb89c00a95843c587326c3cd0d70cca0f2370fb2f33ea4195affb92807ba8",
+      "publishedSha256": "0b2fb89c00a95843c587326c3cd0d70cca0f2370fb2f33ea4195affb92807ba8"
+    },
+    "revised-focused-unit": {
+      "exit": 0,
+      "capturedSha256": "298860a120157025127a3ca4a223499e1b86fdbbc3169574f416603eb01a6b0e",
+      "publishedSha256": "65a44ed5ba073c28cdcba9a396ed8a536b9eef35973865359bf36440e95f6bb1"
+    },
+    "revised-demo-typecheck": {
+      "exit": 0,
+      "capturedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "publishedSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    "revised-focused-browser": {
+      "exit": 0,
+      "capturedSha256": "f0fa16721e85a2819bbd25a8b20faf270aa0b332f12139c820f20c9a669318ce",
+      "publishedSha256": "f0fa16721e85a2819bbd25a8b20faf270aa0b332f12139c820f20c9a669318ce"
+    },
+    "tooling": {
+      "capturedSha256": "95c7625fe01a6f0a69cad3c8ca882f4ca2e1d17b81a0f49ffb36d5899a6016d5",
+      "publishedSha256": "f315702982613db22b9f622351d8545dd77aca159754069acf62e93fa0221c18"
+    }
+  },
+  "unit": {
+    "files": 162,
+    "passed": 1569,
+    "duration": "367.14s"
+  },
+  "browser": {
+    "passed": 52,
+    "duration": "9.0m",
+    "workers": 1,
+    "traces": "on"
+  },
+  "tooling": {
+    "node": "24.19.0",
+    "pnpm": "11.9.0",
+    "playwright": "1.62.0",
+    "chromium": "151.0.7922.34",
+    "revision": 1234
+  },
+  "frozenSourceFiles": 13,
+  "frozenHashesMatch": true,
+  "acceptedFilesUnchanged": true,
+  "logPublication": "Whitespace at line ends and extra blank EOF lines normalized for Git; captured and published hashes recorded, raw evidence retained outside Git."
+}

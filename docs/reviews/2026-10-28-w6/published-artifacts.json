@@ -1,0 +1,159 @@
+{
+  "source": "Actual final full-browser W6 test output; unmodified exports and approved artwork bytes",
+  "files": [
+    {
+      "file": "demos/last-harbor-signal/artifacts/artwork/cafe.png",
+      "sha256": "0502e0401f6a092281102c20dc0e32cd1a3756a5d5eb0403da461bde5c91ebe1",
+      "bytes": 1292
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/artwork/harbor-map.png",
+      "sha256": "189cb6cda14185b5495a4ef67445c57b5ea8e878c7f83319e4705b296607e915",
+      "bytes": 2096
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/artwork/harbor.png",
+      "sha256": "26ca1dd5425b069d9bf3212118cbdb4009702d7008e498ee7f0e97e46beb5ac0",
+      "bytes": 1292
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/artwork/mira-relieved.png",
+      "sha256": "208e420792c73e20c774e2c5e153ffea51266aa889e4c2d8b3ec41d10224cef8",
+      "bytes": 1891
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/artwork/mira.png",
+      "sha256": "c8fdf20ad50f1c018e51f43836889babd7e3d995d7a4f324efc37500f1514230",
+      "bytes": 1829
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/chapter-free-world.json",
+      "sha256": "59616ac610c4d75f2f71a8c3b00d233cecebed983e2c8b8e02e72540e34f7883",
+      "bytes": 12409
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/chapter-free.cyoa-backup.zip",
+      "sha256": "1071f259aaa21910918af7c8facf8189e3eeab2d524befd4d53964b5de0efed5",
+      "bytes": 203954
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/chapter-free.html",
+      "sha256": "3d058b76119b874784f00882e913bbb4e1de01758b893103a920967e9ee4cea5",
+      "bytes": 494831
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/chapter-free.zip",
+      "sha256": "df53fc6549e64d5dca367861a5233e4015436937e31c8e4c01ace2f3d503d856",
+      "bytes": 136865
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/chapter-led-world.json",
+      "sha256": "b64934ddbdf15f9743848d1e76d7b0a4da24dce3119a5cf23a9173dee1935966",
+      "bytes": 12790
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/chapter-led.cyoa-backup.zip",
+      "sha256": "b64ac6911cb973d59cc1980e1669e44aada394d9988d543633b773c184da48ac",
+      "bytes": 187840
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/chapter-led.html",
+      "sha256": "20a39265e1caf9e40a6497914cfe3fac5780ecc5a6210b7a5db6464cf9e96b24",
+      "bytes": 495075
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/chapter-led.zip",
+      "sha256": "77bd7f9a5b888aa6b4dc7239d17ac58a5f143b0e0740e208160d7936a905e4ba",
+      "bytes": 136936
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/duplicate.zip",
+      "sha256": "be38fd4cbc83e7ae039db9e90060765297547d6bce333a01f0608492339118d8",
+      "bytes": 136942
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/manifest.json",
+      "sha256": "b09d7d38e6fd8529fe5437574b5e0751b90fa03d89e548939d941603b5298e08",
+      "bytes": 20501
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/restored.cyoa-backup.zip",
+      "sha256": "d31c130e3b426435fa829773787b186acfd1f54b9d5b5fab05788c76d9963c0a",
+      "bytes": 195154
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/restored.html",
+      "sha256": "adb30b6105d2679bb9beb904a304b336c107e02b962468a753d0ff2cad3ca909",
+      "bytes": 495075
+    },
+    {
+      "file": "demos/last-harbor-signal/artifacts/restored.zip",
+      "sha256": "dc3103c1e68f846340ec90ea373b5556e64e4b9868c3cdc4f0579b9580f86822",
+      "bytes": 136933
+    }
+  ],
+  "actualPrimaryRouteEndingStates": [
+    {
+      "file": "w6-chapter-free-standalone-1280-state.json",
+      "sha256": "f9e8871e74f52c932e95c61b99fc88c975e4a866b1da741f5d93eee4c81cb762"
+    },
+    {
+      "file": "w6-chapter-free-standalone-390-state.json",
+      "sha256": "f9e8871e74f52c932e95c61b99fc88c975e4a866b1da741f5d93eee4c81cb762"
+    },
+    {
+      "file": "w6-chapter-free-static-1280-state.json",
+      "sha256": "f9e8871e74f52c932e95c61b99fc88c975e4a866b1da741f5d93eee4c81cb762"
+    },
+    {
+      "file": "w6-chapter-free-static-390-state.json",
+      "sha256": "f9e8871e74f52c932e95c61b99fc88c975e4a866b1da741f5d93eee4c81cb762"
+    },
+    {
+      "file": "w6-chapter-led-standalone-1280-state.json",
+      "sha256": "87985245767b66fcef060cee6cdc6ca766d770ccd7a61267d82364fab0dff9be"
+    },
+    {
+      "file": "w6-chapter-led-standalone-390-state.json",
+      "sha256": "87985245767b66fcef060cee6cdc6ca766d770ccd7a61267d82364fab0dff9be"
+    },
+    {
+      "file": "w6-chapter-led-static-1280-state.json",
+      "sha256": "87985245767b66fcef060cee6cdc6ca766d770ccd7a61267d82364fab0dff9be"
+    },
+    {
+      "file": "w6-chapter-led-static-390-state.json",
+      "sha256": "87985245767b66fcef060cee6cdc6ca766d770ccd7a61267d82364fab0dff9be"
+    },
+    {
+      "file": "w6-duplicate-static-390-state.json",
+      "sha256": "87985245767b66fcef060cee6cdc6ca766d770ccd7a61267d82364fab0dff9be"
+    },
+    {
+      "file": "w6-restored-static-390-state.json",
+      "sha256": "87985245767b66fcef060cee6cdc6ca766d770ccd7a61267d82364fab0dff9be"
+    }
+  ],
+  "selectedMobileAlternativeEndings": [
+    {
+      "mode": "chapter-led",
+      "surface": "static",
+      "width": 390,
+      "sharedEndingId": "ending-2",
+      "sharedLocation": "station",
+      "earlyEndingId": "ending-3",
+      "earlyObjectives": []
+    },
+    {
+      "mode": "chapter-free",
+      "surface": "standalone",
+      "width": 390,
+      "sharedEndingId": "ending-2",
+      "sharedLocation": "station",
+      "earlyEndingId": "ending-3",
+      "earlyObjectives": []
+    }
+  ],
+  "allFinalStatesEqualWithinMode": true,
+  "restoredAndDuplicateStatesEqualChapterLed": true
+}
