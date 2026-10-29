@@ -1,0 +1,9 @@
+diff --git a/e2e/complete-visual-game.spec.ts b/e2e/complete-visual-game.spec.ts
+index 1d12b86..28a0146 100644
+--- a/e2e/complete-visual-game.spec.ts
++++ b/e2e/complete-visual-game.spec.ts
+@@ -110 +110,3 @@ test("W6 authors, reviews and publishes the complete visual game, restores and d
+-          await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name", { exact: true }).fill("Mara's warning"); await player.getByRole("button", { name: "Create save", exact: true }).click(); await player.reload(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.afterWarning.state);
++          await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name", { exact: true }).fill("Mara's warning"); await player.getByRole("button", { name: "Create save", exact: true }).click();
++          await expect(player.getByRole("status").filter({ hasText: /^Saved “Mara's warning”\.$/ })).toBeVisible();
++          await player.reload(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.afterWarning.state);

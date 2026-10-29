@@ -1,0 +1,9 @@
+{
+  "base": "3c5292ab2e9df40c3879f7dc80436c212118005d",
+  "testDelta": "one additional saved-confirmation visibility assertion before existing reload; save line split only",
+  "allOriginalTestContentRestoredWhenAddedAssertionRemoved": true,
+  "originalAssertionsPreserved": true,
+  "originalTimeoutsPreserved": true,
+  "playerAndStorageUnchanged": true,
+  "illustratedCssAndOriginalLayoutAssertionUnchanged": true
+}

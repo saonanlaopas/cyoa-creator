@@ -1,0 +1,62 @@
+{
+  "README.md": {
+    "sha256": "d7af6c20a3119ef549dd2e849fe1a66f6f2d50f1e457830dca6ed55f16b91ff5",
+    "bytes": 4712
+  },
+  "build.log": {
+    "sha256": "229c949b4ad0265b361823135d7dfed5f4af58511017ac4a250cda87153c6c24",
+    "bytes": 1598
+  },
+  "focused-browser.log": {
+    "sha256": "54afd62c5b140ad28155611582ebc944c22f2692a50770a92b922e578a692cdc",
+    "bytes": 591
+  },
+  "full-browser.log": {
+    "sha256": "032ceeaa0d912a8ad76e29ca5b94974c63457ca5a00dcf0c155aed20fa9cefd5",
+    "bytes": 1605
+  },
+  "invariants.json": {
+    "sha256": "4d7688cc5ce4f3cf29b5b481cbc4e323c7612d380e8084864359b76f73242c62",
+    "bytes": 416
+  },
+  "lint.log": {
+    "sha256": "6923020eeecdbc08d4c07ca5a39f5222c1e9ed29cac2e82db0025c8e1bf89711",
+    "bytes": 780
+  },
+  "protected-files.json": {
+    "sha256": "24b3fc7351cf7249f5744a6a63cb6036be950c3812c27099a45675b1b17e92aa",
+    "bytes": 477
+  },
+  "storage-delay-immediate-reload.png": {
+    "sha256": "df91ab5c4555aa23c01829028ffc8bdf94b233bf4c7af0a048f606a74c89fc99",
+    "bytes": 152970
+  },
+  "storage-delay-probe.cjs": {
+    "sha256": "99557882ab4e8f834653745f71cbe2fd53f5eccb4ede3646ad22d1b78dad86d6",
+    "bytes": 3076
+  },
+  "storage-delay-probe.log": {
+    "sha256": "79e0d5e323770915f09acf941de3e2399933d41ffd88968fb6c775a22f617a97",
+    "bytes": 247
+  },
+  "storage-delay-proof.json": {
+    "sha256": "932a851818901e71fcbb9f2db290235db50cd7211212681c177009a3d0a4491f",
+    "bytes": 442
+  },
+  "storage-delay-waited.png": {
+    "sha256": "8a611e524c49d15cbe3c112341cc715b6db672d4823e3b3ab63ea90cf74d45cc",
+    "bytes": 158635
+  },
+  "test-only.diff": {
+    "sha256": "1f9e4770656d77736b07bb5ddfe3e0db770d29139a2579aa335241d27caff5d5",
+    "bytes": 1162
+  },
+  "typecheck.log": {
+    "sha256": "efb62c0fde007f2c662ce2a3b63b0aeb468e43d78eb4bca4f7efbf83107a7e4c",
+    "bytes": 875
+  },
+  "validation.json": {
+    "sha256": "56561c0f07e96f0489c81a58dd61a329c9b8e26eeabb1fddb2fd7b25c46abd63",
+    "bytes": 1187
+  }
+}

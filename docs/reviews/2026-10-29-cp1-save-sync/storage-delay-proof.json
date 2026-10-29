@@ -1,0 +1,17 @@
+{
+  "fixture": "accepted standalone HTML; isolated browser contexts; no production changes",
+  "results": [
+    {
+      "waitForCompletion": false,
+      "delayedSaveOpenMilliseconds": 750,
+      "loadButtons": 0,
+      "screenshot": "storage-delay-immediate-reload.png"
+    },
+    {
+      "waitForCompletion": true,
+      "delayedSaveOpenMilliseconds": 750,
+      "loadButtons": 1,
+      "screenshot": "storage-delay-waited.png"
+    }
+  ]
+}

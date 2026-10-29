@@ -1,0 +1,39 @@
+{
+  "base": "3c5292ab2e9df40c3879f7dc80436c212118005d",
+  "testSourceSha256": "62b0efd70ecfa1b84d3b6bfe6d8b30f6a29bbfcdb9e0f13488c6d7862049b334",
+  "controlledProbe": {
+    "delayMilliseconds": 750,
+    "immediateReloadLoadButtons": 0,
+    "waitedReloadLoadButtons": 1
+  },
+  "local": {
+    "build": "passed",
+    "focusedBrowser": {
+      "tests": 2,
+      "workers": 1,
+      "reportedDuration": "2.4m",
+      "result": "passed"
+    },
+    "fullBrowser": {
+      "tests": 52,
+      "workers": 2,
+      "reportedDuration": "6.3m",
+      "result": "passed"
+    },
+    "lint": "passed",
+    "typecheck": "passed"
+  },
+  "previousCi": {
+    "runId": 40810417317,
+    "artifactId": 12870945681,
+    "head": "3c5292ab2e9df40c3879f7dc80436c212118005d",
+    "failure": "15s wait for Load button at prior line119; state assertion not reached"
+  },
+  "ciArtifactInspection": {
+    "status": "blocked",
+    "host": "sdmntprseasia.oaiusercontent.com",
+    "reason": "enforced Cloud proxy CONNECT 403; requested host allow-list update",
+    "exactCiCause": "not established from the artifact"
+  },
+  "nativeDesktopVerification": "pending actual desktop native calls, human consent and reconnect"
+}

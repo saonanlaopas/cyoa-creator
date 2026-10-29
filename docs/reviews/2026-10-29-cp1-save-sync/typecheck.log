@@ -1,0 +1,20 @@
+$ pnpm -r typecheck
+Scope: 9 of 10 workspace projects
+packages/domain typecheck$ tsc -p tsconfig.json --noEmit
+packages/importers typecheck$ tsc -p tsconfig.json --noEmit
+packages/importers typecheck: Done
+packages/openrouter typecheck$ tsc -p tsconfig.json --noEmit
+packages/openrouter typecheck: Done
+packages/runtime typecheck$ tsc -p tsconfig.json --noEmit
+packages/domain typecheck: Done
+packages/runtime typecheck: Done
+packages/export-twine typecheck$ tsc -p tsconfig.json --noEmit
+apps/web typecheck$ tsc -p tsconfig.json --noEmit
+packages/export-twine typecheck: Done
+packages/persistence typecheck$ tsc -p tsconfig.json --noEmit
+apps/web typecheck: Done
+packages/persistence typecheck: Done
+packages/pipeline typecheck$ tsc -p tsconfig.json --noEmit
+packages/pipeline typecheck: Done
+apps/server typecheck$ tsc -p tsconfig.json --noEmit
+apps/server typecheck: Done

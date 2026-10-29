@@ -1,0 +1,6 @@
+{
+  "apps/web/src/features/player/NativePlayer.tsx": "a3a7e2499ed8f557b94e50d2819817a20dce679a5029d7495dd785a342dc7785",
+  "apps/web/src/features/player/native-player-storage.ts": "cd446dfc965f96e9f870a37eeaece6c519ea8c31771d60c399a10add0763328b",
+  "apps/web/src/features/player/illustrated-scene.css": "327062374dbfb73b9f9177fc30e08c13fc55be57688d20939271e19f45766c14",
+  "e2e/illustrated-scenes.spec.ts": "3ce4e81cd305f1bbcde8355b67df6b6261c4e91d12717136a83de6a6443c3044"
+}
