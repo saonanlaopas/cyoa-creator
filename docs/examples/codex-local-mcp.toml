@@ -1,0 +1,15 @@
+# Merge into the trusted workspace's .codex/config.toml; preserve other settings.
+# Creator and Codex must run on this same computer. Keep the token out of this file.
+[mcp_servers.cyoa_creator]
+url = "http://127.0.0.1:3000/mcp"
+bearer_token_env_var = "CYOA_MCP_TOKEN"
+enabled_tools = [
+  "list_projects", "create_project", "project_state",
+  "initialize_foundation", "read_foundation", "review_foundation_approval", "approve_foundation",
+  "list_edit_targets", "list_edits", "prepare_edit", "submit_edit", "get_edit", "review_edit", "apply_edit", "reject_edit",
+  "game_state", "read_game_record", "initialize_game_plan", "review_game_plan", "approve_game_plan",
+  "submit_draft", "review_drafts", "accept_drafts", "publication_readiness", "compile_game", "simulate_game", "read_simulation", "export_game",
+  "list_assets", "read_asset", "asset_usage", "list_staged_assets", "import_staged_asset", "revise_asset", "review_asset", "approve_asset", "reject_asset",
+  "read_scene", "review_scene", "apply_scene",
+  "read_world", "review_world", "apply_world", "preview_chapter_transition", "inspect_world_presence", "inspect_world_economy", "inspect_world_journal",
+]

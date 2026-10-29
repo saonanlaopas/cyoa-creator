@@ -1,0 +1,77 @@
+{
+  "base": "fe3d9c0f0f4165ce251bd39775a778ee3631e427",
+  "gitState": "proposed CP1 review commit (containing commit)",
+  "nativeDesktopVerification": "pending",
+  "tooling": {
+    "node": "24.19.0",
+    "pnpm": "11.9.0",
+    "playwright": "1.62.0",
+    "chromiumRevision": "1234",
+    "codexCli": "0.163.0 (configuration parsing only)"
+  },
+  "checks": {
+    "build": "passed",
+    "lint": "passed",
+    "typecheck": "passed",
+    "newTestStrictTypecheck": "passed",
+    "focusedSdk": "2 passed",
+    "finalUnit": {
+      "files": 163,
+      "tests": 1571,
+      "seconds": 413.83,
+      "result": "passed"
+    },
+    "finalBrowser": {
+      "tests": 52,
+      "reportedDuration": "9.6m",
+      "workers": 1,
+      "result": "passed",
+      "nativeDesktopVerification": "not established by browser tests"
+    }
+  },
+  "initialAttempts": {
+    "unit": "1 existing 15s timeout; 1570 passed; exit 1",
+    "browser": "existing W6 300s timeout; deliberately stopped remaining run; 7 passed, 1 failed, 1 interrupted, 43 not run; exit 130",
+    "correction": "rerun suites separately; no source/assertion/timeout changes"
+  },
+  "logPublication": "ANSI/trailing whitespace normalized only; captured originals retained outside Git",
+  "logs": {
+    "build": {
+      "capturedSha256": "9e396ab1b41b2dad52ee2dae62b09a3f17b702496e4c5325d3352062ff77d84e",
+      "publishedSha256": "9e396ab1b41b2dad52ee2dae62b09a3f17b702496e4c5325d3352062ff77d84e"
+    },
+    "lint": {
+      "capturedSha256": "64e1ff32baff2a6db8f80a16c073f79153a998fb8a934b9d01e12ddae06eb76e",
+      "publishedSha256": "64e1ff32baff2a6db8f80a16c073f79153a998fb8a934b9d01e12ddae06eb76e"
+    },
+    "typecheck": {
+      "capturedSha256": "a4e4e2dc73c155c05207396d95cfb2899e536154947c06ca308ac50e402a4ad3",
+      "publishedSha256": "a4e4e2dc73c155c05207396d95cfb2899e536154947c06ca308ac50e402a4ad3"
+    },
+    "test-typecheck": {
+      "capturedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "publishedSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    "focused-sdk": {
+      "capturedSha256": "d08ff3434ac53545c2a0a43313de9b96ac3a565546a9210d76a476b290739853",
+      "publishedSha256": "ae26011c412f56c062ddb8eed511212eb92884c84316c0a224c42e60bd236999"
+    },
+    "final-unit": {
+      "capturedSha256": "53de53e774d56f1b09cbebeeeb1d58027bf91ca4cb2c05d5c4053ae32cd0a887",
+      "publishedSha256": "8fa905132e84555beabf4428cf7f9b632c86fcc28f8a9f9df3acecebf81647bf"
+    },
+    "unit": {
+      "capturedSha256": "ea2ad67f1e0831e87adffb7e706a95d9478c854923de9ca80785eae8b1d397d9",
+      "publishedSha256": "ea2ad67f1e0831e87adffb7e706a95d9478c854923de9ca80785eae8b1d397d9"
+    },
+    "browser": {
+      "capturedSha256": "765511689e08c8157d7d35cdc2be920953b3a15fb061688f4f8564107d22adf1",
+      "publishedSha256": "acc8ec813db194e3ddea2bca0cc850a60c5ec109c36f98ba4b94d3ff2dc337f2"
+    },
+    "final-browser": {
+      "capturedSha256": "66918e46a85e4e76ca497d42449f5e9e15633daf736375f87bcf8aeefab9ae6d",
+      "publishedSha256": "66918e46a85e4e76ca497d42449f5e9e15633daf736375f87bcf8aeefab9ae6d"
+    }
+  },
+  "reviewBranch": "checkpoint/cp1-desktop-review"
+}

@@ -1,0 +1,235 @@
+{
+  "verification": "existing W6 full-browser fixture after CP1 setup/instructions change; not native Codex discovery",
+  "providerCalls": 0,
+  "creatorStoppedBeforePlay": true,
+  "restoredBundleEqualsOriginal": true,
+  "duplicate": {
+    "projectId": "f0c76128-0aeb-4c15-b1b0-e02bd8514a30",
+    "bundleFingerprint": "18fbaa8cda6bae3a92d9e65d002f8ee9",
+    "finalStateEqualsOriginal": true
+  },
+  "plays": [
+    {
+      "mode": "chapter-led",
+      "surface": "standalone",
+      "width": 1280,
+      "stateFile": "w6-chapter-led-standalone-1280-state.json",
+      "finalStateSha256": "ea2ee196e74103d3aab05923d94db6f5498ca40ca1bb6b9b113693729aa5ca98",
+      "requests": [
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-led.html",
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-led.html",
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-led.html"
+      ],
+      "pageErrors": []
+    },
+    {
+      "mode": "chapter-led",
+      "surface": "standalone",
+      "width": 390,
+      "stateFile": "w6-chapter-led-standalone-390-state.json",
+      "finalStateSha256": "ea2ee196e74103d3aab05923d94db6f5498ca40ca1bb6b9b113693729aa5ca98",
+      "requests": [
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-led.html",
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-led.html",
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-led.html"
+      ],
+      "pageErrors": []
+    },
+    {
+      "mode": "chapter-led",
+      "surface": "static",
+      "width": 1280,
+      "stateFile": "w6-chapter-led-static-1280-state.json",
+      "finalStateSha256": "ea2ee196e74103d3aab05923d94db6f5498ca40ca1bb6b9b113693729aa5ca98",
+      "requests": [
+        "http://127.0.0.1:46507/chapter-led/index.html",
+        "http://127.0.0.1:46507/chapter-led/assets/player.css",
+        "http://127.0.0.1:46507/chapter-led/assets/player.js",
+        "http://127.0.0.1:46507/chapter-led/game.json",
+        "http://127.0.0.1:46507/chapter-led/player-config.json",
+        "http://127.0.0.1:46507/chapter-led/index.html",
+        "http://127.0.0.1:46507/chapter-led/assets/player.css",
+        "http://127.0.0.1:46507/chapter-led/assets/player.js",
+        "http://127.0.0.1:46507/chapter-led/game.json",
+        "http://127.0.0.1:46507/chapter-led/player-config.json",
+        "http://127.0.0.1:46507/chapter-led/index.html",
+        "http://127.0.0.1:46507/chapter-led/assets/player.css",
+        "http://127.0.0.1:46507/chapter-led/assets/player.js",
+        "http://127.0.0.1:46507/chapter-led/game.json",
+        "http://127.0.0.1:46507/chapter-led/player-config.json"
+      ],
+      "pageErrors": []
+    },
+    {
+      "mode": "chapter-led",
+      "surface": "static",
+      "width": 390,
+      "stateFile": "w6-chapter-led-static-390-state.json",
+      "finalStateSha256": "ea2ee196e74103d3aab05923d94db6f5498ca40ca1bb6b9b113693729aa5ca98",
+      "requests": [
+        "http://127.0.0.1:46507/chapter-led/index.html",
+        "http://127.0.0.1:46507/chapter-led/assets/player.css",
+        "http://127.0.0.1:46507/chapter-led/assets/player.js",
+        "http://127.0.0.1:46507/chapter-led/game.json",
+        "http://127.0.0.1:46507/chapter-led/player-config.json",
+        "http://127.0.0.1:46507/chapter-led/index.html",
+        "http://127.0.0.1:46507/chapter-led/assets/player.css",
+        "http://127.0.0.1:46507/chapter-led/assets/player.js",
+        "http://127.0.0.1:46507/chapter-led/game.json",
+        "http://127.0.0.1:46507/chapter-led/player-config.json",
+        "http://127.0.0.1:46507/chapter-led/index.html",
+        "http://127.0.0.1:46507/chapter-led/assets/player.css",
+        "http://127.0.0.1:46507/chapter-led/assets/player.js",
+        "http://127.0.0.1:46507/chapter-led/game.json",
+        "http://127.0.0.1:46507/chapter-led/player-config.json"
+      ],
+      "pageErrors": []
+    },
+    {
+      "mode": "chapter-free",
+      "surface": "standalone",
+      "width": 1280,
+      "stateFile": "w6-chapter-free-standalone-1280-state.json",
+      "finalStateSha256": "7598be63e5e0e132101728073cabf362c05d207f25ec30023af45a44296380ef",
+      "requests": [
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-free.html",
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-free.html",
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-free.html"
+      ],
+      "pageErrors": []
+    },
+    {
+      "mode": "chapter-free",
+      "surface": "standalone",
+      "width": 390,
+      "stateFile": "w6-chapter-free-standalone-390-state.json",
+      "finalStateSha256": "7598be63e5e0e132101728073cabf362c05d207f25ec30023af45a44296380ef",
+      "requests": [
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-free.html",
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-free.html",
+        "file:///workspace/.setup/cp1-review-20261028/final-browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/demo/chapter-free.html"
+      ],
+      "pageErrors": []
+    },
+    {
+      "mode": "chapter-free",
+      "surface": "static",
+      "width": 1280,
+      "stateFile": "w6-chapter-free-static-1280-state.json",
+      "finalStateSha256": "7598be63e5e0e132101728073cabf362c05d207f25ec30023af45a44296380ef",
+      "requests": [
+        "http://127.0.0.1:46507/chapter-free/index.html",
+        "http://127.0.0.1:46507/chapter-free/assets/player.css",
+        "http://127.0.0.1:46507/chapter-free/assets/player.js",
+        "http://127.0.0.1:46507/chapter-free/game.json",
+        "http://127.0.0.1:46507/chapter-free/player-config.json",
+        "http://127.0.0.1:46507/chapter-free/index.html",
+        "http://127.0.0.1:46507/chapter-free/assets/player.css",
+        "http://127.0.0.1:46507/chapter-free/assets/player.js",
+        "http://127.0.0.1:46507/chapter-free/game.json",
+        "http://127.0.0.1:46507/chapter-free/player-config.json",
+        "http://127.0.0.1:46507/chapter-free/index.html",
+        "http://127.0.0.1:46507/chapter-free/assets/player.css",
+        "http://127.0.0.1:46507/chapter-free/assets/player.js",
+        "http://127.0.0.1:46507/chapter-free/game.json",
+        "http://127.0.0.1:46507/chapter-free/player-config.json"
+      ],
+      "pageErrors": []
+    },
+    {
+      "mode": "chapter-free",
+      "surface": "static",
+      "width": 390,
+      "stateFile": "w6-chapter-free-static-390-state.json",
+      "finalStateSha256": "7598be63e5e0e132101728073cabf362c05d207f25ec30023af45a44296380ef",
+      "requests": [
+        "http://127.0.0.1:46507/chapter-free/index.html",
+        "http://127.0.0.1:46507/chapter-free/assets/player.css",
+        "http://127.0.0.1:46507/chapter-free/assets/player.js",
+        "http://127.0.0.1:46507/chapter-free/game.json",
+        "http://127.0.0.1:46507/chapter-free/player-config.json",
+        "http://127.0.0.1:46507/chapter-free/index.html",
+        "http://127.0.0.1:46507/chapter-free/assets/player.css",
+        "http://127.0.0.1:46507/chapter-free/assets/player.js",
+        "http://127.0.0.1:46507/chapter-free/game.json",
+        "http://127.0.0.1:46507/chapter-free/player-config.json",
+        "http://127.0.0.1:46507/chapter-free/index.html",
+        "http://127.0.0.1:46507/chapter-free/assets/player.css",
+        "http://127.0.0.1:46507/chapter-free/assets/player.js",
+        "http://127.0.0.1:46507/chapter-free/game.json",
+        "http://127.0.0.1:46507/chapter-free/player-config.json"
+      ],
+      "pageErrors": []
+    },
+    {
+      "mode": "restored",
+      "surface": "static",
+      "width": 390,
+      "stateFile": "w6-restored-static-390-state.json",
+      "finalStateSha256": "ea2ee196e74103d3aab05923d94db6f5498ca40ca1bb6b9b113693729aa5ca98",
+      "requests": [
+        "http://127.0.0.1:46507/restored/index.html",
+        "http://127.0.0.1:46507/restored/assets/player.css",
+        "http://127.0.0.1:46507/restored/assets/player.js",
+        "http://127.0.0.1:46507/restored/game.json",
+        "http://127.0.0.1:46507/restored/player-config.json",
+        "http://127.0.0.1:46507/restored/index.html",
+        "http://127.0.0.1:46507/restored/assets/player.css",
+        "http://127.0.0.1:46507/restored/assets/player.js",
+        "http://127.0.0.1:46507/restored/game.json",
+        "http://127.0.0.1:46507/restored/player-config.json",
+        "http://127.0.0.1:46507/restored/index.html",
+        "http://127.0.0.1:46507/restored/assets/player.css",
+        "http://127.0.0.1:46507/restored/assets/player.js",
+        "http://127.0.0.1:46507/restored/game.json",
+        "http://127.0.0.1:46507/restored/player-config.json"
+      ],
+      "pageErrors": []
+    },
+    {
+      "mode": "duplicate",
+      "surface": "static",
+      "width": 390,
+      "stateFile": "w6-duplicate-static-390-state.json",
+      "finalStateSha256": "ea2ee196e74103d3aab05923d94db6f5498ca40ca1bb6b9b113693729aa5ca98",
+      "requests": [
+        "http://127.0.0.1:46507/duplicate/index.html",
+        "http://127.0.0.1:46507/duplicate/assets/player.css",
+        "http://127.0.0.1:46507/duplicate/assets/player.js",
+        "http://127.0.0.1:46507/duplicate/game.json",
+        "http://127.0.0.1:46507/duplicate/player-config.json",
+        "http://127.0.0.1:46507/duplicate/index.html",
+        "http://127.0.0.1:46507/duplicate/assets/player.css",
+        "http://127.0.0.1:46507/duplicate/assets/player.js",
+        "http://127.0.0.1:46507/duplicate/game.json",
+        "http://127.0.0.1:46507/duplicate/player-config.json",
+        "http://127.0.0.1:46507/duplicate/index.html",
+        "http://127.0.0.1:46507/duplicate/assets/player.css",
+        "http://127.0.0.1:46507/duplicate/assets/player.js",
+        "http://127.0.0.1:46507/duplicate/game.json",
+        "http://127.0.0.1:46507/duplicate/player-config.json"
+      ],
+      "pageErrors": []
+    }
+  ],
+  "alternateEndings": [
+    {
+      "mode": "chapter-led",
+      "surface": "static",
+      "width": 390,
+      "sharedEndingId": "ending-2",
+      "sharedLocation": "station",
+      "earlyEndingId": "ending-3",
+      "earlyObjectives": []
+    },
+    {
+      "mode": "chapter-free",
+      "surface": "standalone",
+      "width": 390,
+      "sharedEndingId": "ending-2",
+      "sharedLocation": "station",
+      "earlyEndingId": "ending-3",
+      "earlyObjectives": []
+    }
+  ]
+}

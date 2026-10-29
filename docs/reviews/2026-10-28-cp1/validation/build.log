@@ -1,0 +1,20 @@
+$ pnpm -r build
+Scope: 9 of 10 workspace projects
+packages/domain build$ tsc -p tsconfig.json
+packages/importers build$ tsc -p tsconfig.json
+packages/importers build: Done
+packages/openrouter build$ tsc -p tsconfig.json
+packages/openrouter build: Done
+packages/runtime build$ tsc -p tsconfig.json
+packages/domain build: Done
+packages/runtime build: Done
+packages/export-twine build$ tsc -p tsconfig.json
+apps/web build$ vite build
+apps/web build: Done
+packages/persistence build$ tsc -p tsconfig.json
+packages/export-twine build: Done
+packages/persistence build: Done
+packages/pipeline build$ tsc -p tsconfig.json
+packages/pipeline build: Done
+apps/server build$ tsc -p tsconfig.json
+apps/server build: Done

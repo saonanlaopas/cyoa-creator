@@ -1,0 +1,86 @@
+{
+  "README.md": {
+    "sha256": "eb1fa9251e521103b27ed7e47cde641356b5a713026b7c0dfef3d62ebc4a1091",
+    "bytes": 10002
+  },
+  "codex-config-check.log": {
+    "sha256": "8a10cf2a5ade6b27ec0794c7d8e4c972cbb7ab8f1360129a1e271a3efd26e526",
+    "bytes": 1566
+  },
+  "exact-source.diff": {
+    "sha256": "3b247795221cb88531337f8aaf84c60f3621907b3c6bcfce296c3a31da58dd4a",
+    "bytes": 52171
+  },
+  "m1-desktop-review.png": {
+    "sha256": "88e8d4bbda15ed71936be2b45c220bf1a5a0424180b18eec67ad949e3284c164",
+    "bytes": 379591
+  },
+  "offline-player-proof.json": {
+    "sha256": "1daecaea3a66be28a115905e72a758e0479e740348acaace713f535135363f0d",
+    "bytes": 11147
+  },
+  "protected-files.json": {
+    "sha256": "cce319f57ea5df2f49f642f0befac613a074143857a32c497a2de41bbdc2dc2e",
+    "bytes": 231
+  },
+  "screenshots.json": {
+    "sha256": "44a84fead6c4b660cbe97e65dabb91bb65056da9e465c6058e921b5ce2a27edd",
+    "bytes": 881
+  },
+  "sdk-proof.json": {
+    "sha256": "6ba49da76225410ae10c11a8938a5fd397f0befd761e1b2f4da3e5a9a9ecab86",
+    "bytes": 1601
+  },
+  "source-manifest.json": {
+    "sha256": "0ca66e556cb0a2fc8725c9e50da3bd74b345781da8215ac14b26558a2915ccd6",
+    "bytes": 1116
+  },
+  "validation/browser.log": {
+    "sha256": "acc8ec813db194e3ddea2bca0cc850a60c5ec109c36f98ba4b94d3ff2dc337f2",
+    "bytes": 5264
+  },
+  "validation/build.log": {
+    "sha256": "9e396ab1b41b2dad52ee2dae62b09a3f17b702496e4c5325d3352062ff77d84e",
+    "bytes": 708
+  },
+  "validation/final-browser.log": {
+    "sha256": "66918e46a85e4e76ca497d42449f5e9e15633daf736375f87bcf8aeefab9ae6d",
+    "bytes": 1446
+  },
+  "validation/final-unit.log": {
+    "sha256": "8fa905132e84555beabf4428cf7f9b632c86fcc28f8a9f9df3acecebf81647bf",
+    "bytes": 62403
+  },
+  "validation/focused-sdk.log": {
+    "sha256": "ae26011c412f56c062ddb8eed511212eb92884c84316c0a224c42e60bd236999",
+    "bytes": 618
+  },
+  "validation/lint.log": {
+    "sha256": "64e1ff32baff2a6db8f80a16c073f79153a998fb8a934b9d01e12ddae06eb76e",
+    "bytes": 780
+  },
+  "validation/test-typecheck.log": {
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "bytes": 1
+  },
+  "validation/typecheck.log": {
+    "sha256": "a4e4e2dc73c155c05207396d95cfb2899e536154947c06ca308ac50e402a4ad3",
+    "bytes": 875
+  },
+  "validation/unit.log": {
+    "sha256": "ea2ad67f1e0831e87adffb7e706a95d9478c854923de9ca80785eae8b1d397d9",
+    "bytes": 74139
+  },
+  "validation.json": {
+    "sha256": "1f24aa893da55d51b115ba14d58c9a97abbd1b85bb18529a219080e10664b5e0",
+    "bytes": 3180
+  },
+  "w6-chapter-led-creator-1280.png": {
+    "sha256": "44ce5adae74a661f3fcc06e1f4df72dffca5a911c7f2beb531c02b8131e123c3",
+    "bytes": 131666
+  },
+  "w6-chapter-led-standalone-390-ending.png": {
+    "sha256": "b5d4d9780c3d011e69658f1ca8b92a259c8008dcaeccd26c12b7e0fe2b04d4d1",
+    "bytes": 119430
+  }
+}

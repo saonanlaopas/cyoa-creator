@@ -1,0 +1,12 @@
+{
+  "apps/server/src/routes/connected-editing.ts": "4de404fee8bf6939be228116ac8b9876401a9dfeebd20988e18822f46de8f3d0",
+  "apps/server/src/services/connected-authoring-instructions.ts": "ee9a0e7750f47b53d24c3008861a52a116560922bf841727ed43ab2819498e1b",
+  "apps/server/test/desktop-mcp.test.ts": "6730d18538150fc4a6fdcaa1a8cbcf2589770c2ca9a252ad531b1743dd06f40e",
+  "docs/connected-editing.md": "0518b31a0c42298c1d1c60ea405b33f2ff3ecbf3ae80db635ef4bba2d0f599bf",
+  "docs/conversational-creator.md": "7f5f63492677bf6ef8e5975300d318c3d2f1f9ad64349e57e56a22ddf9db0f9c",
+  "docs/desktop-codex.md": "3281789cd7067ce39f820f7451360928a0f2745272a8a18a4001fa5b4e4daff6",
+  "docs/examples/codex-local-mcp.toml": "bad6ab5232c12193951ff5efc3973246b087e9594639b82ddbc13167ec63f721",
+  "docs/superpowers/plans/2026-10-28-cp1-desktop-conversational-creator.md": "20708dc1eee4792d532a59c7d9d8774ed78c6eee1d1a89ca4cf38de9cb133a72",
+  "docs/user-guide.md": "3d4c6d9852a98abd88624c56439363c933422379423f3ff82cb9634db73eaab6",
+  "scripts/configure-local-creator.mjs": "11c6d575c0947cccf0545f4b62ce948be158a43679a50234c23b289620731f7d"
+}

@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ConnectedEditInputs, boundedConnectedResult, type ConnectedEditService, type ConnectedEditTool } from "../services/connected-edit-service.js";
 import type { ConnectedEditingConfig } from "../config.js";
+import { CONNECTED_AUTHORING_INSTRUCTIONS } from "../services/connected-authoring-instructions.js";
 
 const descriptions: Record<ConnectedEditTool, string> = {
   inspect_world_journal: "Read currently visible canonical stats/relationships, discovered places, completed-event records, revealed authored entries and objectives from supplied state against the fresh current world. No hidden titles, future schedules, time advance, discovery, save mutation or provider call. Character/journal authoring shares read_world/review_world/apply_world with version-bound consent and retry-safe receipts.",
@@ -76,7 +77,7 @@ export function registerConnectedEditing(app: FastifyInstance, service: Connecte
     },
     handler: async (req, reply) => {
       if (req.method !== "POST") return reply.code(405).header("Allow", "POST").send({ error: "connected_stateless_post_required" });
-      const server = new McpServer({ name: "cyoa-connected-editing", version: "1.0.0" });
+      const server = new McpServer({ name: "cyoa-connected-editing", version: "1.0.0" }, { instructions: CONNECTED_AUTHORING_INSTRUCTIONS });
       for (const name of Object.keys(ConnectedEditInputs) as ConnectedEditTool[]) {
         server.registerTool(name, { description: descriptions[name], inputSchema: ConnectedEditInputs[name],
           annotations: { readOnlyHint: reads.has(name), destructiveHint: ["apply_world", "apply_scene", "apply_edit", "reject_edit", "approve_foundation", "approve_game_plan", "accept_drafts", "approve_asset", "reject_asset"].includes(name), idempotentHint: true, openWorldHint: false } },

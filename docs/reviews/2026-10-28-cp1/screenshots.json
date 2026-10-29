@@ -1,0 +1,20 @@
+[
+  {
+    "file": "m1-desktop-review.png",
+    "sha256": "88e8d4bbda15ed71936be2b45c220bf1a5a0424180b18eec67ad949e3284c164",
+    "inspection": "directly inspected from final run",
+    "fixture": "existing browser integration fixture; not the desktop author project"
+  },
+  {
+    "file": "w6-chapter-led-creator-1280.png",
+    "sha256": "44ce5adae74a661f3fcc06e1f4df72dffca5a911c7f2beb531c02b8131e123c3",
+    "inspection": "final bytes match directly inspected initial-run image",
+    "fixture": "existing browser integration fixture; not the desktop author project"
+  },
+  {
+    "file": "w6-chapter-led-standalone-390-ending.png",
+    "sha256": "b5d4d9780c3d011e69658f1ca8b92a259c8008dcaeccd26c12b7e0fe2b04d4d1",
+    "inspection": "final bytes match directly inspected initial-run image",
+    "fixture": "existing browser integration fixture; not the desktop author project"
+  }
+]

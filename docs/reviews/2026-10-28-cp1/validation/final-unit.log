@@ -1,0 +1,532 @@
+$ pnpm vitest --run
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| apps/server/test/native-compilation.test.ts (15 tests) 55878ms
+   ✓ Foundation 7A native compilation API > treats provenance-only Creative Direction approvals as materially publication-equivalent  642ms
+   ✓ Foundation 7A native compilation API > reports exact readiness, compiles deterministically, excludes candidates and author-only data, and preserves lifecycle-equivalent prose  602ms
+   ✓ Foundation 7A native compilation API > persists author-selected player policy independently and uses it for actual current and historical launches  907ms
+   ✓ Foundation 7A native compilation API > exhaustively rejects resealed simulation/build artifact forgeries and round-trips legitimate history  2078ms
+   ✓ Foundation 7A native compilation API > compiles captured immutable history after newer approval and gives refreshed current meaning a new source identity  390ms
+   ✓ Foundation 7A native compilation API > changes source and gameplay bundle identities when approved mechanic meaning changes  517ms
+   ✓ Foundation 7A native compilation API > blocks missing and stale accepted prose without creating build metadata  410ms
+   ✓ Foundation 7A native compilation API > blocks canonical route relationship and hook-ownership planning errors deterministically  647ms
+   ✓ Foundation 7A native compilation API > blocks canonical ending character and relationship planning errors  307ms
+   ✓ Foundation 7A native compilation API > rejects corrupted persisted exact draft provenance before a bundle or build can exist  361ms
+   ✓ Foundation 7A native compilation API > adds only immutable publication metadata and leaves canonical authoring state byte-equivalent  643ms
+   ✓ Foundation 7A native compilation API > compiles and loads the 300-passage accepted corpus deterministically within explicit bounds  4522ms
+   ✓ Foundation 7A native compilation API > verifies, restores, recompiles, and plays the exact 300-passage Unicode corpus with history intact  43292ms
+ ✓ |0| packages/persistence/test/foundation-bootstrap.test.ts (42 tests) 81551ms
+   ✓ Foundation bootstrap persistence lifecycle > rejects an appended invented sentence under genuine source-canon provenance  788ms
+   ✓ Foundation bootstrap persistence lifecycle > rejects an appended contradictory sentence under genuine source-canon provenance  518ms
+   ✓ Foundation bootstrap persistence lifecycle > requires every independent active override outside canon obligations and carries them downstream  1664ms
+   ✓ Foundation bootstrap persistence lifecycle > binds pending, running and completed to one immutable authorized attempt  678ms
+   ✓ Foundation bootstrap persistence lifecycle > retains exact failed history across explicit pending retry and next-number completion  812ms
+   ✓ Foundation bootstrap persistence lifecycle > cancels pending work without allowing new attempts or late settlement  485ms
+   ✓ Foundation bootstrap persistence lifecycle > cancels running work without allowing new attempts or late settlement  553ms
+   ✓ Foundation bootstrap persistence lifecycle > cancels failed work without allowing new attempts or late settlement  717ms
+   ✓ Foundation bootstrap persistence lifecycle > caps attempts at four with an explicit repreview recovery path  1689ms
+   ✓ Foundation bootstrap persistence lifecycle > rejects wrong authorization and overlapping active jobs  510ms
+   ✓ Foundation bootstrap persistence lifecycle > SQL cannot rewrite terminal completed jobs  696ms
+   ✓ Foundation bootstrap persistence lifecycle > SQL cannot rewrite terminal cancelled jobs  454ms
+   ✓ Foundation bootstrap persistence lifecycle > SQL cannot rewrite a failed historical attempt or delete durable audit  487ms
+   ✓ Foundation bootstrap persistence lifecycle > direct persistence rejects invalid candidates atomically and preserves the running attempt  501ms
+   ✓ Foundation bootstrap persistence lifecycle > binds outcomes to exact attempts and forbids output on failure  477ms
+   ✓ Foundation bootstrap persistence lifecycle > recovers an interrupted attempt as failed and rejects the old attempt after retry begins  810ms
+   ✓ Foundation bootstrap persistence lifecycle > recovers pending work after a crash before dispatch without blocking a new explicit start  451ms
+   ✓ Foundation bootstrap persistence lifecycle > SQL forbids appending a terminal synthetic retry without pending and running transitions  411ms
+   ✓ Foundation bootstrap persistence lifecycle > SQL cannot settle a running attempt as failed while claiming unit cancellation  330ms
+   ✓ Foundation bootstrap atomic application and recovery > preserves valid unsorted material through portable import and backup restore at before-generation  3579ms
+   ✓ Foundation bootstrap atomic application and recovery > preserves valid unsorted material through portable import and backup restore at applied  11549ms
+   ✓ Foundation bootstrap atomic application and recovery > duplicates unapplied/partially applied bundles with real migration-derived direction provenance  4830ms
+   ✓ Foundation bootstrap atomic application and recovery > duplicates unapplied/partially applied bundles with real user-message direction provenance  4861ms
+   ✓ Foundation bootstrap atomic application and recovery > round-trips four partial applications with equal timestamps and arbitrary serialized order  4640ms
+   ✓ Foundation bootstrap atomic application and recovery > round-trips conversational direction and verified backup at before-generation  1235ms
+   ✓ Foundation bootstrap atomic application and recovery > round-trips conversational direction and verified backup at pending-review  3634ms
+   ✓ Foundation bootstrap atomic application and recovery > round-trips conversational direction and verified backup at applied  7995ms
+   ✓ Foundation bootstrap atomic application and recovery > reuses equivalent previews and archives only unused previews to recover at the bounded cache limit  9617ms
+   ✓ Foundation bootstrap atomic application and recovery > keeps honestly blocked required obligations reviewable but does not restore AI passage authority  1134ms
+   ✓ Foundation bootstrap atomic application and recovery > rolls back all artifact versions, workflow state and audit after a forced fourth-write failure  1771ms
+   ✓ Foundation bootstrap atomic application and recovery > enforces dependency closure while supporting staged partial application  2588ms
+   ✓ Foundation bootstrap atomic application and recovery > closes scoped Creative Direction over the actual new Bible rather than storing dangling references  1103ms
+   ✓ Foundation bootstrap atomic application and recovery > rejects stale absent/current preconditions without modifying already reviewed candidates  788ms
+   ✓ Foundation bootstrap atomic application and recovery > duplicates pending review, survives original deletion and applies remapped independent candidates  1596ms
+   ✓ Foundation bootstrap atomic application and recovery > duplicates applied audit and retains complete independent immutable history  1487ms
+   ✓ Foundation bootstrap atomic application and recovery > duplicates multiple partial applications with independently recomputed exact audit fingerprints  2513ms
+   ✓ Foundation bootstrap atomic application and recovery > imports a completed candidate and applies it locally without a provider  1463ms
+   ✓ Foundation bootstrap atomic application and recovery > rejects a malformed portable candidate atomically without partial project import  668ms
+   ✓ Foundation bootstrap atomic application and recovery > imports interrupted work and recovers an append-only failed attempt before retry  816ms
+ ✓ |0| apps/server/test/asset-library.test.ts (35 tests) 52002ms
+   ✓ V1 image preparation and immutable library > keeps approved bytes immutable through replacement, rejection and metadata revision, with explicit reapproval  301ms
+   ✓ V1 image preparation and immutable library > bounds metadata pages and asset count without losing an existing approval  349ms
+   ✓ V1 image preparation and immutable library > finishes all pending reviews at the authoring cap, restores legacy boundary states and retries completed outcomes  44762ms
+   ✓ V1 image preparation and immutable library > discovers every identically searchable Unicode asset with compact transport-safe pages and full metadata on read  307ms
+   ✓ V1 restricted staging and portability > round trips all image bytes, candidate/approved history, and independent duplication: full-fidelity  366ms
+   ✓ V1 restricted staging and portability > round trips all image bytes, candidate/approved history, and independent duplication: privacy-redacted  390ms
+   ✓ V1 restricted staging and portability > creates a verified backup and restores image material, approvals and operation retries into a fresh database  478ms
+   ✓ V1 restricted staging and portability > uses real SDK transport, denies unauthorized projects, and recovers staged import/approval retries after restart  2670ms
+ ✓ |0| apps/server/test/foundation-bootstrap.test.ts (28 tests) 46311ms
+   ✓ A5 exact foundation generation and review boundary > A7 omits raw author requests but preserves readable bootstrap history: preview-only  1155ms
+   ✓ A5 exact foundation generation and review boundary > A7 omits raw author requests but preserves readable bootstrap history: completed  2233ms
+   ✓ A5 exact foundation generation and review boundary > A7 omits raw author requests but preserves readable bootstrap history: applied  3341ms
+   ✓ A5 exact foundation generation and review boundary > round trips a near-budget preview with 0 conversation references without expanding executable request budgets  1692ms
+   ✓ A5 exact foundation generation and review boundary > round trips a near-budget preview with 24 conversation references without expanding executable request budgets  1623ms
+   ✓ A5 exact foundation generation and review boundary > round trips a near-budget preview with 500 conversation references without expanding executable request budgets  3432ms
+   ✓ A5 exact foundation generation and review boundary > A7 restores and duplicates applied bootstrap lineage with explicit source recovery: full-fidelity  3124ms
+   ✓ A5 exact foundation generation and review boundary > A7 restores and duplicates applied bootstrap lineage with explicit source recovery: privacy-redacted  4055ms
+   ✓ A5 exact foundation generation and review boundary > completes and applies hash-free OpenRouter output with existing Creative Direction=false  1625ms
+   ✓ A5 exact foundation generation and review boundary > completes and applies hash-free OpenRouter output with existing Creative Direction=true  1503ms
+   ✓ A5 exact foundation generation and review boundary > reuses exact previews and retires only the explicitly archived unused selection without provider use  1267ms
+   ✓ A5 exact foundation generation and review boundary > generates all six ordinary unapproved drafts with existing Creative Direction=true  5025ms
+   ✓ A5 exact foundation generation and review boundary > generates all six ordinary unapproved drafts with existing Creative Direction=false  4648ms
+   ✓ A5 exact foundation generation and review boundary > rejects malformed output without any canonical write  796ms
+   ✓ A5 exact foundation generation and review boundary > rejects oversized output without any canonical write  726ms
+   ✓ A5 exact foundation generation and review boundary > rejects duplicate-id output without any canonical write  613ms
+   ✓ A5 exact foundation generation and review boundary > rejects invalid-reference output without any canonical write  766ms
+   ✓ A5 exact foundation generation and review boundary > rejects missing-provenance output without any canonical write  623ms
+   ✓ A5 exact foundation generation and review boundary > retries a failed unit with a distinct next attempt and preserves the failed history  912ms
+   ✓ A5 exact foundation generation and review boundary > cancels an abort-ignoring provider and rejects late candidate settlement and cancelled retry  780ms
+   ✓ A5 exact foundation generation and review boundary > rejects a provider race after intent mutation  789ms
+   ✓ A5 exact foundation generation and review boundary > rejects a provider race after dossier mutation  669ms
+   ✓ A5 exact foundation generation and review boundary > rejects a provider race after existing-direction mutation  714ms
+   ✓ A5 exact foundation generation and review boundary > rejects a provider race after absent-direction mutation  606ms
+   ✓ A5 exact foundation generation and review boundary > rejects stale candidate Apply after a previously absent artifact appears  1173ms
+   ✓ A5 exact foundation generation and review boundary > reopens a stopped job, safely retries, and ignores the old provider's late response  1312ms
+   ✓ A5 exact foundation generation and review boundary > times out an abort-ignoring provider with no late candidate write  739ms
+   ✓ A5 exact foundation generation and review boundary > binds the exact reviewed author request and rejects unused setup pointer inputs  368ms
+ ✓ |0| apps/server/test/recovery.test.ts (19 tests) 46181ms
+   ✓ Foundation 8A verified project recovery > verifies backup and restores a high-density A3 dossier built from many full valid unit outputs  44203ms
+   ✓ Foundation 8A verified project recovery > verifies and restores A3 source bodies, exact evidence, attempts, corrected dossier history and approval  343ms
+ ✓ |0| apps/server/test/world.test.ts (22 tests) 29592ms
+   ✓ W1 durable reviewed locations and time > separates review/Apply/publication, preserves historical text builds, packages only approved map data and rejects unsupported exports  1915ms
+   ✓ W1 durable reviewed locations and time > rejects simultaneous stale applies, UUID collisions, rolls back receipt failure and safely retries lost responses  1014ms
+   ✓ W1 durable reviewed locations and time > rejects cycle before persistence  1092ms
+   ✓ W1 durable reviewed locations and time > rejects missing-parent before persistence  1096ms
+   ✓ W1 durable reviewed locations and time > rejects missing-destination before persistence  1120ms
+   ✓ W1 durable reviewed locations and time > rejects duplicate-id before persistence  1088ms
+   ✓ W1 durable reviewed locations and time > rejects duplicate-passage before persistence  1063ms
+   ✓ W1 durable reviewed locations and time > rejects negative-duration before persistence  1134ms
+   ✓ W1 durable reviewed locations and time > rejects fractional-duration before persistence  1084ms
+   ✓ W1 durable reviewed locations and time > rejects marker-range before persistence  1000ms
+   ✓ W1 durable reviewed locations and time > rejects candidate-map before persistence  1052ms
+   ✓ W1 durable reviewed locations and time > rejects wrong-map before persistence  1105ms
+   ✓ W1 durable reviewed locations and time > rejects other-project-passage before persistence  969ms
+   ✓ W1 durable reviewed locations and time > rejects empty-hours before persistence  1043ms
+   ✓ W1 durable reviewed locations and time > rejects unknown-version before persistence  1136ms
+   ✓ W1 durable reviewed locations and time > rejects disabled-with-data before persistence  1122ms
+   ✓ W1 durable reviewed locations and time > rejects wrong-start before persistence  1369ms
+   ✓ W1 durable reviewed locations and time > requires explicit rebind after passage revision, preserves historical world builds and allows reviewed disabling  1557ms
+   ✓ W1 durable reviewed locations and time > restores and duplicates full-fidelity world histories and full-fidelity receipts  3082ms
+   ✓ W1 durable reviewed locations and time > restores and duplicates privacy-redacted world histories and full-fidelity receipts  2854ms
+   ✓ W1 durable reviewed locations and time > guards direct persistence identity/history and corrupted dependencies, with non-destructive dependency restoration  1250ms
+   ✓ W1 durable reviewed locations and time > binds native inputs to exact world content and bounds Unicode definitions before MCP read/review overflow  1443ms
+ ✓ |0| apps/server/test/illustrated-scenes.test.ts (16 tests) 26219ms
+   ✓ V2 reviewed illustrated scenes > keeps review separate, pins approved images, compiles and packages only public presentation, preserving old text builds/saves  2466ms
+   ✓ V2 reviewed illustrated scenes > rejects candidate before applying  1100ms
+   ✓ V2 reviewed illustrated scenes > rejects wrong-asset before applying  1192ms
+   ✓ V2 reviewed illustrated scenes > rejects other-project before applying  1140ms
+   ✓ V2 reviewed illustrated scenes > rejects duplicate-position before applying  1161ms
+   ✓ V2 reviewed illustrated scenes > rejects text-with-art before applying  1297ms
+   ✓ V2 reviewed illustrated scenes > rejects stale-passage before applying  1342ms
+   ✓ V2 reviewed illustrated scenes > rejects stale review and operation collisions, handles overlapping applies, atomically rolls back receipt failure then replays lost responses  1275ms
+   ✓ V2 reviewed illustrated scenes > requires explicit scene re-review after a legitimate passage revision, while historical illustrated builds remain playable  1716ms
+   ✓ V2 reviewed illustrated scenes > retains pinned approved bytes after replacement; usage tracks assignments, and text fallback/removal remains recoverable  1608ms
+   ✓ V2 reviewed illustrated scenes > blocks missing-file without publishing broken media and recovers after restoration  1178ms
+   ✓ V2 reviewed illustrated scenes > blocks invalid-file without publishing broken media and recovers after restoration  1113ms
+   ✓ V2 reviewed illustrated scenes > restores and duplicates full-fidelity exact scene/build history; full archive replays receipts  3590ms
+   ✓ V2 reviewed illustrated scenes > restores and duplicates privacy-redacted exact scene/build history; full archive replays receipts  3307ms
+   ✓ V2 reviewed illustrated scenes > rejects direct persistence and archive scene/asset lineage tampering, as well as malformed native references  1529ms
+   ✓ V2 reviewed illustrated scenes > keeps maximum Unicode scene reviews below the MCP response ceiling and normalizes direct persistence content  1202ms
+ ✓ |0| apps/server/test/w6-demo.test.ts (1 test) 29234ms
+   ✓ W6 authors a complete visual game through the real MCP SDK and replays both configurations, optional paths and next-day encounters  29233ms
+ ✓ |0| apps/server/test/journal.test.ts (8 tests) 19851ms
+   ✓ W5 shared journal controls, history and safe MCP projection > authors and inspects only disclosed data, preserves earlier builds and never calls a provider  2094ms
+   ✓ W5 shared journal controls, history and safe MCP projection > rejects invalid references through shared review and direct persistence with no partial history  1189ms
+   ✓ W5 shared journal controls, history and safe MCP projection > binds visibility reviews to exact canonical mechanics and recompiles historical labels and bounds  1265ms
+   ✓ W5 shared journal controls, history and safe MCP projection > rejects stale world edits, rolls back failed writes and safely retries a lost Apply response  1164ms
+   ✓ W5 shared journal controls, history and safe MCP projection > retains full-fidelity journal definitions and historical builds through archive and duplication  3138ms
+   ✓ W5 shared journal controls, history and safe MCP projection > retains privacy-redacted journal definitions and historical builds through archive and duplication  3350ms
+   ✓ W5 shared journal controls, history and safe MCP projection > backs up and restores journal history and retry receipts and rejects tampered definitions  4074ms
+   ✓ W5 shared journal controls, history and safe MCP projection > authors journal visibility and inspects disclosed gameplay through the installed MCP SDK with project/loopback guards and no provider  3575ms
+ ✓ |0| apps/server/test/connected-text-game.test.ts (19 tests) 22141ms
+   ✓ M3 connected complete text-game lifecycle > authors structure/new entities/prose, accepts exact candidates, validates, simulates all endings and compiles without provider calls  2115ms
+   ✓ M3 connected complete text-game lifecycle > replays each game mutation receipt after subsequent work without adding versions or builds  1196ms
+   ✓ M3 connected complete text-game lifecycle > rolls back initialize_game_plan and its receipt atomically, then allows retry  1277ms
+   ✓ M3 connected complete text-game lifecycle > rolls back approve_game_plan and its receipt atomically, then allows retry  956ms
+   ✓ M3 connected complete text-game lifecycle > rolls back submit_draft and its receipt atomically, then allows retry  909ms
+   ✓ M3 connected complete text-game lifecycle > rolls back accept_drafts and its receipt atomically, then allows retry  904ms
+   ✓ M3 connected complete text-game lifecycle > rolls back simulate_game and its receipt atomically, then allows retry  946ms
+   ✓ M3 connected complete text-game lifecycle > rolls back compile_game and its receipt atomically, then allows retry  1178ms
+   ✓ M3 connected complete text-game lifecycle > rejects stale candidate/acceptance/compile bindings and permits revised recovery without replacing accepted prose  1269ms
+   ✓ M3 connected complete text-game lifecycle > protects locked accepted prose and preserves old candidates and approval state  1005ms
+   ✓ M3 connected complete text-game lifecycle > recovers after a reviewed material plan revision without accepting stale prose  1263ms
+   ✓ M3 connected complete text-game lifecycle > rejects new entity scope violations before canonical mutation  477ms
+   ✓ M3 connected complete text-game lifecycle > rejects new entity lifecycle violations before canonical mutation  467ms
+   ✓ M3 connected complete text-game lifecycle > rejects new entity duplicate violations before canonical mutation  481ms
+   ✓ M3 connected complete text-game lifecycle > rejects new entity schema violations before canonical mutation  510ms
+   ✓ M3 connected complete text-game lifecycle > requires current foundations/plan approval and rejects unauthorized or foreign version reads  451ms
+   ✓ M3 connected complete text-game lifecycle > rejects forged game receipts against canonical lineage and retains complete full/privacy archive history  1797ms
+   ✓ M3 connected complete text-game lifecycle > uses actual SDK connections across restart, including byte export retrieval and identical compile/simulation retries  2799ms
+   ✓ M3 connected complete text-game lifecycle > restores all game mutation receipts and duplicates newly authored entities with valid audit history  2138ms
+ ✓ |0| apps/server/test/progression.test.ts (9 tests) 21538ms
+   ✓ W2 durable chapters/events across shared authoring and publication > reviews without mutation, returns bounded non-exhaustive diagnostics, compiles public rules and previews through the shared MCP operation  2512ms
+   ✓ W2 durable chapters/events across shared authoring and publication > rejects contradictory prerequisites, bad references and direct persistence bypasses without changing durable history  1383ms
+   ✓ W2 durable chapters/events across shared authoring and publication > guards concurrent/changed reviews, safely retries receipts after a lost response, and rolls back a failed receipt  1383ms
+   ✓ W2 durable chapters/events across shared authoring and publication > retains exact W2 history in full-fidelity archives, receipts, duplication and historical compilation  3847ms
+   ✓ W2 durable chapters/events across shared authoring and publication > retains exact W2 history in privacy-redacted archives, receipts, duplication and historical compilation  3320ms
+   ✓ W2 durable chapters/events across shared authoring and publication > binds progression-only destination versions and rejects forged portable histories  1395ms
+   ✓ W2 diagnostics, backups and installed MCP transport > surfaces potential traps in review and publication without misrepresenting them as exhaustive blockers  1150ms
+   ✓ W2 diagnostics, backups and installed MCP transport > backs up/restores exact W2 definitions, historical builds and replay-safe outcomes  3457ms
+   ✓ W2 diagnostics, backups and installed MCP transport > authors and previews W2 with the installed MCP SDK, refusing unauthorized projects and provider generation  3089ms
+ ✓ |0| apps/server/test/economy.test.ts (8 tests) 21208ms
+   ✓ W4 shared trade authoring, exact history and offline exports > binds canonical relationships, inspects without mutation, compiles deterministic inventory and retains the older bundle  2369ms
+   ✓ W4 shared trade authoring, exact history and offline exports > rejects invalid trade references and direct persistence bypasses without changing current history  1523ms
+   ✓ W4 shared trade authoring, exact history and offline exports > binds review to canonical mechanics versions and preserves exact older relationship bounds  1659ms
+   ✓ W4 shared trade authoring, exact history and offline exports > rolls back failed Apply receipts and retries lost responses with the same UUID exactly once  1437ms
+   ✓ W4 shared trade authoring, exact history and offline exports > retains full-fidelity stock, rules and historical builds through archive and duplication  3760ms
+   ✓ W4 shared trade authoring, exact history and offline exports > retains privacy-redacted stock, rules and historical builds through archive and duplication  3309ms
+   ✓ W4 shared trade authoring, exact history and offline exports > backs up and restores inventory history and retry receipts and rejects tampered trade history  3739ms
+   ✓ W4 shared trade authoring, exact history and offline exports > authors inventory and inspects gameplay through the installed MCP SDK with project/loopback guards and no provider  3410ms
+ ✓ |0| apps/server/test/adaptation-intent.test.ts (34 tests) 20724ms
+   ✓ A4 manual and conversational boundary > rejects achieved effect claims from manual edits and provider output without durable writes  989ms
+   ✓ A4 manual and conversational boundary > rejects achieved requirement claims from manual edits and provider output without durable writes  540ms
+   ✓ A4 manual and conversational boundary > rejects achieved permission claims from manual edits and provider output without durable writes  454ms
+   ✓ A4 manual and conversational boundary > rejects achieved description claims from manual edits and provider output without durable writes  447ms
+   ✓ A4 manual and conversational boundary > rejects achieved rationale claims from manual edits and provider output without durable writes  458ms
+   ✓ A4 manual and conversational boundary > rejects unseen overrides overwrite and removal outside preview scope  939ms
+   ✓ A4 manual and conversational boundary > rejects unseen inventions overwrite and removal outside preview scope  1001ms
+   ✓ A4 manual and conversational boundary > rejects unseen obligations overwrite and removal outside preview scope  875ms
+   ✓ A4 manual and conversational boundary > rejects unseen exceptions overwrite and removal outside preview scope  1043ms
+   ✓ A4 manual and conversational boundary > rejects unseen expansion overwrite and removal outside preview scope  882ms
+   ✓ A4 manual and conversational boundary > rejects valid same-dossier source IDs that were not supplied to the provider  432ms
+   ✓ A4 manual and conversational boundary > accepts an explicitly previewed override update and noncolliding invention, with provider-free Apply  1062ms
+   ✓ A4 manual and conversational boundary > supports successful API creation/review/approval in a legacy project without any Creative Direction artifact  318ms
+   ✓ A4 manual and conversational boundary > does not adopt implicitly; explicit legacy projection preserves Brief and A3, with no Creative Direction prerequisite  413ms
+   ✓ A4 manual and conversational boundary > manual override is separate from source and stable-ID deactivation reveals the original  489ms
+   ✓ A4 manual and conversational boundary > rejects Apply after base changes without a partial canonical write  912ms
+   ✓ A4 manual and conversational boundary > rejects Apply after dossier changes without a partial canonical write  702ms
+   ✓ A4 manual and conversational boundary > recovers stale intent through explicit fresh-dossier adoption while preserving immutable policy history  677ms
+   ✓ A4 manual and conversational boundary > preview is local, bounded, exact and excludes both manuscript and legacy fidelity authority; Apply is explicit and provider-free  677ms
+   ✓ A4 manual and conversational boundary > does not persist a late provider completion after base changes  635ms
+   ✓ A4 manual and conversational boundary > does not persist a late provider completion after dossier changes  451ms
+   ✓ A4 manual and conversational boundary > does not persist a late provider completion after scope changes  390ms
+   ✓ A4 manual and conversational boundary > does not persist a late provider completion after must-not-exist changes  374ms
+   ✓ A4 manual and conversational boundary > rechecks freshness after structural repair and rejects repair exhaustion atomically  1141ms
+   ✓ A4 manual and conversational boundary > rejects achieved provider operations without canonical changes  465ms
+   ✓ A4 manual and conversational boundary > rejects oversized provider operations without canonical changes  485ms
+   ✓ A4 manual and conversational boundary > rejects foreign-target provider operations without canonical changes  483ms
+   ✓ A4 manual and conversational boundary > rejects inflation provider operations without canonical changes  516ms
+   ✓ A4 manual and conversational boundary > rejects partial-invalid provider operations without canonical changes  540ms
+   ✓ A4 manual and conversational boundary > rejects clear A3 source corrections, foreign/oversized evidence selections, no dossier, and stale approval  347ms
+   ✓ A4 manual and conversational boundary > rejects provider overspending against 80k without silently inflating the target  634ms
+   ✓ A4 manual and conversational boundary > reopens and duplicates durable proposals, preserving exact applied lineage after original deletion  655ms
+ ✓ |0| apps/server/test/repair-applications.test.ts (21 tests) 21961ms
+   ✓ Foundation 6C repair application > previews without writes, applies exact groups atomically, retains audit, and rejects duplicates  1041ms
+   ✓ Foundation 6C repair application > rejects a stale preview after a competing passage edit with zero repair mutation  471ms
+   ✓ Foundation 6C repair application > rechecks exact bases inside the application transaction after an outer preflight race  491ms
+   ✓ Foundation 6C repair application > defends exact passage bases and canonical results against direct persistence bypasses  706ms
+   ✓ Foundation 6C repair application > rejects stale artifact and prose bases at the direct persistence boundary  1515ms
+   ✓ Foundation 6C repair application > rejects every canonical mutation outside the selected operation footprint  702ms
+   ✓ Foundation 6C repair application > rejects every unrelated secondary-state mutation and rolls the selected repair back  1333ms
+   ✓ Foundation 6C repair application > rejects equivalent cross-project workflow, plan, stale, dependency, and draft-staleness writes  741ms
+   ✓ Foundation 6C repair application > rejects extra draft and passage writes around an otherwise valid prose repair  1660ms
+   ✓ Foundation 6C repair application > creates a normal candidate with durable repair lineage and leaves accepted prose unchanged  1153ms
+   ✓ Foundation 6C repair application > creates a repair candidate without unlocking, accepting, or changing locked prose  1124ms
+   ✓ Foundation 6C repair application > rejects forged repair-draft provenance completely and atomically  2492ms
+   ✓ Foundation 6C repair application > rejects duplicate, unknown, and tampered selections before canonical writes  328ms
+   ✓ Foundation 6C repair application > rolls back a mixed structure, artifact, prose, staleness, and audit transaction, then commits it coherently  1588ms
+   ✓ Foundation 6C repair application > applies only one selected independent group and leaves the other proposal targets untouched  1341ms
+   ✓ Foundation 6C repair application > applies a passage update and its deterministic new choice atomically with exact history  1418ms
+   ✓ Foundation 6C repair application > rejects a generated thread ID that collides with a newer cross-kind stable ID  559ms
+   ✓ Foundation 6C repair application > keeps a 300-passage repair bounded to one selected entity and preserves every unrelated version  2922ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts (68 tests) 13807ms
+   ✓ A6 scoped conversational editing > A7 round-trips and duplicates real conversational Creative Direction without dangling references: full-fidelity  655ms
+   ✓ A6 scoped conversational editing > A7 round-trips and duplicates real conversational Creative Direction without dangling references: privacy-redacted  403ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: missing-lineage  340ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: all-outputs  340ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: partial-outputs  332ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: all-results  365ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: extra-result  308ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: wrong-before  329ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: unknown-field  344ms
+   ✓ A6 scoped conversational editing > A7 preserves complete historical edit lineage with no-op  400ms
+   ✓ A6 scoped conversational editing > A7 preserves complete historical edit lineage with partial-selection  422ms
+   ✓ A6 scoped conversational editing > A7 preserves complete historical edit lineage with later-head  503ms
+   ✓ A6 scoped conversational editing > A7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=false)  378ms
+   ✓ A6 scoped conversational editing > A7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=true)  453ms
+   ✓ A6 scoped conversational editing > enforces initial lifecycle for new sequences: outline  370ms
+   ✓ A6 scoped conversational editing > enforces initial lifecycle for new sequences: planned  312ms
+   ✓ A6 scoped conversational editing > retrieves only grounded source ranges through accepted bootstrap stable-ID lineage, including after an edit  1726ms
+ ✓ |0| apps/server/test/people.test.ts (7 tests) 17620ms
+   ✓ W3 shared people authoring, history and offline publication > stores versioned schedules/rules and inspects a player-safe presence view without mutation or provider calls  2102ms
+   ✓ W3 shared people authoring, history and offline publication > rejects schedule/override/mandatory conflicts and persistence bypasses, without changing current history  1318ms
+   ✓ W3 shared people authoring, history and offline publication > uses exact reviewed versions, retries lost responses and rolls back failed receipts for schedule edits  1231ms
+   ✓ W3 shared people authoring, history and offline publication > preserves full-fidelity schedules, exact historical builds, duplication and reviewed disabling  3460ms
+   ✓ W3 shared people authoring, history and offline publication > preserves privacy-redacted schedules, exact historical builds, duplication and reviewed disabling  2998ms
+   ✓ W3 shared people authoring, history and offline publication > backs up/restores W3 history and retry receipts and rejects resealed invalid history  3710ms
+   ✓ W3 shared people authoring, history and offline publication > authors and inspects presence with the installed MCP SDK, loopback guards and no provider  2798ms
+ ✓ |0| apps/server/test/source-analysis.test.ts (18 tests) 14765ms
+   ✓ A3 source-analysis lifecycle API > rejects over-budget scope at preview with an actionable error and zero provider calls  404ms
+   ✓ A3 source-analysis lifecycle API > corrects ordinary associations to exact supported record IDs and preserves original analysis without provider calls  1261ms
+   ✓ A3 source-analysis lifecycle API > requires explicit scope and exact authorization, analyzes offline, reviews evidence and explicitly approves without foundations  729ms
+   ✓ A3 source-analysis lifecycle API > bounds a large synthetic corpus and paginates metadata/evidence instead of returning source bodies  8329ms
+   ✓ A3 source-analysis lifecycle API > recovers a running verified backup and duplicate without interrupting the original worker or auto-calling providers  2115ms
+ ✓ |0| apps/server/test/studio-portability.test.ts (17 tests) 12312ms
+   ✓ A7 Studio archives > preserves coexisting production histories through full backup and transactional duplication (conversational direction=false)  5817ms
+   ✓ A7 Studio archives > preserves coexisting production histories through full backup and transactional duplication (conversational direction=true)  4769ms
+   ✓ A7 Studio archives > reattaches only exact material to the existing source identity and revalidates the complete history  369ms
+ ✓ |0| apps/server/test/history-heavy-project.test.ts (1 test) 4229ms
+   ✓ Foundation 8B deterministic history-heavy project > keeps every operational list and Health structurally bounded with heavy bodies detail-only  4228ms
+ ✓ |0| apps/server/test/passage-drafting.test.ts (24 tests) 4193ms
+   ✓ Foundation 4B-1 draft architecture API > blocks new and old legacy-fidelity drafting contexts after A4 adoption, while manual prose remains available  503ms
+   ✓ Foundation 4B-1 draft architecture API > previews real immutable contexts and persists bounded generated candidates only after authorized start  588ms
+   ✓ Foundation 4B-1 draft architecture API > retries only a failed unit and links its candidate to the retry attempt without repeating completed siblings  309ms
+ ✓ |0| apps/server/test/repair-proposals.test.ts (7 tests) 11346ms
+   ✓ Foundation 6B repair proposals > redacts captured conversational direction without breaking completed repair authorization or recovery  4313ms
+   ✓ Foundation 6B repair proposals > previews and persists a provider-free immutable proposal without canonical mutation  406ms
+   ✓ Foundation 6B repair proposals > requires exact authorization, calls the provider only on Start, and persists the valid proposal  1681ms
+   ✓ Foundation 6B repair proposals > retains one structural repair and explicit failed-unit retry history  1790ms
+   ✓ Foundation 6B repair proposals > blocks stale authorized work before Start and preserves cancellation  836ms
+   ✓ Foundation 6B repair proposals > uses the same small output ceiling for generation and structural repair  693ms
+   ✓ Foundation 6B repair proposals > fails the active attempt for a semantically invalid candidate before allowing an explicit retry  1625ms
+ ✓ |0| apps/server/test/desktop-mcp.test.ts (2 tests) 3700ms
+   ✓ CP1 starts the documented persistent host, exposes the full configured tool set and recovers reviewed drafts across process restarts (SDK only)  3463ms
+ ✓ |0| apps/server/test/passage-generation.test.ts (20 tests) 4113ms
+   ✓ passage generation kernel API > blocks new and old legacy-fidelity passage plans after A4 adoption without provider calls  578ms
+   ✓ passage generation kernel API > previews without provider calls, captures exact inputs, authorizes, partially fails, and retries independently  318ms
+   ✓ passage generation kernel API > consolidates, previews, partially applies, revalidates, and audits completed candidates without provider calls  306ms
+ ✓ |0| packages/persistence/test/source-analysis-repository.test.ts (20 tests) 4473ms
+   ✓ A3 durable source analysis > reserves bytes for normalized IDs when a valid dense provider output has many short references  388ms
+   ✓ A3 durable source analysis > bounds aggregate immutable dossier versions and rejects restore atomically at the history ceiling  1874ms
+   ✓ A3 durable source analysis > corrects/rejects/reclassifies without rewriting observations; approval is exact and explicit  369ms
+   ✓ A3 durable source analysis > duplicates merge/split correction lineage with project-owned identities and every dependent remapped  455ms
+ ✓ |0| apps/server/test/project-setup.test.ts (33 tests) 4233ms
+   ✓ A2 conversational project setup > blocks proposal calls without a fresh ready understanding, including vague input and later clarification  327ms
+   ✓ A2 conversational project setup > keeps applied setup projects backup-, portable-, and duplication-safe  509ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts (12 tests) 3204ms
+   ✓ M2 original-game foundation authoring > authors and approves coherent originals in all six schemas, resumes without chat and keeps approval separate from Apply  1097ms
+   ✓ M2 original-game foundation authoring > creates once across concurrent SDK connections and recovers foundation approvals after a full server restart  1469ms
+ ✓ |0| apps/server/test/narrative-review.test.ts (5 tests) 3339ms
+   ✓ Foundation 5C narrative review API > previews and saves without provider calls, requires exact authorization, then persists immutable findings  1770ms
+   ✓ Foundation 5C narrative review API > performs at most one structural repair and preserves failed attempt history across retry  371ms
+   ✓ Foundation 5C narrative review API > cancels delayed provider work without late findings and recovers interrupted running units as retryable  566ms
+   ✓ Foundation 5C narrative review API > rejects invented evidence and oversized offline output without partial findings  334ms
+ ✓ |0| packages/persistence/test/repair-proposal-repository.test.ts (10 tests) 2974ms
+   ✓ Repair proposal persistence > rejects candidate attempt/fingerprint lineage corruption and malformed middle history  368ms
+   ✓ Repair proposal persistence > strictly rejects resealed stored candidate corruption on get, list, and history  722ms
+   ✓ Repair proposal persistence > atomically binds final proposal completion to the exact generation, job, units, attempts, context, and candidates  316ms
+   ✓ Repair proposal persistence > revalidates resealed AI proposal provenance against exact immutable generation history on every read  511ms
+   ✓ Repair proposal persistence > rejects generation completion-link corruption and same-project cross-wiring on proposal reads  339ms
+ ✓ |0| apps/server/test/publication-exports.test.ts (20 tests) 2470ms
+   ✓ Foundation 7C publication exports > builds bounded 300-passage static and standalone publications with inert payloads  566ms
+   ✓ Foundation 7C publication exports > renders and real-compiles a 300-passage SugarCube publication  634ms
+ ✓ |0| packages/runtime/test/economy.test.ts (48 tests) 2984ms
+   ✓ W4 atomic inventory, trade and canonical relationship predicates > purchases, gifts, changes prerequisites and pays event costs/rewards as deterministic atomic actions  335ms
+ ✓ |0| packages/runtime/test/player.test.ts (50 tests) 2338ms
+   ✓ native player storage and scale > loads a 300-passage bundle while exposing only the current passage in its player view  756ms
+ ✓ |0| apps/server/test/connected-editing.test.ts (24 tests) 2226ms
+   ✓ M1 authenticated Streamable HTTP > uses real SDK clients for concurrent retries, cross-project rejection and restart recovery without model calls  515ms
+ ✓ |0| packages/domain/test/source-analysis.test.ts (13 tests) 2757ms
+   ✓ A3 deterministic analysis contracts > preflights dense worst-case scope, accepts many full valid outputs and bounds final provenance/counts/bytes  2538ms
+ ✓ |0| packages/persistence/test/adaptation-intent.test.ts (28 tests) 2322ms
+ ✓ |0| apps/server/test/repair-planning.test.ts (4 tests) 2475ms
+   ✓ Foundation 6A repair planning API > resolves exact immutable F3/F5A/F5B/F5C evidence and rejects reference tampering  1379ms
+   ✓ Foundation 6A repair planning API > previews and reopens a durable exact plan without provider calls or canonical mutation, then marks it historical  510ms
+   ✓ Foundation 6A repair planning API > previews accepted-root prose dependencies across lifecycle copies and a transitive chain  575ms
+ ✓ |0| packages/runtime/test/journal.test.ts (32 tests) 1916ms
+ ✓ |0| apps/server/test/adaptation-intent-recovery.test.ts (1 test) 1612ms
+   ✓ A4 verified recovery > round-trips every origin category, exact evidence, version/approval history and applied proposals through verified backup  1610ms
+ ✓ |0| packages/runtime/test/playtest.test.ts (10 tests) 1737ms
+   ✓ Foundation 5B seeded playtesting > runs a bounded deterministic 300-passage campaign without exhaustive enumeration  1192ms
+ ✓ |0| packages/runtime/test/progression.test.ts (32 tests) 1685ms
+ ✓ |0| apps/server/test/foundation-bootstrap-provider.test.ts (48 tests) 1427ms
+ ✓ |0| apps/server/test/long-form.test.ts (12 tests) 1407ms
+ ✓ |0| packages/runtime/test/people.test.ts (33 tests) 1597ms
+   ✓ W3 authored people and deterministic encounter boundaries > stops a long wait at midnight, requires the highest-priority encounter first, and replays/saves exactly  312ms
+ ✓ |0| apps/server/test/long-form-chat.test.ts (12 tests) 1276ms
+ ✓ |0| apps/server/test/simulation.test.ts (6 tests) 1247ms
+   ✓ Foundation 5A simulation API > captures exact approved input, runs and reopens provider-free evidence, and ignores later mutable heads  453ms
+ ✓ |0| packages/persistence/test/generation-migration.test.ts (54 tests) 1216ms
+ ✓ |0| apps/server/test/quick-generate.test.ts (10 tests) 1163ms
+   ✓ quick generation stream > streams ordered stages, provider reasoning, repairs, and the final result  313ms
+ ✓ |0| apps/server/test/playtesting.test.ts (5 tests) 1446ms
+   ✓ Foundation 5B playtest API > previews backend bounds, persists deterministic campaigns, exposes compact metadata, and replays a sample  391ms
+   ✓ Foundation 5B playtest API > reopens immutable historical evidence and replay after restart and newer authoring changes  537ms
+ ✓ |0| apps/server/test/passage-plan.test.ts (3 tests) 1964ms
+   ✓ manual passage-plan workspace > round-trips, versions, reorders, exports, snapshots, and restores 300 passages offline  1662ms
+ ✓ |0| apps/server/test/passage-draft-review.test.ts (4 tests) 942ms
+   ✓ passage draft review API > reviews, compares, accepts, advances, locks, unlocks, and replaces prose without provider calls  341ms
+ ✓ |0| apps/server/test/commands.test.ts (9 tests) 771ms
+ ✓ |0| apps/server/test/recovery-routes.test.ts (3 tests) 843ms
+   ✓ Foundation 8A recovery HTTP boundary > downloads a verified backup, previews without writes, rejects collision, and restores after explicit deletion  524ms
+ ✓ |0| packages/persistence/test/portable-project-repository.test.ts (7 tests) 1039ms
+   ✓ PortableProjectRepository > round-trips a representative 300-passage immutable graph  654ms
+ ✓ |0| packages/runtime/test/journal-progression.test.ts (6 tests) 891ms
+   ✓ journal-only progression time boundaries > records a short window during a 15-minute stationary event, saves and replays  345ms
+ ✓ |0| packages/persistence/test/passage-draft-repository.test.ts (29 tests) 969ms
+ ✓ |0| packages/runtime/test/people-review-regressions.test.ts (8 tests) 616ms
+ ✓ |0| packages/runtime/test/world.test.ts (29 tests) 877ms
+ ✓ |0| packages/persistence/test/project-setup.test.ts (15 tests) 464ms
+ ✓ |0| packages/persistence/test/passage-draft-acceptance-repository.test.ts (11 tests) 557ms
+ ✓ |0| packages/runtime/test/runtime.test.ts (11 tests) 523ms
+   ✓ Foundation 5A pure runtime > compiles and runs a deterministic 300-passage path with trace growth limited to visited steps  458ms
+ ✓ |0| apps/server/test/production-entry.test.ts (1 test) 661ms
+   ✓ loads the compiled server entry with Node package exports  660ms
+ ✓ |0| apps/server/test/publication-export-routes.test.ts (4 tests) 580ms
+ ✓ |0| packages/persistence/test/drafting-repository.test.ts (15 tests) 462ms
+ ✓ |0| apps/server/test/fake-model-provider.test.ts (2 tests) 505ms
+ ✓ |0| packages/persistence/test/author-memory.test.ts (11 tests) 517ms
+ ✓ |0| packages/runtime/test/native-bundle.test.ts (20 tests) 376ms
+ ✓ |0| apps/server/test/author-memory.test.ts (3 tests) 443ms
+ ✓ |0| packages/persistence/test/repositories.test.ts (8 tests) 230ms
+ ✓ |0| apps/server/test/import.test.ts (2 tests) 312ms
+ ✓ |0| packages/pipeline/test/repair-proposal.test.ts (5 tests) 235ms
+ ✓ |0| packages/persistence/test/generation-repository.test.ts (10 tests) 346ms
+ ✓ |0| packages/importers/test/importers.test.ts (5 tests) 257ms
+ ✓ |0| packages/persistence/test/conversations.test.ts (5 tests) 178ms
+ ✓ |0| apps/server/test/export.test.ts (2 tests) 234ms
+ ✓ |0| packages/persistence/test/commands.test.ts (7 tests) 195ms
+ ✓ |0| apps/server/test/settings.test.ts (2 tests) 318ms
+ ✓ |0| apps/server/test/project-health.test.ts (6 tests) 286ms
+ ✓ |0| packages/persistence/test/passage-plan-repository.test.ts (1 test) 244ms
+ ✓ |0| apps/server/test/health.test.ts (1 test) 242ms
+ ✓ |0| packages/persistence/test/narrative-review-repository.test.ts (7 tests) 261ms
+ ✓ |0| apps/server/test/projects.test.ts (1 test) 289ms
+ ✓ |0| packages/pipeline/test/narrative-review.test.ts (4 tests) 239ms
+ ✓ |0| apps/server/test/analysis.test.ts (1 test) 245ms
+ ✓ |0| packages/pipeline/test/native-compilation.test.ts (16 tests) 137ms
+ ✓ |0| packages/persistence/test/repair-plan-repository.test.ts (4 tests) 162ms
+ ✓ |0| apps/server/test/playtest.test.ts (1 test) 119ms
+ ✓ |0| packages/export-twine/test/native-twee.test.ts (4 tests) 165ms
+ ✓ |0| packages/persistence/test/recovery.test.ts (8 tests) 112ms
+ ✓ |0| packages/pipeline/test/passage-planning-context.test.ts (7 tests) 87ms
+ ✓ |0| packages/domain/test/adaptation-intent.test.ts (33 tests) 94ms
+ ✓ |0| packages/pipeline/test/passage-drafting-context.test.ts (7 tests) 78ms
+ ✓ |0| packages/pipeline/test/review.test.ts (2 tests) 62ms
+ ✓ |0| packages/pipeline/test/creative-direction.test.ts (7 tests) 83ms
+ ✓ |0| packages/persistence/test/passage-proposal-repository.test.ts (2 tests) 91ms
+ ✓ |0| packages/pipeline/test/passage-planning-proposal.test.ts (4 tests) 48ms
+ ✓ |0| packages/pipeline/test/passage-plan-validator.test.ts (4 tests) 51ms
+ ✓ |0| packages/pipeline/test/repair-planning.test.ts (5 tests) 34ms
+ ✓ |0| apps/web/test/quick-generation-api.test.ts (5 tests) 20ms
+ ✓ |0| apps/web/test/findings.test.tsx (1 test) 18ms
+ ✓ |0| apps/server/test/openrouter-passage-drafting-provider.test.ts (2 tests) 29ms
+ ✓ |0| apps/server/test/openrouter-narrative-review-provider.test.ts (2 tests) 26ms
+ ✓ |0| packages/pipeline/test/job-runner.test.ts (1 test) 42ms
+ ✓ |0| packages/openrouter/test/client.test.ts (17 tests) 48ms
+ ✓ |0| packages/openrouter/test/stream.test.ts (10 tests) 15ms
+ ✓ |0| packages/export-twine/test/compile.test.ts (3 tests) 19ms
+ ✓ |0| packages/pipeline/test/passage-generation-plan.test.ts (3 tests) 19ms
+ ✓ |0| packages/domain/test/repair-proposal-contract.test.ts (2 tests) 21ms
+ ✓ |0| packages/pipeline/test/long-form-foundation.test.ts (5 tests) 29ms
+ ✓ |0| packages/pipeline/test/passage-drafting-plan.test.ts (3 tests) 16ms
+ ✓ |0| apps/server/test/openrouter-passage-planning-provider.test.ts (1 test) 40ms
+ ✓ |0| packages/pipeline/test/long-form-mechanics-plan.test.ts (2 tests) 24ms
+ ✓ |0| packages/pipeline/test/long-form-ending-plan.test.ts (2 tests) 11ms
+ ✓ |0| apps/web/test/ui-smoke.test.ts (1 test) 22ms
+ ✓ |0| packages/pipeline/test/project-setup.test.ts (6 tests) 27ms
+ ✓ |0| packages/pipeline/test/long-form-route-plan.test.ts (2 tests) 11ms
+ ✓ |0| apps/server/test/repair-creative-direction-scope.test.ts (2 tests) 19ms
+ ✓ |0| apps/web/test/setup.test.tsx (1 test) 9ms
+ ✓ |0| packages/openrouter/test/powershell-dpapi-adapter.test.ts (10 tests) 13ms
+ ✓ |0| packages/pipeline/test/passage-drafting-output.test.ts (7 tests) 12ms
+ ✓ |0| apps/web/test/settings.test.tsx (1 test) 8ms
+ ✓ |0| packages/export-twine/test/render-twee.test.ts (1 test) 8ms
+ ✓ |0| packages/pipeline/test/long-form-story-bible.test.ts (2 tests) 9ms
+ ✓ |0| apps/web/test/studio.test.tsx (1 test) 26ms
+ ✓ |0| packages/domain/test/domain.test.ts (2 tests) 7ms
+ ✓ |0| packages/domain/test/simulate.test.ts (2 tests) 8ms
+ ✓ |0| packages/openrouter/test/redact.test.ts (3 tests) 4ms
+ ✓ |0| packages/pipeline/test/project-brief.test.ts (2 tests) 8ms
+ ✓ |0| packages/pipeline/test/analyze-source.test.ts (1 test) 7ms
+ ✓ |0| apps/server/test/quick-generation-reasoning.test.ts (3 tests) 6ms
+ ✓ |0| apps/server/test/quick-generation-events.test.ts (1 test) 7ms
+ ✓ |0| packages/persistence/test/repair-application-repository.test.ts (2 tests) 5ms
+ ✓ |0| packages/openrouter/test/catalog.test.ts (1 test) 4ms
+ ✓ |0| apps/server/test/config.test.ts (2 tests) 3ms
+ ✓ |0| apps/server/test/playwright-config.test.ts (1 test) 3ms
+ ✓ |0| apps/web/test/native-player.test.tsx (19 tests) 8779ms
+   ✓ NativePlayer > retains the authored action outcome independently of enabled autosave, committing time once  1035ms
+   ✓ NativePlayer > retains the authored action outcome independently of disabled autosave, committing time once  696ms
+   ✓ NativePlayer > retains the authored action outcome independently of failed autosave, committing time once  591ms
+   ✓ NativePlayer > clears an earlier action outcome when choice replaces the session  618ms
+   ✓ NativePlayer > clears an earlier action outcome when rewind replaces the session  568ms
+   ✓ NativePlayer > clears an earlier action outcome when restart replaces the session  553ms
+   ✓ NativePlayer > clears an earlier action outcome when load replaces the session  622ms
+   ✓ NativePlayer > clears an earlier action outcome when route replaces the session  691ms
+   ✓ NativePlayer > retains the outcome when another action is cancelled and replaces it only when that action commits  324ms
+   ✓ NativePlayer > plays, autosaves, reloads, manually saves/loads, rewinds, and restarts without API calls  731ms
+   ✓ NativePlayer > loads a 300-passage installation while rendering only the active passage  1168ms
+   ✓ NativePlayer > uses accessible confirmations before overwriting or deleting a manual save  446ms
+ ✓ |0| apps/web/test/journal.test.tsx (8 tests) 9351ms
+   ✓ authors canonical visibility, journal prose, objectives and structured stat/event triggers  4749ms
+   ✓ blocks deletion and disabling while journal triggers reference authored game state  314ms
+   ✓ keeps dedicated views free, hides undiscovered information, and supports keyboard entry and Escape  305ms
+   ✓ does not autosave during inspection or cancellation and hides narrative choices in secondary views  439ms
+   ✓ invalidates journal consent on edits and retries identical approved Apply requests after response loss  3044ms
+ ✓ |0| apps/web/test/economy.test.tsx (7 tests) 5792ms
+   ✓ authors explicit quantities, prices, hours, repeat rules and canonical relationship effects through structured controls  1702ms
+   ✓ blocks referenced-item deletion until the author clears each visible rule and prerequisite  805ms
+   ✓ keeps referenced people, chapters, milestones and event rules repairable and prevents unsafe disabling  328ms
+   ✓ invalidates trade reviews after edits and uses the identical Apply UUID when a response is lost  1879ms
+   ✓ keeps trade navigation and cancellation free, then consumes exactly one purchase and one use  626ms
+   ✓ retries a failed purchase autosave without charging again or consuming stock twice  364ms
+ ✓ |0| apps/web/test/progression.test.tsx (9 tests) 4999ms
+   ✓ blocks milestone removal with named grant, carry and prerequisite dependencies until the author clears each reference  721ms
+   ✓ keeps the preview when shared map artwork is removed, and reuses its cache only when referenced again  746ms
+   ✓ edits W2 prerequisites/policies through shared world review, clears consent on edits, and retries a lost Apply with the same UUID  1748ms
+   ✓ keeps Creator's map preview available with asset URLs while rejecting contradictory draft progression  487ms
+   ✓ does not autosave on preview/cancel, confirms the actual carry/expiry once, and persists its state  554ms
+ ✓ |0| apps/web/test/people.test.tsx (5 tests) 2581ms
+   ✓ authors recurring days, overrides and explicit encounter priorities, with referenced-person deletion guards  652ms
+   ✓ synchronizes owned event rules on event deletion/addition and clears reviewed consent on people edits  1240ms
+   ✓ stops actual player waiting at a required boundary, resumes saved priority order, and retries autosave without replaying effects  498ms
+ ✓ |0| apps/web/test/quick-generator.test.tsx (17 tests) 2280ms
+   ✓ QuickGenerator generation controls > appends streamed activity in order and keeps it beside a recoverable error  514ms
+   ✓ QuickGenerator generation controls > aborts the active generation when cancelled  401ms
+   ✓ QuickGenerator generation controls > ignores a cancelled run's late stream after immediately starting another run  485ms
+ ✓ |0| apps/web/test/playtest-workspace.test.tsx (3 tests) 1487ms
+   ✓ PlaytestWorkspace > previews, runs, filters, navigates, replays, and reopens metadata-first 300-passage evidence  1380ms
+ ✓ |0| apps/web/test/narrative-review-workspace.test.tsx (1 test) 1755ms
+   ✓ NarrativeReviewWorkspace > keeps a 300-passage project metadata-first through preview, authorization, offline start, filtering, navigation, and reopen  1754ms
+ ✓ |0| apps/web/test/foundation-bootstrap-workspace.test.tsx (6 tests) 1291ms
+   ✓ Foundation bootstrap workspace > never starts generation on open or preview and requires authorization of an unchanged preview  325ms
+   ✓ Foundation bootstrap workspace > drills into exact diffs and provenance before applying reviewed dependency closure without approval  313ms
+ ✓ |0| apps/web/test/draft-review-queue.test.tsx (3 tests) 1193ms
+   ✓ DraftReviewQueue > keeps a 300-passage queue metadata-only, filterable, and stable-ID navigable  1047ms
+ ✓ |0| apps/web/test/asset-library-workspace.test.tsx (3 tests) 963ms
+   ✓ retries a lost upload response with the same operation UUID and keeps approval separate  633ms
+ ✓ |0| apps/web/test/adaptation-intent-workspace.test.tsx (3 tests) 912ms
+   ✓ Adaptation Intent review workspace > keeps 300-item metadata collections bounded, paginated and stable-ID searchable  678ms
+ ✓ |0| apps/web/test/passage-draft-panel.test.tsx (6 tests) 916ms
+   ✓ PassageDraftPanel > loads compact metadata and saves a provider-free manual candidate  376ms
+ ✓ |0| apps/web/test/publication-workspace.test.tsx (5 tests) 851ms
+   ✓ PublicationWorkspace > offers separate bounded exports and a write-free portable import preview  320ms
+ ✓ |0| apps/web/test/repair-workspace.test.tsx (3 tests) 811ms
+   ✓ RepairWorkspace > loads metadata first, displays locked exact scope, previews, saves, and blocks historical proposal generation  371ms
+ ✓ |0| apps/web/test/long-form-workspace.test.tsx (1 test) 749ms
+   ✓ LongFormWorkspace > creates a persistent project, edits the default brief, and approves its version  747ms
+ ✓ |0| apps/web/test/simulation-workspace.test.tsx (1 test) 533ms
+   ✓ SimulationWorkspace > captures, runs, and reopens compact 300-passage evidence without requesting prose or providers  532ms
+ ✓ |0| apps/web/test/recovery-workspace.test.tsx (4 tests) 590ms
+ ✓ |0| apps/web/test/project-setup-workspace.test.tsx (6 tests) 447ms
+ ✓ |0| apps/web/test/illustrated-scenes.test.tsx (3 tests) 448ms
+   ✓ requires separate consent, retries a lost Apply with the identical UUID, and clears review on local edits  428ms
+ ✓ |0| apps/web/test/world.test.tsx (3 tests) 363ms
+ ✓ |0| apps/web/test/passage-plan-workspace.test.tsx (1 test) 513ms
+   ✓ PassagePlanWorkspace coverage dashboard > shows conservative coverage and links a finding to its exact choice editor  512ms
+ ✓ |0| apps/web/test/bible-workspace.test.tsx (1 test) 401ms
+   ✓ BibleWorkspace > creates a gated local draft and saves structured entries with stable IDs  400ms
+ ✓ |0| apps/web/test/creative-direction-workspace.test.tsx (3 tests) 395ms
+ ✓ |0| apps/web/test/passage-generation-panel.test.tsx (4 tests) 366ms
+ ✓ |0| apps/web/test/passage-proposal-review.test.tsx (1 test) 233ms
+ ✓ |0| apps/web/test/project-health-workspace.test.tsx (1 test) 266ms
+ ✓ |0| apps/web/test/source-evidence-recovery.test.tsx (3 tests) 212ms
+ ✓ |0| apps/web/test/resume-workspace.test.tsx (2 tests) 161ms
+ ✓ |0| apps/web/test/play-preview.test.tsx (1 test) 103ms
+
+ Test Files  163 passed (163)
+      Tests  1571 passed (1571)
+   Start at  18:20:57
+   Duration  413.83s (transform 7.09s, setup 0ms, collect 69.04s, tests 703.78s, environment 12.29s, prepare 11.74s)

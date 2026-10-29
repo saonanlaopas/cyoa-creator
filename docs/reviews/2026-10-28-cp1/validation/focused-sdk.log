@@ -1,0 +1,11 @@
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| apps/server/test/desktop-mcp.test.ts (2 tests) 2865ms
+   ✓ CP1 starts the documented persistent host, exposes the full configured tool set and recovers reviewed drafts across process restarts (SDK only)  2657ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  18:07:41
+   Duration  3.23s (transform 27ms, setup 0ms, collect 168ms, tests 2.86s, environment 0ms, prepare 51ms)

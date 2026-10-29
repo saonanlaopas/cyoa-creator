@@ -111,6 +111,10 @@ Choose **Apply exact preview** only after reviewing that fingerprint. The server
 
 Application history retains the selected groups, dependency closure, pre-apply and resulting version IDs, stale evidence, and finding disposition. Foundation 3 checks rerun deterministically. Relevant Foundation 5A paths are replayed with their original bounded path policy against the repaired effective state. Playtest campaigns remain immutable historical evidence and require a new bounded campaign when broader sampling is needed; qualitative narrative findings require a separate explicit re-review. A proposal can be applied successfully only once.
 
+## Desktop conversational operation
+
+To operate a persistent project from local Codex through MCP, follow [desktop setup and the connection smoke test](desktop-codex.md), then [the conversational workflow](conversational-creator.md). Creator remains available for inspection, play and export. The default conversational output is native standalone HTML, retaining supported world mechanics. SDK tests in Cloud do not establish native tool discovery on your desktop; that final connection check remains pending until you run it.
+
 ## Compile and play a long-form project
 
 Open **Publication and play** after every passage has current accepted prose and the exact project state passes publication readiness. **Compile native bundle** records immutable build metadata. **Play current build** compiles and installs the exact current build in this browser, then opens the dedicated player. A historical build can be reopened from its build record; the application recompiles that build from its captured immutable input rather than substituting current authoring content.

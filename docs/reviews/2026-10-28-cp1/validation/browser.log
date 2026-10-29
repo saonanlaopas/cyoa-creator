@@ -1,0 +1,70 @@
+$ playwright test --workers=1 --trace=retain-on-failure --output=/workspace/.setup/cp1-review-20261028/browser
+[WebServer] (node:18712) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 52 tests using 1 worker
+(node:18724) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+···(node:18848) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+·T(node:20177) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+···
+
+  1) e2e/complete-visual-game.spec.ts:20:5 › W6 authors, reviews and publishes the complete visual game, restores and duplicates it, and finishes both modes offline
+
+    Test timeout of 300000ms exceeded.
+
+    Error: browserContext.close: Target page, context or browser has been closed
+
+      134 |           expect(pageErrors).toEqual([]); expect(requests.filter((u) => /\/api\/|openrouter|provider/i.test(u) || /^https?:/.test(u) && !u.startsWith(origin))).toEqual([]);
+      135 |           manifest.plays.push({ mode: variant.mode, surface: variant.surface, width, stateFile, finalStateSha256: sha(Buffer.from(JSON.stringify(state))), requests, pageErrors });
+    > 136 |         } finally { await context.close(); }
+          |                     ^
+      137 |       }
+      138 |     } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+      139 |     await writeFile(join(output, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+        at /workspace/cyoa-creator/e2e/complete-visual-game.spec.ts:136:21
+
+    Error Context: ../.setup/cp1-review-20261028/browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../.setup/cp1-review-20261028/browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../.setup/cp1-review-20261028/browser/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) e2e/economy.spec.ts:14:5 › W4 authors trade with stale edits and safe retries, then plays atomic inventory and shops offline
+
+    Test was interrupted.
+
+    Error: browserContext.close: Target page, context or browser has been closed
+
+      129 |           const context = await browser.newContext({ viewport: { width, height } }), player = await context.newPage(), requests: string[] = []; player.on("request", (r) => requests.push(r.url()));
+      130 |           try { await player.goto(surface === "standalone" ? pathToFileURL(file).href : `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}/nested/index.html`); await play(player, surface, width); expect(requests.some((u) => /\/api\/|openrouter|provider/i.test(u))).toBe(false); }
+    > 131 |           finally { await context.close(); }
+          |                     ^
+      132 |         }
+      133 |       } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+      134 |     } finally { await request.dispose(); }
+        at /workspace/cyoa-creator/e2e/economy.spec.ts:131:21
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../.setup/cp1-review-20261028/browser/economy-W4-authors-trade-w-e3dca-inventory-and-shops-offline/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../.setup/cp1-review-20261028/browser/economy-W4-authors-trade-w-e3dca-inventory-and-shops-offline/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  Slow test file: e2e/complete-visual-game.spec.ts (5.0m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  1 failed
+    e2e/complete-visual-game.spec.ts:20:5 › W6 authors, reviews and publishes the complete visual game, restores and duplicates it, and finishes both modes offline
+  1 interrupted
+    e2e/economy.spec.ts:14:5 › W4 authors trade with stale edits and safe retries, then plays atomic inventory and shops offline
+  43 did not run
+  7 passed (7.1m)
+[ELIFECYCLE] Command failed with exit code 130.

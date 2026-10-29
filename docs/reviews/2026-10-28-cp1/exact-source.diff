@@ -1,0 +1,455 @@
+diff --git a/apps/server/src/routes/connected-editing.ts b/apps/server/src/routes/connected-editing.ts
+index 5f2fffb..dcae573 100644
+--- a/apps/server/src/routes/connected-editing.ts
++++ b/apps/server/src/routes/connected-editing.ts
+@@ -7,0 +8 @@ import type { ConnectedEditingConfig } from "../config.js";
++import { CONNECTED_AUTHORING_INSTRUCTIONS } from "../services/connected-authoring-instructions.js";
+@@ -79 +80 @@ export function registerConnectedEditing(app: FastifyInstance, service: Connecte
+-      const server = new McpServer({ name: "cyoa-connected-editing", version: "1.0.0" });
++      const server = new McpServer({ name: "cyoa-connected-editing", version: "1.0.0" }, { instructions: CONNECTED_AUTHORING_INSTRUCTIONS });
+diff --git a/apps/server/src/services/connected-authoring-instructions.ts b/apps/server/src/services/connected-authoring-instructions.ts
+new file mode 100644
+index 0000000..f22da55
+--- /dev/null
++++ b/apps/server/src/services/connected-authoring-instructions.ts
+@@ -0,0 +1,8 @@
++/** Cross-tool guidance delivered during MCP initialization, including fresh conversations. */
++export const CONNECTED_AUTHORING_INSTRUCTIONS = `Operate the author's persistent Creator project through scoped tools. Discover authorized projects and read exact current state before editing. Present changes as understandable creative batches; obtain explicit author consent for each exact reviewed selection. Applying drafts is separate from foundation approval, prose acceptance, artwork approval and compilation. Never infer blanket approval from a request to make a game. No provider calls are needed.
++
++Use list_projects/project_state/list_edit_targets and exact foundation/game/world/scene/asset reads; paginate or narrow context instead of guessing IDs or copying screenshots. Propose through prepare_edit/submit_edit and show review_edit before apply_edit. Review foundation, plan, prose, image, scene and world changes with their corresponding tools; only set approved=true for the action the author actually authorized. Preserve locks, validation, prerequisites and exact review fingerprints. Later dependent reviews require their own consent.
++
++Before mutations, retain operation UUIDs, exact arguments, review/version IDs and consent references in private local continuation notes when authorized. Retry identical arguments with the same UUID after a lost response. Changed arguments require a new UUID; stale content requires fresh state, a revised proposal and renewed review. list_edits/get_edit rediscover proposals. Receipts describe historical outcomes; reread current state. No general operation-history lookup is exposed; do not claim recovery of unknown operation IDs.
++
++Import supplied artwork only from the configured staging directory by basename/digest; imports create candidates, not approved images. Inspect the actual image and provenance before asking for approval. Creator remains optional for visual review, play and export. Default to the native standalone HTML player to retain supported world mechanics; export_game returns a local path, not file bytes. Chat delivery is unnecessary. simulate_game covers narrative choices, not travel, waiting, shops, gifts or chapter actions: use actual native-player playtests for those. Published games run without Creator or providers. An SDK connection does not prove native Codex tool discovery.`;
+diff --git a/apps/server/test/desktop-mcp.test.ts b/apps/server/test/desktop-mcp.test.ts
+new file mode 100644
+index 0000000..972a63c
+--- /dev/null
++++ b/apps/server/test/desktop-mcp.test.ts
+@@ -0,0 +1,136 @@
++import { spawn, spawnSync, type ChildProcess } from "node:child_process";
++import { once } from "node:events";
++import { randomUUID } from "node:crypto";
++import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
++import { createServer } from "node:net";
++import { tmpdir } from "node:os";
++import { join, resolve } from "node:path";
++import { parseEnv } from "node:util";
++import { Client } from "@modelcontextprotocol/sdk/client/index.js";
++import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
++import { expect, it } from "vitest";
++
++it("CP1 starts the documented persistent host, exposes the full configured tool set and recovers reviewed drafts across process restarts (SDK only)", async () => {
++  const root = resolve("."), evidenceRoot = process.env.CP1_EVIDENCE_DIR;
++  if (evidenceRoot) await mkdir(evidenceRoot, { recursive: true });
++  const directory = await mkdtemp(join(evidenceRoot ?? tmpdir(), "cp1-sdk-"));
++  const portServer = createServer(); portServer.listen(0, "127.0.0.1"); await once(portServer, "listening");
++  const port = (portServer.address() as { port: number }).port;
++  await new Promise<void>((done, fail) => portServer.close((error) => error ? fail(error) : done()));
++  const setup = resolve(root, "scripts/configure-local-creator.mjs"), database = join(directory, "persistent creator.sqlite");
++  const configure = (...args: string[]) => spawnSync(process.execPath, [setup, ...args], { cwd: directory, encoding: "utf8" });
++  let child: ChildProcess | undefined, client: Client | undefined;
++  const address = `http://127.0.0.1:${port}`, rootApi = (projectId: string) => `${address}/api/long-form/projects/${projectId}`;
++  const stop = async () => {
++    await client?.close(); client = undefined;
++    if (child && child.exitCode === null && child.signalCode === null) {
++      const exit = once(child, "exit"), timer = setTimeout(() => child?.kill("SIGKILL"), 5000);
++      child.kill("SIGTERM");
++      try { await exit; } finally { clearTimeout(timer); }
++    }
++    child = undefined;
++  };
++  const json = async (url: string) => { const result = await fetch(url); expect(result.ok).toBe(true); return result.json(); };
++  try {
++    const initialized = configure("--database", database, "--port", String(port));
++    expect(initialized.status, initialized.stderr).toBe(0);
++    const summary = JSON.parse(initialized.stdout), projectId = summary.projectId as string;
++    const envFile = join(directory, "data/creator-mcp.env"), envBytes = await readFile(envFile), environment = parseEnv(envBytes.toString());
++    expect(summary).toMatchObject({ database, creationEnabled: true, port });
++    expect(initialized.stdout).not.toContain(environment.CYOA_MCP_TOKEN);
++    if (process.platform !== "win32") expect((await stat(envFile)).mode & 0o777).toBe(0o600);
++    expect(configure("--database", database, "--port", String(port)).status).not.toBe(0);
++    expect(await readFile(envFile)).toEqual(envBytes);
++    expect(environment.DATABASE_PATH).toBe(database.replaceAll("\\", "/"));
++    const start = async () => {
++      let diagnostic = "";
++      // The production entry and Node env-file path match the desktop guide. No inherited provider credentials.
++      child = spawn(process.execPath, ["--env-file", envFile, resolve(root, "apps/server/dist/main.js")], {
++        cwd: root, env: { PATH: process.env.PATH, ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}), NODE_ENV: "test", E2E_FAKE_MODEL_PROVIDER: "1" }, stdio: ["ignore", "pipe", "pipe"],
++      });
++      child.stderr!.on("data", (chunk) => { diagnostic = (diagnostic + String(chunk)).slice(-2000); });
++      child.on("error", (error) => { diagnostic = error.message; });
++      const deadline = Date.now() + 15000; let ready = false;
++      while (Date.now() < deadline) {
++        if (child.exitCode !== null) throw new Error(`Production host exited: ${diagnostic}`);
++        try { const r = await fetch(`${address}/api/health`); if (r.ok) { ready = true; break; } } catch { /* Wait for the child listener. */ }
++        await new Promise((done) => setTimeout(done, 100));
++      }
++      expect(ready, diagnostic).toBe(true);
++      client = new Client({ name: "cp1-cloud-sdk-verification-not-native-codex", version: "1" });
++      await client.connect(new StreamableHTTPClientTransport(new URL(`${address}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${environment.CYOA_MCP_TOKEN}` } } }));
++    };
++    const call = async (name: string, args: Record<string, unknown>) => {
++      const r = await client!.callTool({ name, arguments: args });
++      if (r.isError) throw new Error(JSON.stringify(r.content));
++      return r.structuredContent as any;
++    };
++    await start();
++    const template = await readFile(resolve(root, "docs/examples/codex-local-mcp.toml"), "utf8");
++    const enabled = [...template.match(/enabled_tools\s*=\s*\[([\s\S]*?)\]/)![1]!.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]!);
++    const actual = (await client!.listTools()).tools.map((t) => t.name);
++    expect(new Set(enabled).size).toBe(enabled.length);
++    expect(enabled.slice().sort()).toEqual(actual.slice().sort()); expect(actual).toHaveLength(47);
++    expect(template).toContain('bearer_token_env_var = "CYOA_MCP_TOKEN"');
++    expect(template).toContain('url = "http://127.0.0.1:3000/mcp"');
++    const instructions = client!.getInstructions();
++    expect(instructions).toContain("Applying drafts is separate");
++    expect(instructions).toContain("native standalone HTML");
++    expect(instructions).toContain("SDK connection does not prove native Codex tool discovery");
++    expect(await call("list_projects", {})).toEqual({ projects: [], creationSlots: [projectId] });
++    await expect(call("create_project", { projectId, name: "CP1 smoke", operationId: randomUUID(), approved: false })).rejects.toThrow();
++    const create = { projectId, name: "CP1 SDK persistent smoke", operationId: randomUUID(), approved: true };
++    const created = await call("create_project", create);
++    await expect(call("project_state", { projectId: randomUUID() })).rejects.toThrow("access_denied");
++    expect(await call("list_staged_assets", { projectId })).toMatchObject({ enabled: true, items: [] });
++    const original = await call("read_foundation", { projectId, artifactId: "brief" });
++    const state = await call("project_state", { projectId });
++    const prepare = { projectId, operationId: randomUUID(), message: "Change the Brief working title only, as a draft", headFingerprint: state.headFingerprint, targets: [{ key: "brief:root", versionId: original.versionId }] };
++    const prepared = await call("prepare_edit", prepare);
++    // Restart with prepared-but-unsubmitted work. Recovery uses the retained exact envelope, not an invented history tool.
++    await stop(); await start();
++    expect(await call("prepare_edit", prepare)).toEqual(prepared);
++    const submit = { projectId, operationId: randomUUID(), planId: prepared.plan.id, fingerprint: prepared.plan.fingerprint,
++      response: { message: "Title draft", groups: [{ id: "title", label: "Premise title", explanation: "A title-only draft revision", dependsOnGroupIds: [], operations: [{ targetKey: "brief:root", kind: "set-fields", changes: { workingTitle: "CP1 persistent draft verified" } }] }] } };
++    const proposed = await call("submit_edit", submit), selection = { projectId, proposalId: proposed.proposalId, groupIds: ["title"] };
++    const review = await call("review_edit", selection);
++    expect((await call("read_foundation", { projectId, artifactId: "brief" })).versionId).toBe(original.versionId);
++    const apply = { ...selection, operationId: randomUUID(), fingerprint: review.fingerprint, approved: true };
++    await expect(call("apply_edit", { ...apply, approved: false })).rejects.toThrow();
++    expect((await call("read_foundation", { projectId, artifactId: "brief" })).versionId).toBe(original.versionId);
++    // Fixture authorization is scripted; this is not evidence of an actual human chat approval.
++    const applied = await call("apply_edit", apply);
++    const revised = await call("read_foundation", { projectId, artifactId: "brief" });
++    expect(revised.content.workingTitle).toBe("CP1 persistent draft verified"); expect(revised.versionId).not.toBe(original.versionId);
++    const visible = await json(rootApi(projectId));
++    expect(visible.brief.id).toBe(revised.versionId); expect(visible.workflow.brief.status).toBe("draft"); expect(visible.workflow.brief.approvedVersionId).toBeNull();
++    await expect(call("prepare_edit", { ...prepare, operationId: randomUUID() })).rejects.toThrow("stale");
++    await expect(call("apply_edit", { ...apply, groupIds: ["different"] })).rejects.toThrow("operation_id_conflict");
++    const versionsBefore = await json(`${address}/api/projects/${projectId}/artifacts/brief/versions`);
++    await stop(); await start();
++    // New client can rediscover current canonical work and proposal without the previous transcript.
++    expect(await call("list_projects", {})).toMatchObject({ projects: [{ id: projectId }], creationSlots: [] });
++    expect(await call("list_edits", { projectId })).toMatchObject({ total: 1, items: [{ id: proposed.proposalId, status: "applied" }] });
++    expect(await call("get_edit", { projectId, proposalId: proposed.proposalId })).toMatchObject({ status: "applied" });
++    expect(await call("create_project", create)).toEqual(created);
++    expect(await call("submit_edit", submit)).toEqual(proposed);
++    expect(await call("apply_edit", apply)).toEqual(applied);
++    expect((await call("read_foundation", { projectId, artifactId: "brief" })).versionId).toBe(revised.versionId);
++    expect(await json(`${address}/api/projects/${projectId}/artifacts/brief/versions`)).toEqual(versionsBefore);
++    expect((await json(rootApi(projectId))).workflow.brief.status).toBe("draft");
++    if (evidenceRoot) await writeFile(join(directory, "sdk-proof.json"), JSON.stringify({ verification: "local SDK against production child process, not native Codex", nativeDesktopVerification: "pending", projectId, originalVersionId: original.versionId, resultingVersionId: revised.versionId, proposalId: proposed.proposalId, toolCount: actual.length, configuredTools: enabled, instructionsReceived: Boolean(instructions), processStarts: 3, result: "passed", credentialFile: "private local fixture only; not published" }, null, 2) + "\n");
++  } finally { await stop(); if (!evidenceRoot) await rm(directory, { recursive: true, force: true }); }
++}, 60000);
++
++it("local desktop setup binds existing projects without creation and rejects invalid/persistent-unsafe input without replacing settings", async () => {
++  const directory = await mkdtemp(join(tmpdir(), "cp1-setup-")), script = resolve("scripts/configure-local-creator.mjs");
++  try {
++    const configure = (...args: string[]) => spawnSync(process.execPath, [script, ...args], { cwd: directory, encoding: "utf8" });
++    for (const args of [["--project-id", "not-a-uuid"], ["--database", ":memory:"], ["--port", "0"]]) expect(configure(...args).status).not.toBe(0);
++    const projectId = randomUUID(), configured = configure("--project-id", projectId);
++    expect(configured.status, configured.stderr).toBe(0);
++    const file = join(directory, "data/creator-mcp.env"), before = await readFile(file);
++    expect(parseEnv(before.toString())).toMatchObject({ CYOA_MCP_PROJECT_IDS: projectId, CYOA_MCP_ALLOW_PROJECT_CREATION: "0", DATABASE_PATH: resolve(directory, "data/story-to-cyoa.sqlite").replaceAll("\\", "/") });
++    expect(configure().status).not.toBe(0); expect(await readFile(file)).toEqual(before);
++  } finally { await rm(directory, { recursive: true, force: true }); }
++});
+diff --git a/docs/connected-editing.md b/docs/connected-editing.md
+index a18de1f..a22be45 100644
+--- a/docs/connected-editing.md
++++ b/docs/connected-editing.md
+@@ -1 +1 @@
+-# Connected Authoring (M1-V1)
++# Connected Authoring (M1–W6 / desktop CP1)
+@@ -3 +3,3 @@
+-Connected authoring is opt-in, local, and limited to explicitly configured Long-form projects. It uses the same editing, foundation, passage planning, drafting, simulation and publication services as Creator. M2 adds separately enabled original-project creation and exact foundation approval. M3 completes text-game authoring. It does not expose provider generation, SQL, file access, arbitrary HTTP requests, or visual/world mechanics.
++Connected authoring is opt-in, local, and limited to explicitly configured Long-form projects. It uses Creator's shared foundation, passage/prose, artwork, illustrated-scene, world, validation and publication services. The 47 tools cover accepted M1–W6 systems, including chapters/events, people/schedules, inventory/shops and character/journal rules. No provider generation, SQL, arbitrary filesystem access or unrestricted HTTP tools are exposed.
++
++For desktop Codex setup, persistent startup and the short native connection smoke test, start with [Desktop Codex + persistent Creator](desktop-codex.md). Follow [Conversational operation of Creator](conversational-creator.md) for understandable creative approval batches, recovery and native-player verification. Cloud SDK verification is separate from native tool availability in a desktop conversation; final desktop verification remains pending until recorded there. Chat attachments and remote bridges are outside CP1.
+@@ -19 +21 @@ node apps/server/dist/main.js
+-Existing project IDs are visible in Creator's project API (`GET /api/long-form/projects`). Supply comma-separated UUIDs to allow more than one project (maximum 50). Other projects are not discoverable or accessible through MCP. A missing token or empty/invalid allow-list prevents startup when enabled; without the opt-in, `/mcp` does not exist. Restart the server to rotate credentials or change project access. Do not expose this server through a proxy or tunnel.
++Existing project IDs are visible in Creator's project API (`GET /api/projects`, select Long-form projects). Supply comma-separated UUIDs to allow more than one project (maximum 50). Other projects are not discoverable or accessible through MCP. A missing token or empty/invalid allow-list prevents startup when enabled; without the opt-in, `/mcp` does not exist. Restart the server to rotate credentials or change project access. Use an absolute persistent database path and the same configuration on restart; `:memory:` and W6's disposable test host do not preserve authoring work. The built server serves Creator and MCP together. Do not expose it through a proxy or tunnel.
+@@ -31 +33 @@ bearer_token_env_var = "CYOA_MCP_TOKEN"
+-enabled_tools = ["list_projects", "create_project", "project_state", "initialize_foundation", "read_foundation", "review_foundation_approval", "approve_foundation", "list_edit_targets", "list_edits", "prepare_edit", "submit_edit", "get_edit", "review_edit", "apply_edit", "reject_edit", "game_state", "read_game_record", "initialize_game_plan", "review_game_plan", "approve_game_plan", "submit_draft", "review_drafts", "accept_drafts", "publication_readiness", "compile_game", "simulate_game", "read_simulation", "export_game", "list_assets", "read_asset", "asset_usage", "list_staged_assets", "import_staged_asset", "revise_asset", "review_asset", "approve_asset", "reject_asset"]
++# Copy enabled_tools from docs/examples/codex-local-mcp.toml (all 47 tools).
+@@ -34 +36,3 @@ enabled_tools = ["list_projects", "create_project", "project_state", "initialize
+-See [official Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli). The endpoint uses the [official TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk), stateless Streamable HTTP JSON responses, authenticated POST requests, and no persistent transport session. Browser Origin requests and non-loopback clients/Host headers are rejected, with no CORS grant.
++Merge the complete [47-tool configuration](examples/codex-local-mcp.toml), including all scene/world operations; preserve other workspace settings. The token must reach the actual Codex process, not just Creator. Restart/reconnect the client after configuration changes and verify native tool calls; reading a TOML file or running an SDK script is insufficient.
++
++See [official Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli). The endpoint uses the [official TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk), stateless Streamable HTTP JSON responses, authenticated POST requests, and no persistent transport session. Initialization supplies cross-tool workflow instructions without changing authorization. Browser Origin requests and non-loopback clients/Host headers are rejected, with no CORS grant.
+@@ -70 +74 @@ MCP results are bounded to 256,000 bytes; use narrower scope when that limit is
+-7. `simulate_game` captures the canonical deterministic simulation input and runs an explicit path of up to 100 choice IDs, optionally checking the expected ending. `read_simulation` revalidates stored runs and pages their trace steps. Inspect state, visible consequences and ending results; revise through fresh reviewed operations/candidates and reapprove/reaccept as required.
++7. `simulate_game` captures the canonical deterministic narrative simulation input and runs an explicit path of up to 100 choice IDs, optionally checking the expected ending. `read_simulation` revalidates stored runs and pages their trace steps. This does not capture the world definition or exercise travel, waiting, shops, gifts or chapter actions. Verify those in actual native-player/runtime playtests. Inspect state, visible consequences and ending results; revise through fresh reviewed operations/candidates and reapprove/reaccept as required.
+@@ -76 +80 @@ All six new mutations (initialize/approve plan, submit/accept drafts, simulate,
+-Use disposable projects and deterministic requests for verification. No provider credential or paid call is required. This checkpoint ends at a playable branching text game. Visual/world mechanics remain separate later checkpoints.
++Use dedicated test projects and deterministic requests for verification. No provider credential or paid call is required. M3's narrative simulation remains available alongside the later native visual/world systems; it is not a substitute for their exported-game tests.
+@@ -80 +84,7 @@ Use disposable projects and deterministic requests for verification. No provider
+-V1 adds nine scoped tools for image catalogue/history/usage reads, restricted staging import and exact candidate revision/review/approval/rejection. Creator uploads and MCP imports use the same image validation, content-addressed storage and lifecycle service. The server must explicitly configure `CYOA_ASSET_STAGING_DIR` for staging import; no arbitrary path or URL reader is exposed. Image candidates remain separate from approvals and from future scene assignment. See [Asset Library](asset-library.md) for the full contract, bounds, retry/recovery behavior and immediate backup/restore/duplication support. No V2 illustrated-player or world mechanics are included.
++V1 adds nine scoped tools for image catalogue/history/usage reads, restricted staging import and exact candidate revision/review/approval/rejection. Creator uploads and MCP imports use the same image validation, content-addressed storage and lifecycle service. The server must explicitly configure `CYOA_ASSET_STAGING_DIR` for staging import; no arbitrary path or URL reader is exposed. Image candidates remain separate from approvals and scene assignment. See [Asset Library](asset-library.md) for bounds, retry/recovery and backup/restore/duplication support.
++
++## Illustrated scenes and world authoring (V2–W5)
++
++`read_scene`/`review_scene`/`apply_scene` bind authored layout and exact approved image versions to passages. `read_world`/`review_world`/`apply_world` cover the accepted locations/time, optional chapters/events, schedules/priorities, economy and journal extensions. Read-only `preview_chapter_transition`, `inspect_world_presence`, `inspect_world_economy` and `inspect_world_journal` inspect supplied state; they do not advance a playthrough. Reviews and separately authorized Apply retain exact-version/staleness/retry protections.
++
++See [illustrated scenes](illustrated-scenes.md), [locations/time](locations-and-time.md), [chapters/events](chapters-and-events.md), [people/schedules](people-and-schedules.md), [inventory/shops](inventory-and-shops.md) and [character/journal](character-and-journal.md). Default world-game output is native standalone HTML; static ZIP is also supported. Creator's Publication and play can inspect/play/export the same project. Backup/restore, duplication, build listing and player-config editing remain Creator HTTP/UI operations, not MCP tools.
+diff --git a/docs/conversational-creator.md b/docs/conversational-creator.md
+new file mode 100644
+index 0000000..b759152
+--- /dev/null
++++ b/docs/conversational-creator.md
+@@ -0,0 +1,65 @@
++# Conversational operation of Creator (CP1)
++
++The author talks to local desktop Codex; the assistant operates the same persistent Long-form project as Creator through MCP. Creator is optional for inspection, play and export. Default publication is **native standalone HTML**, preserving supported locations/time, chapters/events, schedules, inventory/shops and journal behavior. No new game engine, remote bridge, chat attachments or provider generation is required.
++
++First run the [desktop connection smoke test](desktop-codex.md#desktop-connection-smoke-test-pending). Until native tools have operated the persistent instance, report SDK verification and native connection as separate facts. Do not substitute Cloud/test projects for the author's project.
++
++## Start or resume
++
++1. Discover authorized projects/slots with `list_projects`. Ask which project only when selection is ambiguous. Create only an explicitly authorized empty slot; do not create a replacement because an existing project is unavailable.
++2. Read `project_state`, paginated `list_edit_targets` and `game_state`, then exact `read_foundation`/`read_game_record` records. Read `read_world`, individual `read_scene` and asset catalogue/history as relevant. These are authoritative versions; chat recollections are not.
++3. On reconnect, discover saved proposals with `list_edits`/`get_edit`; inspect current heads and blockers before continuing. Read narrow sections instead of requesting screenshots or manual JSON copying. Image quality and player layout still require actual images/player inspection.
++4. Before each mutation retain the exact tool name, normalized arguments, UUID, review/version IDs and authorization reference in private ignored local continuation notes when the author permits them. Use `data/` for local notes, not Git; omit bearer tokens. A compact project note may point to these envelopes but is non-canonical and never grants approval.
++
++## Creative batches and consent
++
++Frame a proposal around a creative decision, not a schema field checklist. Examples: **Premise, cast and tone**; **Cafe encounter and relationship consequence**; **Opening scene prose**; **Harbor artwork and scene composition**. A creative topic can require several bounded reviews when dependencies or size limits require them.
++
++Before asking to Apply/approve, show:
++
++- What changes, the relevant before/after content or actual artwork, and what remains a proposal/draft.
++- Effects on choices, relationships, schedules and known opportunities where relevant; validation blockers/warnings and downstream staleness.
++- The exact reviewed selection and which action is being authorized now. Keep technical IDs in the receipt/details, not in every creative question.
++
++`prepare_edit`/`submit_edit` preserve the author's request and assistant-authored provenance. Use `review_edit` before `apply_edit`, preserving dependency-safe groups. A draft Apply does not approve content. Review/approve foundations in dependency order (Brief, Creative Direction, Bible, routes, endings, mechanics), review/approve the passage plan, and review/accept exact prose candidates separately. Image approval is separate from import; scene/world Apply is separate from compilation. Later dependent content must actually exist and be reviewed before its approval; never approve unseen future output.
++
++One chat reply may authorize the exact compatible selection the author just saw. It must not authorize all future changes. Declining or cancelling leaves protected actions unexecuted. Editing the selection/content or encountering staleness requires renewed review and consent. Preserve accepted prose locks; MCP has no automatic unlock route. Oversized foundation approval reviews may require Creator; disclose this instead of treating omitted content as reviewed.
++
++The server checks exact versions, fingerprints, prerequisites, `approved: true` and access scope. The authenticated client asserts human consent; the server does not independently authenticate a chat reply. Tool annotations and server instructions are guidance, not authorization. Retain the user-authorization reference alongside the exact operation envelope; a previous success receipt never authorizes a new mutation.
++
++## Authoring and artwork
++
++Use shared proposals for foundations, character records, canonical stats/relationships, passage/choice/thread structure and effects. Use `submit_draft` for prose candidates, not planning-field edits. Read/review/apply complete bounded world definitions for W1–W5 rules; use scene tools for presentation. Resolve exact passage and approved asset versions instead of inventing IDs, approval flags or fingerprints.
++
++Respect 12 edit targets, 12 groups/48 operations, 64KB context, 96KB proposal output, 256KB result and 48KB world-definition bounds. Collection maxima do not imply all content fits at once. Narrow/paginate context and batches; report omitted findings. Contradiction/trap diagnostics are bounded analysis, not exhaustive solvability proof.
++
++Place only authorized supplied artwork in the configured local staging directory through the assistant's filesystem tools, or let the user upload through Creator. `list_staged_assets` supplies basenames/digests; `import_staged_asset` creates unapproved candidates. Inspect the actual normalized image, alt text, credit/license and retained approval with asset reads/review before seeking exact approval. Approved replacements do not silently retarget existing scenes/maps. No arbitrary filesystem/URL import or image-generation provider is exposed through MCP.
++
++## Interruptions and failure
++
++| Situation | Recovery |
++| --- | --- |
++| Lost response / duplicate request | Retry identical arguments with the original operation UUID; reread current state afterward |
++| Changed arguments | Use a new UUID; if content/selection changed, obtain a fresh review/consent |
++| Stale browser/MCP edit | Read current versions, prepare a revised proposal and review again; never overwrite |
++| Failed transaction / invalid input | No successful receipt or partial canonical write should exist; inspect the error and correct it before retry |
++| Interrupted image import | Exact completed retry survives source removal; a new import needs the real matching staged file |
++| Server/client restart | Reuse the same database/configuration; rediscover state/proposals and replay retained envelopes |
++| Unknown plan/operation ID | No general MCP operation-history lookup exists; do not guess or claim an outcome. Rediscover canonical work/proposals; abandon uncertain unsubmitted preparation and prepare anew from current state |
++| Duplicate/privacy-redacted restore | Use fresh plans, operation IDs and approvals; full-fidelity backups preserve receipts but omit machine credentials |
++
++There is no universal cancel/undo operation for a committed change. Reject unwanted pending edit proposals through `reject_edit`; cancellation does not undo already applied drafts. A later reversal is another reviewed change. Full history/restore, verified backups and duplication are available in Creator; no new MCP recovery tools are added unless a concrete workflow requires them.
++
++## Validate, play and publish
++
++Use shared plan/world/prose/publication checks before compilation. `simulate_game`/`read_simulation` cover explicit narrative choice paths, not world actions or full native-world simulation. Test actual native-player sequences for travel, time boundaries, encounters, purchases/gifts/use, chapter transitions and journal observations; inspect the resulting values/discoveries, not only an ending label. Use Creator play for author feedback and existing runtime/browser tooling for deterministic verification. Do not silently add an arbitrary-code execution tool to MCP.
++
++Before calling `compile_game`, show readiness and obtain consent for that exact game head/fingerprint. In Creator, **Publication and play → Play current build** supports visual inspection. Use **Standalone HTML** as the default export, or `export_game` format `standalone` for its local link. This is the existing native player; do not select a text fallback or SugarCube for a world game. Markdown/Twee cannot silently discard world mechanics.
++
++Export renders on fetch from captured input and current player configuration; the link is not immutable file bytes. Test the actual exported HTML with Creator stopped, including images, supported world mechanics, save/resume, deterministic replay and desktop/mobile keyboard usability. No chat download delivery is required. The finished player needs no Creator/API/provider; offline source remains inspectable and browser storage policies can limit persistence. Saves bind to compatible exact gameplay bundles; do not promise transfer across arbitrary revisions.
++
++## Evidence boundary
++
++Cloud can verify real SDK transport, production startup/configuration, file-backed persistence across process restarts, drafts/approval guards, retry/conflict behavior, shared Creator visibility and exported play. W6 already supplies broader illustrated-world coverage; rerun it when reporting current verification. A scripted `approved: true` fixture is not evidence of a human approval conversation.
++
++Desktop native tool discovery, environment inheritance, actual human batch approval and fresh-conversation recovery must be recorded on the intended desktop client. Until then **CP1 desktop verification remains pending**, even if every automated check passes.
+diff --git a/docs/desktop-codex.md b/docs/desktop-codex.md
+new file mode 100644
+index 0000000..8eba870
+--- /dev/null
++++ b/docs/desktop-codex.md
+@@ -0,0 +1,75 @@
++# Desktop Codex + persistent Creator (CP1)
++
++Target: a local Codex conversation and Creator on the **same computer**. Cloud develops/tests the integration; it does not connect to your desktop. Native desktop tool discovery and reconnect remain **pending until you run the smoke test below**. A local SDK test or `codex mcp get` configuration read is not that proof.
++
++## One-time setup
++
++Use a local checkout, Node 24 (Cloud verifies 24.19.0) and repository-pinned pnpm 11.9.0. From the checkout root:
++
++```sh
++pnpm install --frozen-lockfile
++pnpm build
++node scripts/configure-local-creator.mjs
++```
++
++The helper writes ignored `data/creator-mcp.env` with a random token, one reserved creation UUID, an absolute persistent SQLite path, loopback port 3000 and an absolute artwork staging directory. It prints non-secret paths/UUID only, starts nothing and creates no project. It refuses to overwrite an existing env file: rerunning must not silently rotate credentials or authorize another project. POSIX permissions are 0600; on Windows also restrict the file with your user-account ACL. Do not commit or paste its contents into chat.
++
++The default database is `data/story-to-cyoa.sqlite`, also used by normal built startup. For a different existing database/project or a separate smoke project:
++
++```sh
++node scripts/configure-local-creator.mjs --database /absolute/path/to/creator.sqlite --project-id YOUR_EXISTING_UUID --port 3000
++```
++
++Use this alternative **instead of** the first setup command. An explicit project ID disables creation; it does not create or search for that project. Existing IDs are visible in Creator's `GET /api/projects` response (select a Long-form project). Without `--project-id`, the reserved empty slot permits separately approved `create_project`; it does not grant access to other existing projects. Use a smoke project before editing accepted work. Make a verified backup through Creator before substantial changes to an existing project.
++
++Merge [the complete 47-tool example](examples/codex-local-mcp.toml) into the workspace's ignored `.codex/config.toml`. Preserve other configuration and update an existing `cyoa_creator` table rather than defining it twice. Match the port to the setup output. Trust/open this exact local workspace in Codex; run the conversation locally, not as a Cloud task or in a container with a different loopback network. Do not broaden the server listener or expose a tunnel.
++
++## Start and stop
++
++Start Creator from the checkout root in its own terminal:
++
++```sh
++node --env-file=data/creator-mcp.env apps/server/dist/main.js
++```
++
++The built server serves both the Creator UI and MCP; a Vite process is unnecessary. Open `http://127.0.0.1:3000` locally if you want visual inspection. `GET /api/health` should return `{"ok":true,"service":"story-to-cyoa"}`. Use Ctrl+C to stop this process. Restart using **the same command, env file and database**. A busy port means find your existing process or deliberately choose another port in both settings; do not silently kill unrelated processes.
++
++The database is independent of the server process and Codex conversation. Do not use `:memory:`, W6's temporary demo host, or Playwright's test database as your authoring instance. Do not delete SQLite/WAL files to fix startup errors. Preserve recovery diagnostics and use Creator's Backup & recovery. Verified project backups preserve full-fidelity authoring history/receipts, but not these machine settings, tokens, browser saves or staged source files. Copy secrets and source artwork separately using your own private backup policy. Duplicate/redacted projects need fresh operation IDs and approvals.
++
++## Supply the token to Codex
++
++`bearer_token_env_var` reads the token from the **Codex process**, not Creator's process. An env file supplied to Creator does not configure an already-running desktop app. Never paste the token into the model, put it in tracked TOML, or run OAuth login for this bearer-only endpoint.
++
++For a local Codex CLI conversation, this Node launcher passes the env file without evaluating it as shell code:
++
++```sh
++node --env-file=data/creator-mcp.env --input-type=module -e 'import {spawn} from "node:child_process"; const child=spawn("codex",[],{stdio:"inherit",env:process.env}); child.on("error",()=>{console.error("Could not start codex; check PATH");process.exitCode=1}); child.on("exit",code=>{process.exitCode=code??1});'
++```
++
++Node's `--env-file` does not override variables already exported by the parent process. Remove stale Creator variables from that launch environment or explicitly reconcile them first. A different token in the parent can cause a 401 even when both commands mention the same file.
++
++For the desktop GUI, fully quit the app first, then use the same Node launcher with `"codex"` replaced by the **actual application executable path**, not `open`, a desktop shortcut or a Cloud command. For example, if your macOS installation has `/Applications/Codex.app/Contents/MacOS/Codex`, use that string as the first argument to `spawn` above; confirm the path on your machine. The child inherits the token without placing it in command arguments. Open/trust the local checkout in that app and reconnect its MCP server. An already-running app/daemon may retain its previous environment: opening a window from a terminal does not establish inheritance.
++
++Exact GUI setup varies by installed client/OS and is not verified in Cloud. The local CLI command above is the reproducible reference setup. If the GUI cannot resolve the variable, stop at that connection failure and report it; do not bypass bearer authentication. See [official Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) for project trust, bearer environment settings and client restart.
++
++`codex mcp get cyoa_creator` from the trusted workspace can check loaded configuration. This does **not** prove the conversation can call tools. Check the client's MCP status/tool list (`/mcp` where supported), then perform the native calls below. A freshly edited config file does not inject tools into an existing Cloud conversation.
++
++## Desktop connection smoke test (pending)
++
++1. Start Creator and a **local** Codex conversation using the setup above. Ask:
++
++   > Use the registered cyoa_creator MCP tools directly, not a shell/SDK fallback. List authorized projects and creation slots. Report the actual tool used and selected UUID. Do not change anything yet. Read docs/conversational-creator.md before proposing work.
++
++   If the slot is empty, explicitly authorize creation of `CP1 connection smoke` in that slot; creation leaves unapproved defaults. If no native tool is available, record **FAIL: native discovery** and stop. A successful Python/Node request does not pass this step.
++
++2. Ask:
++
++   > In this smoke project, propose only changing the Brief working title to `CP1 desktop connection verified`. Read the current state and target version, submit a draft proposal and show its before/after review. Wait before Apply. Do not approve foundations, accept prose or compile. Preserve exact retry arguments and IDs in private ignored continuation notes without credentials.
++
++   Confirm canonical content has not changed. After reviewing the actual diff, reply: **Apply this exact title batch as a draft only.** Record project, proposal, operation and resulting version IDs. Creator's Brief should show the new working title; its approval state must remain draft. The project-list name is a separate field and need not change.
++
++3. Stop/restart Creator using the same env file/database. Reconnect Codex and preferably open a fresh local conversation. Ask it to rediscover this project through native MCP, use `list_edits`/`get_edit` to find the applied proposal and read the resulting Brief version without copying the old transcript. Retry Apply using the preserved identical envelope: it must return the original outcome and add no version. Re-read current state, since a replay receipt is historical evidence.
++
++4. Record **PASS/FAIL** for native discovery, authorized project, reviewed draft-only change, Creator visibility, server restart/fresh-conversation recovery and identical retry. Include Codex client version/OS and non-secret IDs. Leave final desktop verification **pending** until this record exists. No implementation or SDK result can self-certify it.
++
++After this gate, use [the conversational workflow](conversational-creator.md). Native standalone HTML is the default playable output; inspect/play/export it in Creator's **Publication and play**. Chat attachments and remote bridges are not part of CP1.
+diff --git a/docs/examples/codex-local-mcp.toml b/docs/examples/codex-local-mcp.toml
+new file mode 100644
+index 0000000..9ac39ba
+--- /dev/null
++++ b/docs/examples/codex-local-mcp.toml
+@@ -0,0 +1,15 @@
++# Merge into the trusted workspace's .codex/config.toml; preserve other settings.
++# Creator and Codex must run on this same computer. Keep the token out of this file.
++[mcp_servers.cyoa_creator]
++url = "http://127.0.0.1:3000/mcp"
++bearer_token_env_var = "CYOA_MCP_TOKEN"
++enabled_tools = [
++  "list_projects", "create_project", "project_state",
++  "initialize_foundation", "read_foundation", "review_foundation_approval", "approve_foundation",
++  "list_edit_targets", "list_edits", "prepare_edit", "submit_edit", "get_edit", "review_edit", "apply_edit", "reject_edit",
++  "game_state", "read_game_record", "initialize_game_plan", "review_game_plan", "approve_game_plan",
++  "submit_draft", "review_drafts", "accept_drafts", "publication_readiness", "compile_game", "simulate_game", "read_simulation", "export_game",
++  "list_assets", "read_asset", "asset_usage", "list_staged_assets", "import_staged_asset", "revise_asset", "review_asset", "approve_asset", "reject_asset",
++  "read_scene", "review_scene", "apply_scene",
++  "read_world", "review_world", "apply_world", "preview_chapter_transition", "inspect_world_presence", "inspect_world_economy", "inspect_world_journal",
++]
+diff --git a/docs/superpowers/plans/2026-10-28-cp1-desktop-conversational-creator.md b/docs/superpowers/plans/2026-10-28-cp1-desktop-conversational-creator.md
+new file mode 100644
+index 0000000..3097ee4
+--- /dev/null
++++ b/docs/superpowers/plans/2026-10-28-cp1-desktop-conversational-creator.md
+@@ -0,0 +1,25 @@
++# CP1 — Desktop conversational Creator operation
++
++Base: independently accepted W6 `fe3d9c0f0f4165ce251bd39775a778ee3631e427`, branch `codex/w1-locations-time`, initially clean. User scope: desktop Codex and Creator on one computer; Cloud development/verification; no remote bridge or chat attachment infrastructure. Final desktop verification remains pending until the author runs the native connection smoke test.
++
++## Demonstrated gaps and scoped corrections
++
++- Connected-editing setup enabled only 37 of 47 tools, omitting scene/world authoring. Supply one complete project-scoped template and verify its allowlist against actual SDK tool discovery.
++- Setup named a nonexistent `GET /api/long-form/projects` listing route and described visual/world systems as unavailable. Correct the route/capability documentation.
++- Existing environment placeholders and disposable W6 host did not provide a reproducible persistent desktop setup. Add an opt-in setup helper: explicit file-backed database, private credential file, restricted staging directory and configured project or creation slot; never overwrite existing settings or create/approve a project implicitly.
++- Per-tool descriptions lacked cross-tool initialization guidance for a fresh connected assistant. Add MCP server instructions for discovery, creative review batches, separate consent, safe retries and default native standalone HTML. No authorization/operation contract changes.
++- Desktop-native tool availability had not been demonstrated. Add a short manual native smoke test and distinguish it from Cloud SDK/config parsing tests. Do not claim a desktop pass from automation.
++
++## Workflow
++
++Use existing canonical services for foundations/characters/mechanics, passage planning/prose, assets/scenes and W1–W5 world definitions. Present related creative changes in bounded batches while preserving exact-version Apply/approval/acceptance/compile gates. Creator is optional for review/play/export. Retain exact operation envelopes and consent references privately; rediscover proposals/current state after reconnect. Unknown operation/plan IDs have no generic lookup: document the limitation rather than introduce an unproven recovery API.
++
++Test narrative choice paths with existing simulation and world-action paths with actual native runtime/player tooling. Default export is native standalone HTML; retain supported world mechanics. Verify the existing complete visual demo/export paths rather than adding a new engine or fixed-content generator. No paid calls or subagents.
++
++## Verification and delivery boundary
++
++1. Run setup in an isolated directory, start the actual compiled production entry with its env file, connect an SDK client, discover the authorized slot, create a fixture, propose/review a title draft and Apply with scripted consent. Check Creator HTTP state, unchanged approval boundaries and stale/conflicting request rejection.
++2. Restart the actual server process against the same file-backed database before submission and after Apply. Rediscover work from a fresh SDK client; replay exact envelopes; establish no duplicate versions. Retain a separate fixture/evidence when requested. This is SDK evidence only.
++3. Check helper refusal to overwrite/rotate, existing-project creation disabled, invalid inputs, private credential permissions and paths with spaces. Compare the template with the live 47-tool catalogue and initialization guidance. Parse configuration with available Codex CLI if possible, without launching a model or modifying host settings; label it configuration parsing only.
++4. Run pinned lint, typecheck, build and unit checks, relevant connected/visual-world browser verification and the unchanged illustrated-scene assertion. Record actual test scope/results and evidence. No gameplay/CSS/test-tolerance changes.
++5. Provide a review report and user smoke test. Native desktop connection, GUI environment inheritance, real human batch consent and fresh-conversation recovery stay **pending**. No deployment, bridge, chat files, merge or automatic PR. Do not treat these setup corrections as desktop acceptance.
+diff --git a/docs/user-guide.md b/docs/user-guide.md
+index e33d213..583ab1c 100644
+--- a/docs/user-guide.md
++++ b/docs/user-guide.md
+@@ -113,0 +114,4 @@ Application history retains the selected groups, dependency closure, pre-apply a
++## Desktop conversational operation
++
++To operate a persistent project from local Codex through MCP, follow [desktop setup and the connection smoke test](desktop-codex.md), then [the conversational workflow](conversational-creator.md). Creator remains available for inspection, play and export. The default conversational output is native standalone HTML, retaining supported world mechanics. SDK tests in Cloud do not establish native tool discovery on your desktop; that final connection check remains pending until you run it.
++
+diff --git a/scripts/configure-local-creator.mjs b/scripts/configure-local-creator.mjs
+new file mode 100644
+index 0000000..405f5ff
+--- /dev/null
++++ b/scripts/configure-local-creator.mjs
+@@ -0,0 +1,33 @@
++import { mkdir, writeFile } from "node:fs/promises";
++import { randomBytes, randomUUID } from "node:crypto";
++import { resolve } from "node:path";
++import { parseArgs } from "node:util";
++
++// Local setup only: no server, Codex process, project, or provider is started.
++const { values } = parseArgs({ options: {
++  "project-id": { type: "string" }, database: { type: "string" }, port: { type: "string", default: "3000" },
++} });
++const projectId = values["project-id"] ?? randomUUID();
++if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(projectId)) throw new Error("Supply a lowercase project UUID");
++const port = Number(values.port);
++if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Supply a port from 1 to 65535");
++const database = resolve(values.database ?? "data/story-to-cyoa.sqlite");
++if (database === ":memory:" || values.database === ":memory:") throw new Error("Desktop Creator requires a persistent database file");
++const staging = resolve("data/mcp-staging"), environmentFile = resolve("data/creator-mcp.env");
++// Forward slashes work with Node on Windows too. These values are dotenv, not shell code.
++const quotePath = (path) => {
++  if (/[\r\n"]/.test(path)) throw new Error("Choose a path without newlines or double quotes");
++  return `"${path.replaceAll("\\", "/")}"`;
++};
++const content = [
++  "HOST=127.0.0.1", `PORT=${port}`, `DATABASE_PATH=${quotePath(database)}`,
++  "CYOA_MCP_ENABLED=1", `CYOA_MCP_TOKEN=${randomBytes(32).toString("hex")}`,
++  `CYOA_MCP_PROJECT_IDS=${projectId}`, `CYOA_MCP_ALLOW_PROJECT_CREATION=${values["project-id"] ? "0" : "1"}`,
++  `CYOA_ASSET_STAGING_DIR=${quotePath(staging)}`, "",
++].join("\n");
++await mkdir(resolve("data"), { recursive: true });
++await mkdir(staging, { recursive: true });
++// Never rotate credentials or replace a user's configuration as an incidental retry.
++await writeFile(environmentFile, content, { flag: "wx", mode: 0o600 });
++console.log(JSON.stringify({ environmentFile, database, staging, projectId, port,
++  creationEnabled: !values["project-id"], next: "Build, then start Creator with this env file. Merge docs/examples/codex-local-mcp.toml into project Codex settings. No project has been created." }, null, 2));
