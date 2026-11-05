@@ -67,11 +67,12 @@ Native desktop MCP discovery/consent/reconnect remains a separate **pending** ga
 
 ## Reproduce
 
-Use the saved environment activation, Node 24.19.0, pnpm 11.9.0, Playwright 1.62.0 and matching Chromium 151.0.7922.34, revision 1234. The application source and built outputs are the same as the original pushed implementation.
+Use the saved environment activation, Node 24.19.0, pnpm 11.9.0, Playwright 1.62.0 and matching Chromium 151.0.7922.34, revision 1234. The startup-race proof uses the unchanged Quick startup behavior. The final application additionally contains the one scoped CSS declaration above; rebuild before running browser verification so it exercises that stylesheet.
 
 ```sh
 pnpm lint
 pnpm typecheck
+pnpm build
 pnpm test:e2e e2e/fiction-craft.spec.ts --workers=2 --repeat-each=10 --trace=on
 pnpm test:e2e --workers=2
 ```
