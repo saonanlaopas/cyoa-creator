@@ -1,0 +1,11 @@
+{
+  "head": "f10d4d17cb41ca6c333534ca4ca511dcaf936652",
+  "run": 42056359243,
+  "conclusion": "failure",
+  "unitsPassed": 1624,
+  "browsersPassed": 55,
+  "browsersFailed": 1,
+  "failedAssertion": "e2e/fiction-craft.spec.ts:42 \u2014 saved Quick390px panel bounding box inside viewport",
+  "priorRetainedInstructionAssertion": "passed",
+  "failureArtifact": 13430323242
+}

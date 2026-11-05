@@ -1,0 +1,46 @@
+diff --git a/apps/web/src/features/workspace/authoring-settings.css b/apps/web/src/features/workspace/authoring-settings.css
+index 1cecd0d..eb45127 100644
+--- a/apps/web/src/features/workspace/authoring-settings.css
++++ b/apps/web/src/features/workspace/authoring-settings.css
+@@ -1,4 +1,5 @@
+ /* Keep this view's navigation and preference controls within their own tracks. */
++.generator > .panel:has(.authoring-settings) { grid-template-columns: minmax(0, 1fr); }
+ .long-form-workspace:has(.authoring-preferences-workspace) .workflow-nav { grid-template-columns: minmax(0, 1fr); }
+ .long-form-workspace:has(.authoring-preferences-workspace) .workflow-nav ol { min-width: 0; max-width: 100%; }
+ .authoring-settings { display: block; min-width: 0; }
+diff --git a/e2e/fiction-craft.spec.ts b/e2e/fiction-craft.spec.ts
+index 695deda..f9e3a7b 100644
+--- a/e2e/fiction-craft.spec.ts
++++ b/e2e/fiction-craft.spec.ts
+@@ -47,3 +47,31 @@ for (const width of [1280, 390]) for (const mode of ["quick", "long-form"]) {
+     } finally { await request.post(`/api/projects/${projectId}/archive`, { data: {} }); }
+   });
+ }
++
++test("Quick preferences fit a wider local fallback font", async ({ page, request }, info) => {
++  await page.setViewportSize({ width: 390, height: 900 });
++  const { projectId } = await (await request.post("/api/quick/drafts", { data: { name: "Neutral font bounds" } })).json();
++  try {
++    await page.goto("/api/health");
++    await page.evaluate(id => localStorage.setItem("story-to-cyoa.active-project-id", id), projectId);
++    await page.goto("/");
++    // A real installed fallback exposes the native file input's intrinsic width.
++    // Do not depend on the runner's default system font to reveal grid overflow.
++    await page.addStyleTag({ content: ':root { font-family: "DejaVu Sans", sans-serif; }' });
++    const panel = page.locator("details.authoring-settings");
++    await panel.locator("summary").click();
++    await expect(panel.getByRole("checkbox")).toBeChecked();
++    const geometry = await panel.evaluate(el => {
++      const box = el.getBoundingClientRect();
++      const source = document.querySelector<HTMLInputElement>('input[type="file"]')!.getBoundingClientRect();
++      return { viewport: innerWidth, panel: { left: box.left, right: box.right }, source: { left: source.left, right: source.right } };
++    });
++    await info.attach("fallback-font-geometry", { body: JSON.stringify(geometry, null, 2), contentType: "application/json" });
++    await page.screenshot({ path: info.outputPath("craft-quick-390-fallback.png"), fullPage: true });
++    await info.attach("fallback-font-bounds", { path: info.outputPath("craft-quick-390-fallback.png"), contentType: "image/png" });
++    expect(geometry.panel.left >= 0 && geometry.panel.right <= geometry.viewport).toBe(true);
++    expect(geometry.source.left >= 0 && geometry.source.right <= geometry.viewport).toBe(true);
++  } finally {
++    await request.post(`/api/projects/${projectId}/archive`, { data: {} });
++  }
++});

@@ -1,0 +1,659 @@
+{
+  "before": {
+    "viewport": 390,
+    "scrollX": 0,
+    "document": 430,
+    "main": {
+      "tag": "MAIN",
+      "class": "generator",
+      "type": null,
+      "left": 0,
+      "right": 390,
+      "width": 390,
+      "minWidth": "0px",
+      "grid": "419.781px"
+    },
+    "panel": {
+      "tag": "DETAILS",
+      "class": "panel authoring-settings",
+      "type": null,
+      "left": 33.78125,
+      "right": 406.78125,
+      "width": 373,
+      "minWidth": "0px",
+      "grid": "326.219px"
+    },
+    "ancestors": [
+      {
+        "tag": "SECTION",
+        "class": "panel",
+        "type": null,
+        "left": 10.390625,
+        "right": 430.171875,
+        "width": 419.78125,
+        "minWidth": "auto",
+        "grid": "373px"
+      }
+    ],
+    "widest": [
+      {
+        "tag": "HEADER",
+        "class": "",
+        "type": null,
+        "left": 10.390625,
+        "right": 430.171875,
+        "width": 419.78125,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "P",
+        "class": "eyebrow",
+        "type": null,
+        "left": 10.390625,
+        "right": 430.171875,
+        "width": 419.78125,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "H1",
+        "class": "",
+        "type": null,
+        "left": 10.390625,
+        "right": 430.171875,
+        "width": 419.78125,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "P",
+        "class": "",
+        "type": null,
+        "left": 10.390625,
+        "right": 430.171875,
+        "width": 419.78125,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "SECTION",
+        "class": "panel",
+        "type": null,
+        "left": 10.390625,
+        "right": 430.171875,
+        "width": 419.78125,
+        "minWidth": "auto",
+        "grid": "373px"
+      },
+      {
+        "tag": "H2",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "P",
+        "class": "status",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "DIV",
+        "class": "row",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "SECTION",
+        "class": "panel",
+        "type": null,
+        "left": 10.390625,
+        "right": 430.171875,
+        "width": 419.78125,
+        "minWidth": "auto",
+        "grid": "373px"
+      },
+      {
+        "tag": "H2",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "INPUT",
+        "class": "",
+        "type": "file",
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "TEXTAREA",
+        "class": "source",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "TEXTAREA",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "DETAILS",
+        "class": "panel authoring-settings",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "326.219px"
+      },
+      {
+        "tag": "SECTION",
+        "class": "commands",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "H3",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "P",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "DIV",
+        "class": "row",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      }
+    ]
+  },
+  "sourceMinWidth": {
+    "viewport": 390,
+    "scrollX": 0,
+    "document": 407,
+    "main": {
+      "tag": "MAIN",
+      "class": "generator",
+      "type": null,
+      "left": 0,
+      "right": 390,
+      "width": 390,
+      "minWidth": "0px",
+      "grid": "369.219px"
+    },
+    "panel": {
+      "tag": "DETAILS",
+      "class": "panel authoring-settings",
+      "type": null,
+      "left": 33.78125,
+      "right": 406.78125,
+      "width": 373,
+      "minWidth": "0px",
+      "grid": "326.219px"
+    },
+    "ancestors": [
+      {
+        "tag": "SECTION",
+        "class": "panel",
+        "type": null,
+        "left": 10.390625,
+        "right": 379.609375,
+        "width": 369.21875,
+        "minWidth": "0px",
+        "grid": "373px"
+      }
+    ],
+    "widest": [
+      {
+        "tag": "H2",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "INPUT",
+        "class": "",
+        "type": "file",
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "TEXTAREA",
+        "class": "source",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "TEXTAREA",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "DETAILS",
+        "class": "panel authoring-settings",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "326.219px"
+      },
+      {
+        "tag": "SECTION",
+        "class": "commands",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "H3",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "P",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "DIV",
+        "class": "row",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "BUTTON",
+        "class": "",
+        "type": "button",
+        "left": 194.890625,
+        "right": 398.703125,
+        "width": 203.8125,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "SECTION",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "H4",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "P",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "SECTION",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "H4",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "UL",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "LI",
+        "class": "",
+        "type": null,
+        "left": 73.78125,
+        "right": 406.78125,
+        "width": 333,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "P",
+        "class": "",
+        "type": null,
+        "left": 73.78125,
+        "right": 406.78125,
+        "width": 333,
+        "minWidth": "0px",
+        "grid": "none"
+      }
+    ]
+  },
+  "constrainedTrack": {
+    "viewport": 390,
+    "scrollX": 0,
+    "document": 407,
+    "main": {
+      "tag": "MAIN",
+      "class": "generator",
+      "type": null,
+      "left": 0,
+      "right": 390,
+      "width": 390,
+      "minWidth": "0px",
+      "grid": "369.219px"
+    },
+    "panel": {
+      "tag": "DETAILS",
+      "class": "panel authoring-settings",
+      "type": null,
+      "left": 33.78125,
+      "right": 406.78125,
+      "width": 373,
+      "minWidth": "0px",
+      "grid": "326.219px"
+    },
+    "ancestors": [
+      {
+        "tag": "SECTION",
+        "class": "panel",
+        "type": null,
+        "left": 10.390625,
+        "right": 379.609375,
+        "width": 369.21875,
+        "minWidth": "auto",
+        "grid": "373px"
+      }
+    ],
+    "widest": [
+      {
+        "tag": "H2",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "INPUT",
+        "class": "",
+        "type": "file",
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "TEXTAREA",
+        "class": "source",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "TEXTAREA",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "DETAILS",
+        "class": "panel authoring-settings",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "326.219px"
+      },
+      {
+        "tag": "SECTION",
+        "class": "commands",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "H3",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "P",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "DIV",
+        "class": "row",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "BUTTON",
+        "class": "",
+        "type": "button",
+        "left": 194.890625,
+        "right": 398.703125,
+        "width": 203.8125,
+        "minWidth": "auto",
+        "grid": "none"
+      },
+      {
+        "tag": "SECTION",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "H4",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "P",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "SECTION",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "H4",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "UL",
+        "class": "",
+        "type": null,
+        "left": 33.78125,
+        "right": 406.78125,
+        "width": 373,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "LI",
+        "class": "",
+        "type": null,
+        "left": 73.78125,
+        "right": 406.78125,
+        "width": 333,
+        "minWidth": "0px",
+        "grid": "none"
+      },
+      {
+        "tag": "P",
+        "class": "",
+        "type": null,
+        "left": 73.78125,
+        "right": 406.78125,
+        "width": 333,
+        "minWidth": "0px",
+        "grid": "none"
+      }
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 /* Keep this view's navigation and preference controls within their own tracks. */
+.generator > .panel:has(.authoring-settings) { grid-template-columns: minmax(0, 1fr); }
 .long-form-workspace:has(.authoring-preferences-workspace) .workflow-nav { grid-template-columns: minmax(0, 1fr); }
 .long-form-workspace:has(.authoring-preferences-workspace) .workflow-nav ol { min-width: 0; max-width: 100%; }
 .authoring-settings { display: block; min-width: 0; }

@@ -1,0 +1,38 @@
+$ playwright test e2e/fiction-craft.spec.ts --grep 'wider local fallback' --workers=1 --trace=on --output /workspace/.setup/fiction-craft-ci-correction-20261105/font-regression-before
+[WebServer] (node:42184) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+(node:42222) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+F
+
+  1) e2e/fiction-craft.spec.ts:51:5 › Quick preferences fit a wider local fallback font ────────────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      67 |       return { viewport: innerWidth, panel: { left: box.left, right: box.right }, source: { left: source.left, right: source.right } };
+      68 |     });
+    > 69 |     expect(geometry.panel.left >= 0 && geometry.panel.right <= geometry.viewport).toBe(true);
+         |                                                                                   ^
+      70 |     expect(geometry.source.left >= 0 && geometry.source.right <= geometry.viewport).toBe(true);
+      71 |     await info.attach("fallback-font-geometry", { body: JSON.stringify(geometry, null, 2), contentType: "application/json" });
+      72 |     await page.screenshot({ path: info.outputPath("craft-quick-390-fallback.png"), fullPage: true });
+        at /workspace/cyoa-creator/e2e/fiction-craft.spec.ts:69:83
+
+    Error Context: ../.setup/fiction-craft-ci-correction-20261105/font-regression-before/fiction-craft-Quick-prefer-dffc9-a-wider-local-fallback-font/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../.setup/fiction-craft-ci-correction-20261105/font-regression-before/fiction-craft-Quick-prefer-dffc9-a-wider-local-fallback-font/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../.setup/fiction-craft-ci-correction-20261105/font-regression-before/fiction-craft-Quick-prefer-dffc9-a-wider-local-fallback-font/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    e2e/fiction-craft.spec.ts:51:5 › Quick preferences fit a wider local fallback font ─────────────
+[ELIFECYCLE] Command failed with exit code 1.

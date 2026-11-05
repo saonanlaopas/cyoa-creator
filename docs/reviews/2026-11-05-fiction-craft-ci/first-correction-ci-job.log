@@ -1,0 +1,1195 @@
+﻿2026-11-05T15:34:36.4556615Z Current runner version: '2.338.2'
+2026-11-05T15:34:36.4582296Z ##[group]Runner Image Provisioner
+2026-11-05T15:34:36.4583153Z Hosted Compute Agent
+2026-11-05T15:34:36.4583833Z Version: 20261028.624
+2026-11-05T15:34:36.4584480Z Commit: 54898b74c23fde5556c9b3c3a2290865feef0dfe
+2026-11-05T15:34:36.4585292Z Build Date: 2026-10-28T21:51:42Z
+2026-11-05T15:34:36.4586018Z Worker ID: {81e1fc09-e10f-4d74-b239-6f4ea39b71e8}
+2026-11-05T15:34:36.4586734Z Region: eastus
+2026-11-05T15:34:36.4587331Z Cloud: Azure
+2026-11-05T15:34:36.4587949Z ##[endgroup]
+2026-11-05T15:34:36.4590029Z ##[group]Operating System
+2026-11-05T15:34:36.4590729Z Ubuntu
+2026-11-05T15:34:36.4591268Z 24.04.5
+2026-11-05T15:34:36.4592211Z LTS
+2026-11-05T15:34:36.4592761Z ##[endgroup]
+2026-11-05T15:34:36.4593358Z ##[group]Runner Image
+2026-11-05T15:34:36.4594043Z Image: ubuntu-24.04
+2026-11-05T15:34:36.4594618Z Version: 20261101.360.1
+2026-11-05T15:34:36.4595962Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261101.360/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-05T15:34:36.4597606Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261101.360
+2026-11-05T15:34:36.4598603Z ##[endgroup]
+2026-11-05T15:34:36.4600216Z ##[group]GITHUB_TOKEN Permissions
+2026-11-05T15:34:36.4602485Z Contents: read
+2026-11-05T15:34:36.4603176Z Metadata: read
+2026-11-05T15:34:36.4603849Z ##[endgroup]
+2026-11-05T15:34:36.4605928Z Secret source: Actions
+2026-11-05T15:34:36.4606999Z Cache mode: write
+2026-11-05T15:34:36.4607996Z Prepare workflow directory
+2026-11-05T15:34:36.4935638Z Prepare all required actions
+2026-11-05T15:34:36.4984299Z Getting action download info
+2026-11-05T15:34:36.7715191Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-11-05T15:34:36.8645891Z Download action repository 'pnpm/action-setup@v4' (SHA:b906affcce14559ad1aafd4ab0e942779e9f58b1)
+2026-11-05T15:34:37.0366635Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-11-05T15:34:37.1256653Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-11-05T15:34:37.3645087Z Complete job name: verify
+2026-11-05T15:34:37.4762651Z ##[group]Run actions/checkout@v4
+2026-11-05T15:34:37.4763920Z with:
+2026-11-05T15:34:37.4764665Z   repository: saonanlaopas/cyoa-creator
+2026-11-05T15:34:37.4773864Z   token: ***
+2026-11-05T15:34:37.4774585Z   ssh-strict: true
+2026-11-05T15:34:37.4775317Z   ssh-user: git
+2026-11-05T15:34:37.4776052Z   persist-credentials: true
+2026-11-05T15:34:37.4776868Z   clean: true
+2026-11-05T15:34:37.4777601Z   sparse-checkout-cone-mode: true
+2026-11-05T15:34:37.4778490Z   fetch-depth: 1
+2026-11-05T15:34:37.4779334Z   fetch-tags: false
+2026-11-05T15:34:37.4780084Z   show-progress: true
+2026-11-05T15:34:37.4780834Z   lfs: false
+2026-11-05T15:34:37.4781513Z   submodules: false
+2026-11-05T15:34:37.4782266Z   set-safe-directory: true
+2026-11-05T15:34:37.4783119Z   allow-unsafe-pr-checkout: false
+2026-11-05T15:34:37.4784375Z ##[endgroup]
+2026-11-05T15:34:37.9106116Z Syncing repository: saonanlaopas/cyoa-creator
+2026-11-05T15:34:37.9108362Z ##[group]Getting Git version info
+2026-11-05T15:34:37.9109971Z Working directory is '/home/runner/work/cyoa-creator/cyoa-creator'
+2026-11-05T15:34:37.9111865Z [command]/usr/bin/git version
+2026-11-05T15:34:37.9181634Z git version 2.56.0
+2026-11-05T15:34:37.9207386Z ##[endgroup]
+2026-11-05T15:34:37.9222642Z Temporarily overriding HOME='/home/runner/work/_temp/4a841829-cca7-4a67-abe5-690d5bb61d78' before making global git config changes
+2026-11-05T15:34:37.9224720Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-05T15:34:37.9230034Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/cyoa-creator/cyoa-creator
+2026-11-05T15:34:37.9283302Z Deleting the contents of '/home/runner/work/cyoa-creator/cyoa-creator'
+2026-11-05T15:34:37.9287671Z ##[group]Initializing the repository
+2026-11-05T15:34:37.9293149Z [command]/usr/bin/git init /home/runner/work/cyoa-creator/cyoa-creator
+2026-11-05T15:34:37.9432786Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-05T15:34:37.9434802Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-05T15:34:37.9436571Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-05T15:34:37.9437973Z hint: call:
+2026-11-05T15:34:37.9439214Z hint:
+2026-11-05T15:34:37.9440803Z hint: 	git config --global init.defaultBranch <name>
+2026-11-05T15:34:37.9442099Z hint:
+2026-11-05T15:34:37.9443412Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-05T15:34:37.9445176Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-05T15:34:37.9446623Z hint:
+2026-11-05T15:34:37.9447717Z hint: 	git branch -m <name>
+2026-11-05T15:34:37.9449111Z hint:
+2026-11-05T15:34:37.9450457Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-05T15:34:37.9463750Z Initialized empty Git repository in /home/runner/work/cyoa-creator/cyoa-creator/.git/
+2026-11-05T15:34:37.9477202Z [command]/usr/bin/git remote add origin https://github.com/saonanlaopas/cyoa-creator
+2026-11-05T15:34:37.9531311Z ##[endgroup]
+2026-11-05T15:34:37.9533237Z ##[group]Disabling automatic garbage collection
+2026-11-05T15:34:37.9535592Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-05T15:34:37.9572741Z ##[endgroup]
+2026-11-05T15:34:37.9574393Z ##[group]Setting up auth
+2026-11-05T15:34:37.9578939Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-05T15:34:37.9619333Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-05T15:34:38.0015855Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-05T15:34:38.0066283Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-05T15:34:38.0317363Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-05T15:34:38.0361753Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-05T15:34:38.0602680Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-05T15:34:38.0652339Z ##[endgroup]
+2026-11-05T15:34:38.0654094Z ##[group]Fetching the repository
+2026-11-05T15:34:38.0665259Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +f10d4d17cb41ca6c333534ca4ca511dcaf936652:refs/remotes/origin/checkpoint/cp1-desktop-review
+2026-11-05T15:34:39.4921639Z From https://github.com/saonanlaopas/cyoa-creator
+2026-11-05T15:34:39.4923615Z  * [new ref]         f10d4d17cb41ca6c333534ca4ca511dcaf936652 -> origin/checkpoint/cp1-desktop-review
+2026-11-05T15:34:39.4928027Z ##[endgroup]
+2026-11-05T15:34:39.4929365Z ##[group]Determining the checkout info
+2026-11-05T15:34:39.4932367Z ##[endgroup]
+2026-11-05T15:34:39.4939936Z [command]/usr/bin/git sparse-checkout disable
+2026-11-05T15:34:39.5002394Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-05T15:34:39.5044415Z ##[group]Checking out the ref
+2026-11-05T15:34:39.5060809Z [command]/usr/bin/git checkout --progress --force -B checkpoint/cp1-desktop-review refs/remotes/origin/checkpoint/cp1-desktop-review
+2026-11-05T15:34:39.6571354Z Switched to a new branch 'checkpoint/cp1-desktop-review'
+2026-11-05T15:34:39.6577915Z branch 'checkpoint/cp1-desktop-review' set up to track 'origin/checkpoint/cp1-desktop-review'.
+2026-11-05T15:34:39.6610633Z ##[endgroup]
+2026-11-05T15:34:39.6652674Z [command]/usr/bin/git log -1 --format=%H
+2026-11-05T15:34:39.6689738Z f10d4d17cb41ca6c333534ca4ca511dcaf936652
+2026-11-05T15:34:39.6947329Z ##[group]Run pnpm/action-setup@v4
+2026-11-05T15:34:39.6947662Z with:
+2026-11-05T15:34:39.6947862Z   version: 11.9.0
+2026-11-05T15:34:39.6948076Z   dest: ~/setup-pnpm
+2026-11-05T15:34:39.6948293Z   run_install: null
+2026-11-05T15:34:39.6948504Z   cache: false
+2026-11-05T15:34:39.6948926Z   cache_dependency_path: pnpm-lock.yaml
+2026-11-05T15:34:39.6949248Z   package_json_file: package.json
+2026-11-05T15:34:39.6949510Z   standalone: false
+2026-11-05T15:34:39.6949721Z ##[endgroup]
+2026-11-05T15:34:39.8527076Z ##[group]Running self-installer...
+2026-11-05T15:34:40.3178654Z (node:2326) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-05T15:34:40.3180838Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T15:34:40.4753507Z Progress: resolved 1, reused 0, downloaded 0, added 0
+2026-11-05T15:34:40.4846770Z Packages: +1
+2026-11-05T15:34:40.7987036Z +
+2026-11-05T15:34:40.7987590Z Progress: resolved 1, reused 0, downloaded 1, added 1, done
+2026-11-05T15:34:40.8279089Z 
+2026-11-05T15:34:40.8279393Z dependencies:
+2026-11-05T15:34:40.8279850Z + pnpm 11.9.0 (12.16.1 is available)
+2026-11-05T15:34:40.8280199Z 
+2026-11-05T15:34:40.8457138Z Done in 783ms
+2026-11-05T15:34:40.8675387Z ##[endgroup]
+2026-11-05T15:34:40.8675828Z Installation Completed!
+2026-11-05T15:34:40.8866131Z ##[group]Run actions/setup-node@v4
+2026-11-05T15:34:40.8866432Z with:
+2026-11-05T15:34:40.8866631Z   node-version: 24
+2026-11-05T15:34:40.8866843Z   cache: pnpm
+2026-11-05T15:34:40.8867045Z   always-auth: false
+2026-11-05T15:34:40.8867266Z   check-latest: false
+2026-11-05T15:34:40.8870106Z   token: ***
+2026-11-05T15:34:40.8870331Z env:
+2026-11-05T15:34:40.8870595Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-11-05T15:34:40.8870910Z ##[endgroup]
+2026-11-05T15:34:41.0374410Z (node:2341) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-05T15:34:41.0375692Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T15:34:41.0385872Z Found in cache @ /opt/hostedtoolcache/node/24.22.2/x64
+2026-11-05T15:34:41.0387111Z ##[group]Environment details
+2026-11-05T15:34:41.4403421Z node: v24.22.2
+2026-11-05T15:34:41.4403835Z npm: 11.19.1
+2026-11-05T15:34:41.4404161Z yarn: 1.22.22
+2026-11-05T15:34:41.4405486Z ##[endgroup]
+2026-11-05T15:34:41.4431060Z [command]/home/runner/setup-pnpm/node_modules/.bin/pnpm store path --silent
+2026-11-05T15:34:42.0672519Z /home/runner/setup-pnpm/node_modules/.bin/store/v11
+2026-11-05T15:34:42.1597133Z Cache hit for: node-cache-Linux-x64-pnpm-960670ac179e49a529979f9bae7f90a4dbe6a32da5c6d5b8f51143976c13a8c5
+2026-11-05T15:34:42.1741887Z (node:2341) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-05T15:34:42.6549076Z Received 45549786 of 45549786 (100.0%), 99.4 MBs/sec
+2026-11-05T15:34:42.6549739Z Cache Size: ~43 MB (45549786 B)
+2026-11-05T15:34:42.6603724Z [command]/usr/bin/tar -xf /home/runner/work/_temp/c5ea0af4-84b6-46fa-8c66-730e30d60572/cache.tzst -P -C /home/runner/work/cyoa-creator/cyoa-creator --use-compress-program unzstd
+2026-11-05T15:34:43.1831162Z Cache restored successfully
+2026-11-05T15:34:43.1854619Z Cache restored from key: node-cache-Linux-x64-pnpm-960670ac179e49a529979f9bae7f90a4dbe6a32da5c6d5b8f51143976c13a8c5
+2026-11-05T15:34:43.2073843Z ##[group]Run pnpm install --frozen-lockfile
+2026-11-05T15:34:43.2074266Z [36;1mpnpm install --frozen-lockfile[0m
+2026-11-05T15:34:43.2102899Z shell: /usr/bin/bash -e {0}
+2026-11-05T15:34:43.2103178Z env:
+2026-11-05T15:34:43.2103449Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-11-05T15:34:43.2103774Z ##[endgroup]
+2026-11-05T15:34:43.6926381Z Scope: all 10 workspace projects
+2026-11-05T15:34:43.7542973Z ? Verifying lockfile against supply-chain policies (426 entries)...
+2026-11-05T15:34:43.7610739Z Lockfile is up to date, resolution step is skipped
+2026-11-05T15:34:43.8583031Z Progress: resolved 1, reused 0, downloaded 0, added 0
+2026-11-05T15:34:43.9240150Z Packages: +324
+2026-11-05T15:34:43.9259896Z ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+2026-11-05T15:34:44.8652881Z Progress: resolved 324, reused 324, downloaded 0, added 50
+2026-11-05T15:34:45.2410240Z Progress: resolved 324, reused 324, downloaded 0, added 324, done
+2026-11-05T15:34:46.2764509Z ✓ Lockfile passes supply-chain policies (426 entries in 2.5s)
+2026-11-05T15:34:46.4090412Z 
+2026-11-05T15:34:46.4091020Z devDependencies:
+2026-11-05T15:34:46.4091359Z + @types/node 24.13.3
+2026-11-05T15:34:46.4091769Z + @vitest/coverage-v8 3.2.7
+2026-11-05T15:34:46.4092084Z + playwright 1.62.0
+2026-11-05T15:34:46.4092352Z + typescript 5.9.3
+2026-11-05T15:34:46.4092614Z + vitest 3.2.7
+2026-11-05T15:34:46.4092752Z 
+2026-11-05T15:34:46.5216343Z Done in 3.2s using pnpm v11.9.0
+2026-11-05T15:34:46.5815794Z ##[group]Run node scripts/download-tweego.mjs
+2026-11-05T15:34:46.5816206Z [36;1mnode scripts/download-tweego.mjs[0m
+2026-11-05T15:34:46.5836430Z shell: /usr/bin/bash -e {0}
+2026-11-05T15:34:46.5836686Z env:
+2026-11-05T15:34:46.5836948Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-11-05T15:34:46.5837278Z ##[endgroup]
+2026-11-05T15:34:57.1695247Z Tweego 2.1.1 installed at /home/runner/work/cyoa-creator/cyoa-creator/tools/tweego
+2026-11-05T15:34:57.1863130Z ##[group]Run pnpm exec playwright install --with-deps chromium
+2026-11-05T15:34:57.1864010Z [36;1mpnpm exec playwright install --with-deps chromium[0m
+2026-11-05T15:34:57.1894059Z shell: /usr/bin/bash -e {0}
+2026-11-05T15:34:57.1894492Z env:
+2026-11-05T15:34:57.1894925Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-11-05T15:34:57.1895491Z ##[endgroup]
+2026-11-05T15:34:58.1673591Z Installing dependencies...
+2026-11-05T15:34:58.1758596Z Switching to root user to install dependencies...
+2026-11-05T15:34:58.2690686Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2026-11-05T15:34:58.2999650Z Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
+2026-11-05T15:34:58.3013952Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+2026-11-05T15:34:58.3046583Z Get:6 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
+2026-11-05T15:34:58.3078497Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+2026-11-05T15:34:58.3111575Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+2026-11-05T15:34:58.4467850Z Get:7 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [663 kB]
+2026-11-05T15:34:58.4731042Z Get:8 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [732 kB]
+2026-11-05T15:34:58.5050354Z Get:9 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1408 kB]
+2026-11-05T15:34:58.5145623Z Get:10 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [311 kB]
+2026-11-05T15:34:58.5154285Z Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1708 kB]
+2026-11-05T15:34:58.5240531Z Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [343 kB]
+2026-11-05T15:34:58.6117266Z Get:13 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1157 kB]
+2026-11-05T15:34:58.6180227Z Get:14 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [234 kB]
+2026-11-05T15:34:58.6201406Z Get:15 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1225 kB]
+2026-11-05T15:34:58.6264777Z Get:16 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [247 kB]
+2026-11-05T15:34:58.6286474Z Get:17 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [1721 kB]
+2026-11-05T15:34:58.6372480Z Get:18 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted Translation-en [394 kB]
+2026-11-05T15:34:58.6816232Z Get:19 http://azure.archive.ubuntu.com/ubuntu noble-security/multiverse Translation-en [12.4 kB]
+2026-11-05T15:35:01.8923757Z Fetched 10.5 MB in 1s (9762 kB/s)
+2026-11-05T15:35:03.0089606Z Reading package lists...
+2026-11-05T15:35:03.0400907Z Reading package lists...
+2026-11-05T15:35:03.2451780Z Building dependency tree...
+2026-11-05T15:35:03.2459098Z Reading state information...
+2026-11-05T15:35:03.3868434Z libasound2t64 is already the newest version (1.2.11-1ubuntu0.3).
+2026-11-05T15:35:03.3872764Z libasound2t64 set to manually installed.
+2026-11-05T15:35:03.3873801Z libatk-bridge2.0-0t64 is already the newest version (2.52.0-1build1).
+2026-11-05T15:35:03.3874721Z libatk-bridge2.0-0t64 set to manually installed.
+2026-11-05T15:35:03.3875317Z libatk1.0-0t64 is already the newest version (2.52.0-1build1).
+2026-11-05T15:35:03.3875832Z libatk1.0-0t64 set to manually installed.
+2026-11-05T15:35:03.3876399Z libatspi2.0-0t64 is already the newest version (2.52.0-1build1).
+2026-11-05T15:35:03.3876930Z libatspi2.0-0t64 set to manually installed.
+2026-11-05T15:35:03.3877643Z libcairo2 is already the newest version (1.18.0-3build1).
+2026-11-05T15:35:03.3878126Z libcairo2 set to manually installed.
+2026-11-05T15:35:03.3878645Z libcups2t64 is already the newest version (2.4.7-1.2ubuntu7.14).
+2026-11-05T15:35:03.3879522Z libcups2t64 set to manually installed.
+2026-11-05T15:35:03.3880029Z libdbus-1-3 is already the newest version (1.14.10-4ubuntu4.1).
+2026-11-05T15:35:03.3880986Z libdbus-1-3 set to manually installed.
+2026-11-05T15:35:03.3881494Z libdrm2 is already the newest version (2.4.125-1ubuntu0.1~24.04.2).
+2026-11-05T15:35:03.3881907Z libdrm2 set to manually installed.
+2026-11-05T15:35:03.3882321Z libgbm1 is already the newest version (25.2.8-0ubuntu0.24.04.4).
+2026-11-05T15:35:03.3882722Z libgbm1 set to manually installed.
+2026-11-05T15:35:03.3883142Z libglib2.0-0t64 is already the newest version (2.80.0-6ubuntu3.10).
+2026-11-05T15:35:03.3883706Z libglib2.0-0t64 set to manually installed.
+2026-11-05T15:35:03.3884138Z libnspr4 is already the newest version (2:4.35-1.1build1).
+2026-11-05T15:35:03.3884527Z libnspr4 set to manually installed.
+2026-11-05T15:35:03.3884911Z libnss3 is already the newest version (2:3.98-1ubuntu0.3).
+2026-11-05T15:35:03.3885298Z libnss3 set to manually installed.
+2026-11-05T15:35:03.3885779Z libpango-1.0-0 is already the newest version (1.52.1+ds-1build1).
+2026-11-05T15:35:03.3886201Z libpango-1.0-0 set to manually installed.
+2026-11-05T15:35:03.3886637Z libx11-6 is already the newest version (2:1.8.7-1ubuntu0.1).
+2026-11-05T15:35:03.3887034Z libx11-6 set to manually installed.
+2026-11-05T15:35:03.3887402Z libxcb1 is already the newest version (1.15-1ubuntu2).
+2026-11-05T15:35:03.3887765Z libxcb1 set to manually installed.
+2026-11-05T15:35:03.3888182Z libxcomposite1 is already the newest version (1:0.4.5-1build3).
+2026-11-05T15:35:03.3889081Z libxcomposite1 set to manually installed.
+2026-11-05T15:35:03.3889545Z libxdamage1 is already the newest version (1:1.1.6-1build1).
+2026-11-05T15:35:03.3889947Z libxdamage1 set to manually installed.
+2026-11-05T15:35:03.3890338Z libxext6 is already the newest version (2:1.3.4-1build2).
+2026-11-05T15:35:03.3890705Z libxext6 set to manually installed.
+2026-11-05T15:35:03.3891104Z libxfixes3 is already the newest version (1:6.0.0-2build1).
+2026-11-05T15:35:03.3891492Z libxfixes3 set to manually installed.
+2026-11-05T15:35:03.3891900Z libxkbcommon0 is already the newest version (1.6.0-1build1).
+2026-11-05T15:35:03.3892310Z libxkbcommon0 set to manually installed.
+2026-11-05T15:35:03.3892843Z libxrandr2 is already the newest version (2:1.5.2-2build1).
+2026-11-05T15:35:03.3893239Z libxrandr2 set to manually installed.
+2026-11-05T15:35:03.3893640Z xvfb is already the newest version (2:21.1.12-1ubuntu1.9).
+2026-11-05T15:35:03.3894180Z fonts-noto-color-emoji is already the newest version (2.047-0ubuntu0.24.04.1).
+2026-11-05T15:35:03.3894995Z libfontconfig1 is already the newest version (2.15.0-1.1ubuntu2).
+2026-11-05T15:35:03.3895428Z libfontconfig1 set to manually installed.
+2026-11-05T15:35:03.3895902Z libfreetype6 is already the newest version (2.13.2+dfsg-1ubuntu0.2).
+2026-11-05T15:35:03.3896341Z libfreetype6 set to manually installed.
+2026-11-05T15:35:03.3896765Z fonts-liberation is already the newest version (1:2.1.5-3).
+2026-11-05T15:35:03.3897188Z fonts-liberation set to manually installed.
+2026-11-05T15:35:03.3897595Z The following additional packages will be installed:
+2026-11-05T15:35:03.3897958Z   xfonts-encodings xfonts-utils
+2026-11-05T15:35:03.3898254Z Recommended packages:
+2026-11-05T15:35:03.3898536Z   fonts-ipafont-mincho fonts-tlwg-loma
+2026-11-05T15:35:03.4075356Z The following NEW packages will be installed:
+2026-11-05T15:35:03.4076125Z   fonts-freefont-ttf fonts-ipafont-gothic fonts-tlwg-loma-otf fonts-unifont
+2026-11-05T15:35:03.4082671Z   fonts-wqy-zenhei xfonts-cyrillic xfonts-encodings xfonts-scalable
+2026-11-05T15:35:03.4083395Z   xfonts-utils
+2026-11-05T15:35:03.4286172Z 0 upgraded, 9 newly installed, 0 to remove and 24 not upgraded.
+2026-11-05T15:35:03.4286859Z Need to get 21.1 MB of archives.
+2026-11-05T15:35:03.4287316Z After this operation, 79.5 MB of additional disk space will be used.
+2026-11-05T15:35:03.4287814Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2026-11-05T15:35:03.4622577Z Get:2 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 fonts-ipafont-gothic all 00303-21ubuntu1 [3513 kB]
+2026-11-05T15:35:03.5022741Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 fonts-freefont-ttf all 20211204+svn4273-2 [5641 kB]
+2026-11-05T15:35:03.5532454Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 fonts-tlwg-loma-otf all 1:0.7.3-1 [107 kB]
+2026-11-05T15:35:03.5695059Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 fonts-unifont all 1:15.1.01-1build1 [2993 kB]
+2026-11-05T15:35:03.6046035Z Get:6 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 fonts-wqy-zenhei all 0.9.45-8 [7472 kB]
+2026-11-05T15:35:03.6659844Z Get:7 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 xfonts-encodings all 1:1.0.5-0ubuntu2 [578 kB]
+2026-11-05T15:35:03.6844572Z Get:8 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 xfonts-utils amd64 1:7.7+6build3 [94.4 kB]
+2026-11-05T15:35:03.6998994Z Get:9 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 xfonts-cyrillic all 1:1.0.5+nmu1 [384 kB]
+2026-11-05T15:35:03.7179925Z Get:10 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 xfonts-scalable all 1:1.0.3-1.3 [304 kB]
+2026-11-05T15:35:03.9864578Z Fetched 21.1 MB in 0s (69.4 MB/s)
+2026-11-05T15:35:04.0137071Z Selecting previously unselected package fonts-ipafont-gothic.
+2026-11-05T15:35:04.0407283Z (Reading database ... 
+2026-11-05T15:35:04.0408118Z (Reading database ... 5%
+2026-11-05T15:35:04.0411204Z (Reading database ... 10%
+2026-11-05T15:35:04.0411714Z (Reading database ... 15%
+2026-11-05T15:35:04.0412198Z (Reading database ... 20%
+2026-11-05T15:35:04.0412659Z (Reading database ... 25%
+2026-11-05T15:35:04.0412920Z (Reading database ... 30%
+2026-11-05T15:35:04.0413177Z (Reading database ... 35%
+2026-11-05T15:35:04.0413422Z (Reading database ... 40%
+2026-11-05T15:35:04.0413683Z (Reading database ... 45%
+2026-11-05T15:35:04.0413941Z (Reading database ... 50%
+2026-11-05T15:35:04.0455276Z (Reading database ... 55%
+2026-11-05T15:35:04.2338312Z (Reading database ... 60%
+2026-11-05T15:35:04.3967234Z (Reading database ... 65%
+2026-11-05T15:35:04.6054215Z (Reading database ... 70%
+2026-11-05T15:35:04.7964242Z (Reading database ... 75%
+2026-11-05T15:35:04.9501831Z (Reading database ... 80%
+2026-11-05T15:35:05.2010802Z (Reading database ... 85%
+2026-11-05T15:35:05.3947320Z (Reading database ... 90%
+2026-11-05T15:35:05.5576153Z (Reading database ... 95%
+2026-11-05T15:35:05.5576677Z (Reading database ... 100%
+2026-11-05T15:35:05.5577433Z (Reading database ... 215960 files and directories currently installed.)
+2026-11-05T15:35:05.5619799Z Preparing to unpack .../0-fonts-ipafont-gothic_00303-21ubuntu1_all.deb ...
+2026-11-05T15:35:05.5720787Z Unpacking fonts-ipafont-gothic (00303-21ubuntu1) ...
+2026-11-05T15:35:05.8098332Z Selecting previously unselected package fonts-freefont-ttf.
+2026-11-05T15:35:05.8238448Z Preparing to unpack .../1-fonts-freefont-ttf_20211204+svn4273-2_all.deb ...
+2026-11-05T15:35:05.8246286Z Unpacking fonts-freefont-ttf (20211204+svn4273-2) ...
+2026-11-05T15:35:05.9084550Z Selecting previously unselected package fonts-tlwg-loma-otf.
+2026-11-05T15:35:05.9222545Z Preparing to unpack .../2-fonts-tlwg-loma-otf_1%3a0.7.3-1_all.deb ...
+2026-11-05T15:35:05.9230848Z Unpacking fonts-tlwg-loma-otf (1:0.7.3-1) ...
+2026-11-05T15:35:05.9463106Z Selecting previously unselected package fonts-unifont.
+2026-11-05T15:35:05.9602019Z Preparing to unpack .../3-fonts-unifont_1%3a15.1.01-1build1_all.deb ...
+2026-11-05T15:35:05.9611267Z Unpacking fonts-unifont (1:15.1.01-1build1) ...
+2026-11-05T15:35:06.0693279Z Selecting previously unselected package fonts-wqy-zenhei.
+2026-11-05T15:35:06.0834288Z Preparing to unpack .../4-fonts-wqy-zenhei_0.9.45-8_all.deb ...
+2026-11-05T15:35:06.0947284Z Unpacking fonts-wqy-zenhei (0.9.45-8) ...
+2026-11-05T15:35:06.5750454Z Selecting previously unselected package xfonts-encodings.
+2026-11-05T15:35:06.5889523Z Preparing to unpack .../5-xfonts-encodings_1%3a1.0.5-0ubuntu2_all.deb ...
+2026-11-05T15:35:06.5900439Z Unpacking xfonts-encodings (1:1.0.5-0ubuntu2) ...
+2026-11-05T15:35:06.6205662Z Selecting previously unselected package xfonts-utils.
+2026-11-05T15:35:06.6343394Z Preparing to unpack .../6-xfonts-utils_1%3a7.7+6build3_amd64.deb ...
+2026-11-05T15:35:06.6351320Z Unpacking xfonts-utils (1:7.7+6build3) ...
+2026-11-05T15:35:06.6712640Z Selecting previously unselected package xfonts-cyrillic.
+2026-11-05T15:35:06.6851157Z Preparing to unpack .../7-xfonts-cyrillic_1%3a1.0.5+nmu1_all.deb ...
+2026-11-05T15:35:06.6859306Z Unpacking xfonts-cyrillic (1:1.0.5+nmu1) ...
+2026-11-05T15:35:06.7214243Z Selecting previously unselected package xfonts-scalable.
+2026-11-05T15:35:06.7352770Z Preparing to unpack .../8-xfonts-scalable_1%3a1.0.3-1.3_all.deb ...
+2026-11-05T15:35:06.7360775Z Unpacking xfonts-scalable (1:1.0.3-1.3) ...
+2026-11-05T15:35:06.7816743Z Setting up fonts-wqy-zenhei (0.9.45-8) ...
+2026-11-05T15:35:06.7935439Z Setting up fonts-freefont-ttf (20211204+svn4273-2) ...
+2026-11-05T15:35:06.7958201Z Setting up fonts-tlwg-loma-otf (1:0.7.3-1) ...
+2026-11-05T15:35:06.7978681Z Setting up xfonts-encodings (1:1.0.5-0ubuntu2) ...
+2026-11-05T15:35:06.7998382Z Setting up fonts-ipafont-gothic (00303-21ubuntu1) ...
+2026-11-05T15:35:06.8064430Z update-alternatives: using /usr/share/fonts/opentype/ipafont-gothic/ipag.ttf to provide /usr/share/fonts/truetype/fonts-japanese-gothic.ttf (fonts-japanese-gothic.ttf) in auto mode
+2026-11-05T15:35:06.8081676Z Setting up fonts-unifont (1:15.1.01-1build1) ...
+2026-11-05T15:35:06.8102602Z Setting up xfonts-utils (1:7.7+6build3) ...
+2026-11-05T15:35:06.8152124Z Setting up xfonts-cyrillic (1:1.0.5+nmu1) ...
+2026-11-05T15:35:06.8447177Z Setting up xfonts-scalable (1:1.0.3-1.3) ...
+2026-11-05T15:35:06.8736736Z Processing triggers for man-db (2.12.0-4build2) ...
+2026-11-05T15:35:06.8760540Z Not building database; man-db/auto-update is not 'true'.
+2026-11-05T15:35:06.8773942Z Processing triggers for fontconfig (2.15.0-1.1ubuntu2) ...
+2026-11-05T15:35:07.6308281Z 
+2026-11-05T15:35:07.6309294Z Running kernel seems to be up-to-date.
+2026-11-05T15:35:07.6309827Z 
+2026-11-05T15:35:07.6310157Z No services need to be restarted.
+2026-11-05T15:35:07.6310555Z 
+2026-11-05T15:35:07.6310903Z No containers need to be restarted.
+2026-11-05T15:35:07.6311308Z 
+2026-11-05T15:35:07.6311699Z No user sessions are running outdated binaries.
+2026-11-05T15:35:07.6312159Z 
+2026-11-05T15:35:07.6312788Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
+2026-11-05T15:35:08.5256114Z Downloading Chrome for Testing 151.0.7922.34 (playwright chromium v1234) from https://cdn.playwright.dev/builds/cft/151.0.7922.34/linux64/chrome-linux64.zip
+2026-11-05T15:35:09.5107928Z |                                                                                |   0% of 184.3 MiB
+2026-11-05T15:35:09.7132963Z |■■■■■■■■                                                                        |  10% of 184.3 MiB
+2026-11-05T15:35:09.8106906Z |■■■■■■■■■■■■■■■■                                                                |  20% of 184.3 MiB
+2026-11-05T15:35:09.8950232Z |■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 184.3 MiB
+2026-11-05T15:35:09.9731587Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 184.3 MiB
+2026-11-05T15:35:10.0513727Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 184.3 MiB
+2026-11-05T15:35:10.1077273Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 184.3 MiB
+2026-11-05T15:35:10.1911451Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 184.3 MiB
+2026-11-05T15:35:10.2859958Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 184.3 MiB
+2026-11-05T15:35:10.3453850Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 184.3 MiB
+2026-11-05T15:35:10.4220790Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 184.3 MiB
+2026-11-05T15:35:13.3496689Z Chrome for Testing 151.0.7922.34 (playwright chromium v1234) downloaded to /home/runner/.cache/ms-playwright/chromium-1234
+2026-11-05T15:35:13.3500319Z Downloading FFmpeg (playwright ffmpeg v1011) from https://cdn.playwright.dev/dbazure/download/playwright/builds/ffmpeg/1011/ffmpeg-linux.zip
+2026-11-05T15:35:14.4232273Z |                                                                                |   0% of 2.3 MiB
+2026-11-05T15:35:14.4404784Z |■■■■■■■■                                                                        |  10% of 2.3 MiB
+2026-11-05T15:35:14.4474573Z |■■■■■■■■■■■■■■■■                                                                |  20% of 2.3 MiB
+2026-11-05T15:35:14.4535874Z |■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 2.3 MiB
+2026-11-05T15:35:14.4549476Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 2.3 MiB
+2026-11-05T15:35:14.4568663Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 2.3 MiB
+2026-11-05T15:35:14.4608220Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 2.3 MiB
+2026-11-05T15:35:14.4629379Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 2.3 MiB
+2026-11-05T15:35:14.4642194Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 2.3 MiB
+2026-11-05T15:35:14.4658356Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 2.3 MiB
+2026-11-05T15:35:14.4704239Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 2.3 MiB
+2026-11-05T15:35:14.5330391Z FFmpeg (playwright ffmpeg v1011) downloaded to /home/runner/.cache/ms-playwright/ffmpeg-1011
+2026-11-05T15:35:14.5333478Z Downloading Chrome Headless Shell 151.0.7922.34 (playwright chromium-headless-shell v1234) from https://cdn.playwright.dev/builds/cft/151.0.7922.34/linux64/chrome-headless-shell-linux64.zip
+2026-11-05T15:35:15.5278411Z |                                                                                |   0% of 114.7 MiB
+2026-11-05T15:35:15.6391186Z |■■■■■■■■                                                                        |  10% of 114.7 MiB
+2026-11-05T15:35:15.7183988Z |■■■■■■■■■■■■■■■■                                                                |  20% of 114.7 MiB
+2026-11-05T15:35:15.7886970Z |■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 114.7 MiB
+2026-11-05T15:35:15.8453268Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 114.7 MiB
+2026-11-05T15:35:15.9122682Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 114.7 MiB
+2026-11-05T15:35:15.9724584Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 114.7 MiB
+2026-11-05T15:35:16.0175162Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 114.7 MiB
+2026-11-05T15:35:16.0742991Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 114.7 MiB
+2026-11-05T15:35:16.1128267Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 114.7 MiB
+2026-11-05T15:35:16.1478035Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 114.7 MiB
+2026-11-05T15:35:18.3428404Z Chrome Headless Shell 151.0.7922.34 (playwright chromium-headless-shell v1234) downloaded to /home/runner/.cache/ms-playwright/chromium_headless_shell-1234
+2026-11-05T15:35:18.3836640Z ##[group]Run pnpm lint
+2026-11-05T15:35:18.3836936Z [36;1mpnpm lint[0m
+2026-11-05T15:35:18.3857007Z shell: /usr/bin/bash -e {0}
+2026-11-05T15:35:18.3857290Z env:
+2026-11-05T15:35:18.3857543Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-11-05T15:35:18.3857859Z ##[endgroup]
+2026-11-05T15:35:18.8426297Z $ node scripts/bundle-fiction-craft.mjs --check && pnpm -r lint
+2026-11-05T15:35:19.3584502Z Scope: 9 of 10 workspace projects
+2026-11-05T15:35:19.3615563Z packages/domain lint$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:19.3624638Z packages/importers lint$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:19.3629112Z packages/openrouter lint$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:19.3633350Z packages/runtime lint$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:21.8110285Z packages/importers lint: Done
+2026-11-05T15:35:22.5303587Z packages/openrouter lint: Done
+2026-11-05T15:35:24.3751645Z packages/runtime lint: Done
+2026-11-05T15:35:25.5414213Z packages/domain lint: Done
+2026-11-05T15:35:25.5420698Z apps/web lint$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:25.5424605Z packages/export-twine lint$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:25.5427334Z packages/persistence lint$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:36.7105553Z packages/export-twine lint: Done
+2026-11-05T15:35:37.8305298Z packages/persistence lint: Done
+2026-11-05T15:35:42.1599175Z apps/web lint: Done
+2026-11-05T15:35:42.1603863Z packages/pipeline lint$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:49.0347662Z packages/pipeline lint: Done
+2026-11-05T15:35:49.0353750Z apps/server lint$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:58.5630893Z apps/server lint: Done
+2026-11-05T15:35:58.5973013Z ##[group]Run pnpm typecheck
+2026-11-05T15:35:58.5973530Z [36;1mpnpm typecheck[0m
+2026-11-05T15:35:58.5998370Z shell: /usr/bin/bash -e {0}
+2026-11-05T15:35:58.5998636Z env:
+2026-11-05T15:35:58.5999192Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-11-05T15:35:58.5999541Z ##[endgroup]
+2026-11-05T15:35:59.0600069Z $ pnpm -r typecheck
+2026-11-05T15:35:59.5381709Z Scope: 9 of 10 workspace projects
+2026-11-05T15:35:59.5412213Z packages/domain typecheck$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:59.5420915Z packages/importers typecheck$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:59.5425750Z packages/openrouter typecheck$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:35:59.5429563Z packages/runtime typecheck$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:36:01.7924410Z packages/importers typecheck: Done
+2026-11-05T15:36:02.4380588Z packages/openrouter typecheck: Done
+2026-11-05T15:36:04.4604051Z packages/runtime typecheck: Done
+2026-11-05T15:36:05.5703209Z packages/domain typecheck: Done
+2026-11-05T15:36:05.5710577Z apps/web typecheck$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:36:05.5713905Z packages/export-twine typecheck$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:36:05.5716684Z packages/persistence typecheck$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:36:15.3460259Z packages/export-twine typecheck: Done
+2026-11-05T15:36:16.6784700Z packages/persistence typecheck: Done
+2026-11-05T15:36:20.9032963Z apps/web typecheck: Done
+2026-11-05T15:36:20.9038072Z packages/pipeline typecheck$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:36:27.7366296Z packages/pipeline typecheck: Done
+2026-11-05T15:36:27.7371655Z apps/server typecheck$ tsc -p tsconfig.json --noEmit
+2026-11-05T15:36:37.2179547Z apps/server typecheck: Done
+2026-11-05T15:36:37.2494872Z ##[group]Run pnpm build
+2026-11-05T15:36:37.2495170Z [36;1mpnpm build[0m
+2026-11-05T15:36:37.2515504Z shell: /usr/bin/bash -e {0}
+2026-11-05T15:36:37.2515756Z env:
+2026-11-05T15:36:37.2516014Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-11-05T15:36:37.2516335Z ##[endgroup]
+2026-11-05T15:36:37.7281135Z $ node scripts/bundle-fiction-craft.mjs --check && pnpm -r build
+2026-11-05T15:36:38.2319519Z Scope: 9 of 10 workspace projects
+2026-11-05T15:36:38.2349317Z packages/domain build$ tsc -p tsconfig.json
+2026-11-05T15:36:38.2357025Z packages/importers build$ tsc -p tsconfig.json
+2026-11-05T15:36:38.2361852Z packages/openrouter build$ tsc -p tsconfig.json
+2026-11-05T15:36:38.2365190Z packages/runtime build$ tsc -p tsconfig.json
+2026-11-05T15:36:40.6506982Z packages/importers build: Done
+2026-11-05T15:36:41.4597756Z packages/openrouter build: Done
+2026-11-05T15:36:43.4566024Z packages/runtime build: Done
+2026-11-05T15:36:44.6487636Z packages/domain build: Done
+2026-11-05T15:36:44.6494556Z apps/web build$ vite build
+2026-11-05T15:36:44.6497373Z packages/export-twine build$ tsc -p tsconfig.json
+2026-11-05T15:36:44.6500076Z packages/persistence build$ tsc -p tsconfig.json
+2026-11-05T15:36:44.9596421Z apps/web build: [36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
+2026-11-05T15:36:45.1053855Z apps/web build: transforming...
+2026-11-05T15:36:48.9250953Z apps/web build: [32m✓[39m 176 modules transformed.
+2026-11-05T15:36:49.5829179Z apps/web build: rendering chunks...
+2026-11-05T15:36:49.6100073Z apps/web build: computing gzip size...
+2026-11-05T15:36:49.6577203Z apps/web build: [2mdist/[22m[32mindex.html                 [39m[1m[2m  0.40 kB[22m[1m[22m[2m │ gzip:   0.27 kB[22m
+2026-11-05T15:36:49.6610937Z apps/web build: [2mdist/[22m[2massets/[22m[35mindex-BiGctxgw.css  [39m[1m[2m 62.98 kB[22m[1m[22m[2m │ gzip:  12.06 kB[22m
+2026-11-05T15:36:49.6631206Z apps/web build: [2mdist/[22m[2massets/[22m[36mindex-B_aQvLZR.js   [39m[1m[33m946.58 kB[39m[22m[2m │ gzip: 238.43 kB[22m
+2026-11-05T15:36:49.6660027Z apps/web build: [32m✓ built in 4.64s[39m
+2026-11-05T15:36:49.6689491Z apps/web build: [33m
+2026-11-05T15:36:49.6690634Z apps/web build: (!) Some chunks are larger than 500 kB after minification. Consider:
+2026-11-05T15:36:49.6719997Z apps/web build: - Using dynamic import() to code-split the application
+2026-11-05T15:36:49.6750756Z apps/web build: - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+2026-11-05T15:36:49.6753339Z apps/web build: - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+2026-11-05T15:36:49.7297587Z apps/web build: Done
+2026-11-05T15:36:53.1681816Z packages/export-twine build: Done
+2026-11-05T15:36:54.5083981Z packages/persistence build: Done
+2026-11-05T15:36:54.5088180Z packages/pipeline build$ tsc -p tsconfig.json
+2026-11-05T15:37:01.4993227Z packages/pipeline build: Done
+2026-11-05T15:37:01.4997998Z apps/server build$ tsc -p tsconfig.json
+2026-11-05T15:37:11.5685150Z apps/server build: Done
+2026-11-05T15:37:11.6027150Z ##[group]Run pnpm test
+2026-11-05T15:37:11.6027445Z [36;1mpnpm test[0m
+2026-11-05T15:37:11.6047644Z shell: /usr/bin/bash -e {0}
+2026-11-05T15:37:11.6047902Z env:
+2026-11-05T15:37:11.6048163Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-11-05T15:37:11.6048476Z ##[endgroup]
+2026-11-05T15:37:12.0661881Z $ pnpm vitest --run
+2026-11-05T15:37:12.8033956Z [1m[43m DEPRECATED [49m[22m [33mThe workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /home/runner/work/cyoa-creator/cyoa-creator/vitest.config.ts instead.[39m
+2026-11-05T15:37:12.8523852Z 
+2026-11-05T15:37:12.8525523Z [1m[46m RUN [49m[22m [36mv3.2.7 [39m[90m/home/runner/work/cyoa-creator/cyoa-creator[39m
+2026-11-05T15:37:12.8526129Z 
+2026-11-05T15:37:15.8691062Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/generation-migration.test.ts [2m([22m[2m54 tests[22m[2m)[22m[33m 1679[2mms[22m[39m
+2026-11-05T15:37:32.5224129Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/repair-applications.test.ts [2m([22m[2m21 tests[22m[2m)[22m[33m 16703[2mms[22m[39m
+2026-11-05T15:37:32.5226735Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mpreviews without writes, applies exact groups atomically, retains audit, and rejects duplicates [33m 722[2mms[22m[39m
+2026-11-05T15:37:32.5229829Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mrejects a stale preview after a competing passage edit with zero repair mutation [33m 350[2mms[22m[39m
+2026-11-05T15:37:32.5232591Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mrechecks exact bases inside the application transaction after an outer preflight race [33m 397[2mms[22m[39m
+2026-11-05T15:37:32.5237468Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mdefends exact passage bases and canonical results against direct persistence bypasses [33m 583[2mms[22m[39m
+2026-11-05T15:37:32.5240643Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mrejects stale artifact and prose bases at the direct persistence boundary [33m 1327[2mms[22m[39m
+2026-11-05T15:37:32.5243538Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mrejects every canonical mutation outside the selected operation footprint [33m 612[2mms[22m[39m
+2026-11-05T15:37:32.5246321Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mrejects every unrelated secondary-state mutation and rolls the selected repair back [33m 925[2mms[22m[39m
+2026-11-05T15:37:32.5249833Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mrejects equivalent cross-project workflow, plan, stale, dependency, and draft-staleness writes [33m 574[2mms[22m[39m
+2026-11-05T15:37:32.5252532Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mrejects extra draft and passage writes around an otherwise valid prose repair [33m 1223[2mms[22m[39m
+2026-11-05T15:37:32.5255193Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mcreates a normal candidate with durable repair lineage and leaves accepted prose unchanged [33m 939[2mms[22m[39m
+2026-11-05T15:37:32.5257936Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mcreates a repair candidate without unlocking, accepting, or changing locked prose [33m 900[2mms[22m[39m
+2026-11-05T15:37:32.5261214Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mrejects forged repair-draft provenance completely and atomically [33m 1968[2mms[22m[39m
+2026-11-05T15:37:32.5264158Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mrolls back a mixed structure, artifact, prose, staleness, and audit transaction, then commits it coherently [33m 1078[2mms[22m[39m
+2026-11-05T15:37:32.5267027Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mapplies only one selected independent group and leaves the other proposal targets untouched [33m 828[2mms[22m[39m
+2026-11-05T15:37:32.5270501Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mapplies a passage update and its deterministic new choice atomically with exact history [33m 985[2mms[22m[39m
+2026-11-05T15:37:32.5273203Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mrejects a generated thread ID that collides with a newer cross-kind stable ID [33m 467[2mms[22m[39m
+2026-11-05T15:37:32.5275863Z    [33m[2m✓[22m[39m Foundation 6C repair application[2m > [22mkeeps a 300-passage repair bounded to one selected entity and preserves every unrelated version [33m 2250[2mms[22m[39m
+2026-11-05T15:37:37.9429628Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/passage-drafting.test.ts [2m([22m[2m26 tests[22m[2m)[22m[33m 4419[2mms[22m[39m
+2026-11-05T15:37:37.9431120Z    [33m[2m✓[22m[39m Foundation 4B-1 draft architecture API[2m > [22mblocks new and old legacy-fidelity drafting contexts after A4 adoption, while manual prose remains available [33m 450[2mms[22m[39m
+2026-11-05T15:37:37.9432696Z    [33m[2m✓[22m[39m Foundation 4B-1 draft architecture API[2m > [22mpreviews real immutable contexts and persists bounded generated candidates only after authorized start [33m 457[2mms[22m[39m
+2026-11-05T15:37:37.9434227Z    [33m[2m✓[22m[39m Foundation 4B-1 draft architecture API[2m > [22mretries only a failed unit and links its candidate to the retry attempt without repeating completed siblings [33m 414[2mms[22m[39m
+2026-11-05T15:37:53.1244271Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/conversational-edit.test.ts [2m([22m[2m68 tests[22m[2m)[22m[33m 14233[2mms[22m[39m
+2026-11-05T15:37:53.1246601Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 round-trips and duplicates real conversational Creative Direction without dangling references: full-fidelity [33m 579[2mms[22m[39m
+2026-11-05T15:37:53.1248446Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 round-trips and duplicates real conversational Creative Direction without dangling references: privacy-redacted [33m 361[2mms[22m[39m
+2026-11-05T15:37:53.1250503Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: missing-lineage [33m 338[2mms[22m[39m
+2026-11-05T15:37:53.1252135Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: all-outputs [33m 315[2mms[22m[39m
+2026-11-05T15:37:53.1254173Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: partial-outputs [33m 316[2mms[22m[39m
+2026-11-05T15:37:53.1256765Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: all-results [33m 314[2mms[22m[39m
+2026-11-05T15:37:53.1260816Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: partial-results [33m 336[2mms[22m[39m
+2026-11-05T15:37:53.1263301Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: extra-output [33m 310[2mms[22m[39m
+2026-11-05T15:37:53.1264772Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: extra-result [33m 318[2mms[22m[39m
+2026-11-05T15:37:53.1266229Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: wrong-before [33m 309[2mms[22m[39m
+2026-11-05T15:37:53.1267909Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: wrong-after [33m 309[2mms[22m[39m
+2026-11-05T15:37:53.1270166Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: wrong-result [33m 307[2mms[22m[39m
+2026-11-05T15:37:53.1271690Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: changed-groups [33m 312[2mms[22m[39m
+2026-11-05T15:37:53.1273165Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 rejects incomplete or mismatched edit audits during import and backup certification: unknown-field [33m 335[2mms[22m[39m
+2026-11-05T15:37:53.1274423Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 preserves complete historical edit lineage with no-op [33m 460[2mms[22m[39m
+2026-11-05T15:37:53.1275596Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 preserves complete historical edit lineage with partial-selection [33m 469[2mms[22m[39m
+2026-11-05T15:37:53.1276761Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 preserves complete historical edit lineage with later-head [33m 450[2mms[22m[39m
+2026-11-05T15:37:53.1278125Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=false) [33m 442[2mms[22m[39m
+2026-11-05T15:37:53.1279959Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mA7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=true) [33m 442[2mms[22m[39m
+2026-11-05T15:37:53.1281236Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22menforces initial lifecycle for new sequences: outline [33m 330[2mms[22m[39m
+2026-11-05T15:37:53.1282323Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22menforces initial lifecycle for new sequences: planned [33m 349[2mms[22m[39m
+2026-11-05T15:37:53.1283524Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mreturns complete nonblocking passage findings through the reviewed HTTP contract [33m 306[2mms[22m[39m
+2026-11-05T15:37:53.1284928Z    [33m[2m✓[22m[39m A6 scoped conversational editing[2m > [22mretrieves only grounded source ranges through accepted bootstrap stable-ID lineage, including after an edit [33m 1523[2mms[22m[39m
+2026-11-05T15:37:57.5568606Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/passage-generation.test.ts [2m([22m[2m20 tests[22m[2m)[22m[33m 3496[2mms[22m[39m
+2026-11-05T15:37:57.5571720Z    [33m[2m✓[22m[39m passage generation kernel API[2m > [22mblocks new and old legacy-fidelity passage plans after A4 adoption without provider calls [33m 465[2mms[22m[39m
+2026-11-05T15:38:01.7924019Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/project-setup.test.ts [2m([22m[2m33 tests[22m[2m)[22m[33m 3290[2mms[22m[39m
+2026-11-05T15:38:01.7926371Z    [33m[2m✓[22m[39m A2 conversational project setup[2m > [22mkeeps applied setup projects backup-, portable-, and duplication-safe [33m 378[2mms[22m[39m
+2026-11-05T15:38:03.4053339Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/native-compilation.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 46534[2mms[22m[39m
+2026-11-05T15:38:03.4055140Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22mtreats provenance-only Creative Direction approvals as materially publication-equivalent [33m 661[2mms[22m[39m
+2026-11-05T15:38:03.4061066Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22mreports exact readiness, compiles deterministically, excludes candidates and author-only data, and preserves lifecycle-equivalent prose [33m 522[2mms[22m[39m
+2026-11-05T15:38:03.4064648Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22mpersists author-selected player policy independently and uses it for actual current and historical launches [33m 862[2mms[22m[39m
+2026-11-05T15:38:03.4066791Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22mexhaustively rejects resealed simulation/build artifact forgeries and round-trips legitimate history [33m 2317[2mms[22m[39m
+2026-11-05T15:38:03.4068923Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22mcompiles captured immutable history after newer approval and gives refreshed current meaning a new source identity [33m 300[2mms[22m[39m
+2026-11-05T15:38:03.4071123Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22mchanges source and gameplay bundle identities when approved mechanic meaning changes [33m 364[2mms[22m[39m
+2026-11-05T15:38:03.4072540Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22mblocks canonical route relationship and hook-ownership planning errors deterministically [33m 550[2mms[22m[39m
+2026-11-05T15:38:03.4074814Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22mblocks canonical mechanic relationship and gate-reference planning errors [33m 309[2mms[22m[39m
+2026-11-05T15:38:03.4076697Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22mrejects corrupted persisted exact draft provenance before a bundle or build can exist [33m 330[2mms[22m[39m
+2026-11-05T15:38:03.4078145Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22madds only immutable publication metadata and leaves canonical authoring state byte-equivalent [33m 323[2mms[22m[39m
+2026-11-05T15:38:03.4081013Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22mcompiles and loads the 300-passage accepted corpus deterministically within explicit bounds [33m 3318[2mms[22m[39m
+2026-11-05T15:38:03.4083528Z    [33m[2m✓[22m[39m Foundation 7A native compilation API[2m > [22mverifies, restores, recompiles, and plays the exact 300-passage Unicode corpus with history intact [33m 35883[2mms[22m[39m
+2026-11-05T15:38:03.9105761Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/long-form.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 1202[2mms[22m[39m
+2026-11-05T15:38:06.8403128Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/repair-proposal-repository.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 2857[2mms[22m[39m
+2026-11-05T15:38:06.8408516Z    [33m[2m✓[22m[39m Repair proposal persistence[2m > [22mrejects direct-SQL corruption of context, fingerprints, definition, state, identity, and candidate lineage [33m 330[2mms[22m[39m
+2026-11-05T15:38:06.8411887Z    [33m[2m✓[22m[39m Repair proposal persistence[2m > [22mrejects candidate attempt/fingerprint lineage corruption and malformed middle history [33m 372[2mms[22m[39m
+2026-11-05T15:38:06.8413925Z    [33m[2m✓[22m[39m Repair proposal persistence[2m > [22mstrictly rejects resealed stored candidate corruption on get, list, and history [33m 650[2mms[22m[39m
+2026-11-05T15:38:06.8416004Z    [33m[2m✓[22m[39m Repair proposal persistence[2m > [22mrevalidates resealed AI proposal provenance against exact immutable generation history on every read [33m 479[2mms[22m[39m
+2026-11-05T15:38:51.0597788Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/foundation-bootstrap.test.ts [2m([22m[2m28 tests[22m[2m)[22m[33m 43311[2mms[22m[39m
+2026-11-05T15:38:51.0600454Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mA7 omits raw author requests but preserves readable bootstrap history: preview-only [33m 1106[2mms[22m[39m
+2026-11-05T15:38:51.0602148Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mA7 omits raw author requests but preserves readable bootstrap history: completed [33m 2184[2mms[22m[39m
+2026-11-05T15:38:51.0603963Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mA7 omits raw author requests but preserves readable bootstrap history: applied [33m 3185[2mms[22m[39m
+2026-11-05T15:38:51.0605772Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mround trips a near-budget preview with 0 conversation references without expanding executable request budgets [33m 1880[2mms[22m[39m
+2026-11-05T15:38:51.0607530Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mround trips a near-budget preview with 24 conversation references without expanding executable request budgets [33m 1954[2mms[22m[39m
+2026-11-05T15:38:51.0609614Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mround trips a near-budget preview with 500 conversation references without expanding executable request budgets [33m 4464[2mms[22m[39m
+2026-11-05T15:38:51.0612242Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mA7 restores and duplicates applied bootstrap lineage with explicit source recovery: full-fidelity [33m 2746[2mms[22m[39m
+2026-11-05T15:38:51.0614897Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mA7 restores and duplicates applied bootstrap lineage with explicit source recovery: privacy-redacted [33m 3326[2mms[22m[39m
+2026-11-05T15:38:51.0617798Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mcompletes and applies hash-free OpenRouter output with existing Creative Direction=false [33m 1256[2mms[22m[39m
+2026-11-05T15:38:51.0622721Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mcompletes and applies hash-free OpenRouter output with existing Creative Direction=true [33m 1234[2mms[22m[39m
+2026-11-05T15:38:51.0626240Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mreuses exact previews and retires only the explicitly archived unused selection without provider use [33m 1044[2mms[22m[39m
+2026-11-05T15:38:51.0681288Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mgenerates all six ordinary unapproved drafts with existing Creative Direction=true [33m 4229[2mms[22m[39m
+2026-11-05T15:38:51.0684124Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mgenerates all six ordinary unapproved drafts with existing Creative Direction=false [33m 4279[2mms[22m[39m
+2026-11-05T15:38:51.0686732Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mrejects malformed output without any canonical write [33m 648[2mms[22m[39m
+2026-11-05T15:38:51.0689619Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mrejects oversized output without any canonical write [33m 622[2mms[22m[39m
+2026-11-05T15:38:51.0691822Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mrejects duplicate-id output without any canonical write [33m 656[2mms[22m[39m
+2026-11-05T15:38:51.0693415Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mrejects invalid-reference output without any canonical write [33m 638[2mms[22m[39m
+2026-11-05T15:38:51.0694708Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mrejects missing-provenance output without any canonical write [33m 653[2mms[22m[39m
+2026-11-05T15:38:51.0696060Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mretries a failed unit with a distinct next attempt and preserves the failed history [33m 897[2mms[22m[39m
+2026-11-05T15:38:51.0697555Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mcancels an abort-ignoring provider and rejects late candidate settlement and cancelled retry [33m 694[2mms[22m[39m
+2026-11-05T15:38:51.0699077Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mrejects a provider race after intent mutation [33m 658[2mms[22m[39m
+2026-11-05T15:38:51.0700441Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mrejects a provider race after dossier mutation [33m 655[2mms[22m[39m
+2026-11-05T15:38:51.0701654Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mrejects a provider race after existing-direction mutation [33m 578[2mms[22m[39m
+2026-11-05T15:38:51.0702860Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mrejects a provider race after absent-direction mutation [33m 578[2mms[22m[39m
+2026-11-05T15:38:51.0704205Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mrejects stale candidate Apply after a previously absent artifact appears [33m 1084[2mms[22m[39m
+2026-11-05T15:38:51.0705578Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mreopens a stopped job, safely retries, and ignores the old provider's late response [33m 1053[2mms[22m[39m
+2026-11-05T15:38:51.0706911Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mtimes out an abort-ignoring provider with no late candidate write [33m 679[2mms[22m[39m
+2026-11-05T15:38:51.0708235Z    [33m[2m✓[22m[39m A5 exact foundation generation and review boundary[2m > [22mbinds the exact reviewed author request and rejects unused setup pointer inputs [33m 330[2mms[22m[39m
+2026-11-05T15:38:53.2707471Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/long-form-chat.test.ts [2m([22m[2m14 tests[22m[2m)[22m[33m 1259[2mms[22m[39m
+2026-11-05T15:38:54.2675816Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/drafting-repository.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 518[2mms[22m[39m
+2026-11-05T15:38:55.6046079Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/passage-draft-repository.test.ts [2m([22m[2m29 tests[22m[2m)[22m[33m 913[2mms[22m[39m
+2026-11-05T15:39:13.3498038Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/foundation-bootstrap.test.ts [2m([22m[2m42 tests[22m[2m)[22m[33m 68795[2mms[22m[39m
+2026-11-05T15:39:13.3500932Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mrejects an appended invented sentence under genuine source-canon provenance [33m 613[2mms[22m[39m
+2026-11-05T15:39:13.3504166Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mrejects an appended contradictory sentence under genuine source-canon provenance [33m 494[2mms[22m[39m
+2026-11-05T15:39:13.3507746Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mrequires every independent active override outside canon obligations and carries them downstream [33m 1386[2mms[22m[39m
+2026-11-05T15:39:13.3510832Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mbinds pending, running and completed to one immutable authorized attempt [33m 608[2mms[22m[39m
+2026-11-05T15:39:13.3513619Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mretains exact failed history across explicit pending retry and next-number completion [33m 708[2mms[22m[39m
+2026-11-05T15:39:13.3516353Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mcancels pending work without allowing new attempts or late settlement [33m 414[2mms[22m[39m
+2026-11-05T15:39:13.3519101Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mcancels running work without allowing new attempts or late settlement [33m 536[2mms[22m[39m
+2026-11-05T15:39:13.3522074Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mcancels failed work without allowing new attempts or late settlement [33m 534[2mms[22m[39m
+2026-11-05T15:39:13.3524905Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mcaps attempts at four with an explicit repreview recovery path [33m 1062[2mms[22m[39m
+2026-11-05T15:39:13.3527629Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mrejects wrong authorization and overlapping active jobs [33m 387[2mms[22m[39m
+2026-11-05T15:39:13.3530062Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mSQL cannot rewrite terminal completed jobs [33m 367[2mms[22m[39m
+2026-11-05T15:39:13.3531905Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mSQL cannot rewrite terminal cancelled jobs [33m 329[2mms[22m[39m
+2026-11-05T15:39:13.3534220Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mSQL cannot rewrite a failed historical attempt or delete durable audit [33m 352[2mms[22m[39m
+2026-11-05T15:39:13.3536821Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mdirect persistence rejects invalid candidates atomically and preserves the running attempt [33m 348[2mms[22m[39m
+2026-11-05T15:39:13.3539612Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mbinds outcomes to exact attempts and forbids output on failure [33m 374[2mms[22m[39m
+2026-11-05T15:39:13.3542147Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mrecovers an interrupted attempt as failed and rejects the old attempt after retry begins [33m 629[2mms[22m[39m
+2026-11-05T15:39:13.3544919Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mrecovers pending work after a crash before dispatch without blocking a new explicit start [33m 347[2mms[22m[39m
+2026-11-05T15:39:13.3547840Z    [33m[2m✓[22m[39m Foundation bootstrap persistence lifecycle[2m > [22mSQL forbids appending a terminal synthetic retry without pending and running transitions [33m 323[2mms[22m[39m
+2026-11-05T15:39:13.3551098Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mpreserves valid unsorted material through portable import and backup restore at before-generation [33m 2774[2mms[22m[39m
+2026-11-05T15:39:13.3553921Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mpreserves valid unsorted material through portable import and backup restore at applied [33m 9086[2mms[22m[39m
+2026-11-05T15:39:13.3556823Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mduplicates unapplied/partially applied bundles with real migration-derived direction provenance [33m 3982[2mms[22m[39m
+2026-11-05T15:39:13.3560253Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mduplicates unapplied/partially applied bundles with real user-message direction provenance [33m 3903[2mms[22m[39m
+2026-11-05T15:39:13.3563408Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mround-trips four partial applications with equal timestamps and arbitrary serialized order [33m 3992[2mms[22m[39m
+2026-11-05T15:39:13.3566314Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mround-trips conversational direction and verified backup at before-generation [33m 1098[2mms[22m[39m
+2026-11-05T15:39:13.3569335Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mround-trips conversational direction and verified backup at pending-review [33m 3355[2mms[22m[39m
+2026-11-05T15:39:13.3572234Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mround-trips conversational direction and verified backup at applied [33m 7160[2mms[22m[39m
+2026-11-05T15:39:13.3575291Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mreuses equivalent previews and archives only unused previews to recover at the bounded cache limit [33m 9141[2mms[22m[39m
+2026-11-05T15:39:13.3578893Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mkeeps honestly blocked required obligations reviewable but does not restore AI passage authority [33m 1016[2mms[22m[39m
+2026-11-05T15:39:13.3581929Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mrolls back all artifact versions, workflow state and audit after a forced fourth-write failure [33m 1370[2mms[22m[39m
+2026-11-05T15:39:13.3584667Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22menforces dependency closure while supporting staged partial application [33m 2270[2mms[22m[39m
+2026-11-05T15:39:13.3587585Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mcloses scoped Creative Direction over the actual new Bible rather than storing dangling references [33m 864[2mms[22m[39m
+2026-11-05T15:39:13.3590782Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mrejects stale absent/current preconditions without modifying already reviewed candidates [33m 592[2mms[22m[39m
+2026-11-05T15:39:13.3593811Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mduplicates pending review, survives original deletion and applies remapped independent candidates [33m 1313[2mms[22m[39m
+2026-11-05T15:39:13.3596604Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mduplicates applied audit and retains complete independent immutable history [33m 1300[2mms[22m[39m
+2026-11-05T15:39:13.3599878Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mduplicates multiple partial applications with independently recomputed exact audit fingerprints [33m 2210[2mms[22m[39m
+2026-11-05T15:39:13.3602686Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mimports a completed candidate and applies it locally without a provider [33m 1328[2mms[22m[39m
+2026-11-05T15:39:13.3605339Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mrejects a malformed portable candidate atomically without partial project import [33m 632[2mms[22m[39m
+2026-11-05T15:39:13.3608104Z    [33m[2m✓[22m[39m Foundation bootstrap atomic application and recovery[2m > [22mimports interrupted work and recovers an append-only failed attempt before retry [33m 802[2mms[22m[39m
+2026-11-05T15:39:16.2752569Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/publication-exports.test.ts [2m([22m[2m20 tests[22m[2m)[22m[33m 2296[2mms[22m[39m
+2026-11-05T15:39:16.2755072Z    [33m[2m✓[22m[39m Foundation 7C publication exports[2m > [22mbuilds bounded 300-passage static and standalone publications with inert payloads [33m 486[2mms[22m[39m
+2026-11-05T15:39:16.2757800Z    [33m[2m✓[22m[39m Foundation 7C publication exports[2m > [22mrenders and real-compiles a 300-passage SugarCube publication [33m 502[2mms[22m[39m
+2026-11-05T15:39:43.2080232Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/asset-library.test.ts [2m([22m[2m35 tests[22m[2m)[22m[33m 46674[2mms[22m[39m
+2026-11-05T15:39:43.2082577Z    [33m[2m✓[22m[39m V1 image preparation and immutable library[2m > [22mbounds metadata pages and asset count without losing an existing approval [33m 306[2mms[22m[39m
+2026-11-05T15:39:43.2085404Z    [33m[2m✓[22m[39m V1 image preparation and immutable library[2m > [22mfinishes all pending reviews at the authoring cap, restores legacy boundary states and retries completed outcomes [33m 40180[2mms[22m[39m
+2026-11-05T15:39:43.2088290Z    [33m[2m✓[22m[39m V1 restricted staging and portability[2m > [22mround trips all image bytes, candidate/approved history, and independent duplication: full-fidelity [33m 301[2mms[22m[39m
+2026-11-05T15:39:43.2091222Z    [33m[2m✓[22m[39m V1 restricted staging and portability[2m > [22mround trips all image bytes, candidate/approved history, and independent duplication: privacy-redacted [33m 318[2mms[22m[39m
+2026-11-05T15:39:43.2094331Z    [33m[2m✓[22m[39m V1 restricted staging and portability[2m > [22mcreates a verified backup and restores image material, approvals and operation retries into a fresh database [33m 463[2mms[22m[39m
+2026-11-05T15:39:43.2097172Z    [33m[2m✓[22m[39m V1 restricted staging and portability[2m > [22muses real SDK transport, denies unauthorized projects, and recovers staged import/approval retries after restart [33m 2434[2mms[22m[39m
+2026-11-05T15:39:44.1887562Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/passage-draft-acceptance-repository.test.ts [2m([22m[2m11 tests[22m[2m)[22m[33m 521[2mms[22m[39m
+2026-11-05T15:40:00.0041527Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/adaptation-intent.test.ts [2m([22m[2m34 tests[22m[2m)[22m[33m 14944[2mms[22m[39m
+2026-11-05T15:40:00.0044108Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects achieved effect claims from manual edits and provider output without durable writes [33m 584[2mms[22m[39m
+2026-11-05T15:40:00.0046852Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects achieved requirement claims from manual edits and provider output without durable writes [33m 396[2mms[22m[39m
+2026-11-05T15:40:00.0049885Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects achieved permission claims from manual edits and provider output without durable writes [33m 338[2mms[22m[39m
+2026-11-05T15:40:00.0061878Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects achieved description claims from manual edits and provider output without durable writes [33m 326[2mms[22m[39m
+2026-11-05T15:40:00.0064171Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects achieved rationale claims from manual edits and provider output without durable writes [33m 312[2mms[22m[39m
+2026-11-05T15:40:00.0065601Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects unseen overrides overwrite and removal outside preview scope [33m 720[2mms[22m[39m
+2026-11-05T15:40:00.0066877Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects unseen inventions overwrite and removal outside preview scope [33m 677[2mms[22m[39m
+2026-11-05T15:40:00.0068122Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects unseen obligations overwrite and removal outside preview scope [33m 656[2mms[22m[39m
+2026-11-05T15:40:00.0069711Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects unseen exceptions overwrite and removal outside preview scope [33m 655[2mms[22m[39m
+2026-11-05T15:40:00.0081998Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects unseen expansion overwrite and removal outside preview scope [33m 665[2mms[22m[39m
+2026-11-05T15:40:00.0084311Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects valid same-dossier source IDs that were not supplied to the provider [33m 366[2mms[22m[39m
+2026-11-05T15:40:00.0086688Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22maccepts an explicitly previewed override update and noncolliding invention, with provider-free Apply [33m 752[2mms[22m[39m
+2026-11-05T15:40:00.0089753Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mdoes not adopt implicitly; explicit legacy projection preserves Brief and A3, with no Creative Direction prerequisite [33m 303[2mms[22m[39m
+2026-11-05T15:40:00.0092386Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mmanual override is separate from source and stable-ID deactivation reveals the original [33m 374[2mms[22m[39m
+2026-11-05T15:40:00.0094547Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects Apply after base changes without a partial canonical write [33m 617[2mms[22m[39m
+2026-11-05T15:40:00.0096845Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects Apply after dossier changes without a partial canonical write [33m 532[2mms[22m[39m
+2026-11-05T15:40:00.0099437Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrecovers stale intent through explicit fresh-dossier adoption while preserving immutable policy history [33m 498[2mms[22m[39m
+2026-11-05T15:40:00.0102294Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mpreview is local, bounded, exact and excludes both manuscript and legacy fidelity authority; Apply is explicit and provider-free [33m 445[2mms[22m[39m
+2026-11-05T15:40:00.0104728Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mdoes not persist a late provider completion after base changes [33m 410[2mms[22m[39m
+2026-11-05T15:40:00.0106849Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mdoes not persist a late provider completion after dossier changes [33m 319[2mms[22m[39m
+2026-11-05T15:40:00.0109244Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrechecks freshness after structural repair and rejects repair exhaustion atomically [33m 663[2mms[22m[39m
+2026-11-05T15:40:00.0111361Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects achieved provider operations without canonical changes [33m 339[2mms[22m[39m
+2026-11-05T15:40:00.0113390Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects oversized provider operations without canonical changes [33m 348[2mms[22m[39m
+2026-11-05T15:40:00.0115515Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects foreign-target provider operations without canonical changes [33m 380[2mms[22m[39m
+2026-11-05T15:40:00.0117629Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects inflation provider operations without canonical changes [33m 393[2mms[22m[39m
+2026-11-05T15:40:00.0119918Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects partial-invalid provider operations without canonical changes [33m 413[2mms[22m[39m
+2026-11-05T15:40:00.0122202Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mrejects provider overspending against 80k without silently inflating the target [33m 529[2mms[22m[39m
+2026-11-05T15:40:00.0124622Z    [33m[2m✓[22m[39m A4 manual and conversational boundary[2m > [22mreopens and duplicates durable proposals, preserving exact applied lineage after original deletion [33m 621[2mms[22m[39m
+2026-11-05T15:40:01.7104671Z  [32m✓[39m [30m[43m 0 [49m[39m packages/runtime/test/playtest.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 1360[2mms[22m[39m
+2026-11-05T15:40:01.7113777Z    [33m[2m✓[22m[39m Foundation 5B seeded playtesting[2m > [22mruns a bounded deterministic 300-passage campaign without exhaustive enumeration [33m 905[2mms[22m[39m
+2026-11-05T15:40:02.6589752Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/recovery.test.ts [2m([22m[2m19 tests[22m[2m)[22m[33m 45815[2mms[22m[39m
+2026-11-05T15:40:02.6592311Z    [33m[2m✓[22m[39m Foundation 8A verified project recovery[2m > [22mverifies backup and restores a high-density A3 dossier built from many full valid unit outputs [33m 43291[2mms[22m[39m
+2026-11-05T15:40:02.6595203Z    [33m[2m✓[22m[39m Foundation 8A verified project recovery[2m > [22mverifies and restores A3 source bodies, exact evidence, attempts, corrected dossier history and approval [33m 386[2mms[22m[39m
+2026-11-05T15:40:02.7424024Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/project-setup.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 570[2mms[22m[39m
+2026-11-05T15:40:04.0890359Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/foundation-bootstrap-provider.test.ts [2m([22m[2m48 tests[22m[2m)[22m[33m 1017[2mms[22m[39m
+2026-11-05T15:40:06.2037221Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/playtesting.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 1138[2mms[22m[39m
+2026-11-05T15:40:06.2040212Z    [33m[2m✓[22m[39m Foundation 5B playtest API[2m > [22mpreviews backend bounds, persists deterministic campaigns, exposes compact metadata, and replays a sample [33m 374[2mms[22m[39m
+2026-11-05T15:40:06.2041704Z    [33m[2m✓[22m[39m Foundation 5B playtest API[2m > [22mreopens immutable historical evidence and replay after restart and newer authoring changes [33m 369[2mms[22m[39m
+2026-11-05T15:40:07.2390094Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/author-memory.test.ts [2m([22m[2m11 tests[22m[2m)[22m[33m 580[2mms[22m[39m
+2026-11-05T15:40:09.6781177Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/adaptation-intent.test.ts [2m([22m[2m28 tests[22m[2m)[22m[33m 1980[2mms[22m[39m
+2026-11-05T15:40:13.8215382Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/source-analysis-repository.test.ts [2m([22m[2m20 tests[22m[2m)[22m[33m 3701[2mms[22m[39m
+2026-11-05T15:40:13.8220764Z    [33m[2m✓[22m[39m A3 durable source analysis[2m > [22mreserves bytes for normalized IDs when a valid dense provider output has many short references [33m 387[2mms[22m[39m
+2026-11-05T15:40:13.8223465Z    [33m[2m✓[22m[39m A3 durable source analysis[2m > [22mbounds aggregate immutable dossier versions and rejects restore atomically at the history ceiling [33m 1420[2mms[22m[39m
+2026-11-05T15:40:13.8226077Z    [33m[2m✓[22m[39m A3 durable source analysis[2m > [22mcorrects/rejects/reclassifies without rewriting observations; approval is exact and explicit [33m 320[2mms[22m[39m
+2026-11-05T15:40:13.8228881Z    [33m[2m✓[22m[39m A3 durable source analysis[2m > [22mduplicates merge/split correction lineage with project-owned identities and every dependent remapped [33m 320[2mms[22m[39m
+2026-11-05T15:40:16.0745856Z  [32m✓[39m [30m[43m 0 [49m[39m packages/runtime/test/player.test.ts [2m([22m[2m50 tests[22m[2m)[22m[33m 1956[2mms[22m[39m
+2026-11-05T15:40:16.0755495Z    [33m[2m✓[22m[39m native player storage and scale[2m > [22mloads a 300-passage bundle while exposing only the current passage in its player view [33m 729[2mms[22m[39m
+2026-11-05T15:40:16.8073657Z  [32m✓[39m [30m[43m 0 [49m[39m packages/runtime/test/runtime.test.ts [2m([22m[2m11 tests[22m[2m)[22m[33m 458[2mms[22m[39m
+2026-11-05T15:40:16.8076235Z    [33m[2m✓[22m[39m Foundation 5A pure runtime[2m > [22mcompiles and runs a deterministic 300-passage path with trace growth limited to visited steps [33m 396[2mms[22m[39m
+2026-11-05T15:40:17.5968293Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/generation-repository.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 355[2mms[22m[39m
+2026-11-05T15:40:29.8528463Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/connected-text-game.test.ts [2m([22m[2m20 tests[22m[2m)[22m[33m 26119[2mms[22m[39m
+2026-11-05T15:40:29.8531593Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrequires fresh v2 authoring context, preserves retry identity, and replays a completed legacy receipt [33m 1720[2mms[22m[39m
+2026-11-05T15:40:29.8533569Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mauthors structure/new entities/prose, accepts exact candidates, validates, simulates all endings and compiles without provider calls [33m 1811[2mms[22m[39m
+2026-11-05T15:40:29.8535972Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mreplays each game mutation receipt after subsequent work without adding versions or builds [33m 1346[2mms[22m[39m
+2026-11-05T15:40:29.8537558Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrolls back initialize_game_plan and its receipt atomically, then allows retry [33m 1652[2mms[22m[39m
+2026-11-05T15:40:29.8539835Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrolls back approve_game_plan and its receipt atomically, then allows retry [33m 1193[2mms[22m[39m
+2026-11-05T15:40:29.8541704Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrolls back submit_draft and its receipt atomically, then allows retry [33m 1215[2mms[22m[39m
+2026-11-05T15:40:29.8543901Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrolls back accept_drafts and its receipt atomically, then allows retry [33m 1281[2mms[22m[39m
+2026-11-05T15:40:29.8545344Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrolls back simulate_game and its receipt atomically, then allows retry [33m 1310[2mms[22m[39m
+2026-11-05T15:40:29.8547332Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrolls back compile_game and its receipt atomically, then allows retry [33m 1414[2mms[22m[39m
+2026-11-05T15:40:29.8549348Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrejects stale candidate/acceptance/compile bindings and permits revised recovery without replacing accepted prose [33m 1413[2mms[22m[39m
+2026-11-05T15:40:29.8552113Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mprotects locked accepted prose and preserves old candidates and approval state [33m 1283[2mms[22m[39m
+2026-11-05T15:40:29.8554184Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrecovers after a reviewed material plan revision without accepting stale prose [33m 1300[2mms[22m[39m
+2026-11-05T15:40:29.8556176Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrejects new entity scope violations before canonical mutation [33m 446[2mms[22m[39m
+2026-11-05T15:40:29.8558439Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrejects new entity lifecycle violations before canonical mutation [33m 461[2mms[22m[39m
+2026-11-05T15:40:29.8570189Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrejects new entity duplicate violations before canonical mutation [33m 464[2mms[22m[39m
+2026-11-05T15:40:29.8572510Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrejects new entity schema violations before canonical mutation [33m 451[2mms[22m[39m
+2026-11-05T15:40:29.8574837Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrequires current foundations/plan approval and rejects unauthorized or foreign version reads [33m 476[2mms[22m[39m
+2026-11-05T15:40:29.8577551Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrejects forged game receipts against canonical lineage and retains complete full/privacy archive history [33m 2301[2mms[22m[39m
+2026-11-05T15:40:29.8580566Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22muses actual SDK connections across restart, including byte export retrieval and identical compile/simulation retries [33m 2344[2mms[22m[39m
+2026-11-05T15:40:29.8582222Z    [33m[2m✓[22m[39m M3 connected complete text-game lifecycle[2m > [22mrestores all game mutation receipts and duplicates newly authored entities with valid audit history [33m 2233[2mms[22m[39m
+2026-11-05T15:40:30.4291441Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/repair-proposal.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 164[2mms[22m[39m
+2026-11-05T15:40:31.4596940Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/source-analysis.test.ts [2m([22m[2m18 tests[22m[2m)[22m[33m 12979[2mms[22m[39m
+2026-11-05T15:40:31.4598475Z    [33m[2m✓[22m[39m A3 source-analysis lifecycle API[2m > [22mrejects over-budget scope at preview with an actionable error and zero provider calls [33m 337[2mms[22m[39m
+2026-11-05T15:40:31.4601015Z    [33m[2m✓[22m[39m A3 source-analysis lifecycle API[2m > [22mcorrects ordinary associations to exact supported record IDs and preserves original analysis without provider calls [33m 1080[2mms[22m[39m
+2026-11-05T15:40:31.4603301Z    [33m[2m✓[22m[39m A3 source-analysis lifecycle API[2m > [22mrequires explicit scope and exact authorization, analyzes offline, reviews evidence and explicitly approves without foundations [33m 586[2mms[22m[39m
+2026-11-05T15:40:31.4604917Z    [33m[2m✓[22m[39m A3 source-analysis lifecycle API[2m > [22mbounds a large synthetic corpus and paginates metadata/evidence instead of returning source bodies [33m 7289[2mms[22m[39m
+2026-11-05T15:40:31.4606412Z    [33m[2m✓[22m[39m A3 source-analysis lifecycle API[2m > [22mrecovers a running verified backup and duplicate without interrupting the original worker or auto-calling providers [33m 2121[2mms[22m[39m
+2026-11-05T15:40:34.2665971Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/connected-foundations.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 2982[2mms[22m[39m
+2026-11-05T15:40:34.2669027Z    [33m[2m✓[22m[39m M2 original-game foundation authoring[2m > [22mauthors and approves coherent originals in all six schemas, resumes without chat and keeps approval separate from Apply [33m 1067[2mms[22m[39m
+2026-11-05T15:40:34.2672779Z    [33m[2m✓[22m[39m M2 original-game foundation authoring[2m > [22mcreates once across concurrent SDK connections and recovers foundation approvals after a full server restart [33m 1345[2mms[22m[39m
+2026-11-05T15:40:35.0339257Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/repositories.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 284[2mms[22m[39m
+2026-11-05T15:40:38.4252558Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/connected-editing.test.ts [2m([22m[2m24 tests[22m[2m)[22m[33m 2466[2mms[22m[39m
+2026-11-05T15:40:38.4255772Z    [33m[2m✓[22m[39m M1 authenticated Streamable HTTP[2m > [22muses real SDK clients for concurrent retries, cross-project rejection and restart recovery without model calls [33m 459[2mms[22m[39m
+2026-11-05T15:40:41.1523404Z  [32m✓[39m [30m[43m 0 [49m[39m packages/runtime/test/economy.test.ts [2m([22m[2m48 tests[22m[2m)[22m[33m 2403[2mms[22m[39m
+2026-11-05T15:40:41.1524976Z    [33m[2m✓[22m[39m W4 atomic inventory, trade and canonical relationship predicates[2m > [22mpurchases, gifts, changes prerequisites and pays event costs/rewards as deterministic atomic actions [33m 302[2mms[22m[39m
+2026-11-05T15:40:43.6711123Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/repair-proposals.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 11232[2mms[22m[39m
+2026-11-05T15:40:43.6713769Z    [33m[2m✓[22m[39m Foundation 6B repair proposals[2m > [22mredacts captured conversational direction without breaking completed repair authorization or recovery [33m 4416[2mms[22m[39m
+2026-11-05T15:40:43.6716344Z    [33m[2m✓[22m[39m Foundation 6B repair proposals[2m > [22mpreviews and persists a provider-free immutable proposal without canonical mutation [33m 327[2mms[22m[39m
+2026-11-05T15:40:43.6719128Z    [33m[2m✓[22m[39m Foundation 6B repair proposals[2m > [22mrequires exact authorization, calls the provider only on Start, and persists the valid proposal [33m 1705[2mms[22m[39m
+2026-11-05T15:40:43.6722027Z    [33m[2m✓[22m[39m Foundation 6B repair proposals[2m > [22mretains one structural repair and explicit failed-unit retry history [33m 1653[2mms[22m[39m
+2026-11-05T15:40:43.6724032Z    [33m[2m✓[22m[39m Foundation 6B repair proposals[2m > [22mblocks stale authorized work before Start and preserves cancellation [33m 741[2mms[22m[39m
+2026-11-05T15:40:43.6725564Z    [33m[2m✓[22m[39m Foundation 6B repair proposals[2m > [22muses the same small output ceiling for generation and structural repair [33m 813[2mms[22m[39m
+2026-11-05T15:40:43.6727356Z    [33m[2m✓[22m[39m Foundation 6B repair proposals[2m > [22mfails the active attempt for a semantically invalid candidate before allowing an explicit retry [33m 1576[2mms[22m[39m
+2026-11-05T15:40:56.3833176Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/studio-portability.test.ts [2m([22m[2m17 tests[22m[2m)[22m[33m 11790[2mms[22m[39m
+2026-11-05T15:40:56.3836032Z    [33m[2m✓[22m[39m A7 Studio archives[2m > [22mpreserves coexisting production histories through full backup and transactional duplication (conversational direction=false) [33m 5038[2mms[22m[39m
+2026-11-05T15:40:56.3839053Z    [33m[2m✓[22m[39m A7 Studio archives[2m > [22mpreserves coexisting production histories through full backup and transactional duplication (conversational direction=true) [33m 4862[2mms[22m[39m
+2026-11-05T15:40:56.3841590Z    [33m[2m✓[22m[39m A7 Studio archives[2m > [22mreattaches only exact material to the existing source identity and revalidates the complete history [33m 473[2mms[22m[39m
+2026-11-05T15:41:08.0707630Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/illustrated-scenes.test.ts [2m([22m[2m16 tests[22m[2m)[22m[33m 26247[2mms[22m[39m
+2026-11-05T15:41:08.0709810Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mkeeps review separate, pins approved images, compiles and packages only public presentation, preserving old text builds/saves [33m 2643[2mms[22m[39m
+2026-11-05T15:41:08.0711139Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mrejects candidate before applying [33m 1381[2mms[22m[39m
+2026-11-05T15:41:08.0712071Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mrejects wrong-asset before applying [33m 1280[2mms[22m[39m
+2026-11-05T15:41:08.0712996Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mrejects other-project before applying [33m 1260[2mms[22m[39m
+2026-11-05T15:41:08.0714408Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mrejects duplicate-position before applying [33m 1217[2mms[22m[39m
+2026-11-05T15:41:08.0715406Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mrejects text-with-art before applying [33m 1307[2mms[22m[39m
+2026-11-05T15:41:08.0716334Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mrejects stale-passage before applying [33m 1261[2mms[22m[39m
+2026-11-05T15:41:08.0717736Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mrejects stale review and operation collisions, handles overlapping applies, atomically rolls back receipt failure then replays lost responses [33m 1234[2mms[22m[39m
+2026-11-05T15:41:08.0720664Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mrequires explicit scene re-review after a legitimate passage revision, while historical illustrated builds remain playable [33m 1733[2mms[22m[39m
+2026-11-05T15:41:08.0723623Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mretains pinned approved bytes after replacement; usage tracks assignments, and text fallback/removal remains recoverable [33m 1595[2mms[22m[39m
+2026-11-05T15:41:08.0725184Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mblocks missing-file without publishing broken media and recovers after restoration [33m 1345[2mms[22m[39m
+2026-11-05T15:41:08.0726518Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mblocks invalid-file without publishing broken media and recovers after restoration [33m 1343[2mms[22m[39m
+2026-11-05T15:41:08.0727860Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mrestores and duplicates full-fidelity exact scene/build history; full archive replays receipts [33m 3200[2mms[22m[39m
+2026-11-05T15:41:08.0729604Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mrestores and duplicates privacy-redacted exact scene/build history; full archive replays receipts [33m 2868[2mms[22m[39m
+2026-11-05T15:41:08.0731118Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mrejects direct persistence and archive scene/asset lineage tampering, as well as malformed native references [33m 1323[2mms[22m[39m
+2026-11-05T15:41:08.0732621Z    [33m[2m✓[22m[39m V2 reviewed illustrated scenes[2m > [22mkeeps maximum Unicode scene reviews below the MCP response ceiling and normalizes direct persistence content [33m 1257[2mms[22m[39m
+2026-11-05T15:41:10.1801735Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/simulation.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 1142[2mms[22m[39m
+2026-11-05T15:41:10.1820832Z    [33m[2m✓[22m[39m Foundation 5A simulation API[2m > [22mcaptures exact approved input, runs and reopens provider-free evidence, and ignores later mutable heads [33m 379[2mms[22m[39m
+2026-11-05T15:41:18.8191845Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/progression.test.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 21457[2mms[22m[39m
+2026-11-05T15:41:18.8195274Z    [33m[2m✓[22m[39m W2 durable chapters/events across shared authoring and publication[2m > [22mreviews without mutation, returns bounded non-exhaustive diagnostics, compiles public rules and previews through the shared MCP operation [33m 2234[2mms[22m[39m
+2026-11-05T15:41:18.8201564Z    [33m[2m✓[22m[39m W2 durable chapters/events across shared authoring and publication[2m > [22mrejects contradictory prerequisites, bad references and direct persistence bypasses without changing durable history [33m 1301[2mms[22m[39m
+2026-11-05T15:41:18.8205407Z    [33m[2m✓[22m[39m W2 durable chapters/events across shared authoring and publication[2m > [22mguards concurrent/changed reviews, safely retries receipts after a lost response, and rolls back a failed receipt [33m 1357[2mms[22m[39m
+2026-11-05T15:41:18.8209278Z    [33m[2m✓[22m[39m W2 durable chapters/events across shared authoring and publication[2m > [22mretains exact W2 history in full-fidelity archives, receipts, duplication and historical compilation [33m 3429[2mms[22m[39m
+2026-11-05T15:41:18.8213349Z    [33m[2m✓[22m[39m W2 durable chapters/events across shared authoring and publication[2m > [22mretains exact W2 history in privacy-redacted archives, receipts, duplication and historical compilation [33m 3352[2mms[22m[39m
+2026-11-05T15:41:18.8216690Z    [33m[2m✓[22m[39m W2 durable chapters/events across shared authoring and publication[2m > [22mbinds progression-only destination versions and rejects forged portable histories [33m 1645[2mms[22m[39m
+2026-11-05T15:41:18.8220138Z    [33m[2m✓[22m[39m W2 diagnostics, backups and installed MCP transport[2m > [22msurfaces potential traps in review and publication without misrepresenting them as exhaustive blockers [33m 1386[2mms[22m[39m
+2026-11-05T15:41:18.8223208Z    [33m[2m✓[22m[39m W2 diagnostics, backups and installed MCP transport[2m > [22mbacks up/restores exact W2 definitions, historical builds and replay-safe outcomes [33m 4344[2mms[22m[39m
+2026-11-05T15:41:18.8226309Z    [33m[2m✓[22m[39m W2 diagnostics, backups and installed MCP transport[2m > [22mauthors and previews W2 with the installed MCP SDK, refusing unauthorized projects and provider generation [33m 2408[2mms[22m[39m
+2026-11-05T15:41:21.8424976Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/repair-planning.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 2070[2mms[22m[39m
+2026-11-05T15:41:21.8426289Z    [33m[2m✓[22m[39m Foundation 6A repair planning API[2m > [22mresolves exact immutable F3/F5A/F5B/F5C evidence and rejects reference tampering [33m 1110[2mms[22m[39m
+2026-11-05T15:41:21.8427764Z    [33m[2m✓[22m[39m Foundation 6A repair planning API[2m > [22mpreviews and reopens a durable exact plan without provider calls or canonical mutation, then marks it historical [33m 434[2mms[22m[39m
+2026-11-05T15:41:21.8429520Z    [33m[2m✓[22m[39m Foundation 6A repair planning API[2m > [22mpreviews accepted-root prose dependencies across lifecycle copies and a transitive chain [33m 518[2mms[22m[39m
+2026-11-05T15:41:23.2803964Z  [32m✓[39m [30m[43m 0 [49m[39m packages/runtime/test/people.test.ts [2m([22m[2m33 tests[22m[2m)[22m[33m 1131[2mms[22m[39m
+2026-11-05T15:41:24.8028171Z  [32m✓[39m [30m[43m 0 [49m[39m packages/runtime/test/progression.test.ts [2m([22m[2m32 tests[22m[2m)[22m[33m 1228[2mms[22m[39m
+2026-11-05T15:41:25.4934546Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/project-health.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 261[2mms[22m[39m
+2026-11-05T15:41:25.9529951Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/passage-planning-context.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 62[2mms[22m[39m
+2026-11-05T15:41:30.3487327Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/narrative-review.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 3508[2mms[22m[39m
+2026-11-05T15:41:30.3491724Z    [33m[2m✓[22m[39m Foundation 5C narrative review API[2m > [22mpreviews and saves without provider calls, requires exact authorization, then persists immutable findings [33m 2083[2mms[22m[39m
+2026-11-05T15:41:30.3501777Z    [33m[2m✓[22m[39m Foundation 5C narrative review API[2m > [22mcancels delayed provider work without late findings and recovers interrupted running units as retryable [33m 540[2mms[22m[39m
+2026-11-05T15:41:30.3507723Z    [33m[2m✓[22m[39m Foundation 5C narrative review API[2m > [22mrejects invented evidence and oversized offline output without partial findings [33m 324[2mms[22m[39m
+2026-11-05T15:41:32.9549721Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/economy.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 21828[2mms[22m[39m
+2026-11-05T15:41:32.9553157Z    [33m[2m✓[22m[39m W4 shared trade authoring, exact history and offline exports[2m > [22mbinds canonical relationships, inspects without mutation, compiles deterministic inventory and retains the older bundle [33m 2007[2mms[22m[39m
+2026-11-05T15:41:32.9557144Z    [33m[2m✓[22m[39m W4 shared trade authoring, exact history and offline exports[2m > [22mrejects invalid trade references and direct persistence bypasses without changing current history [33m 1413[2mms[22m[39m
+2026-11-05T15:41:32.9559637Z    [33m[2m✓[22m[39m W4 shared trade authoring, exact history and offline exports[2m > [22mbinds review to canonical mechanics versions and preserves exact older relationship bounds [33m 1547[2mms[22m[39m
+2026-11-05T15:41:32.9562254Z    [33m[2m✓[22m[39m W4 shared trade authoring, exact history and offline exports[2m > [22mrolls back failed Apply receipts and retries lost responses with the same UUID exactly once [33m 1465[2mms[22m[39m
+2026-11-05T15:41:32.9564549Z    [33m[2m✓[22m[39m W4 shared trade authoring, exact history and offline exports[2m > [22mretains full-fidelity stock, rules and historical builds through archive and duplication [33m 4154[2mms[22m[39m
+2026-11-05T15:41:32.9566860Z    [33m[2m✓[22m[39m W4 shared trade authoring, exact history and offline exports[2m > [22mretains privacy-redacted stock, rules and historical builds through archive and duplication [33m 3819[2mms[22m[39m
+2026-11-05T15:41:32.9570453Z    [33m[2m✓[22m[39m W4 shared trade authoring, exact history and offline exports[2m > [22mbacks up and restores inventory history and retry receipts and rejects tampered trade history [33m 4631[2mms[22m[39m
+2026-11-05T15:41:32.9573073Z    [33m[2m✓[22m[39m W4 shared trade authoring, exact history and offline exports[2m > [22mauthors inventory and inspects gameplay through the installed MCP SDK with project/loopback guards and no provider [33m 2789[2mms[22m[39m
+2026-11-05T15:41:35.0846515Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/passage-plan.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 1215[2mms[22m[39m
+2026-11-05T15:41:35.0848294Z    [33m[2m✓[22m[39m manual passage-plan workspace[2m > [22mround-trips, versions, reorders, exports, snapshots, and restores 300 passages offline [33m 983[2mms[22m[39m
+2026-11-05T15:41:35.7469308Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/narrative-review-repository.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 222[2mms[22m[39m
+2026-11-05T15:41:54.4705940Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/people.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 17769[2mms[22m[39m
+2026-11-05T15:41:54.4708965Z    [33m[2m✓[22m[39m W3 shared people authoring, history and offline publication[2m > [22mstores versioned schedules/rules and inspects a player-safe presence view without mutation or provider calls [33m 1886[2mms[22m[39m
+2026-11-05T15:41:54.4730583Z    [33m[2m✓[22m[39m W3 shared people authoring, history and offline publication[2m > [22mrejects schedule/override/mandatory conflicts and persistence bypasses, without changing current history [33m 1291[2mms[22m[39m
+2026-11-05T15:41:54.4743241Z    [33m[2m✓[22m[39m W3 shared people authoring, history and offline publication[2m > [22muses exact reviewed versions, retries lost responses and rolls back failed receipts for schedule edits [33m 1311[2mms[22m[39m
+2026-11-05T15:41:54.4746024Z    [33m[2m✓[22m[39m W3 shared people authoring, history and offline publication[2m > [22mpreserves full-fidelity schedules, exact historical builds, duplication and reviewed disabling [33m 3504[2mms[22m[39m
+2026-11-05T15:41:54.4747757Z    [33m[2m✓[22m[39m W3 shared people authoring, history and offline publication[2m > [22mpreserves privacy-redacted schedules, exact historical builds, duplication and reviewed disabling [33m 3165[2mms[22m[39m
+2026-11-05T15:41:54.4750130Z    [33m[2m✓[22m[39m W3 shared people authoring, history and offline publication[2m > [22mbacks up/restores W3 history and retry receipts and rejects resealed invalid history [33m 4151[2mms[22m[39m
+2026-11-05T15:41:54.4753032Z    [33m[2m✓[22m[39m W3 shared people authoring, history and offline publication[2m > [22mauthors and inspects presence with the installed MCP SDK, loopback guards and no provider [33m 2461[2mms[22m[39m
+2026-11-05T15:42:05.2013401Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/world.test.ts [2m([22m[2m22 tests[22m[2m)[22m[33m 34126[2mms[22m[39m
+2026-11-05T15:42:05.2014977Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mseparates review/Apply/publication, preserves historical text builds, packages only approved map data and rejects unsupported exports [33m 2333[2mms[22m[39m
+2026-11-05T15:42:05.2016687Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects simultaneous stale applies, UUID collisions, rolls back receipt failure and safely retries lost responses [33m 1411[2mms[22m[39m
+2026-11-05T15:42:05.2017915Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects cycle before persistence [33m 1362[2mms[22m[39m
+2026-11-05T15:42:05.2019315Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects missing-parent before persistence [33m 1402[2mms[22m[39m
+2026-11-05T15:42:05.2020499Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects missing-destination before persistence [33m 1300[2mms[22m[39m
+2026-11-05T15:42:05.2021591Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects duplicate-id before persistence [33m 1269[2mms[22m[39m
+2026-11-05T15:42:05.2022650Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects duplicate-passage before persistence [33m 1241[2mms[22m[39m
+2026-11-05T15:42:05.2023734Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects negative-duration before persistence [33m 1216[2mms[22m[39m
+2026-11-05T15:42:05.2024798Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects fractional-duration before persistence [33m 1242[2mms[22m[39m
+2026-11-05T15:42:05.2025824Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects marker-range before persistence [33m 1224[2mms[22m[39m
+2026-11-05T15:42:05.2026831Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects candidate-map before persistence [33m 1210[2mms[22m[39m
+2026-11-05T15:42:05.2027823Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects wrong-map before persistence [33m 1210[2mms[22m[39m
+2026-11-05T15:42:05.2029463Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects other-project-passage before persistence [33m 1234[2mms[22m[39m
+2026-11-05T15:42:05.2030567Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects empty-hours before persistence [33m 1239[2mms[22m[39m
+2026-11-05T15:42:05.2031584Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects unknown-version before persistence [33m 1234[2mms[22m[39m
+2026-11-05T15:42:05.2032908Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects disabled-with-data before persistence [33m 1326[2mms[22m[39m
+2026-11-05T15:42:05.2034610Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrejects wrong-start before persistence [33m 1260[2mms[22m[39m
+2026-11-05T15:42:05.2036343Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrequires explicit rebind after passage revision, preserves historical world builds and allows reviewed disabling [33m 1958[2mms[22m[39m
+2026-11-05T15:42:05.2038303Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrestores and duplicates full-fidelity world histories and full-fidelity receipts [33m 3549[2mms[22m[39m
+2026-11-05T15:42:05.2040619Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mrestores and duplicates privacy-redacted world histories and full-fidelity receipts [33m 3246[2mms[22m[39m
+2026-11-05T15:42:05.2042175Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mguards direct persistence identity/history and corrupted dependencies, with non-destructive dependency restoration [33m 1377[2mms[22m[39m
+2026-11-05T15:42:05.2044639Z    [33m[2m✓[22m[39m W1 durable reviewed locations and time[2m > [22mbinds native inputs to exact world content and bounds Unicode definitions before MCP read/review overflow [33m 1279[2mms[22m[39m
+2026-11-05T15:42:07.1203807Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/quick-generate.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 1030[2mms[22m[39m
+2026-11-05T15:42:07.6681047Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/native-compilation.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 110[2mms[22m[39m
+2026-11-05T15:42:08.1344720Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/passage-drafting-context.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 68[2mms[22m[39m
+2026-11-05T15:42:08.5839685Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/passage-plan-validator.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+2026-11-05T15:42:09.1680907Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/narrative-review.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 162[2mms[22m[39m
+2026-11-05T15:42:10.4227134Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/portable-project-repository.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 839[2mms[22m[39m
+2026-11-05T15:42:10.4229496Z    [33m[2m✓[22m[39m PortableProjectRepository[2m > [22mround-trips a representative 300-passage immutable graph [33m 484[2mms[22m[39m
+2026-11-05T15:42:11.0050090Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/recovery.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 155[2mms[22m[39m
+2026-11-05T15:42:12.7222045Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/passage-draft-review.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 810[2mms[22m[39m
+2026-11-05T15:42:12.7224232Z    [33m[2m✓[22m[39m passage draft review API[2m > [22mreviews, compares, accepts, advances, locks, unlocks, and replaces prose without provider calls [33m 312[2mms[22m[39m
+2026-11-05T15:42:14.4086542Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/authoring-delivery.test.ts [2m([22m[2m16 tests[22m[2m)[22m[33m 1238[2mms[22m[39m
+2026-11-05T15:42:14.4090088Z    [33m[2m✓[22m[39m Creator HTTP paths through a real client with mocked provider responses[2m > [22mQuick rejects full-envelope overflow before any provider request [33m 772[2mms[22m[39m
+2026-11-05T15:42:16.2091224Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/recovery-routes.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 828[2mms[22m[39m
+2026-11-05T15:42:16.2092658Z    [33m[2m✓[22m[39m Foundation 8A recovery HTTP boundary[2m > [22mdownloads a verified backup, previews without writes, rejects collision, and restores after explicit deletion [33m 556[2mms[22m[39m
+2026-11-05T15:42:16.5417485Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/journal.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 21128[2mms[22m[39m
+2026-11-05T15:42:16.5420103Z    [33m[2m✓[22m[39m W5 shared journal controls, history and safe MCP projection[2m > [22mauthors and inspects only disclosed data, preserves earlier builds and never calls a provider [33m 1878[2mms[22m[39m
+2026-11-05T15:42:16.5423091Z    [33m[2m✓[22m[39m W5 shared journal controls, history and safe MCP projection[2m > [22mrejects invalid references through shared review and direct persistence with no partial history [33m 1410[2mms[22m[39m
+2026-11-05T15:42:16.5425933Z    [33m[2m✓[22m[39m W5 shared journal controls, history and safe MCP projection[2m > [22mbinds visibility reviews to exact canonical mechanics and recompiles historical labels and bounds [33m 1520[2mms[22m[39m
+2026-11-05T15:42:16.5428706Z    [33m[2m✓[22m[39m W5 shared journal controls, history and safe MCP projection[2m > [22mrejects stale world edits, rolls back failed writes and safely retries a lost Apply response [33m 1356[2mms[22m[39m
+2026-11-05T15:42:16.5431533Z    [33m[2m✓[22m[39m W5 shared journal controls, history and safe MCP projection[2m > [22mretains full-fidelity journal definitions and historical builds through archive and duplication [33m 3556[2mms[22m[39m
+2026-11-05T15:42:16.5433214Z    [33m[2m✓[22m[39m W5 shared journal controls, history and safe MCP projection[2m > [22mretains privacy-redacted journal definitions and historical builds through archive and duplication [33m 3612[2mms[22m[39m
+2026-11-05T15:42:16.5434800Z    [33m[2m✓[22m[39m W5 shared journal controls, history and safe MCP projection[2m > [22mbacks up and restores journal history and retry receipts and rejects tampered definitions [33m 4795[2mms[22m[39m
+2026-11-05T15:42:16.5437265Z    [33m[2m✓[22m[39m W5 shared journal controls, history and safe MCP projection[2m > [22mauthors journal visibility and inspects disclosed gameplay through the installed MCP SDK with project/loopback guards and no provider [33m 2999[2mms[22m[39m
+2026-11-05T15:42:17.3301207Z  [32m✓[39m [30m[43m 0 [49m[39m packages/runtime/test/native-bundle.test.ts [2m([22m[2m20 tests[22m[2m)[22m[33m 418[2mms[22m[39m
+2026-11-05T15:42:17.3302350Z    [33m[2m✓[22m[39m native game bundle[2m > [22mrejects oversized required prose locally without truncation [33m 332[2mms[22m[39m
+2026-11-05T15:42:18.1416605Z  [32m✓[39m [30m[43m 0 [49m[39m packages/runtime/test/journal.test.ts [2m([22m[2m32 tests[22m[2m)[22m[33m 1626[2mms[22m[39m
+2026-11-05T15:42:20.7523222Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/desktop-mcp.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 3047[2mms[22m[39m
+2026-11-05T15:42:20.7525728Z    [33m[2m✓[22m[39m CP1 starts the documented persistent host, exposes the full configured tool set and recovers reviewed drafts across process restarts (SDK only) [33m 2821[2mms[22m[39m
+2026-11-05T15:42:21.0499424Z  [32m✓[39m [30m[43m 0 [49m[39m packages/openrouter/test/client.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+2026-11-05T15:42:21.0672644Z  [32m✓[39m [30m[43m 0 [49m[39m packages/domain/test/source-analysis.test.ts [2m([22m[2m13 tests[22m[2m)[22m[33m 2600[2mms[22m[39m
+2026-11-05T15:42:21.0675118Z    [33m[2m✓[22m[39m A3 deterministic analysis contracts[2m > [22mpreflights dense worst-case scope, accepts many full valid outputs and bounds final provenance/counts/bytes [33m 2481[2mms[22m[39m
+2026-11-05T15:42:21.4891373Z  [32m✓[39m [30m[43m 0 [49m[39m packages/domain/test/adaptation-intent.test.ts [2m([22m[2m33 tests[22m[2m)[22m[32m 109[2mms[22m[39m
+2026-11-05T15:42:21.5672230Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/repair-planning.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 34[2mms[22m[39m
+2026-11-05T15:42:22.0456806Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/creative-direction.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 81[2mms[22m[39m
+2026-11-05T15:42:22.1751244Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/conversations.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 239[2mms[22m[39m
+2026-11-05T15:42:22.8068530Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/repair-plan-repository.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 177[2mms[22m[39m
+2026-11-05T15:42:23.3309018Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/passage-proposal-repository.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 90[2mms[22m[39m
+2026-11-05T15:42:23.7674691Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/authoring-settings.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 1155[2mms[22m[39m
+2026-11-05T15:42:23.7676864Z    [33m[2m✓[22m[39m installed MCP SDK settings lifecycle (native desktop remains separate)[2m > [22mdiscovers scoped guide operations, revises a neutral project, and reconnects/replays after restart [33m 864[2mms[22m[39m
+2026-11-05T15:42:23.8593084Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/passage-planning-proposal.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+2026-11-05T15:42:24.8506965Z  [32m✓[39m [30m[43m 0 [49m[39m packages/runtime/test/world.test.ts [2m([22m[2m29 tests[22m[2m)[22m[33m 707[2mms[22m[39m
+2026-11-05T15:42:25.1602606Z  [32m✓[39m [30m[43m 0 [49m[39m packages/openrouter/test/powershell-dpapi-adapter.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+2026-11-05T15:42:25.4816472Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/commands.test.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 758[2mms[22m[39m
+2026-11-05T15:42:26.9666514Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/author-memory.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 487[2mms[22m[39m
+2026-11-05T15:42:27.8074488Z  [32m✓[39m [30m[43m 0 [49m[39m packages/runtime/test/people-review-regressions.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 533[2mms[22m[39m
+2026-11-05T15:42:28.2522245Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/repair-creative-direction-scope.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+2026-11-05T15:42:28.8809614Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/commands.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 206[2mms[22m[39m
+2026-11-05T15:42:30.3620597Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/publication-export-routes.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 555[2mms[22m[39m
+2026-11-05T15:42:32.4268689Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/adaptation-intent-recovery.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 1455[2mms[22m[39m
+2026-11-05T15:42:32.4271885Z    [33m[2m✓[22m[39m A4 verified recovery[2m > [22mround-trips every origin category, exact evidence, version/approval history and applied proposals through verified backup [33m 1454[2mms[22m[39m
+2026-11-05T15:42:32.7034722Z  [32m✓[39m [30m[43m 0 [49m[39m packages/openrouter/test/stream.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+2026-11-05T15:42:37.6512310Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/history-heavy-project.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 4012[2mms[22m[39m
+2026-11-05T15:42:37.6514818Z    [33m[2m✓[22m[39m Foundation 8B deterministic history-heavy project[2m > [22mkeeps every operational list and Health structurally bounded with heavy bodies detail-only [33m 4011[2mms[22m[39m
+2026-11-05T15:42:38.0943726Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/passage-drafting-plan.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+2026-11-05T15:42:38.6409250Z  [32m✓[39m [30m[43m 0 [49m[39m packages/importers/test/importers.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 276[2mms[22m[39m
+2026-11-05T15:42:38.9711152Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/project-setup.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+2026-11-05T15:42:40.0582584Z  [32m✓[39m [30m[43m 0 [49m[39m packages/runtime/test/journal-progression.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 809[2mms[22m[39m
+2026-11-05T15:42:40.0590173Z    [33m[2m✓[22m[39m journal-only progression time boundaries[2m > [22mrecords a short window during a 15-minute stationary event, saves and replays [33m 332[2mms[22m[39m
+2026-11-05T15:42:40.4867936Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/passage-generation-plan.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+2026-11-05T15:42:40.9224004Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/openrouter-narrative-review-provider.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+2026-11-05T15:42:41.3783333Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/openrouter-passage-drafting-provider.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+2026-11-05T15:42:41.9973386Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/passage-plan-repository.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 193[2mms[22m[39m
+2026-11-05T15:42:42.3386524Z  [32m✓[39m [30m[43m 0 [49m[39m packages/domain/test/repair-proposal-contract.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+2026-11-05T15:42:42.6088284Z  [32m✓[39m [30m[43m 0 [49m[39m packages/openrouter/test/format-only-repair.test.ts [2m([22m[2m22 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+2026-11-05T15:42:43.0363234Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/long-form-foundation.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 32[2mms[22m[39m
+2026-11-05T15:42:43.5362919Z  [32m✓[39m [30m[43m 0 [49m[39m packages/export-twine/test/native-twee.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 145[2mms[22m[39m
+2026-11-05T15:42:43.9587111Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/passage-drafting-output.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+2026-11-05T15:42:44.2972459Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/quick-generation-api.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+2026-11-05T15:42:44.7239866Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/openrouter-passage-planning-provider.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 17[2mms[22m[39m
+2026-11-05T15:42:45.3045902Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/review.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 75[2mms[22m[39m
+2026-11-05T15:42:45.6096441Z  [32m✓[39m [30m[43m 0 [49m[39m packages/domain/test/simulate.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+2026-11-05T15:42:45.9371496Z  [32m✓[39m [30m[43m 0 [49m[39m packages/domain/test/authoring-instructions.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+2026-11-05T15:42:46.0105717Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/w6-demo.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 19858[2mms[22m[39m
+2026-11-05T15:42:46.0108625Z    [33m[2m✓[22m[39m W6 authors a complete visual game through the real MCP SDK and replays both configurations, optional paths and next-day encounters [33m 19856[2mms[22m[39m
+2026-11-05T15:42:47.2749289Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/settings.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 284[2mms[22m[39m
+2026-11-05T15:42:47.4071633Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/fake-model-provider.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 543[2mms[22m[39m
+2026-11-05T15:42:47.4075658Z    [33m[2m✓[22m[39m offline E2E model provider gate[2m > [22mselects the fake provider only when the explicit test runtime is also set [33m 325[2mms[22m[39m
+2026-11-05T15:42:47.5939204Z  [32m✓[39m [30m[43m 0 [49m[39m packages/domain/test/domain.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+2026-11-05T15:42:47.7754787Z  [32m✓[39m [30m[43m 0 [49m[39m packages/export-twine/test/render-twee.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 7[2mms[22m[39m
+2026-11-05T15:42:47.9895328Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/quick-generation-reasoning.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+2026-11-05T15:42:48.4360376Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/playtest.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 129[2mms[22m[39m
+2026-11-05T15:42:48.4569497Z  [32m✓[39m [30m[43m 0 [49m[39m packages/persistence/test/repair-application-repository.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+2026-11-05T15:42:48.8290343Z  [32m✓[39m [30m[43m 0 [49m[39m packages/export-twine/test/compile.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+2026-11-05T15:42:49.2536596Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/long-form-story-bible.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+2026-11-05T15:42:49.7039699Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/import.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 321[2mms[22m[39m
+2026-11-05T15:42:50.1209562Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/long-form-mechanics-plan.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+2026-11-05T15:42:50.4090158Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/analysis.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 219[2mms[22m[39m
+2026-11-05T15:42:50.8521348Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/long-form-route-plan.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+2026-11-05T15:42:50.8528311Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/export.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 242[2mms[22m[39m
+2026-11-05T15:42:51.1202901Z  [32m✓[39m [30m[43m 0 [49m[39m packages/openrouter/test/redact.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+2026-11-05T15:42:51.3106589Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/long-form-ending-plan.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+2026-11-05T15:42:51.3552884Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/quick-generation-events.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+2026-11-05T15:42:51.7480513Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/project-brief.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+2026-11-05T15:42:51.9064385Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/playwright-config.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+2026-11-05T15:42:52.1583055Z  [32m✓[39m [30m[43m 0 [49m[39m packages/openrouter/test/catalog.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 4[2mms[22m[39m
+2026-11-05T15:42:52.6893877Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/job-runner.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 34[2mms[22m[39m
+2026-11-05T15:42:52.9207536Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/projects.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 241[2mms[22m[39m
+2026-11-05T15:42:53.0520168Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/ui-smoke.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 14[2mms[22m[39m
+2026-11-05T15:42:53.3540253Z  [32m✓[39m [30m[43m 0 [49m[39m packages/pipeline/test/analyze-source.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 6[2mms[22m[39m
+2026-11-05T15:42:53.6583972Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/config.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+2026-11-05T15:42:53.8723012Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/production-entry.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 603[2mms[22m[39m
+2026-11-05T15:42:53.8724997Z    [33m[2m✓[22m[39m loads the compiled server entry with Node package exports [33m 602[2mms[22m[39m
+2026-11-05T15:42:54.1380147Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/setup.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 10[2mms[22m[39m
+2026-11-05T15:42:54.3982551Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/findings.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 9[2mms[22m[39m
+2026-11-05T15:42:54.6560537Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/settings.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 11[2mms[22m[39m
+2026-11-05T15:42:54.8281877Z  [32m✓[39m [30m[43m 0 [49m[39m apps/server/test/health.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 231[2mms[22m[39m
+2026-11-05T15:42:54.9527946Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/studio.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 11[2mms[22m[39m
+2026-11-05T15:42:58.0021999Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/quick-generator.test.tsx [2m([22m[2m17 tests[22m[2m)[22m[33m 1939[2mms[22m[39m
+2026-11-05T15:42:58.0024437Z    [33m[2m✓[22m[39m QuickGenerator generation controls[2m > [22mappends streamed activity in order and keeps it beside a recoverable error [33m 412[2mms[22m[39m
+2026-11-05T15:42:58.0027232Z    [33m[2m✓[22m[39m QuickGenerator generation controls[2m > [22maborts the active generation when cancelled [33m 368[2mms[22m[39m
+2026-11-05T15:42:58.0029857Z    [33m[2m✓[22m[39m QuickGenerator generation controls[2m > [22mignores a cancelled run's late stream after immediately starting another run [33m 389[2mms[22m[39m
+2026-11-05T15:43:02.8382368Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/progression.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 3807[2mms[22m[39m
+2026-11-05T15:43:02.8384036Z    [33m[2m✓[22m[39m blocks milestone removal with named grant, carry and prerequisite dependencies until the author clears each reference [33m 579[2mms[22m[39m
+2026-11-05T15:43:02.8385260Z    [33m[2m✓[22m[39m keeps the preview when shared map artwork is removed, and reuses its cache only when referenced again [33m 565[2mms[22m[39m
+2026-11-05T15:43:02.8386504Z    [33m[2m✓[22m[39m edits W2 prerequisites/policies through shared world review, clears consent on edits, and retries a lost Apply with the same UUID [33m 1246[2mms[22m[39m
+2026-11-05T15:43:02.8387768Z    [33m[2m✓[22m[39m keeps Creator's map preview available with asset URLs while rejecting contradictory draft progression [33m 323[2mms[22m[39m
+2026-11-05T15:43:02.8389214Z    [33m[2m✓[22m[39m does not autosave on preview/cancel, confirms the actual carry/expiry once, and persists its state [33m 373[2mms[22m[39m
+2026-11-05T15:43:02.9562381Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/native-player.test.tsx [2m([22m[2m19 tests[22m[2m)[22m[33m 6856[2mms[22m[39m
+2026-11-05T15:43:02.9564396Z    [33m[2m✓[22m[39m NativePlayer[2m > [22mretains the authored action outcome independently of enabled autosave, committing time once [33m 764[2mms[22m[39m
+2026-11-05T15:43:02.9566306Z    [33m[2m✓[22m[39m NativePlayer[2m > [22mretains the authored action outcome independently of disabled autosave, committing time once [33m 442[2mms[22m[39m
+2026-11-05T15:43:02.9567617Z    [33m[2m✓[22m[39m NativePlayer[2m > [22mretains the authored action outcome independently of failed autosave, committing time once [33m 454[2mms[22m[39m
+2026-11-05T15:43:02.9568997Z    [33m[2m✓[22m[39m NativePlayer[2m > [22mclears an earlier action outcome when choice replaces the session [33m 431[2mms[22m[39m
+2026-11-05T15:43:02.9570214Z    [33m[2m✓[22m[39m NativePlayer[2m > [22mclears an earlier action outcome when rewind replaces the session [33m 413[2mms[22m[39m
+2026-11-05T15:43:02.9571541Z    [33m[2m✓[22m[39m NativePlayer[2m > [22mclears an earlier action outcome when restart replaces the session [33m 455[2mms[22m[39m
+2026-11-05T15:43:02.9572549Z    [33m[2m✓[22m[39m NativePlayer[2m > [22mclears an earlier action outcome when load replaces the session [33m 491[2mms[22m[39m
+2026-11-05T15:43:02.9574223Z    [33m[2m✓[22m[39m NativePlayer[2m > [22mclears an earlier action outcome when route replaces the session [33m 490[2mms[22m[39m
+2026-11-05T15:43:02.9576258Z    [33m[2m✓[22m[39m NativePlayer[2m > [22mplays, autosaves, reloads, manually saves/loads, rewinds, and restarts without API calls [33m 629[2mms[22m[39m
+2026-11-05T15:43:02.9578451Z    [33m[2m✓[22m[39m NativePlayer[2m > [22mloads a 300-passage installation while rendering only the active passage [33m 1036[2mms[22m[39m
+2026-11-05T15:43:02.9581064Z    [33m[2m✓[22m[39m NativePlayer[2m > [22muses accessible confirmations before overwriting or deleting a manual save [33m 388[2mms[22m[39m
+2026-11-05T15:43:04.3099542Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/passage-draft-panel.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 694[2mms[22m[39m
+2026-11-05T15:43:04.3140583Z    [33m[2m✓[22m[39m PassageDraftPanel[2m > [22mloads compact metadata and saves a provider-free manual candidate [33m 311[2mms[22m[39m
+2026-11-05T15:43:04.4586580Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/repair-workspace.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 697[2mms[22m[39m
+2026-11-05T15:43:04.4589900Z    [33m[2m✓[22m[39m RepairWorkspace[2m > [22mloads metadata first, displays locked exact scope, previews, saves, and blocks historical proposal generation [33m 325[2mms[22m[39m
+2026-11-05T15:43:06.0401101Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/publication-workspace.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 724[2mms[22m[39m
+2026-11-05T15:43:06.0403458Z    [33m[2m✓[22m[39m PublicationWorkspace[2m > [22moffers separate bounded exports and a write-free portable import preview [33m 335[2mms[22m[39m
+2026-11-05T15:43:06.6386111Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/playtest-workspace.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 1457[2mms[22m[39m
+2026-11-05T15:43:06.6389073Z    [33m[2m✓[22m[39m PlaytestWorkspace[2m > [22mpreviews, runs, filters, navigates, replays, and reopens metadata-first 300-passage evidence [33m 1351[2mms[22m[39m
+2026-11-05T15:43:08.4719316Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/foundation-bootstrap-workspace.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 1004[2mms[22m[39m
+2026-11-05T15:43:13.9587029Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/economy.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 4612[2mms[22m[39m
+2026-11-05T15:43:13.9589531Z    [33m[2m✓[22m[39m authors explicit quantities, prices, hours, repeat rules and canonical relationship effects through structured controls [33m 1456[2mms[22m[39m
+2026-11-05T15:43:13.9591975Z    [33m[2m✓[22m[39m blocks referenced-item deletion until the author clears each visible rule and prerequisite [33m 554[2mms[22m[39m
+2026-11-05T15:43:13.9594228Z    [33m[2m✓[22m[39m keeps referenced people, chapters, milestones and event rules repairable and prevents unsafe disabling [33m 302[2mms[22m[39m
+2026-11-05T15:43:13.9596326Z    [33m[2m✓[22m[39m invalidates trade reviews after edits and uses the identical Apply UUID when a response is lost [33m 1438[2mms[22m[39m
+2026-11-05T15:43:13.9598354Z    [33m[2m✓[22m[39m keeps trade navigation and cancellation free, then consumes exactly one purchase and one use [33m 489[2mms[22m[39m
+2026-11-05T15:43:13.9600533Z    [33m[2m✓[22m[39m retries a failed purchase autosave without charging again or consuming stock twice [33m 306[2mms[22m[39m
+2026-11-05T15:43:14.5909005Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/journal.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 7543[2mms[22m[39m
+2026-11-05T15:43:14.5910579Z    [33m[2m✓[22m[39m authors canonical visibility, journal prose, objectives and structured stat/event triggers [33m 3698[2mms[22m[39m
+2026-11-05T15:43:14.5911726Z    [33m[2m✓[22m[39m does not autosave during inspection or cancellation and hides narrative choices in secondary views [33m 372[2mms[22m[39m
+2026-11-05T15:43:14.5912864Z    [33m[2m✓[22m[39m invalidates journal consent on edits and retries identical approved Apply requests after response loss [33m 2486[2mms[22m[39m
+2026-11-05T15:43:15.0714582Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/passage-generation-panel.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 323[2mms[22m[39m
+2026-11-05T15:43:16.3938186Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/recovery-workspace.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 541[2mms[22m[39m
+2026-11-05T15:43:17.7244180Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/passage-plan-workspace.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 445[2mms[22m[39m
+2026-11-05T15:43:17.7246840Z    [33m[2m✓[22m[39m PassagePlanWorkspace coverage dashboard[2m > [22mshows conservative coverage and links a finding to its exact choice editor [33m 443[2mms[22m[39m
+2026-11-05T15:43:17.9994069Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/people.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 2502[2mms[22m[39m
+2026-11-05T15:43:17.9995234Z    [33m[2m✓[22m[39m authors recurring days, overrides and explicit encounter priorities, with referenced-person deletion guards [33m 658[2mms[22m[39m
+2026-11-05T15:43:17.9996810Z    [33m[2m✓[22m[39m synchronizes owned event rules on event deletion/addition and clears reviewed consent on people edits [33m 1174[2mms[22m[39m
+2026-11-05T15:43:17.9998085Z    [33m[2m✓[22m[39m stops actual player waiting at a required boundary, resumes saved priority order, and retries autosave without replaying effects [33m 458[2mms[22m[39m
+2026-11-05T15:43:18.9715736Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/passage-proposal-review.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 219[2mms[22m[39m
+2026-11-05T15:43:19.9838268Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/narrative-review-workspace.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 1485[2mms[22m[39m
+2026-11-05T15:43:19.9843613Z    [33m[2m✓[22m[39m NarrativeReviewWorkspace[2m > [22mkeeps a 300-passage project metadata-first through preview, authorization, offline start, filtering, navigation, and reopen [33m 1483[2mms[22m[39m
+2026-11-05T15:43:20.8011973Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/draft-review-queue.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 1114[2mms[22m[39m
+2026-11-05T15:43:20.8014269Z    [33m[2m✓[22m[39m DraftReviewQueue[2m > [22mkeeps a 300-passage queue metadata-only, filterable, and stable-ID navigable [33m 1004[2mms[22m[39m
+2026-11-05T15:43:22.1136963Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/long-form-workspace.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 648[2mms[22m[39m
+2026-11-05T15:43:22.1138363Z    [33m[2m✓[22m[39m LongFormWorkspace[2m > [22mcreates a persistent project, edits the default brief, and approves its version [33m 647[2mms[22m[39m
+2026-11-05T15:43:22.3914076Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/asset-library-workspace.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 813[2mms[22m[39m
+2026-11-05T15:43:22.3915990Z    [33m[2m✓[22m[39m retries a lost upload response with the same operation UUID and keeps approval separate [33m 576[2mms[22m[39m
+2026-11-05T15:43:23.3033113Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/simulation-workspace.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 418[2mms[22m[39m
+2026-11-05T15:43:23.3035750Z    [33m[2m✓[22m[39m SimulationWorkspace[2m > [22mcaptures, runs, and reopens compact 300-passage evidence without requesting prose or providers [33m 416[2mms[22m[39m
+2026-11-05T15:43:23.5041453Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/creative-direction-workspace.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 352[2mms[22m[39m
+2026-11-05T15:43:24.5235506Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/world.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 347[2mms[22m[39m
+2026-11-05T15:43:24.6939862Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/project-setup-workspace.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 441[2mms[22m[39m
+2026-11-05T15:43:25.6526582Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/illustrated-scenes.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 374[2mms[22m[39m
+2026-11-05T15:43:25.6529317Z    [33m[2m✓[22m[39m requires separate consent, retries a lost Apply with the identical UUID, and clears review on local edits [33m 356[2mms[22m[39m
+2026-11-05T15:43:26.1237767Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/adaptation-intent-workspace.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 624[2mms[22m[39m
+2026-11-05T15:43:26.1239922Z    [33m[2m✓[22m[39m Adaptation Intent review workspace[2m > [22mkeeps 300-item metadata collections bounded, paginated and stable-ID searchable [33m 417[2mms[22m[39m
+2026-11-05T15:43:26.7044845Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/project-health-workspace.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 247[2mms[22m[39m
+2026-11-05T15:43:27.0621359Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/source-evidence-recovery.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 194[2mms[22m[39m
+2026-11-05T15:43:27.6256969Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/resume-workspace.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 176[2mms[22m[39m
+2026-11-05T15:43:28.1625700Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/bible-workspace.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 366[2mms[22m[39m
+2026-11-05T15:43:28.1627837Z    [33m[2m✓[22m[39m BibleWorkspace[2m > [22mcreates a gated local draft and saves structured entries with stable IDs [33m 365[2mms[22m[39m
+2026-11-05T15:43:28.5168983Z  [32m✓[39m [30m[43m 0 [49m[39m apps/web/test/play-preview.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 119[2mms[22m[39m
+2026-11-05T15:43:28.5437305Z 
+2026-11-05T15:43:28.5447485Z [2m Test Files [22m [1m[32m167 passed[39m[22m[90m (167)[39m
+2026-11-05T15:43:28.5457540Z [2m      Tests [22m [1m[32m1624 passed[39m[22m[90m (1624)[39m
+2026-11-05T15:43:28.5458357Z [2m   Start at [22m 15:37:12
+2026-11-05T15:43:28.5465522Z [2m   Duration [22m 375.69s[2m (transform 5.48s, setup 0ms, collect 57.03s, tests 645.77s, environment 11.24s, prepare 10.66s)[22m
+2026-11-05T15:43:28.5466195Z 
+2026-11-05T15:43:28.7347252Z ##[group]Run pnpm test:e2e --reporter=github,line
+2026-11-05T15:43:28.7347682Z [36;1mpnpm test:e2e --reporter=github,line[0m
+2026-11-05T15:43:28.7367700Z shell: /usr/bin/bash -e {0}
+2026-11-05T15:43:28.7367962Z env:
+2026-11-05T15:43:28.7368238Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-11-05T15:43:28.7368557Z ##[endgroup]
+2026-11-05T15:43:29.2264759Z $ playwright test --reporter=github,line
+2026-11-05T15:43:35.0959943Z 
+2026-11-05T15:43:35.0960542Z Running 56 tests using 2 workers
+2026-11-05T15:43:35.0960927Z 
+2026-11-05T15:43:35.5796171Z [1/56] e2e/adaptation-intent.spec.ts:38:1 › A4 explicit adoption, dimensions, source/override separation, evidence and history on desktop/mobile
+2026-11-05T15:43:35.6281253Z [2/56] e2e/asset-library.spec.ts:9:5 › V1 imports through MCP, uploads/reviews/replaces in Creator and restores/duplicates complete image history
+2026-11-05T15:43:40.6721720Z [3/56] e2e/adaptation-intent.spec.ts:75:1 › A4 requested ending, reviewed exception, invention and 30k+50k=80k expansion with honest discrepancy
+2026-11-05T15:43:41.4953884Z [4/56] e2e/complete-visual-game.spec.ts:20:5 › W6 authors, reviews and publishes the complete visual game, restores and duplicates it, and finishes both modes offline
+2026-11-05T15:43:45.5480871Z [5/56] e2e/adaptation-intent.spec.ts:99:1 › A4 bounded source selection and explicit conversational preview/review/Apply
+2026-11-05T15:43:52.6223102Z [6/56] e2e/connected-editing.spec.ts:5:5 › M1 connected proposals are reviewable in Creator; browser and MCP Apply share exact draft-only outcomes
+2026-11-05T15:43:55.1993257Z [7/56] e2e/connected-foundations.spec.ts:6:5 › M2 creates and authors original foundations through MCP; Creator reviews revisions and displays exact approvals
+2026-11-05T15:43:59.0122861Z [8/56] e2e/connected-text-game.spec.ts:11:5 › M3 authors a complete text game through MCP, reviews exact prose in Creator, revises and plays all exported endings offline
+2026-11-05T15:44:06.8579825Z [9/56] e2e/economy.spec.ts:14:5 › W4 authors trade with stale edits and safe retries, then plays atomic inventory and shops offline
+2026-11-05T15:44:40.8877457Z [10/56] e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, quick, 1280px
+2026-11-05T15:44:42.2101661Z [11/56] e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, long-form, 1280px
+2026-11-05T15:44:43.5602121Z [12/56] e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, quick, 390px
+2026-11-05T15:44:44.6043717Z 
+2026-11-05T15:44:44.6092925Z ##[error]  1) e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, quick, 390px ────────
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      40 |       const after = await read(); expect(after.context.enabled).toBe(false); expect(after.context.appliedGuide).toBeNull(); expect(after.context.customInstructions[0].instruction).toBe("Use present tense and quiet humor.");
+      41 |       await page.reload(); await panel.locator("summary").click(); await expect(checkbox).not.toBeChecked();
+    > 42 |       expect(await panel.evaluate(el => { const box = el.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth; })).toBe(true);
+         |                                                                                                                                        ^
+      43 |       await page.screenshot({ path: info.outputPath(`craft-${mode}-${width}-saved.png`), fullPage: true });
+      44 |       await info.attach("saved-preference", { path: info.outputPath(`craft-${mode}-${width}-saved.png`), contentType: "image/png" });
+      45 |       if (mode === "long-form") expect((await (await request.get(`/api/long-form/projects/${projectId}`)).json()).workflow).toEqual(workflowBefore);
+        at /home/runner/work/cyoa-creator/cyoa-creator/e2e/fiction-craft.spec.ts:42:136
+2026-11-05T15:44:44.6108991Z   1) e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, quick, 390px ────────
+2026-11-05T15:44:44.6109676Z 
+2026-11-05T15:44:44.6110047Z     Error: expect(received).toBe(expected) // Object.is equality
+2026-11-05T15:44:44.6110485Z 
+2026-11-05T15:44:44.6110638Z     Expected: true
+2026-11-05T15:44:44.6111003Z     Received: false
+2026-11-05T15:44:44.6111217Z 
+2026-11-05T15:44:44.6112633Z       40 |       const after = await read(); expect(after.context.enabled).toBe(false); expect(after.context.appliedGuide).toBeNull(); expect(after.context.customInstructions[0].instruction).toBe("Use present tense and quiet humor.");
+2026-11-05T15:44:44.6114542Z       41 |       await page.reload(); await panel.locator("summary").click(); await expect(checkbox).not.toBeChecked();
+2026-11-05T15:44:44.6116083Z     > 42 |       expect(await panel.evaluate(el => { const box = el.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth; })).toBe(true);
+2026-11-05T15:44:44.6117480Z          |                                                                                                                                        ^
+2026-11-05T15:44:44.6118580Z       43 |       await page.screenshot({ path: info.outputPath(`craft-${mode}-${width}-saved.png`), fullPage: true });
+2026-11-05T15:44:44.6120275Z       44 |       await info.attach("saved-preference", { path: info.outputPath(`craft-${mode}-${width}-saved.png`), contentType: "image/png" });
+2026-11-05T15:44:44.6121888Z       45 |       if (mode === "long-form") expect((await (await request.get(`/api/long-form/projects/${projectId}`)).json()).workflow).toEqual(workflowBefore);
+2026-11-05T15:44:44.6123215Z         at /home/runner/work/cyoa-creator/cyoa-creator/e2e/fiction-craft.spec.ts:42:136
+2026-11-05T15:44:44.6123711Z 
+2026-11-05T15:44:44.6124450Z     attachment #1: settled-review-panel (image/png) ────────────────────────────────────────────────
+2026-11-05T15:44:44.6126195Z     test-results/fiction-craft-Fiction-Craf-0b104-eference-review-quick-390px/attachments/settled-review-panel-7fd67867950e3e0308820050596085569ec8515e.png
+2026-11-05T15:44:44.6127959Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-05T15:44:44.6128464Z 
+2026-11-05T15:44:44.6129425Z     attachment #2: preference-review (image/png) ───────────────────────────────────────────────────
+2026-11-05T15:44:44.6131182Z     test-results/fiction-craft-Fiction-Craf-0b104-eference-review-quick-390px/attachments/preference-review-ce746eb8ec83eacb0dc41eabd956ec04af0162fb.png
+2026-11-05T15:44:44.6132964Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-05T15:44:44.6133472Z 
+2026-11-05T15:44:44.6134205Z     Error Context: test-results/fiction-craft-Fiction-Craf-0b104-eference-review-quick-390px/error-context.md
+2026-11-05T15:44:44.6135010Z 
+2026-11-05T15:44:44.6135018Z 
+2026-11-05T15:44:45.2522723Z [13/56] e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, long-form, 390px
+2026-11-05T15:44:46.8820802Z [14/56] e2e/illustrated-scenes.spec.ts:43:5 › V2 reviews browser scenes, replays lost Apply and plays packaged backgrounds, expressions and authored choices offline
+2026-11-05T15:45:05.4653797Z [15/56] e2e/journal-progression.spec.ts:15:5 › W5 journal-only stationary events and chapter transitions observe short windows in actual offline exports
+2026-11-05T15:45:24.0552570Z [16/56] e2e/journal.spec.ts:15:5 › W5 authors visibility with stale edits and retries, then uses character and journal offline
+2026-11-05T15:45:52.8250433Z [17/56] e2e/people-review.spec.ts:15:5 › W3 review fixes complete required costs, observe effects before discovery and preview genuine losses offline
+2026-11-05T15:46:08.6313938Z [18/56] e2e/people.spec.ts:16:5 › W3 authors weekly schedules, resolves mandatory priorities and plays presence overrides offline
+2026-11-05T15:46:14.8928013Z [19/56] e2e/progression.spec.ts:15:5 › W2 authors optional chapters/events and previews carry/expiry before offline standalone/static save-resume
+2026-11-05T15:46:34.2781713Z [20/56] e2e/publication-exports.spec.ts:25:5 › static subdirectory publication plays, saves, rewinds, and reloads without authoring APIs
+2026-11-05T15:46:35.4681474Z [21/56] e2e/publication-exports.spec.ts:48:5 › standalone file publication keeps hostile prose inert and remains playable
+2026-11-05T15:46:35.9256525Z [22/56] e2e/publication-exports.spec.ts:58:5 › real compiled SugarCube route matches native runtime state
+2026-11-05T15:46:36.3552909Z [23/56] e2e/story-to-cyoa.spec.ts:253:5 › complete private adaptation offline smoke
+2026-11-05T15:46:36.3750509Z [24/56] e2e/story-to-cyoa.spec.ts:262:5 › observable quick generation stays offline and shows provider activity
+2026-11-05T15:46:36.5396787Z [25/56] e2e/world.spec.ts:14:5 › W1 reviews shared world operations and travels home/cafe/station with free maps, midnight and offline save/resume
+2026-11-05T15:46:37.0812961Z [26/56] e2e/story-to-cyoa.spec.ts:281:5 › offline non-JSON provider failure exposes a redacted diagnostic
+2026-11-05T15:46:37.6173943Z [27/56] e2e/story-to-cyoa.spec.ts:294:5 › long-form workspace persists and approves a project brief
+2026-11-05T15:46:39.6627150Z [28/56] e2e/story-to-cyoa.spec.ts:358:5 › Creative Direction edits, explains, approves, and previews bounded context without providers
+2026-11-05T15:46:40.5348340Z [29/56] e2e/story-to-cyoa.spec.ts:390:5 › long-form passage workspace renders, filters, and jumps within a 300-passage fixture
+2026-11-05T15:46:42.8398234Z [30/56] e2e/story-to-cyoa.spec.ts:439:5 › recovery deletion dialog traps keyboard focus and returns it without changing data
+2026-11-05T15:46:43.4193984Z [31/56] e2e/story-to-cyoa.spec.ts:461:5 › project health stays compact and provider-free for a 300-passage fixture
+2026-11-05T15:46:43.9706100Z [32/56] e2e/story-to-cyoa.spec.ts:481:5 › manual passage drafts persist, stale selectively, and stay separate in a 300-passage workspace
+2026-11-05T15:46:48.7598191Z [33/56] e2e/story-to-cyoa.spec.ts:548:5 › deterministic simulation runs and reopens a 300-passage exact path without prose or provider requests
+2026-11-05T15:46:50.8607505Z [34/56] e2e/conversational-edit.spec.ts:65:1 › A6 exact scope, explicit generation, saved review and transactional Apply work on desktop and mobile
+2026-11-05T15:46:53.8761505Z [35/56] e2e/conversational-edit.spec.ts:88:1 › A6 ambiguous scope, adjusted authorization, discussion and prose candidate routing remain noncanonical
+2026-11-05T15:46:53.8935176Z [36/56] e2e/story-to-cyoa.spec.ts:577:5 › seeded playtesting analyzes and replays a durable 300-passage campaign without providers
+2026-11-05T15:46:55.3337716Z [37/56] e2e/conversational-edit.spec.ts:103:1 › A6 300-passage flow is metadata-first, bounded, and changes one exact entity
+2026-11-05T15:46:57.1500854Z [38/56] e2e/conversational-edit.spec.ts:120:1 › A6 review exposes effective passage warnings through HTTP and UI without blocking Apply
+2026-11-05T15:46:58.8181656Z [39/56] e2e/story-to-cyoa.spec.ts:624:5 › bounded narrative review authorizes exact 300-passage evidence and reopens findings without mutation
+2026-11-05T15:46:59.0831866Z [40/56] e2e/foundation-bootstrap.spec.ts:48:1 › A5 offline preview, generation, provenance review and dependency-safe draft Apply leave approval and prose untouched
+2026-11-05T15:47:04.5434787Z [41/56] e2e/story-to-cyoa.spec.ts:672:5 › bounded prose drafting previews context, repairs, retries, persists, and cancels offline
+2026-11-05T15:47:16.4567822Z [42/56] e2e/story-to-cyoa.spec.ts:788:5 › draft review queue previews dependency-safe batches and blocks a neighbor-invalidating batch
+2026-11-05T15:47:19.5039789Z [43/56] e2e/story-to-cyoa.spec.ts:828:5 › bounded passage generation previews, authorizes, retries, cancels, and reopens offline
+2026-11-05T15:47:30.7859511Z [44/56] e2e/story-to-cyoa.spec.ts:901:5 › passage proposal review blocks stale and hard-invalid selections without mutation
+2026-11-05T15:47:32.6711006Z [45/56] e2e/story-to-cyoa.spec.ts:978:5 › failed passage candidate validation remains inspectable without mutating the project
+2026-11-05T15:47:36.2027428Z [46/56] e2e/story-to-cyoa.spec.ts:1018:5 › repair planning and bounded proposals stay explicit and immutable across a 300-passage project
+2026-11-05T15:47:53.8430415Z [47/56] e2e/story-to-cyoa.spec.ts:1135:5 › native publication compiles exact accepted prose deterministically and blocks stale prose
+2026-11-05T15:47:55.0440204Z [48/56] e2e/foundation-bootstrap.spec.ts:108:1 › A5 unused-preview archive recovery requires a real download and leaves canonical work untouched
+2026-11-05T15:47:59.0023463Z [49/56] e2e/story-to-cyoa.spec.ts:1270:5 › native browser player opens a 300-passage exact build without rendering the corpus
+2026-11-05T15:48:02.7031099Z [50/56] e2e/project-setup.spec.ts:46:1 › A2 author journey reviews, edits and explicitly applies foundations without generating passages
+2026-11-05T15:48:07.0721730Z [51/56] e2e/story-to-cyoa.spec.ts:1309:5 › verified recovery downloads, detects change, previews without writes, rejects collision, restores, and recompiles
+2026-11-05T15:48:10.9947214Z [52/56] e2e/source-analysis.spec.ts:41:1 › A3 import, exact scope, bounded analysis, evidence, correction, history and explicit approval
+2026-11-05T15:48:15.7845318Z [53/56] e2e/source-analysis.spec.ts:94:1 › A3 explicit identity merge and split remap dependent references, without adaptation overrides
+2026-11-05T15:48:18.1481331Z [54/56] e2e/project-setup.spec.ts:108:1 › A2 non-romance detective refinement stays noncanonical and can be rejected
+2026-11-05T15:48:18.5920819Z [55/56] e2e/source-analysis.spec.ts:122:1 › A3 field review reassigns ordinary associations through paginated supported-record controls
+2026-11-05T15:48:25.5233549Z [56/56] e2e/source-analysis.spec.ts:156:1 › A3 large-source metadata stays paginated and cancellation cannot publish a late dossier
+2026-11-05T15:48:26.9324601Z ##[notice]  1 failed
+    e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, quick, 390px ─────────
+  55 passed (5.0m)
+2026-11-05T15:48:26.9327385Z   1 failed
+2026-11-05T15:48:26.9328606Z     e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, quick, 390px ─────────
+2026-11-05T15:48:26.9329951Z   55 passed (5.0m)
+2026-11-05T15:48:26.9819758Z [ELIFECYCLE] Command failed with exit code 1.
+2026-11-05T15:48:27.0111441Z ##[error]Process completed with exit code 1.
+2026-11-05T15:48:27.0209543Z ##[group]Run actions/upload-artifact@v4
+2026-11-05T15:48:27.0209876Z with:
+2026-11-05T15:48:27.0210092Z   name: browser-failure-1
+2026-11-05T15:48:27.0210347Z   path: test-results/
+2026-11-05T15:48:27.0210595Z   if-no-files-found: ignore
+2026-11-05T15:48:27.0210837Z   retention-days: 7
+2026-11-05T15:48:27.0211054Z   compression-level: 6
+2026-11-05T15:48:27.0211272Z   overwrite: false
+2026-11-05T15:48:27.0211500Z   include-hidden-files: false
+2026-11-05T15:48:27.0211739Z env:
+2026-11-05T15:48:27.0211981Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-11-05T15:48:27.0212299Z ##[endgroup]
+2026-11-05T15:48:27.2062799Z (node:9681) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-05T15:48:27.2063657Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T15:48:27.2615396Z With the provided path, there will be 261 files uploaded
+2026-11-05T15:48:27.2622820Z Artifact name is valid!
+2026-11-05T15:48:27.2623813Z Root directory input is valid!
+2026-11-05T15:48:27.5097525Z Beginning upload of artifact content to blob storage
+2026-11-05T15:48:27.8703274Z (node:9681) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-05T15:48:28.0606196Z Uploaded bytes 8388608
+2026-11-05T15:48:28.2762188Z Uploaded bytes 16777216
+2026-11-05T15:48:28.6348064Z Uploaded bytes 25165824
+2026-11-05T15:48:28.9476127Z Uploaded bytes 33554432
+2026-11-05T15:48:29.1946753Z Uploaded bytes 41943040
+2026-11-05T15:48:29.2747701Z Uploaded bytes 44391333
+2026-11-05T15:48:29.2918932Z Finished uploading artifact content to blob storage!
+2026-11-05T15:48:29.2922854Z SHA256 digest of uploaded artifact zip is 3de010b211cc5087996631ee8b8241812e95852d41ac4789c4c6bb83a0dff26c
+2026-11-05T15:48:29.2925243Z Finalizing artifact upload
+2026-11-05T15:48:29.7559022Z Artifact browser-failure-1.zip successfully finalized. Artifact ID 13430323242
+2026-11-05T15:48:29.7560109Z Artifact browser-failure-1 has been successfully uploaded! Final size is 44391333 bytes. Artifact ID is 13430323242
+2026-11-05T15:48:29.7569156Z Artifact download URL: https://github.com/saonanlaopas/cyoa-creator/actions/runs/42056359243/artifacts/13430323242
+2026-11-05T15:48:29.7805494Z Post job cleanup.
+2026-11-05T15:48:29.9303791Z Pruning is unnecessary.
+2026-11-05T15:48:29.9470205Z Post job cleanup.
+2026-11-05T15:48:30.0527921Z [command]/usr/bin/git version
+2026-11-05T15:48:30.0575438Z git version 2.56.0
+2026-11-05T15:48:30.0616754Z Temporarily overriding HOME='/home/runner/work/_temp/4542dadd-8d8d-487f-97a8-0d77f1508353' before making global git config changes
+2026-11-05T15:48:30.0618320Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-05T15:48:30.0622935Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/cyoa-creator/cyoa-creator
+2026-11-05T15:48:30.0664740Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-05T15:48:30.0717348Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-05T15:48:30.0984231Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-05T15:48:30.1023911Z http.https://github.com/.extraheader
+2026-11-05T15:48:30.1043362Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-11-05T15:48:30.1079909Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-05T15:48:30.1398405Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-05T15:48:30.1449311Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-05T15:48:30.1852594Z Cleaning up orphan processes
+2026-11-05T15:48:30.2339745Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/upload-artifact@v4, pnpm/action-setup@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
