@@ -1,0 +1,20 @@
+{
+  "README.md": "d8b46cd8e49415d5e7c9a97b6155d608de6e1182c1d90ff7443978051c9e62a3",
+  "baseline.log": "71644f889c7b5058b10c52eb055723139a0f66e42e9ce1ba0ccb701c67361af9",
+  "controlled-after-trace.zip": "829ed0a0eb2c9ace578cbcac321cba2846e3968514c58f080ed2e885bba5f458",
+  "controlled-after.json": "5565541e4fed835bdfe14e720829e2da21984a7293ef6526ccdcdabac78bf530",
+  "controlled-after.png": "28b0f28f1948970a53ca552acdda3132edbdcd87548dc0ef30b52c4232a1247f",
+  "controlled-before-trace.zip": "3ce086cde3d767983b7ba3c953b687fd2dbc1f2f6337e38c2729930697662c5d",
+  "controlled-before.json": "98c312309e8fa86422ca7d35d05dc6108b57028f6af1ba6eea181b7078ca703a",
+  "controlled-before.png": "6a9de6f4ba95a7f6b2d9806491d4e56c13af264a5b51c8b0bad22fa27ebe57e4",
+  "controlled-reproduction-portable.log": "49c2fd7b22f2bd11cb2547cc08bf46e0ac65125fd59a53cd8d7fb43765c007b4",
+  "controlled-reproduction.log": "d7f0267d6a51dc7c95b7b21ac2ed6427e3c5e27822302a5eb29439e0e6a62ce2",
+  "controlled-reproduction.mjs": "2406153e6750b139203943a1ec410d04596e2e444f8d53362b44865cf8773f7d",
+  "corrected-focused.log": "716a828f158bb9c994ae6a53aab20d4c424202b6bc5145656fea8423e275b730",
+  "lint.log": "34416b8edc3df859810d8c9c03150202dc47bf58585da8e8c4b07d32bd9e828f",
+  "original-ci-artifacts.json": "191cecc1f8227a3f002d1c14171eacfd1d89239e55e219de8697433f81c9bb23",
+  "original-ci-final.json": "20b8eda4d7815763447db8b5bb1cc08b9ff9f1e581f43b99640ddaa2433ec260",
+  "original-ci-job.log": "1e87b76022572e7cad185edf56120cc342c351dda027556f111f7bbc6fc42dff",
+  "test-only.patch": "c1e158a837562c3811d1fd64ab76ab38ffcfea544a5bb30d48d38321cdfd1309",
+  "typecheck.log": "a4e4e2dc73c155c05207396d95cfb2899e536154947c06ca308ac50e402a4ad3"
+}

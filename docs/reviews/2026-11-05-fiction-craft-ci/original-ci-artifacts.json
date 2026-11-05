@@ -1,0 +1,25 @@
+{
+  "total_count": 1,
+  "artifacts": [
+    {
+      "id": 13427243272,
+      "node_id": "MDg6QXJ0aWZhY3QxMzQyNzI0MzI3Mg==",
+      "name": "browser-failure-1",
+      "size_in_bytes": 43814973,
+      "url": "https://api.github.com/repos/saonanlaopas/cyoa-creator/actions/artifacts/13427243272",
+      "archive_download_url": "https://api.github.com/repos/saonanlaopas/cyoa-creator/actions/artifacts/13427243272/zip",
+      "expired": false,
+      "digest": "sha256:abc42084e87dd80666b031d502779c975e14d5ea018373edc8fdbdf11730ab78",
+      "created_at": "2026-11-05T15:13:07Z",
+      "updated_at": "2026-11-05T15:13:07Z",
+      "expires_at": "2026-11-12T15:13:05Z",
+      "workflow_run": {
+        "id": 42051159222,
+        "repository_id": 1319451363,
+        "head_repository_id": 1319451363,
+        "head_branch": "checkpoint/cp1-desktop-review",
+        "head_sha": "0efb5d1d9ecc07c45f5d433dc27e5ad2a4b2dc89"
+      }
+    }
+  ]
+}

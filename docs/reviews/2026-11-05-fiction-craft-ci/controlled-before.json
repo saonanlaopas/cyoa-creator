@@ -1,0 +1,121 @@
+{
+  "scenario": "before",
+  "viewport": {
+    "width": 390,
+    "height": 900
+  },
+  "intendedProjectId": "c4144d40-5962-4c7b-b8e1-198a29ab59a2",
+  "manuallySelected": "c4144d40-5962-4c7b-b8e1-198a29ab59a2",
+  "bootstrapProjectId": "eba16db2-50fd-4073-9cd4-afe52f380abd",
+  "selectedProjectId": "eba16db2-50fd-4073-9cd4-afe52f380abd",
+  "intendedInstructions": 1,
+  "selectedInstructions": 0,
+  "bootstrapDraftRequests": 1,
+  "reviewText": "Fiction Craft preferences\n\nSelected guide 0.1\n\nUse the shared Fiction Craft Guide for future authoring\n\nYour custom instructions and approved project direction take precedence over these craft defaults. Turning the guide off preserves both.\n\nReview preference change\n\nDisable Fiction Craft 0.1.\n\nFuture authoring contexts change. Existing prose, custom instructions, Creative Direction, locks and approvals remain intact.\n\n0 custom instructions retained.\n\nApply reviewed preferenceCancel preference change",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/settings/openrouter"
+    },
+    {
+      "method": "POST",
+      "path": "/api/quick/drafts"
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands/global"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd/commands"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd/authoring/read_authoring_settings"
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/openrouter"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd"
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands/global"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd/commands"
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/openrouter"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd/authoring/read_authoring_settings"
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands/global"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd/commands"
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/openrouter"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd"
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/openrouter"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd"
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands/global"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd/commands"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd/authoring/read_authoring_settings"
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/openrouter"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd"
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands/global"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd/commands"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/eba16db2-50fd-4073-9cd4-afe52f380abd/authoring/review_authoring_settings"
+    }
+  ]
+}
