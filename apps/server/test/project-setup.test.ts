@@ -162,7 +162,7 @@ describe("A2 conversational project setup", () => {
       fetch: async (_url, init) => {
         calls++; const body = JSON.parse(String(init?.body));
         if (calls !== 3) prompt = body.messages.at(-1).content;
-        const content = calls === 2 ? "{bad" : JSON.stringify(offlineSetupResponse(prompt));
+        const content = calls === 2 ? JSON.stringify(offlineSetupResponse(prompt)).slice(0, -1) : JSON.stringify(offlineSetupResponse(prompt));
         return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content } }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
       } });
     const { app, create, base, ask } = harness({ client }); const { projectId, conversationId } = await create();

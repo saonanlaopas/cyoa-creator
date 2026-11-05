@@ -34,6 +34,7 @@ describe("QuickGenerator draft persistence", () => {
     localStorage.setItem("story-to-cyoa.active-project-id", "saved");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const path = String(input);
+      if (path.endsWith("/authoring/read_authoring_settings")) return response({ versionId: null, settings: { enabled: false, origin: "legacy-preserved", guide: null } });
       if (path === "/api/settings/openrouter") return response({ configured: false });
       if (path === "/api/projects/saved") return response({ id: "saved" });
       return response([]);
@@ -47,6 +48,7 @@ describe("QuickGenerator draft persistence", () => {
     localStorage.setItem("story-to-cyoa.active-project-id", "stale");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const path = String(input);
+      if (path.endsWith("/authoring/read_authoring_settings")) return response({ versionId: null, settings: { enabled: false, origin: "legacy-preserved", guide: null } });
       if (path === "/api/settings/openrouter") return response({ configured: false });
       if (path === "/api/projects/stale") return new Response("", { status: 404 });
       if (path === "/api/quick/drafts") return response({ projectId: "fresh" });
@@ -155,6 +157,7 @@ describe("QuickGenerator generation controls", () => {
     localStorage.setItem("story-to-cyoa.active-project-id", "saved");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const path = String(input);
+      if (path.endsWith("/authoring/read_authoring_settings")) return response({ versionId: null, settings: { enabled: false, origin: "legacy-preserved", guide: null } });
       if (path === "/api/settings/openrouter") return response({ configured: true });
       if (path === "/api/projects/saved") return response({ id: "saved" });
       if (path === "/api/quick/generate") return new Response([
@@ -191,6 +194,7 @@ describe("QuickGenerator generation controls", () => {
     let generationSignal: AbortSignal | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const path = String(input);
+      if (path.endsWith("/authoring/read_authoring_settings")) return response({ versionId: null, settings: { enabled: false, origin: "legacy-preserved", guide: null } });
       if (path === "/api/settings/openrouter") return response({ configured: true });
       if (path === "/api/projects/saved") return response({ id: "saved" });
       if (path === "/api/quick/generate") {
@@ -221,6 +225,7 @@ describe("QuickGenerator generation controls", () => {
     let generationCount = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const path = String(input);
+      if (path.endsWith("/authoring/read_authoring_settings")) return response({ versionId: null, settings: { enabled: false, origin: "legacy-preserved", guide: null } });
       if (path === "/api/settings/openrouter") return response({ configured: true });
       if (path === "/api/projects/saved") return response({ id: "saved" });
       if (path === "/api/quick/generate") {
@@ -259,6 +264,7 @@ describe("QuickGenerator generation controls", () => {
   it("forgets the configured key without reading it", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const path = String(input);
+      if (path.endsWith("/authoring/read_authoring_settings")) return response({ versionId: null, settings: { enabled: false, origin: "legacy-preserved", guide: null } });
       if (path === "/api/settings/openrouter" && (init as RequestInit | undefined)?.method === "DELETE") return response({ configured: false });
       if (path === "/api/settings/openrouter") return response({ configured: true });
       if (path === "/api/quick/drafts") return response({ projectId: "fresh" });
@@ -278,6 +284,7 @@ describe("QuickGenerator generation controls", () => {
   ])("keeps the configured state and reports %s while forgetting a key", async (_description, deleteResponse) => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const path = String(input);
+      if (path.endsWith("/authoring/read_authoring_settings")) return response({ versionId: null, settings: { enabled: false, origin: "legacy-preserved", guide: null } });
       if (path === "/api/settings/openrouter" && (init as RequestInit | undefined)?.method === "DELETE") return deleteResponse();
       if (path === "/api/settings/openrouter") return response({ configured: true });
       if (path === "/api/quick/drafts") return response({ projectId: "fresh" });

@@ -1,0 +1,9 @@
+$ playwright test e2e/story-to-cyoa.spec.ts --grep 'failed passage candidate validation remains inspectable' --workers=1 --trace=on --output /workspace/.setup/fiction-craft-implementation-20261105/browser-guard-verified
+[WebServer] (node:29191) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+(node:29203) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+·
+  1 passed (6.6s)

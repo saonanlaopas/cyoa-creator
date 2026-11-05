@@ -35,7 +35,7 @@ export class FoundationBootstrapService {
     const dossier = artifacts.getCurrent(projectId, "source-dossier"), intent = artifacts.getCurrent(projectId, "adaptation-intent");
     if (!dossier || !intent || [dossier, intent].some((version) => version.stale || workflow.get(projectId, version.artifactId).status !== "approved" || workflow.get(projectId, version.artifactId).approvedVersionId !== version.id)) throw new Error("bootstrap_approved_dossier_and_intent_required");
     const bases = Object.fromEntries(FOUNDATION_ARTIFACT_IDS.map((artifactId) => [artifactId, artifacts.getCurrent(projectId, artifactId)]));
-    const context = FoundationBootstrapContextSchema.parse({ schemaVersion: 1, policyVersion: "foundation-bootstrap-v1", projectId, title: project.name,
+    const context = FoundationBootstrapContextSchema.parse({ authoringInstructions: artifacts.authoringInstructions(projectId), schemaVersion: 1, policyVersion: "foundation-bootstrap-v1", projectId, title: project.name,
       dossierVersionId: dossier.id, intentVersionId: intent.id, dossier: dossier.content, intent: intent.content,
       baseVersionIds: Object.fromEntries(FOUNDATION_ARTIFACT_IDS.map((artifactId) => [artifactId, bases[artifactId]?.id ?? null])),
       baseArtifacts: Object.fromEntries(FOUNDATION_ARTIFACT_IDS.map((artifactId) => [artifactId, bases[artifactId]?.content ?? null])),

@@ -8,6 +8,10 @@ import type { ConnectedEditingConfig } from "../config.js";
 import { CONNECTED_AUTHORING_INSTRUCTIONS } from "../services/connected-authoring-instructions.js";
 
 const descriptions: Record<ConnectedEditTool, string> = {
+  read_authoring_settings: "Read exact retained Fiction Craft settings and custom instructions. Legacy absent settings remain off. No mutation or provider call.",
+  review_authoring_settings: "Preview enabling/disabling the pinned Fiction Craft edition. Custom instructions and project direction remain editable and unchanged; content approvals are separate. Present exact creative batch for consent.",
+  apply_authoring_settings: "Apply only the author-approved exact settings review with stale protection and retry UUID. Does not approve content or call a provider.",
+  read_authoring_context: "Read a bounded immutable authoring context, exact guide state/edition/text, custom instructions and approved project direction. Required before submit_draft v2; bind its fingerprint. Narrow scope if too large. No writes or provider calls.",
   inspect_world_journal: "Read currently visible canonical stats/relationships, discovered places, completed-event records, revealed authored entries and objectives from supplied state against the fresh current world. No hidden titles, future schedules, time advance, discovery, save mutation or provider call. Character/journal authoring shares read_world/review_world/apply_world with version-bound consent and retry-safe receipts.",
   inspect_world_economy: "Inspect held items, currency, local shop stock and currently actionable gifts/consumables against a supplied state and fresh current world. Read-only; no time advance, purchase, save mutation or provider call. Inventory/shop authoring uses shared read_world/review_world/apply_world with exact review, consent and retry-safe receipts.",
   inspect_world_presence: "Inspect currently present people and discovered encounters against a supplied state and fresh current world. Read-only; no future timetable, time advance, save mutation or provider call. World review/apply supports versioned recurring schedules, story overrides and explicit event priorities; unresolved mandatory conflicts are rejected.",
@@ -56,7 +60,7 @@ const descriptions: Record<ConnectedEditTool, string> = {
   apply_edit: "Apply only the author's explicitly approved batch using the exact review fingerprint/groupIds and approved=true. Draft creation is NOT artifact approval or publication. Retry the same UUID and arguments after a lost response; changed arguments require a new UUID.",
   reject_edit: "Reject a saved pending proposal; changes no canonical content. Use a retry-safe UUID.",
 };
-const reads = new Set<ConnectedEditTool>(["list_projects", "project_state", "list_edit_targets", "list_edits", "get_edit", "review_edit", "read_foundation", "review_foundation_approval"]);
+const reads = new Set<ConnectedEditTool>(["read_authoring_settings", "review_authoring_settings", "read_authoring_context", "list_projects", "project_state", "list_edit_targets", "list_edits", "get_edit", "review_edit", "read_foundation", "review_foundation_approval"]);
 for (const name of ["game_state", "read_game_record", "review_game_plan", "review_drafts", "publication_readiness", "read_simulation", "export_game"] as const) reads.add(name);
 for (const name of ["list_assets", "read_asset", "asset_usage", "list_staged_assets", "review_asset"] as const) reads.add(name);
 for (const name of ["read_scene", "review_scene"] as const) reads.add(name);

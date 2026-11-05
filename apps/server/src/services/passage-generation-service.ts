@@ -1,3 +1,5 @@
+import { passagePlanningMessages } from "./openrouter-passage-planning-provider.js";
+import { assertFormatOnlyRepair, formatRepairBaseline } from "@story-to-cyoa/openrouter";
 import {
   buildPassagePlanningContext,
   buildPassageGenerationPlan,
@@ -100,6 +102,7 @@ export class PassageGenerationService {
   authorize(projectId: string, planId: string, fingerprint: string): GenerationPlanRecord {
     this.requireProject(projectId);
     assertPassageFidelityAuthority(this.artifacts, projectId);
+    for (const unit of this.getPlan(projectId, planId).units) this.artifacts.assertAuthoringInstructionsFresh(projectId, (unit.context as PassagePlanningContextPack).authoringInstructions);
     return this.generations.authorize(projectId, planId, fingerprint);
   }
 
@@ -183,8 +186,9 @@ export class PassageGenerationService {
       providerId: request.providerId ?? "offline-kernel",
       modelId: request.modelId ?? "deterministic-fixture-v1",
       policy: passageGenerationPolicyV1,
-      buildUnitContext: ({ passageIds, requestedMaximumOutputTokens, maximumEstimatedInputTokens }) =>
-        buildPassagePlanningContext({
+      buildUnitContext: ({ passageIds, requestedMaximumOutputTokens, maximumEstimatedInputTokens }) => {
+        const result = buildPassagePlanningContext({
+          authoringInstructions: this.artifacts.authoringInstructions(projectId),
           projectId,
           snapshotId: snapshot.id,
           structureVersionId: snapshot.structureVersionId,
@@ -206,7 +210,13 @@ export class PassageGenerationService {
           outputSchema: passagePlanningCandidateSchema,
           requestedMaximumOutputTokens,
           maximumEstimatedInputTokens,
-        }),
+        });
+        // Before authorization, reserve the maximum durable ID envelope; execution checks actual messages too.
+        const requestBytes = Buffer.byteLength(JSON.stringify(passagePlanningMessages({ mode: "generate", jobId: "x".repeat(240), unitId: "x".repeat(240), inputFingerprint: "0".repeat(64),  boundedContext: result.context })));
+        result.diagnostics.estimatedInputTokens = Math.ceil(requestBytes / 4);
+        if (result.diagnostics.estimatedInputTokens > maximumEstimatedInputTokens) throw new Error("authoring_request_context_overflow_narrow_scope");
+        return result;
+      },
     });
   }
 
@@ -224,6 +234,7 @@ export class PassageGenerationService {
       };
       try {
         const context = this.exactStoredContext(unit.context, unit.contextFingerprint);
+        this.artifacts.assertAuthoringInstructionsFresh(plan.projectId, context.authoringInstructions);
         const baseRequest = {
           jobId, unitId: unit.id, providerId: plan.providerId, modelId: plan.modelId,
           inputFingerprint: unit.inputFingerprint, boundedContext: context,
@@ -264,10 +275,12 @@ export class PassageGenerationService {
             passagePlanningCandidateLimits.maximumRepairOutputTokens,
           );
           this.assertPlanFresh(plan);
+          formatRepairBaseline(output);
           const repaired = await provider.generate({
             ...baseRequest,
             mode: "repair",
             boundedContext: {
+              authoringInstructions: context.authoringInstructions,
               schemaId: passagePlanningCandidateSchema.id,
               schemaVersion: passagePlanningCandidateSchema.version,
               jobId,
@@ -286,11 +299,13 @@ export class PassageGenerationService {
           }
           if (repaired.usage) usage.push(repaired.usage);
           if (repaired.providerMetadata) providerMetadata.push(repaired.providerMetadata);
+          const originalOutput = output;
           output = repaired.output;
           validated = validatePassagePlanningCandidate({
             raw: output, jobId, unitId: unit.id, inputFingerprint: unit.inputFingerprint, context,
             maximumOutputTokens: repairMaximumOutputTokens,
           });
+          assertFormatOnlyRepair(originalOutput, output);
           this.assertPlanFresh(plan);
         }
         if (controller.signal.aborted) break;
@@ -333,6 +348,7 @@ export class PassageGenerationService {
   }
 
   private assertPlanFresh(plan: GenerationPlanRecord): void {
+    for (const unit of plan.units) this.artifacts.assertAuthoringInstructionsFresh(plan.projectId, (unit.context as PassagePlanningContextPack).authoringInstructions);
     assertPassageFidelityAuthority(this.artifacts, plan.projectId);
     const expectedVersionId = plan.upstreamVersions["creative-direction"];
     if (!expectedVersionId) return;

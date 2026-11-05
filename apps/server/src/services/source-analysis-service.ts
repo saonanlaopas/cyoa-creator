@@ -1,3 +1,4 @@
+import { assertFormatOnlyRepair, formatRepairBaseline } from "@story-to-cyoa/openrouter";
 import { z } from "zod";
 import { SOURCE_ANALYSIS_POLICY, SOURCE_CATEGORIES, SourceUnitOutputSchema, SourceEvidenceSchema, AnalysisSourceSchema,
   SourceCorrectionOperationSchema, sourceBinding, planSourceAnalysis, sourceCanonicalJson, sourceDigest,
@@ -141,7 +142,9 @@ export class SourceAnalysisService {
         try { parsed = JSON.parse(raw); SourceUnitOutputSchema.parse(parsed); }
         catch {
           // Repair receives the exact malformed output, never a truncated replacement or a saved raw response.
+          formatRepairBaseline(raw); const original = raw;
           repairCount = 1; raw = await call({ ...request, mode: "repair", malformedOutput: raw });
+          assertFormatOnlyRepair(original, raw);
           parsed = JSON.parse(raw); SourceUnitOutputSchema.parse(parsed);
         }
         const output = validateSourceOutput(this.repository.source(plan), plan, unit, parsed);

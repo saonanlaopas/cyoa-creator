@@ -1,0 +1,9 @@
+$ playwright test e2e/fiction-craft.spec.ts --workers=1 --trace=on --output /workspace/.setup/fiction-craft-implementation-20261105/browser-controls-final
+[WebServer] (node:31603) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 4 tests using 1 worker
+(node:31615) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+····
+  4 passed (18.1s)

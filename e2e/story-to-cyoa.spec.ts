@@ -1003,7 +1003,11 @@ test("failed passage candidate validation remains inspectable without mutating t
   }, projectId);
   await page.goto("/#long-form");
   await expect(page.getByText("Job: failed")).toBeVisible();
-  await expect(page.getByText("Candidate response is not valid JSON").first()).toBeVisible();
+  // An irrecoverable original must stop before asking a provider to invent a repair.
+  await expect(page.getByText("Cannot establish an unambiguous original content baseline; create a separately authorized revision.").first()).toBeVisible();
+  const failedJob = await (await request.get(`/api/long-form/projects/${projectId}/passage-generation/jobs/${created.jobId}`)).json();
+  expect(failedJob.units.map((unit: { normalizedError: { code: string } }) => unit.normalizedError.code)).toContain("format_repair_original_unverifiable");
+  expect(failedJob.units.every((unit: { candidate: unknown }) => unit.candidate === null)).toBe(true);
   await expect(page.getByText(/Validated candidate retained/)).toHaveCount(0);
   const after = await (await request.get(`/api/long-form/projects/${projectId}/passage-plan`)).json();
   expect(after.structure).toEqual(before.structure);

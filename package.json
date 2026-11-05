@@ -5,11 +5,11 @@
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "pnpm --parallel --filter @story-to-cyoa/server --filter @story-to-cyoa/web dev",
-    "build": "pnpm -r build",
+    "build": "node scripts/bundle-fiction-craft.mjs --check && pnpm -r build",
     "test": "pnpm vitest --run",
     "test:e2e": "playwright test",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint"
+    "lint": "node scripts/bundle-fiction-craft.mjs --check && pnpm -r lint"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",

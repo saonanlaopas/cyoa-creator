@@ -1,6 +1,8 @@
 import type { OpenRouterDiagnostic } from "./diagnostics.js";
 
 export type OpenRouterErrorCode =
+  | "format_repair_original_unverifiable"
+  | "format_repair_content_changed"
   | "UNAUTHENTICATED"
   | "INSUFFICIENT_CREDITS"
   | "RATE_LIMITED"

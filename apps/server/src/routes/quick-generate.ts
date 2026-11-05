@@ -2,10 +2,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
-import { ProjectSchema, validateGraph, type Project } from "@story-to-cyoa/domain";
+import { authoringMessages, sourceDigest, ProjectSchema, validateGraph, type Project } from "@story-to-cyoa/domain";
 import { compileSugarCube, renderTwee } from "@story-to-cyoa/export-twine";
 import { importSource } from "@story-to-cyoa/importers";
-import { OpenRouterError, redactSecret, type CostRange, type GenerationAttempt, type GenerationUsage, type OpenRouterClient, type ReasoningEvent } from "@story-to-cyoa/openrouter";
+import { FormatOnlyRepairError, OpenRouterError, redactSecret, type CostRange, type GenerationAttempt, type GenerationUsage, type OpenRouterClient, type ReasoningEvent } from "@story-to-cyoa/openrouter";
 import type { ArtifactRepository, CommandRepository, ProjectRepository } from "@story-to-cyoa/persistence";
 import { GenerationDiagnosticStore } from "../services/generation-diagnostic-store.js";
 import type { GenerationStage, PublicGenerationError, QuickGenerationEvent } from "./quick-generation-events.js";
@@ -85,13 +85,6 @@ function encodeSource(source: string): string {
   return source.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function trustedCommandInstructions(commands: ReturnType<CommandRepository["listEffective"]>): string {
-  if (!commands.length) return "";
-  return `\n\nTrusted persistent instructions (apply these after provider safety rules):\n${commands
-    .map((command) => `- ${command.name}: ${command.instruction}`)
-    .join("\n")}`;
-}
-
 function retryAfterSeconds(value: string | null): number | undefined {
   if (!value) return undefined;
   const numeric = Number(value);
@@ -101,6 +94,9 @@ function retryAfterSeconds(value: string | null): number | undefined {
 }
 
 function publicError(error: unknown): PublicGenerationError {
+  if (error && typeof error === "object" && (error as { code?: unknown }).code === "authoring_request_context_overflow") return { code: "AUTHORING_CONTEXT_OVERFLOW", message: "The complete authoring request exceeds its limit. Use less source or narrower instructions.", retryable: false };
+  if (error instanceof Error && error.message === "authoring_instructions_stale_refresh_context") return { code: "AUTHORING_CONTEXT_STALE", message: "Authoring preferences changed. Refresh and review a new authoring request.", retryable: false };
+  if (error instanceof FormatOnlyRepairError) return { code: error.code, message: error.message, retryable: false };
   if (!(error instanceof OpenRouterError)) {
     return { code: "EXPORT_FAILED", message: "Generation could not be completed.", retryable: true };
   }
@@ -167,7 +163,7 @@ export function registerQuickGenerateRoutes(
   app: FastifyInstance,
   client: OpenRouterClient,
   projects: ProjectRepository,
-  commands: CommandRepository,
+  _commands: CommandRepository,
   artifacts: ArtifactRepository,
   diagnostics: GenerationDiagnosticStore,
 ): void {
@@ -206,13 +202,16 @@ export function registerQuickGenerateRoutes(
 
     const model = request.body?.model?.trim() || "openrouter/auto";
     const targetPassages = Math.max(8, Math.min(40, Math.round(request.body?.targetPassages ?? 18)));
-    const messages = [
+    const authoringInstructions = artifacts.authoringInstructions(projectId);
+    const authoringContext = { schemaVersion: 1, projectId, authoringInstructions, request: request.body?.instructions ?? "", sourceVersionId: artifacts.getCurrent(projectId, "source")!.id, model, targetPassages };
+    artifacts.saveArtifact({ projectId, artifactId: "quick-authoring-context", artifactType: "quick-authoring-context", content: { ...authoringContext, contextFingerprint: sourceDigest(authoringContext) }, markDependentsStale: false });
+    const messages = authoringMessages([
       {
         role: "system" as const,
-        content: `You are an interactive-fiction designer. Return valid JSON only. Preserve continuity and source-character voice.${trustedCommandInstructions(commands.listEffective(projectId))}`,
+        content: `You are an interactive-fiction designer. Return valid JSON only. Preserve continuity and source-character voice.`,
       },
       { role: "user" as const, content: generationPrompt(source, request.body?.instructions?.trim() ?? "", targetPassages) },
-    ];
+    ], authoringInstructions);
     const controller = new AbortController();
     request.raw.once("aborted", () => controller.abort("request aborted"));
     reply.raw.once("close", () => {
@@ -235,6 +234,7 @@ export function registerQuickGenerateRoutes(
       let generation = await client.generateStructuredStream(
         {
           model,
+          maximumInputBytes: 250_000,
           messages,
           maxTokens: 24_000,
           temperature: 0.7,
@@ -270,6 +270,7 @@ export function registerQuickGenerateRoutes(
         generation = await client.generateStructuredStream(
           {
             model,
+            maximumInputBytes: 250_000,
             messages: [
               ...messages,
               { role: "assistant", content: JSON.stringify(project) },
@@ -319,6 +320,7 @@ export function registerQuickGenerateRoutes(
       }
 
       stage("export", "Exporting playable story");
+      artifacts.assertAuthoringInstructionsFresh(projectId, authoringInstructions);
       const twee = renderTwee(project);
       let directory: string | undefined;
       let compiled: Awaited<ReturnType<typeof compileSugarCube>>;
@@ -331,6 +333,7 @@ export function registerQuickGenerateRoutes(
       } finally {
         if (directory) await rm(directory, { recursive: true, force: true });
       }
+      artifacts.assertAuthoringInstructionsFresh(projectId, authoringInstructions);
       const totals = aggregateAttempts(attempts);
       stage("complete", "Generation complete");
       send({ type: "result", generation: { project, twee, html, findings, usage: totals.usage, cost: totals.cost, compiler: compiled.compiler }, at: now() });

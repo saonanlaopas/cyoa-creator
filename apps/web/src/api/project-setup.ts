@@ -25,7 +25,7 @@ export interface SetupSession {
 }
 export interface SetupPreview {
   contextFingerprint: string; provider: { model: string }; ready: boolean; withinLimits: boolean; generatesProse: false;
-  diagnostics: { serializedBytes: number; estimatedInputTokens: number; maximumOutputTokens?: number; [key: string]: unknown };
+  diagnostics: { serializedBytes: number; serializedRequestBytes?: number; estimatedInputTokens: number; maximumOutputTokens?: number; [key: string]: unknown };
 }
 const base = (projectId: string, conversationId?: string) => `/api/long-form/projects/${encodeURIComponent(projectId)}/setup/sessions${conversationId ? `/${encodeURIComponent(conversationId)}` : ""}`;
 async function request<T>(url: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {

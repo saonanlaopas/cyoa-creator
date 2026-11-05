@@ -1,0 +1,32 @@
+[
+  {
+    "path": "e2e/illustrated-scenes.spec.ts",
+    "baseSha256": "3ce4e81cd305f1bbcde8355b67df6b6261c4e91d12717136a83de6a6443c3044",
+    "workingSha256": "3ce4e81cd305f1bbcde8355b67df6b6261c4e91d12717136a83de6a6443c3044",
+    "unchanged": true
+  },
+  {
+    "path": "apps/web/src/features/player/illustrated-scene.css",
+    "baseSha256": "327062374dbfb73b9f9177fc30e08c13fc55be57688d20939271e19f45766c14",
+    "workingSha256": "327062374dbfb73b9f9177fc30e08c13fc55be57688d20939271e19f45766c14",
+    "unchanged": true
+  },
+  {
+    "path": "apps/web/src/app/app.css",
+    "baseSha256": "49cec15206d57dbb8b2a15adc09dac72e9c9c6b3e91d28bff2d03f69d8089dac",
+    "workingSha256": "49cec15206d57dbb8b2a15adc09dac72e9c9c6b3e91d28bff2d03f69d8089dac",
+    "unchanged": true
+  },
+  {
+    "path": "e2e/complete-visual-game.spec.ts",
+    "baseSha256": "62b0efd70ecfa1b84d3b6bfe6d8b30f6a29bbfcdb9e0f13488c6d7862049b334",
+    "workingSha256": "62b0efd70ecfa1b84d3b6bfe6d8b30f6a29bbfcdb9e0f13488c6d7862049b334",
+    "unchanged": true
+  },
+  {
+    "path": "packages/runtime/src/progression.ts",
+    "baseSha256": "d8976280b45b6bba5652ade3e8117be2be0a5bfac71f893f13b4d2d4bc68bb98",
+    "workingSha256": "d8976280b45b6bba5652ade3e8117be2be0a5bfac71f893f13b4d2d4bc68bb98",
+    "unchanged": true
+  }
+]

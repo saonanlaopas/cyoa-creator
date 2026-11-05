@@ -51,7 +51,7 @@ export class DeterministicPassagePlanningProvider implements PassagePlanningProv
     } else if (request.mode === "generate" && (this.options.malformedFirstOutputForUnitIds?.includes(request.unitId)
       || (this.options.malformedFirstSuccessfulRequest && !this.malformedSuccessfulRequestEmitted))) {
       this.malformedSuccessfulRequestEmitted = true;
-      output = "{ malformed";
+      output = JSON.stringify(candidateFor(request, this.contexts.get(request.unitId))).slice(0, -1);
     } else if (request.mode === "repair" && this.options.invalidRepairForUnitIds?.includes(request.unitId)) {
       output = "{ still-malformed";
     } else if (request.mode === "repair" && this.options.oversizedRepairOutputForUnitIds?.includes(request.unitId)) {

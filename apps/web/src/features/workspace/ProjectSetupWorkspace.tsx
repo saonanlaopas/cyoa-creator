@@ -112,7 +112,7 @@ export function ProjectSetupWorkspace({ projectId, onApplied }: { projectId: str
           setPreview(await previewSetup(projectId, session.conversation.id, model)); setAuthorized(false);
         })}>Preview proposal context</button>
         {preview && <div className="setup-authorization">
-          <p>Model: {preview.provider.model}. Input: {preview.diagnostics.serializedBytes.toLocaleString()} bytes. Estimated input tokens: {preview.diagnostics.estimatedInputTokens}. Cost unavailable.</p>
+          <p>Model: {preview.provider.model}. Input: {(preview.diagnostics.serializedRequestBytes ?? preview.diagnostics.serializedBytes).toLocaleString()} bytes. Estimated input tokens: {preview.diagnostics.estimatedInputTokens}. Cost unavailable.</p>
           <p>Creates reviewable Brief, Creative Direction and Bible candidates. No passages. No approvals.</p>
           <label><input type="checkbox" checked={authorized} disabled={busy} onChange={(event) => setAuthorized(event.target.checked)} />Authorize this exact proposal request</label>
           <button disabled={busy || !authorized || !preview.ready || !preview.withinLimits} onClick={() => void run(async (signal) => {

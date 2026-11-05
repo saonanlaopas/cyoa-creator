@@ -1,3 +1,4 @@
+import type { AuthoringInstructions } from "@story-to-cyoa/domain";
 import { createHash } from "node:crypto";
 import type { LongFormEndingPlan } from "./schemas/long-form-ending-plan.js";
 import type { LongFormMechanicsPlan } from "./schemas/long-form-mechanics-plan.js";
@@ -26,6 +27,7 @@ export interface PassagePlanningContextDiagnostics {
 }
 
 export interface PassagePlanningContextPack {
+  authoringInstructions?: AuthoringInstructions;
   foundationAuthority?: unknown;
   schemaId: typeof passagePlanningContextSchema.id;
   schemaVersion: typeof passagePlanningContextSchema.version;
@@ -52,6 +54,7 @@ export interface PassagePlanningContextPack {
 }
 
 export interface PassagePlanningContextInput {
+  authoringInstructions?: AuthoringInstructions;
   projectId: string;
   snapshotId: string;
   structureVersionId: string;
@@ -156,6 +159,7 @@ export function buildPassagePlanningContext(input: PassagePlanningContextInput):
     routeIds: [...routeIds], actIds: [act.id], relationshipIds: [...relationshipIds], characterIds: [...characterIds],
   }) : undefined;
   const context: PassagePlanningContextPack = {
+    ...(input.authoringInstructions ? { authoringInstructions: input.authoringInstructions } : {}),
     schemaId: passagePlanningContextSchema.id,
     schemaVersion: passagePlanningContextSchema.version,
     identity: {

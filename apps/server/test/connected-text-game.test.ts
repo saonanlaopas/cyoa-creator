@@ -1,3 +1,4 @@
+import { testDraftingContext } from "./helpers/authoring-context.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -5,12 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { sourceDigest } from "@story-to-cyoa/domain";
+import { builtinFictionCraft, sourceDigest } from "@story-to-cyoa/domain";
 import { ArtifactRepository, ChangeSetRepository, ConversationRepository, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
 import { LongFormProjectService } from "../src/services/long-form-project-service.js";
 import { ConversationalEditService } from "../src/services/conversational-edit-service.js";
 import { ConnectedEditService } from "../src/services/connected-edit-service.js";
-import { ConnectedGameService } from "../src/services/connected-game-service.js";
+import { ConnectedGameInputs, ConnectedGameService } from "../src/services/connected-game-service.js";
 import { PassagePlanService } from "../src/services/passage-plan-service.js";
 import { PassageDraftService } from "../src/services/passage-draft-service.js";
 import { NativeCompilationService } from "../src/services/native-compilation-service.js";
@@ -32,7 +33,7 @@ function fixture(db = openDatabase(), projectId = randomUUID()) {
   const simulations = new SimulationService(projects, artifacts, workflow, passages, drafts), compilation = new NativeCompilationService(projects, artifacts, workflow, passages, drafts);
   const generate = vi.fn(async () => { throw new Error("Provider calls forbidden"); });
   const edits = new ConversationalEditService(db, longForm, [{ id: "offline-edit", generate }, { id: "openrouter-edit", generate }]);
-  const game = new ConnectedGameService(db, edits, plans, prose, simulations, compilation);
+  const game = new ConnectedGameService(db, edits, plans, prose, simulations, compilation, testDraftingContext(db));
   const service = new ConnectedEditService(db, edits, [projectId], longForm, true, game);
   const calls: Array<{ tool: string; input: Record<string, unknown>; result: any }> = [];
   const call = async (tool: string, input: Record<string, unknown>) => { const result = service.call(tool as any, input) as any; calls.push({ tool, input, result }); return result; };
@@ -49,6 +50,30 @@ async function initialized() {
 async function completed() { const f = fixture(), proof = await completeConnectedTextGame(f.call, f.projectId); return { ...f, proof }; }
 
 describe("M3 connected complete text-game lifecycle", () => {
+  it("requires fresh v2 authoring context, preserves retry identity, and replays a completed legacy receipt", async () => {
+    const f = await completed(), passageId = "passage-shared-opening", saved = f.calls.find(c => c.tool === "submit_draft")!;
+    const context = await f.call("read_authoring_context", { projectId: f.projectId, passageId, request: "Review a neutral candidate" });
+    const record = (await f.call("read_game_record", { projectId: f.projectId, kind: "passage", entityId: passageId })).record;
+    const input = { projectId: f.projectId, operationId: randomUUID(), headFingerprint: context.headFingerprint, passageId, passageVersionId: record.id, request: "Review a neutral candidate", proseMarkdown: "The room remains quiet.", approved: true };
+    expect(() => f.service.call("submit_draft", input)).toThrow("authoring_context_v2_required");
+    const current = await f.call("read_authoring_settings", { projectId: f.projectId }), settingsInput = { projectId: f.projectId, expectedVersionId: current.versionId, enabled: false };
+    const settingsReview = await f.call("review_authoring_settings", settingsInput);
+    await f.call("apply_authoring_settings", { ...settingsInput, fingerprint: settingsReview.fingerprint, operationId: randomUUID(), approved: true });
+    expect(() => f.service.call("submit_draft", { ...input, contextVersion: 2, authoringContextFingerprint: context.fingerprint })).toThrow("authoring_context_stale");
+    const fresh = await f.call("read_authoring_context", { projectId: f.projectId, passageId, request: input.request });
+    const args = { ...input, operationId: randomUUID(), contextVersion: 2, authoringContextFingerprint: fresh.fingerprint }, result = await f.call("submit_draft", args);
+    expect(await f.call("submit_draft", args)).toEqual(result);
+    const audit = f.artifacts.getCurrent<any>(f.projectId, `draft-authoring-context:${result.draftVersionId}`)!;
+    expect(audit.content.authoringInstructions).toMatchObject({ enabled: false, appliedGuide: null });
+    expect(audit.content.contextFingerprint).toBe(fresh.fingerprint);
+    // Model a completed pre-v2 manual-input receipt, whose immutable candidate already exists.
+    const { contextVersion: _v, authoringContextFingerprint: _f, ...old } = saved.input;
+    const legacy = ConnectedGameInputs.submit_draft.parse({ ...old, operationId: randomUUID() });
+    const conversations = new ConversationRepository(f.db), scope = { kind: "project" as const, projectId: f.projectId }, c = conversations.create(f.projectId, scope, "Legacy receipt fixture");
+    conversations.addMessage({ conversationId: c.id, role: "assistant", intent: "discuss", scope, context: {}, content: "submit_draft completed", metadata: { connectedOperation: { operationId: legacy.operationId, tool: "submit_draft", fingerprint: sourceDigest({ tool: "submit_draft", input: legacy }), result: saved.result } } });
+    expect(await f.call("submit_draft", legacy)).toEqual(saved.result);
+  });
+
   it("authors structure/new entities/prose, accepts exact candidates, validates, simulates all endings and compiles without provider calls", async () => {
     const f = await completed();
     expect(f.proof.passages).toHaveLength(8);
@@ -64,6 +89,8 @@ describe("M3 connected complete text-game lifecycle", () => {
     const exported = await new PublicationExportService(new PortableProjectRepository(f.db), f.compilation).exportStandalone(f.projectId, f.proof.compiled.inputVersionId);
     expect(exported.html).toContain("connect-src 'none'");
     expect(exported.html).not.toContain("Connected assistant; no provider generation");
+    expect(exported.html).not.toContain(builtinFictionCraft().sha256);
+    expect(exported.html).not.toContain("project-authoring-settings");
     expect(f.generate).not.toHaveBeenCalled();
     f.edits.validateArchiveHistory(f.projectId);
   });
@@ -90,7 +117,7 @@ describe("M3 connected complete text-game lifecycle", () => {
       g.db.exec("DROP TRIGGER fail_m3"); expect(g.service.call(tool, input)).toMatchObject({ status: "draft" }); return;
     }
     if (tool === "approve_game_plan") { const review = await f.call("review_game_plan", { projectId: f.projectId }); input = { ...input, headFingerprint: review.headFingerprint, fingerprint: review.fingerprint }; }
-    if (tool === "submit_draft") input = { ...input, headFingerprint: (await f.call("game_state", { projectId: f.projectId })).headFingerprint, proseMarkdown: "A corrected harbor scene, still a candidate." };
+    if (tool === "submit_draft") input = { ...input, authoringContextFingerprint: (await f.call("read_authoring_context", { projectId: f.projectId, passageId: input.passageId, request: input.request })).fingerprint, headFingerprint: (await f.call("game_state", { projectId: f.projectId })).headFingerprint, proseMarkdown: "A corrected harbor scene, still a candidate." };
     if (tool === "accept_drafts") {
       const draft = await submitGameDraft(f.call, f.projectId, "passage-shared-opening", "A corrected opening after the storm.");
       const selections = [{ passageId: draft.passageId, candidateDraftVersionId: draft.draftVersionId }], review = await f.call("review_drafts", { projectId: f.projectId, selections });

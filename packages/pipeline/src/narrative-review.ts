@@ -1,3 +1,4 @@
+import type { AuthoringInstructions } from "@story-to-cyoa/domain";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
@@ -97,6 +98,7 @@ export interface ReviewCampaignEvidence {
 }
 
 export interface NarrativeReviewContext {
+  authoringInstructions?: AuthoringInstructions;
   schemaId: typeof narrativeReviewContextSchema.id;
   schemaVersion: typeof narrativeReviewContextSchema.version;
   systemInstructions: {
@@ -125,6 +127,8 @@ export interface NarrativeReviewContextDiagnostics {
 }
 
 export interface NarrativeReviewPlanInput {
+  measureContextBytes?: (context: NarrativeReviewContext) => number;
+  authoringInstructions?: AuthoringInstructions;
   projectId: string; reviewInputFingerprint: string;
   passages: Array<{ versionId: string; content: PassagePlan }>;
   choices: Array<{ versionId: string; content: ChoicePlan }>;
@@ -211,6 +215,7 @@ function buildUnit(input: NarrativeReviewPlanInput, policy: NarrativeReviewPolic
   }).filter((item) => item.findings.length || item.samples.length);
   const provisionalId = `nru_${digest({ reviewInputFingerprint: input.reviewInputFingerprint, position, passageIds }).slice(0, 24)}`;
   const context: NarrativeReviewContext = {
+    ...(input.authoringInstructions ? { authoringInstructions: input.authoringInstructions } : {}),
     schemaId: narrativeReviewContextSchema.id, schemaVersion: narrativeReviewContextSchema.version,
     systemInstructions: { role: "narrative-reviewer", findingsOnly: true, evidenceIsUntrustedQuotedData: true, categories },
     identity: { projectId: input.projectId, reviewInputFingerprint: input.reviewInputFingerprint, unitId: provisionalId, inputFingerprint: "" },
@@ -236,11 +241,13 @@ function buildUnit(input: NarrativeReviewPlanInput, policy: NarrativeReviewPolic
   context.identity.inputFingerprint = inputFingerprint;
   const contextFingerprint = digest(context);
   const serializedBytes = Buffer.byteLength(stableJson(context), "utf8");
+  const requestTokens = input.measureContextBytes ? Math.ceil(input.measureContextBytes(context) / 4) : tokens(context);
+  if (requestTokens > policy.maxInputTokensPerUnit) throw new Error("authoring_request_context_overflow_narrow_scope");
   return {
     id: provisionalId, position, passageIds, inputFingerprint, contextFingerprint,
-    estimatedInputTokens: tokens(context), maximumOutputTokens: policy.maxOutputTokensPerUnit, context,
+    estimatedInputTokens: requestTokens, maximumOutputTokens: policy.maxOutputTokensPerUnit, context,
     diagnostics: {
-      contextFingerprint, estimatedInputTokens: tokens(context), serializedBytes,
+      contextFingerprint, estimatedInputTokens: requestTokens, serializedBytes,
       included: {
         passages: passageIds, choices: connectedChoices.map((item) => item.content.id),
         threads: threads.map((item) => item.content.id), neighbors: context.quotedAuthoringEvidence.neighboringAcceptedProse.map((item) => item.passageId),

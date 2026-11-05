@@ -1,3 +1,5 @@
+import { passageDraftingMessages } from "./openrouter-passage-drafting-provider.js";
+import { assertFormatOnlyRepair, formatRepairBaseline } from "@story-to-cyoa/openrouter";
 import { createHash } from "node:crypto";
 import { assertPassageFidelityAuthority } from "./adaptation-passage-authority.js";
 import {
@@ -101,6 +103,7 @@ export class PassageDraftingService {
   authorize(projectId: string, planId: string, fingerprint: string): DraftingPlanRecord {
     this.requireProject(projectId);
     assertPassageFidelityAuthority(this.artifacts, projectId);
+    for (const unit of this.getPlan(projectId, planId).units) this.artifacts.assertAuthoringInstructionsFresh(projectId, (unit.context as PassageDraftingContextPack).authoringInstructions);
     return this.drafting.authorize(projectId, planId, fingerprint);
   }
 
@@ -179,8 +182,9 @@ export class PassageDraftingService {
       providerId: request.providerId?.trim() || "offline-drafting",
       modelId: request.modelId?.trim() || "deterministic-prose-v1",
       policy: passageDraftingPolicyV1,
-      buildUnitContext: ({ unitId, passageIds, requestedMaximumOutputTokens, maximumEstimatedInputTokens }) =>
-        buildPassageDraftingContext({
+      buildUnitContext: ({ unitId, passageIds, requestedMaximumOutputTokens, maximumEstimatedInputTokens }) => {
+        const result = buildPassageDraftingContext({
+          authoringInstructions: this.artifacts.authoringInstructions(projectId),
           projectId,
           unitId,
           snapshotId: snapshot.id,
@@ -195,7 +199,13 @@ export class PassageDraftingService {
           acceptedDrafts,
           maximumEstimatedInputTokens,
           requestedMaximumOutputTokens,
-        }),
+        });
+        // Before authorization, reserve the maximum durable ID envelope; execution checks actual messages too.
+        const requestBytes = Buffer.byteLength(JSON.stringify(passageDraftingMessages({ mode: "generate", jobId: "x".repeat(240), unitId: "x".repeat(240), inputFingerprint: "0".repeat(64), contextFingerprint: result.diagnostics.contextFingerprint, boundedContext: result.context })));
+        result.diagnostics.estimatedInputTokens = Math.ceil(requestBytes / 4);
+        if (result.diagnostics.estimatedInputTokens > maximumEstimatedInputTokens) throw new Error("authoring_request_context_overflow_narrow_scope");
+        return result;
+      },
     });
   }
 
@@ -214,6 +224,7 @@ export class PassageDraftingService {
       try {
         this.assertPlanFresh(plan, unit.id);
         const context = this.exactStoredContext(unit.context, unit.contextFingerprint);
+        this.artifacts.assertAuthoringInstructionsFresh(plan.projectId, context.authoringInstructions);
         const maximumOutputTokens = Math.min(
           unit.estimatedOutputTokens,
           passageDraftingPolicyV1.maxOutputTokensPerUnit,
@@ -266,10 +277,12 @@ export class PassageDraftingService {
             basedOnPassagePlanVersionId: item.versionId,
           }));
           this.assertPlanFresh(plan, unit.id);
+          formatRepairBaseline(output);
           const repaired = await provider.generate({
             ...baseRequest,
             mode: "repair",
             boundedContext: {
+              authoringInstructions: context.authoringInstructions,
               schemaId: passageDraftingUnitOutputSchema.id,
               schemaVersion: passageDraftingUnitOutputSchema.version,
               expectedPassages: expected,
@@ -285,6 +298,7 @@ export class PassageDraftingService {
           }
           if (repaired.usage) usage.push(repaired.usage);
           if (repaired.providerMetadata) providerMetadata.push(repaired.providerMetadata);
+          assertFormatOnlyRepair(output, repaired.output);
           output = repaired.output;
           validated = this.validateOutput(output, context, maximumOutputTokens);
         }
@@ -365,6 +379,7 @@ export class PassageDraftingService {
     const units = unitId ? plan.units.filter((unit) => unit.id === unitId) : plan.units;
     for (const unit of units) {
       const context = this.exactStoredContext(unit.context, unit.contextFingerprint);
+        this.artifacts.assertAuthoringInstructionsFresh(plan.projectId, context.authoringInstructions);
       for (const target of context.targets) {
         const current = this.passagePlans.currentEntity<PassagePlan>(plan.projectId, "passage", target.content.id);
         if (!current || current.id !== target.versionId) {

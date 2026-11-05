@@ -1,3 +1,4 @@
+import { AuthoringInstructionsSchema } from "./authoring-instructions.js";
 import { z } from "zod";
 import { AdaptationIntentSchema, assertAdaptationDossier, assertRequestedSemantics } from "./adaptation-intent.js";
 import { SourceDossierSchema, sourceCanonicalJson, sourceDossierFingerprints } from "./source-analysis.js";
@@ -25,6 +26,7 @@ export type FoundationArtifacts = z.infer<typeof FoundationArtifactsSchema>;
 export const FoundationArtifactVersionsSchema = z.object(shape(id.nullable())).strict();
 export const REDACTED_BOOTSTRAP_REQUEST = "Author request unavailable in this privacy-redacted archive. Create a new preview with an explicit request.";
 export const FoundationBootstrapContextSchema = z.object({
+  authoringInstructions: AuthoringInstructionsSchema.optional(),
   schemaVersion: z.literal(1), policyVersion: z.literal(FOUNDATION_BOOTSTRAP_POLICY), projectId: id,
   title: z.string().trim().min(1).max(200), dossierVersionId: id, intentVersionId: id,
   dossier: SourceDossierSchema, intent: AdaptationIntentSchema,

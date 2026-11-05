@@ -1,3 +1,4 @@
+import { AuthoringSettingsSchema, AuthoringInstructionsSchema, AUTHORING_SETTINGS_ID } from "@story-to-cyoa/domain";
 import {
   AdaptationPlanSchema,
   ChangeProposalSchema,
@@ -18,7 +19,7 @@ import {
   StoryBibleSchema,
 } from "@story-to-cyoa/pipeline";
 import {
-  ArtifactRepository,
+  validateAuthoringInstructionArtifact, ArtifactRepository,
   NarrativeReviewRepository,
   PassageDraftRepository,
   countDraftWords,
@@ -61,7 +62,7 @@ type EntityRow = { id: string; entity_kind: "passage" | "choice" | "thread"; ent
 export const PORTABLE_PROJECT_V1_ARTIFACT_POLICY = {
   excluded: ["source", "source-scope"],
   supported: [
-    "adaptation", "adaptation-intent", "adaptation-intent-proposal", "bible", "brief", "creative-direction", "change-proposal", "drafts", "endings", "export", "mechanics",
+    "project-authoring-settings", "quick-authoring-context", "draft-authoring-context", "adaptation", "adaptation-intent", "adaptation-intent-proposal", "bible", "brief", "creative-direction", "change-proposal", "drafts", "endings", "export", "mechanics",
     "narrative-review", "native-build", "native-compilation-input", "native-player-config", "image-file", "image-asset", "illustrated-scene", "world-definition",
     "playtest-campaign", "repair-plan", "repair-proposal", "repair-proposal-generation", "review", "routes",
     "simulation", "simulation-input", "simulation-run", "source-dossier",
@@ -138,6 +139,7 @@ function validateArtifacts(database: StoryDatabase, projectId: string): void {
     .all(projectId) as JsonRow[];
   for (const row of rows) {
     try {
+      validateAuthoringInstructionArtifact(row);
       validateArtifactRow({ row, projectId, database, content: parse(() => JSON.parse(row.content_json), `artifact JSON ${row.id}`), simulation, playtest, native });
     } catch (error) {
       if ((error as Error).message.startsWith("portable_project_")) throw error;
@@ -190,6 +192,9 @@ function validateArtifactRow(input: {
     throw new Error(`portable_project_artifact_type_unsupported: ${row.artifact_type}`);
   }
   switch (row.artifact_type) {
+    case "project-authoring-settings": exactIdentity(row, AUTHORING_SETTINGS_ID, [1]); AuthoringSettingsSchema.parse(content); return;
+    case "quick-authoring-context": AuthoringInstructionsSchema.parse((content as { authoringInstructions: unknown }).authoringInstructions); return;
+    case "draft-authoring-context": AuthoringInstructionsSchema.parse((content as { authoringInstructions: unknown }).authoringInstructions); return;
     case "source-dossier":
       exactIdentity(row, "source-dossier", [1]); canonical(SourceDossierSchema.parse(content), content, row); return;
     case "adaptation-intent":

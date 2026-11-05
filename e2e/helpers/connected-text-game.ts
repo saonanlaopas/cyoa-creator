@@ -17,8 +17,10 @@ export async function approveGamePlan(call: FoundationCall, projectId: string) {
 }
 export async function submitGameDraft(call: FoundationCall, projectId: string, passageId: string, proseMarkdown: string) {
   const { record, headFingerprint } = await call("read_game_record", { projectId, kind: "passage", entityId: passageId });
-  return call("submit_draft", { projectId, operationId: randomUUID(), headFingerprint, passageId, passageVersionId: record.id,
-    request: "Author this exact harbor scene as a candidate. Preserve choices and existing accepted prose until separately reviewed.", proseMarkdown, approved: true });
+  const request = "Author this exact harbor scene as a candidate. Preserve choices and existing accepted prose until separately reviewed.";
+  const authoring = await call("read_authoring_context", { projectId, passageId, request });
+  return call("submit_draft", { contextVersion: 2, authoringContextFingerprint: authoring.fingerprint, projectId, operationId: randomUUID(), headFingerprint, passageId, passageVersionId: record.id,
+    request, proseMarkdown, approved: true });
 }
 export async function acceptGameDrafts(call: FoundationCall, projectId: string, selections: Array<{ passageId: string; candidateDraftVersionId: string }>) {
   const review = await call("review_drafts", { projectId, selections });

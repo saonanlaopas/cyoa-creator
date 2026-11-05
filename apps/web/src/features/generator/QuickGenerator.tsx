@@ -1,3 +1,4 @@
+import { AuthoringSettingsPanel } from "../workspace/AuthoringSettingsPanel.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadGenerationDiagnostic, streamQuickGeneration, type InstructionCommand, type PublicGenerationError, type QuickGenerationEvent, type QuickGenerationInput, type QuickGenerationResult } from "../../api/quick-generation.js";
 import { CommandManager } from "./CommandManager.js";
@@ -225,6 +226,7 @@ export function QuickGenerator() {
       }} />
       <textarea className="source" value={source} onChange={(event) => setSource(event.target.value)} placeholder="Paste the story or selected arc here…" />
       <textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Optional: tone, routes, endings, relationships, content boundaries…" />
+      {projectId && <AuthoringSettingsPanel key={projectId} projectId={projectId} />}
       {projectId && <CommandManager projectId={projectId} globalCommands={globalCommands} projectCommands={projectCommands} onChanged={() => loadCommands(projectId)} />}
       <div className="row">
         <label>Model <input ref={modelInput} value={model} onChange={(event) => setModel(event.target.value)} /></label>

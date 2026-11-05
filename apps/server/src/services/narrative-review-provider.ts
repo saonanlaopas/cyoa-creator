@@ -39,7 +39,7 @@ export class DeterministicNarrativeReviewProvider implements NarrativeReviewProv
     let output: string;
     if (this.options.oversized || request.modelId === "deterministic-review-oversized-v1") output = "x".repeat(100_000);
     else if ((this.options.malformedFirst || request.modelId === "deterministic-review-repair-v1") && request.mode === "generate" && !this.malformedEmitted) {
-      this.malformedEmitted = true; output = "{ malformed";
+      this.malformedEmitted = true; output = JSON.stringify(validOutput(request.context, this.options.noFindings ?? request.modelId === "deterministic-review-empty-v1", this.options.invalidEvidence)).slice(0, -1);
     } else if (request.mode === "repair" && this.options.invalidRepair) output = "{ still-malformed";
     else output = JSON.stringify(validOutput(request.context, this.options.noFindings ?? request.modelId === "deterministic-review-empty-v1", this.options.invalidEvidence));
     return {

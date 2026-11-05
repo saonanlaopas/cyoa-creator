@@ -113,6 +113,29 @@ async function approveCreativeDirection(
 }
 
 describe("long-form scoped chat", () => {
+  it.each([true, false])("planning chat captures exact craft state and preserves project direction: %s", async enabled => {
+    const { builtinFictionCraft } = await import("@story-to-cyoa/domain"), { writeFileSync } = await import("node:fs");
+    const requests: StructuredGenerationStreamRequest[] = [], app = buildApp({ openRouterClient: fakeChatClient(r => requests.push(r)) });
+    try {
+      const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Neutral planning chat" } })).json(), projectId = created.project.id;
+      await approveCreativeDirection(app, created);
+      const root = `/api/projects/${projectId}/authoring/`;
+      if (!enabled) {
+        const current = (await app.inject({ method: "POST", url: root+"read_authoring_settings", payload: {} })).json(), input = { expectedVersionId: current.versionId, enabled: false };
+        const review = (await app.inject({ method: "POST", url: root+"review_authoring_settings", payload: input })).json();
+        expect((await app.inject({ method: "POST", url: root+"apply_authoring_settings", payload: { ...input, fingerprint: review.fingerprint, approved: true, operationId: crypto.randomUUID() } })).statusCode).toBe(200);
+      }
+      await app.inject({ method: "POST", url: `/api/projects/${projectId}/commands`, payload: { name: "Voice", instruction: "Preserve the project's spare voice." } });
+      const conversation = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/conversations`, payload: {} })).json();
+      const response = await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/conversations/${conversation.id}/messages`, payload: { content: "Discuss a quiet opening.", intent: "discuss", model: "offline/chat" } });
+      expect(response.statusCode, response.body).toBe(201); expect(requests).toHaveLength(1);
+      expect(requests[0].messages.filter(m => m.content.includes(builtinFictionCraft().text))).toHaveLength(enabled ? 1 : 0);
+      expect(JSON.stringify(requests[0].messages)).toContain("Preserve the project's spare voice.");
+      expect(requests[0].messages.at(-1).content).toContain(created.creativeDirection.id);
+      if (process.env.CYOA_CRAFT_EVIDENCE) writeFileSync(process.env.CYOA_CRAFT_EVIDENCE+`/planning-chat-${enabled}.json`, JSON.stringify(requests,null,2)+"\n");
+    } finally { await app.close(); }
+  });
+
   it("rejects provider completion after material Creative Direction changes in flight", async () => {
     const delayed = delayedChatClient(); const app = buildApp({ openRouterClient: delayed.client });
     const created = (await app.inject({ method: "POST", url: "/api/long-form/projects", payload: { name: "Chat race" } })).json();

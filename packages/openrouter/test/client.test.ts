@@ -38,7 +38,7 @@ describe("OpenRouterClient", () => {
         expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${key}`);
         bodies.push(JSON.parse(String(init?.body)));
         calls += 1;
-        return new Response(JSON.stringify({ choices: [{ message: { content: calls === 1 ? "{bad" : '{"title":"ok"}' } }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8, cost: 0.8 } }));
+        return new Response(JSON.stringify({ choices: [{ message: { content: calls === 1 ? '{"title":"ok"' : '{"title":"ok"}' } }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8, cost: 0.8 } }));
       },
     });
     const result = await client.generateStructured({ model: model.id, modelCapabilities: model, messages: [{ role: "user", content: "go" }] }, z.object({ title: z.string() }));
@@ -97,7 +97,7 @@ describe("OpenRouterClient", () => {
       fetch: async (_url, init) => {
         bodies.push(JSON.parse(String(init?.body)));
         calls += 1;
-        const content = calls === 1 ? "{bad" : '{"title":"ok"}';
+        const content = calls === 1 ? '{"title":"ok"' : '{"title":"ok"}';
         return new Response([
           `data: ${JSON.stringify({ choices: [{ delta: { content } }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8, cost: 0.8 } })}\n\n`,
           "data: [DONE]\n\n",
@@ -114,7 +114,7 @@ describe("OpenRouterClient", () => {
     expect(repairs).toEqual([1]);
     expect(bodies).toHaveLength(2);
     expect(bodies[0]).toMatchObject({ stream: true, reasoning: { enabled: true, exclude: false, effort: "low" } });
-    expect(bodies[1]).toMatchObject({ messages: expect.arrayContaining([{ role: "system", content: "Return only repaired JSON matching the requested schema." }]) });
+    expect(bodies[1]).toMatchObject({ messages: expect.arrayContaining([{ role: "system", content: "Repair JSON delimiters/wrapper only; preserve ALL substantive values exactly. Never revise prose or operations." }]) });
   });
 
   it("can disable a second structured repair while retaining completed-attempt metadata", async () => {
@@ -188,7 +188,7 @@ describe("OpenRouterClient", () => {
       throw new Error("Expected OpenRouterClient to reject");
     } catch (error) {
       if (!(error instanceof OpenRouterError)) throw error;
-      expect(error).toMatchObject({ code: "COMPLETION_JSON_INVALID" });
+      expect(error).toMatchObject({ code: "format_repair_original_unverifiable" });
       expect(error).not.toHaveProperty("cause");
       expect(error.message).not.toContain(completion);
       expect(error.message).not.toContain(key);
@@ -205,7 +205,7 @@ describe("OpenRouterClient", () => {
       { model: model.id, messages: [{ role: "user", content: "go" }] },
       z.object({ title: z.string() }),
     );
-    await expect(generation).rejects.toMatchObject({ code: "SCHEMA_INVALID" });
+    await expect(generation).rejects.toMatchObject({ code: "format_repair_original_unverifiable" });
     const error = await generation.catch((reason: unknown) => reason);
     expect(error).not.toHaveProperty("cause");
   });

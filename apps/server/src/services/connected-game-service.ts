@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { sourceCanonicalJson, sourceDigest } from "@story-to-cyoa/domain";
+import { CreativeDirectionSchema, sourceCanonicalJson, sourceDigest } from "@story-to-cyoa/domain";
 import { planningArtifactIds } from "@story-to-cyoa/pipeline";
 import { ArtifactRepository, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, type DraftAcceptanceApplication, type StoryDatabase } from "@story-to-cyoa/persistence";
 import type { ConversationalEditService } from "./conversational-edit-service.js";
+import type { PassageDraftingService } from "./passage-drafting-service.js";
 import type { PassagePlanService } from "./passage-plan-service.js";
 import type { PassageDraftService } from "./passage-draft-service.js";
 import type { SimulationService } from "./simulation-service.js";
@@ -22,7 +23,8 @@ export const ConnectedGameInputs = {
   initialize_game_plan: z.object(bound).strict(),
   review_game_plan: z.object(project).strict(),
   approve_game_plan: z.object({ ...bound, fingerprint: digest }).strict(),
-  submit_draft: z.object({ ...bound, passageId: id, passageVersionId: id, request: z.string().trim().min(1).max(6000), proseMarkdown: z.string().min(1).max(96000) }).strict(),
+  read_authoring_context: z.object({ ...project, scope: z.enum(["draft", "planning", "world", "scene"]).default("draft"), request: z.string().trim().min(1).max(6000).optional(), passageId: id.optional(), artifactId: z.enum(planningArtifactIds).optional() }).strict(),
+  submit_draft: z.object({ ...bound, contextVersion: z.literal(2).optional(), authoringContextFingerprint: digest.optional(), passageId: id, passageVersionId: id, request: z.string().trim().min(1).max(6000), proseMarkdown: z.string().min(1).max(96000) }).strict(),
   review_drafts: z.object({ ...project, selections }).strict(),
   accept_drafts: z.object({ ...operation, selections, fingerprint: digest, approved: z.literal(true) }).strict(),
   publication_readiness: z.object(project).strict(),
@@ -40,8 +42,19 @@ export class ConnectedGameService {
   private readonly artifacts: ArtifactRepository;
   constructor(private readonly database: StoryDatabase, private readonly edits: ConversationalEditService,
     private readonly plans: PassagePlanService, private readonly prose: PassageDraftService,
-    private readonly simulations: SimulationService, private readonly compilation: NativeCompilationService) {
+    private readonly simulations: SimulationService, private readonly compilation: NativeCompilationService, private readonly drafting?: PassageDraftingService) {
     this.passages = new PassagePlanRepository(database); this.drafts = new PassageDraftRepository(database); this.artifacts = new ArtifactRepository(database);
+  }
+  private authoringContext(projectId: string, passageId: string, request: string) {
+    if (this.passages.state(projectId).status !== "approved") throw new Error("connected_approved_current_plan_required");
+    if (!this.drafting) throw new Error("connected_authoring_context_unavailable");
+    const plan = this.drafting.preview(projectId, { scope: { kind: "passages", passageIds: [passageId] } });
+    if (plan.units.length !== 1) throw new Error("connected_authoring_context_narrow_scope");
+    const boundedContext = plan.units[0]!.context;
+    if (!boundedContext) throw new Error("connected_authoring_context_unavailable");
+    const result = { contextVersion: 2 as const, projectId, passageId, task: { kind: "draft" as const, request }, headFingerprint: this.head(projectId), context: boundedContext };
+    if (Buffer.byteLength(sourceCanonicalJson(result)) > 64_000) throw new Error("connected_authoring_context_overflow_narrow_scope");
+    return { ...result, fingerprint: sourceDigest(result), providerCalls: 0 };
   }
   private head(projectId: string) {
     return sourceDigest({ project: this.edits.connectedState(projectId).headFingerprint,
@@ -97,6 +110,18 @@ export class ConnectedGameService {
         const total = this.database.prepare("SELECT COUNT(*) total FROM passage_entity_heads WHERE project_id=? AND entity_kind=? AND tombstoned=0").get(i.projectId, i.kind) as { total: number };
         return { headFingerprint: this.head(i.projectId), structureVersionId: this.passages.currentStructure(i.projectId)?.id ?? null, state: this.passages.state(i.projectId), kind: i.kind, offset: i.offset, total: total.total, items: rows };
       }
+      case "read_authoring_context": {
+        const i = ConnectedGameInputs.read_authoring_context.parse(value);
+        if (i.scope === "draft") { if (!i.passageId) throw new Error("connected_authoring_passage_required"); if (!i.request) throw new Error("connected_authoring_task_required"); return this.authoringContext(i.projectId, i.passageId, i.request); }
+        if (i.scope === "planning" && !i.artifactId) throw new Error("connected_authoring_artifact_required");
+        const directionRow = this.database.prepare("SELECT approved_version_id id FROM artifact_workflow_state WHERE project_id=? AND artifact_id='creative-direction'").get(i.projectId) as { id: string | null } | undefined;
+        const direction = directionRow?.id ? this.artifacts.getVersion(directionRow.id) : undefined;
+        const record = i.scope === "planning" ? this.artifacts.getCurrent(i.projectId, i.artifactId!)
+          : this.call(i.scope === "world" ? "read_world" : "read_scene", { projectId: i.projectId, ...(i.scope === "scene" ? { passageId: i.passageId } : {}) });
+        const result = { contextVersion: 2, scope: i.scope, projectId: i.projectId, headFingerprint: this.head(i.projectId), authoringInstructions: this.artifacts.authoringInstructions(i.projectId), approvedDirection: direction ? { versionId: direction.id, context: CreativeDirectionSchema.parse(direction.content) } : null, record };
+        if (Buffer.byteLength(sourceCanonicalJson(result)) > 64_000) throw new Error("connected_authoring_context_overflow_narrow_scope");
+        return { ...result, fingerprint: sourceDigest(result), providerCalls: 0 };
+      }
       case "read_game_record": {
         const i = ConnectedGameInputs.read_game_record.parse(value);
         if (i.kind === "structure") {
@@ -131,7 +156,12 @@ export class ConnectedGameService {
         const i = ConnectedGameInputs.submit_draft.parse(value); this.fresh(i.projectId, i.headFingerprint); this.approvedFoundations(i.projectId);
         if (this.passages.state(i.projectId).status !== "approved") throw new Error("connected_approved_current_plan_required");
         if (this.passages.currentEntity(i.projectId, "passage", i.passageId)?.id !== i.passageVersionId) throw new Error("connected_passage_version_stale");
+        if (i.contextVersion !== 2 || !i.authoringContextFingerprint) throw new Error("connected_authoring_context_v2_required_read_first");
+        const context = this.authoringContext(i.projectId, i.passageId, i.request);
+        if (context.fingerprint !== i.authoringContextFingerprint) throw new Error("connected_authoring_context_stale_refresh");
         const result = this.prose.saveManual(i.projectId, i.passageId, { proseMarkdown: i.proseMarkdown, authorNote: `Connected assistant; no provider generation. Author request: ${i.request}` }, { inTransaction: true });
+        const { fingerprint: _fingerprint, providerCalls: _providerCalls, ...binding } = context;
+        this.artifacts.saveArtifactInTransaction({ projectId: i.projectId, artifactId: `draft-authoring-context:${result.draft.id}`, artifactType: "draft-authoring-context", content: { schemaVersion: 1, draftVersionId: result.draft.id, authoringInstructions: context.context.authoringInstructions, contextFingerprint: context.fingerprint, binding }, markDependentsStale: false });
         return { draftVersionId: result.draft.id, passageId: i.passageId, status: "candidate", provenance: "connected-assistant", providerCalls: 0 };
       }
       case "review_drafts": {
@@ -201,6 +231,10 @@ export class ConnectedGameService {
       const i = ConnectedGameInputs.submit_draft.parse(value), draft = this.drafts.getVersion(i.projectId, r.draftVersionId);
       if (!draft || draft.passageId !== i.passageId || r.passageId !== i.passageId || draft.basedOnPassagePlanVersionId !== i.passageVersionId || draft.proseMarkdown !== i.proseMarkdown
         || draft.lifecycleStatus !== "candidate" || draft.sourceKind !== "manual" || draft.authorNote !== `Connected assistant; no provider generation. Author request: ${i.request}` || r.provenance !== "connected-assistant" || r.status !== "candidate") throw new Error("connected_receipt_lineage_invalid");
+      if (i.contextVersion === 2) {
+        const context = this.artifacts.getCurrent<{ draftVersionId: string; contextFingerprint: string }>(i.projectId, `draft-authoring-context:${r.draftVersionId}`);
+        if (!context || context.content.draftVersionId !== draft!.id || context.content.contextFingerprint !== i.authoringContextFingerprint) throw new Error("connected_receipt_authoring_context_invalid");
+      }
     } else if (tool === "accept_drafts") {
       const i = ConnectedGameInputs.accept_drafts.parse(value), application = r.application as DraftAcceptanceApplication;
       const selected = [...i.selections].sort((a, b) => a.passageId.localeCompare(b.passageId));

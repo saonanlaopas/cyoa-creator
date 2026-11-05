@@ -1,3 +1,4 @@
+import type { AuthoringInstructions } from "@story-to-cyoa/domain";
 import { createHash } from "node:crypto";
 import type { LongFormEndingPlan } from "./schemas/long-form-ending-plan.js";
 import type { LongFormMechanicsPlan } from "./schemas/long-form-mechanics-plan.js";
@@ -26,6 +27,7 @@ export interface AcceptedNeighborDraftInput {
 }
 
 export interface PassageDraftingContextPack {
+  authoringInstructions?: AuthoringInstructions;
   foundationAuthority?: unknown;
   schemaId: typeof passageDraftingContextSchema.id;
   schemaVersion: typeof passageDraftingContextSchema.version;
@@ -71,6 +73,7 @@ export interface PassageDraftingContextDiagnostics {
 }
 
 export interface PassageDraftingContextInput {
+  authoringInstructions?: AuthoringInstructions;
   projectId: string;
   unitId: string;
   snapshotId: string;
@@ -195,6 +198,7 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
   }) : undefined;
 
   const base: PassageDraftingContextPack = {
+    ...(input.authoringInstructions ? { authoringInstructions: input.authoringInstructions } : {}),
     schemaId: passageDraftingContextSchema.id,
     schemaVersion: passageDraftingContextSchema.version,
     identity: {

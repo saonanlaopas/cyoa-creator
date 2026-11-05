@@ -1,3 +1,4 @@
+import { assertFormatOnlyRepair, formatRepairBaseline, FormatOnlyRepairError } from "./format-only-repair.js";
 import { z, type ZodType } from "zod";
 import type { CredentialStore } from "./credential-store.js";
 import { actualCost, type CostRange } from "./cost.js";
@@ -14,6 +15,7 @@ export interface ChatMessage {
 
 export interface StructuredGenerationRequest {
   model: string;
+  maximumInputBytes?: number;
   messages: ChatMessage[];
   /** Use a catalog entry to enable strict JSON Schema for capable models. */
   modelCapabilities?: OpenRouterModel;
@@ -112,14 +114,18 @@ export class OpenRouterClient {
     const attempts: GenerationAttempt[] = [];
     let lastCompletionErrorCode: "COMPLETION_JSON_INVALID" | "SCHEMA_INVALID" = "SCHEMA_INVALID";
     let lastDiagnostic: OpenRouterDiagnostic | undefined;
+    let original: string | undefined;
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt === 1) { if (!original || !schema.safeParse(formatRepairBaseline(original)).success) throw new FormatOnlyRepairError("format_repair_original_unverifiable", "The original output cannot be verified against the expected wrapper; no inferred repair is permitted."); }
       const messages = attempt === 0 ? request.messages : [
         ...request.messages,
         {
           role: "system" as const,
-          content: "Your previous response was invalid. Return only JSON that exactly matches the requested schema.",
+          content: "Repair JSON formatting only. Preserve all substantive values verbatim; never revise content.",
         },
+        { role: "user" as const, content: JSON.stringify({ malformedOutput: original }) },
       ];
+      assertRequestBudget(messages, request.maximumInputBytes);
       const payload: Record<string, unknown> = {
         model: request.model,
         messages,
@@ -160,6 +166,8 @@ export class OpenRouterClient {
         : null;
       attempts.push({ usage, cost, provider: diagnostic.provider ?? null, generationId: diagnostic.generationId ?? null, diagnostic });
       const content = contentFrom(parsed, diagnostic);
+      if (attempt === 1) assertFormatOnlyRepair(original!, content);
+      else original = content;
       let raw: unknown;
       try {
         raw = JSON.parse(content) as unknown;
@@ -196,6 +204,7 @@ export class OpenRouterClient {
     request: StructuredGenerationRequest,
     schema: ZodType<unknown>,
   ): Promise<RawStructuredGenerationResult> {
+    assertRequestBudget(request.messages, request.maximumInputBytes);
     const payload: Record<string, unknown> = {
       model: request.model,
       messages: request.messages,
@@ -276,12 +285,18 @@ export class OpenRouterClient {
   ): Promise<GenerationResult<T>> {
     const attempts: GenerationAttempt[] = [];
     const maxAttempts = 1 + (request.maxRepairAttempts ?? 1);
+    let original: string | undefined;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      if (attempt === 1) callbacks.onRepair?.(1);
+      if (attempt === 1) {
+        if (!original || !schema.safeParse(formatRepairBaseline(original)).success) throw new FormatOnlyRepairError("format_repair_original_unverifiable", "The original output cannot be verified against the expected wrapper; no inferred repair is permitted.");
+        callbacks.onRepair?.(1);
+      }
       const messages = attempt === 0 ? request.messages : [
         ...request.messages,
-        { role: "system" as const, content: "Return only repaired JSON matching the requested schema." },
+        { role: "system" as const, content: "Repair JSON delimiters/wrapper only; preserve ALL substantive values exactly. Never revise prose or operations." },
+        { role: "user" as const, content: JSON.stringify({ malformedOutput: original }) },
       ];
+      assertRequestBudget(messages, request.maximumInputBytes);
       const response = await this.request("/chat/completions", {
         method: "POST",
         signal: request.signal,
@@ -309,6 +324,8 @@ export class OpenRouterClient {
         : null;
       const diagnostic = { ...completion.diagnostic, provider: completion.provider, generationId: completion.generationId };
       attempts.push({ usage: completion.usage, cost, provider: completion.provider, generationId: completion.generationId, diagnostic });
+      if (attempt === 1) assertFormatOnlyRepair(original!, completion.content);
+      else original = completion.content;
       let raw: unknown;
       try {
         raw = JSON.parse(completion.content) as unknown;
@@ -423,3 +440,5 @@ function literalToJsonSchema(value: unknown): Record<string, unknown> {
   }
   throw new Error("Strict JSON Schema only supports JSON-safe ZodLiteral values");
 }
+
+function assertRequestBudget(messages: ChatMessage[], limit?: number) { if (limit !== undefined && new TextEncoder().encode(JSON.stringify(messages)).length > limit) throw Object.assign(new Error("authoring_request_context_overflow_narrow_scope"), { code: "authoring_request_context_overflow", retryable: false }); }

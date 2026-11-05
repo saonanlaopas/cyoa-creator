@@ -18,7 +18,6 @@ export class DeterministicSourceAnalysisProvider implements SourceAnalysisProvid
       request.signal.addEventListener("abort", abort, { once: true }); if (request.signal.aborted) abort();
     });
     if (this.options.failFirst && this.calls.length === 1) throw new Error("offline fixture failure");
-    if (this.options.malformedFirst && this.calls.filter((c) => c.mode === "analyze").length === 1 && request.mode === "analyze") return { output: "{invalid", usage: { inputTokens: 1, outputTokens: 1, cost: 0 } };
     const observations: SourceObservation[] = [];
     const characters = new Map<string, string>();
     const add = (value: Omit<SourceObservation, "id" | "aliases" | "uncertainty" | "references"> & Partial<Pick<SourceObservation, "aliases" | "uncertainty" | "references">>) => {
@@ -50,7 +49,8 @@ export class DeterministicSourceAnalysisProvider implements SourceAnalysisProvid
       if (/\b(He|he|She|she)\b/.test(item.text)) add({ category: "ambiguity", identityKey: item.reference.excerptId, field: "pronoun reference",
         claim: "Pronoun identity requires review", classification: "inference", evidence, uncertainty: "Identity unresolved" });
     }
-    const output = this.options.oversized ? "x".repeat(SOURCE_ANALYSIS_POLICY.maxOutputBytes + 1) : JSON.stringify(SourceUnitOutputSchema.parse({ schemaVersion: 1, observations }));
+    let output = this.options.oversized ? "x".repeat(SOURCE_ANALYSIS_POLICY.maxOutputBytes + 1) : JSON.stringify(SourceUnitOutputSchema.parse({ schemaVersion: 1, observations }));
+    if (this.options.malformedFirst && this.calls.filter((c) => c.mode === "analyze").length === 1 && request.mode === "analyze") output = output.slice(0, -1);
     return { output, usage: { inputTokens: Math.ceil(sourceCanonicalJson(request.context).length / 4), outputTokens: Math.ceil(output.length / 4), cost: 0 } };
   }
 }

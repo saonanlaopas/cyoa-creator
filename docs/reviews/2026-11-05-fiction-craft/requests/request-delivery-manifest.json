@@ -1,0 +1,283 @@
+{
+  "guideVersion": "0.1",
+  "guideSha256": "c42b4cd0239c26d1541615dd62ddc115281311d1f838e980468ca65631323e96",
+  "notes": [
+    "foundation-bootstrap-direction-{true,false} names describe approved Creative Direction presence; both captures have Fiction Craft enabled.",
+    "Byte counts cover JSON serialized messages with UTF-8 and compact separators."
+  ],
+  "requests": [
+    {
+      "file": "provider-requests.json",
+      "request": 0,
+      "path": "draft",
+      "mode": "generate",
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 10998
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 1,
+      "path": "draft",
+      "mode": "repair",
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 10853
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 2,
+      "path": "draft",
+      "mode": "generate",
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 2195
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 3,
+      "path": "draft",
+      "mode": "repair",
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 2050
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 4,
+      "path": "plan",
+      "mode": "generate",
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 10917
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 5,
+      "path": "plan",
+      "mode": "repair",
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 10868
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 6,
+      "path": "plan",
+      "mode": "generate",
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 2114
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 7,
+      "path": "plan",
+      "mode": "repair",
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 2065
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 8,
+      "path": "review",
+      "mode": "generate",
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 10856
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 9,
+      "path": "review",
+      "mode": "repair",
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 10871
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 10,
+      "path": "review",
+      "mode": "generate",
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 2053
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 11,
+      "path": "review",
+      "mode": "repair",
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 2068
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 12,
+      "path": "prose-revision",
+      "mode": "generate",
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 11054
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 13,
+      "path": "prose-revision",
+      "mode": "repair",
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 10899
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 14,
+      "path": "prose-revision",
+      "mode": "generate",
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 2251
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 15,
+      "path": "prose-revision",
+      "mode": "repair",
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 2096
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 16,
+      "path": "A6",
+      "mode": "discuss",
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 13352
+    },
+    {
+      "file": "provider-requests.json",
+      "request": 17,
+      "path": "A6",
+      "mode": "discuss",
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 4568
+    },
+    {
+      "file": "quick-true-requests.json",
+      "request": 0,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 12399
+    },
+    {
+      "file": "quick-true-requests.json",
+      "request": 1,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 13251
+    },
+    {
+      "file": "quick-false-requests.json",
+      "request": 0,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 3755
+    },
+    {
+      "file": "quick-false-requests.json",
+      "request": 1,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 4607
+    },
+    {
+      "file": "setup-true-requests.json",
+      "request": 0,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 12965
+    },
+    {
+      "file": "setup-true-requests.json",
+      "request": 1,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 13765
+    },
+    {
+      "file": "setup-false-requests.json",
+      "request": 0,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 4321
+    },
+    {
+      "file": "setup-false-requests.json",
+      "request": 1,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 5121
+    },
+    {
+      "file": "planning-chat-true.json",
+      "request": 0,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 14076
+    },
+    {
+      "file": "planning-chat-false.json",
+      "request": 0,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": false,
+      "fullGuideMessageCount": 0,
+      "serializedMessagesBytes": 5432
+    },
+    {
+      "file": "foundation-bootstrap-direction-true.json",
+      "request": 0,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 64683
+    },
+    {
+      "file": "foundation-bootstrap-direction-false.json",
+      "request": 0,
+      "path": null,
+      "mode": null,
+      "expectedEnabled": true,
+      "fullGuideMessageCount": 1,
+      "serializedMessagesBytes": 63655
+    }
+  ],
+  "requestCount": 30,
+  "enabledCount": 16,
+  "disabledCount": 14
+}

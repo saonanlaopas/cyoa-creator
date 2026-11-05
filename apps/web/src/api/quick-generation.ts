@@ -25,7 +25,9 @@ export type OpenRouterErrorCode =
   | "STREAM_INTERRUPTED"
   | "COMPLETION_EMPTY"
   | "COMPLETION_JSON_INVALID"
-  | "SCHEMA_INVALID";
+  | "SCHEMA_INVALID"
+  | "format_repair_original_unverifiable"
+  | "format_repair_content_changed";
 
 export interface GenerationUsage {
   inputTokens: number;
@@ -41,7 +43,7 @@ export interface CostRange {
 }
 
 export interface PublicGenerationError {
-  code: OpenRouterErrorCode | "GRAPH_INVALID" | "EXPORT_FAILED" | "LOCAL_STREAM_INVALID";
+  code: "AUTHORING_CONTEXT_OVERFLOW" | "AUTHORING_CONTEXT_STALE" | OpenRouterErrorCode | "GRAPH_INVALID" | "EXPORT_FAILED" | "LOCAL_STREAM_INVALID";
   message: string;
   retryable: boolean;
   retryAfterSeconds?: number;

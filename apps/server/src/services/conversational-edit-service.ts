@@ -1,3 +1,4 @@
+import { selectCreativeDirectionContext } from "@story-to-cyoa/domain";
 import { z } from "zod";
 import { AnalysisSourceSchema, SourceDossierSchema, isUnavailableSource, resolveSourceEvidence, collectStableIds, CREATIVE_DIRECTION_LIMITS, CreativeDirectionInputSchema, creativeDirectionFingerprints, creativeDirectionReferenceIssues, sourceCanonicalJson, sourceDigest, type FoundationBootstrapCandidate } from "@story-to-cyoa/domain";
 import { applyPlanningOperations, enrichOperationGroups, planningSection, planningArtifactIds, validateLongFormProject,
@@ -193,7 +194,11 @@ export class ConversationalEditService {
       }
     }
     const evidence = this.sourceEvidence(projectId, [...targets, ...relevant]);
-    const context = { targets, references: relevant, evidence, memory };
+    const directionVersion = this.database.prepare("SELECT approved_version_id id FROM artifact_workflow_state WHERE project_id=? AND artifact_id='creative-direction'").get(projectId) as { id: string | null } | undefined;
+    const direction = directionVersion?.id ? this.artifacts.getVersion(directionVersion.id) : null;
+    const directionScopeIds = [...strings([...targets, ...relevant])];
+    const approvedDirection = direction ? { versionId: direction.id, context: selectCreativeDirectionContext(CreativeDirectionSchema.parse(direction.content), { routeIds: directionScopeIds, actIds: directionScopeIds, relationshipIds: directionScopeIds, characterIds: directionScopeIds }).context } : null;
+    const context = { approvedDirection, targets, references: relevant, evidence, memory, authoringInstructions: this.artifacts.authoringInstructions(projectId) };
     const definition = { projectId, conversationId: currentConversation.id, request, targets, context, contextBytes: bytes(context), headFingerprint: this.heads(projectId) };
     const candidate = { ...definition, id: "preview", fingerprint: sourceDigest(definition) }; editMessages(candidate);
     const message = this.conversations.addMessage({ conversationId: currentConversation.id, role: "user", content: request.message, intent: request.intent, scope, context: this.canonicalContext(projectId), metadata: { editPlan: definition, editFingerprint: candidate.fingerprint } });
@@ -207,7 +212,7 @@ export class ConversationalEditService {
     if (sourceDigest(definition) !== message.metadata.editFingerprint || definition.projectId !== projectId || definition.conversationId !== message.conversationId || definition.request.message !== message.content) throw new Error("edit_plan_identity_invalid");
     return { ...definition, id, fingerprint: String(message.metadata.editFingerprint) };
   }
-  private fresh(plan: EditPlan) { if (this.heads(plan.projectId) !== plan.headFingerprint) throw new Error("edit_base_stale_repreview"); }
+  private fresh(plan: EditPlan) { this.artifacts.assertAuthoringInstructionsFresh(plan.projectId, plan.context.authoringInstructions); if (this.heads(plan.projectId) !== plan.headFingerprint) throw new Error("edit_base_stale_repreview"); }
   private canonicalContext(projectId: string) {
     return Object.fromEntries([...planningArtifactIds].sort().flatMap((id) => { const v = this.artifacts.getCurrent(projectId, id); return v ? [[`${id}VersionId`, v.id]] : []; }));
   }

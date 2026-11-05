@@ -1,3 +1,4 @@
+import { FormatOnlyRepairError } from "@story-to-cyoa/openrouter";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import type { AdaptationIntentService } from "../services/adaptation-intent-service.js";
@@ -34,6 +35,7 @@ export function registerAdaptationIntentRoutes(app: FastifyInstance, service: Ad
 async function respond(reply: FastifyReply, action: () => unknown) {
   try { return reply.send(await action()); }
   catch (error) {
+    if (error instanceof FormatOnlyRepairError) return reply.code(422).send({ code: error.code, error: error.message, retryable: false });
     const code = /^adaptation_[a-z_]+/.exec((error as Error)?.message ?? "")?.[0] ?? "adaptation_request_invalid";
     const conflicts = code === "adaptation_override_conflict" ? z.array(z.object({ id: z.string().max(240), overrideIds: z.array(z.string().max(240)).max(32) }).strict()).max(32).safeParse((error as { conflicts?: unknown }).conflicts) : undefined;
     return reply.code(/stale|pending|running|already|current/.test(code) ? 409 : 400).send({ code, error: code.replaceAll("_", " "), ...(conflicts?.success ? { conflicts: conflicts.data } : {}) });

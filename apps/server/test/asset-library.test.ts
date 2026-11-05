@@ -70,7 +70,7 @@ describe("V1 image preparation and immutable library", () => {
     if (kind === "dimensions") bytes = await sharp({ create: { width: 4097, height: 1, channels: 4, background: "red" } }).png().toBuffer();
     if (kind === "size") bytes = Buffer.alloc(IMAGE_ASSET_LIMITS.inputBytes + 1);
     const f = fixture(); await expect(f.service.upload({ projectId: f.projectId, operationId: randomUUID(), approved: true, metadata: imageMetadata }, bytes, "input.png", mime)).rejects.toThrow();
-    expect(f.db.prepare("SELECT COUNT(*) n FROM artifact_versions").get()).toEqual(expect.objectContaining({ n: 0 }));
+    expect(f.db.prepare("SELECT COUNT(*) n FROM artifact_versions").get()).toEqual(expect.objectContaining({ n: 1 }));
   });
   it("keeps approved bytes immutable through replacement, rejection and metadata revision, with explicit reapproval", async () => {
     const f = fixture(), first = await f.upload(), approved = (await f.review(first)).result;
@@ -100,7 +100,7 @@ describe("V1 image preparation and immutable library", () => {
     const f = fixture(), input = { projectId: f.projectId, operationId: randomUUID(), approved: true, metadata: imageMetadata };
     f.db.exec("CREATE TEMP TRIGGER fail_assets BEFORE INSERT ON messages WHEN json_type(NEW.metadata_json,'$.assetOperation') IS NOT NULL BEGIN SELECT RAISE(ABORT,'asset receipt failed'); END");
     await expect(f.service.upload(input, fixtureImage(), "harbor.png", "image/png")).rejects.toThrow("asset receipt failed");
-    expect(f.db.prepare("SELECT COUNT(*) n FROM artifact_versions").get()).toEqual(expect.objectContaining({ n: 0 }));
+    expect(f.db.prepare("SELECT COUNT(*) n FROM artifact_versions").get()).toEqual(expect.objectContaining({ n: 1 }));
     f.db.exec("DROP TRIGGER fail_assets"); expect(await f.service.upload(input, fixtureImage(), "harbor.png", "image/png")).toMatchObject({ status: "candidate" });
   });
   it.each(["revise_asset", "approve_asset", "reject_asset"] as const)("rolls back %s and its receipt, retaining an exact retry", async (tool) => {

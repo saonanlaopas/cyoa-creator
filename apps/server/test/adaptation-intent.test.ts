@@ -190,13 +190,13 @@ describe("A4 manual and conversational boundary", () => {
   it("rechecks freshness after structural repair and rejects repair exhaustion atomically", async () => {
     let f: Awaited<ReturnType<typeof fixture>>;
     const provider = new DeterministicAdaptationIntentProvider({ respond: async (r) => {
-      if (r.mode === "suggest") return "{invalid";
+      if (r.mode === "suggest") return JSON.stringify({ schemaVersion: 1, intent: "adaptation-preference", operations: [{ kind: "dimension", dimension: "tone", level: "strict" }] }).slice(0, -1);
       const state = (await f.call("")).json(); await f.call("/edit", { baseVersionId: state.current.id, preset: "faithful" });
       return JSON.stringify({ schemaVersion: 1, intent: "adaptation-preference", operations: [{ kind: "dimension", dimension: "tone", level: "strict" }] });
     } }); f = await fixture(provider); await create(f); const p = await preview(f);
     expect((await f.call("/generate", { previewId: p.id, fingerprint: p.fingerprint })).statusCode).toBe(409); expect(provider.calls).toHaveLength(2);
     const broken = await fixture(new DeterministicAdaptationIntentProvider({ respond: () => "{invalid" })); const b = await preview(broken);
-    const response = await broken.call("/generate", { previewId: b.id, fingerprint: b.fingerprint }); expect(response.json().code).toBe("adaptation_repair_exhausted"); expect((await broken.call("")).json().current).toBeNull();
+    const response = await broken.call("/generate", { previewId: b.id, fingerprint: b.fingerprint }); expect(response.json().code).toBe("format_repair_original_unverifiable"); expect((await broken.call("")).json().current).toBeNull();
   });
   it.each(["achieved", "oversized", "foreign-target", "inflation", "partial-invalid"])("rejects %s provider operations without canonical changes", async (kind) => {
     const operation = kind === "inflation" ? { kind: "budget", target: 140_000 } : kind === "foreign-target" ? { kind: "override", value: { id: "bad", authority: "author-override", targetIds: ["foreign"], aspect: "state", effect: "Survives", scope: "project", rationale: "Intent", active: true, reviewed: false } }

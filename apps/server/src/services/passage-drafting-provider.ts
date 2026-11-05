@@ -54,7 +54,7 @@ export class DeterministicPassageDraftingProvider implements PassageDraftingProv
       || (this.options.malformedFirstSuccessfulRequest && !this.malformedSuccessfulRequestEmitted)
     )) {
       this.malformedSuccessfulRequestEmitted = true;
-      output = "{ malformed";
+      output = JSON.stringify(outputFor(this.contexts.get(request.unitId)!, request.contextFingerprint)).slice(0, -1);
     } else if (request.mode === "repair" && this.options.invalidRepairForUnitIds?.includes(request.unitId)) {
       output = "{ still-malformed";
     } else {

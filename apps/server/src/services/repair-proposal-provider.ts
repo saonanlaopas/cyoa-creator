@@ -37,7 +37,7 @@ export class DeterministicRepairProposalProvider implements RepairProposalProvid
     }
     let output: string;
     if (request.mode === "generate" && this.options.malformedFirst && !this.malformed) {
-      this.malformed = true; output = "{ malformed";
+      this.malformed = true; output = JSON.stringify(buildDeterministicRepairCandidate(request.context)).slice(0, -1);
     } else if (request.mode === "repair" && this.options.invalidRepair) output = "{ still-malformed";
     else {
       const candidate = buildDeterministicRepairCandidate(request.context);

@@ -70,7 +70,7 @@ it("CP1 starts the documented persistent host, exposes the full configured tool 
     const enabled = [...template.match(/enabled_tools\s*=\s*\[([\s\S]*?)\]/)![1]!.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]!);
     const actual = (await client!.listTools()).tools.map((t) => t.name);
     expect(new Set(enabled).size).toBe(enabled.length);
-    expect(enabled.slice().sort()).toEqual(actual.slice().sort()); expect(actual).toHaveLength(47);
+    expect(enabled.slice().sort()).toEqual(actual.slice().sort()); expect(actual).toHaveLength(51);
     expect(template).toContain('bearer_token_env_var = "CYOA_MCP_TOKEN"');
     expect(template).toContain('url = "http://127.0.0.1:3000/mcp"');
     const instructions = client!.getInstructions();

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  sourceDigest, AUTHORING_SETTINGS_ID, newProjectAuthoringSettings,
   CreativeDirectionSchema,
   creativeDirectionFingerprints,
 } from "@story-to-cyoa/domain";
@@ -35,15 +36,18 @@ const mapProject = (row: ProjectRow): ProjectRecord => ({
 export class ProjectRepository {
   constructor(private readonly database: StoryDatabase) {}
 
-  create(name: string, id: string = randomUUID(), mode: ProjectRecord["mode"] = "quick"): ProjectRecord {
+  create(name: string, id: string = randomUUID(), mode: ProjectRecord["mode"] = "quick", initializeAuthoring = true): ProjectRecord {
     const cleanName = name.trim();
     if (!cleanName) throw new Error("Project name is required");
     if (mode !== "quick" && mode !== "long-form") throw new Error("Project mode is invalid");
     const now = new Date().toISOString();
-    this.database.prepare(
-      "INSERT INTO projects (id, name, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-    ).run(id, cleanName, mode, now, now);
-    return this.get(id)!;
+    const create = () => {
+      this.database.prepare("INSERT INTO projects (id, name, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(id, cleanName, mode, now, now);
+      if (initializeAuthoring) new ArtifactRepository(this.database).saveArtifactInTransaction({ projectId: id, artifactId: AUTHORING_SETTINGS_ID,
+        artifactType: AUTHORING_SETTINGS_ID, content: newProjectAuthoringSettings(), markDependentsStale: false });
+      return this.get(id)!;
+    };
+    return this.database.isTransaction ? create() : transaction(this.database, create);
   }
 
   list(options: { includeArchived?: boolean } = {}): ProjectRecord[] {
@@ -95,7 +99,7 @@ export class ProjectRepository {
     return transaction(this.database, () => {
       this.database.exec("PRAGMA defer_foreign_keys = ON");
       validateProject?.(this.database, id);
-      const copy = this.create(name ?? `${source.name} (copy)`, randomUUID(), source.mode);
+      const copy = this.create(name ?? `${source.name} (copy)`, randomUUID(), source.mode, false);
       const versions = this.database.prepare(`
         SELECT * FROM artifact_versions WHERE project_id = ? ORDER BY artifact_id, version
       `).all(id) as Array<Record<string, string | number | null>>;
@@ -138,6 +142,16 @@ export class ProjectRepository {
       prepareSourceAnalysisDuplicate(this.database, id, copy.id, allIds);
       prepareAdaptationDuplicate(this.database, id, allIds);
       const authoringRows = prepareAuthoringDuplicate(this.database, id, allIds);
+      for (const row of versions) if (row.artifact_type === "draft-authoring-context") {
+        const original = JSON.parse(String(row.content_json));
+        allIds.set(String(row.artifact_id), `draft-authoring-context:${allIds.get(original.draftVersionId)!}`);
+        const mapped = remapStudioValue(original, allIds) as typeof original;
+        allIds.set(original.contextFingerprint, sourceDigest(mapped.binding));
+      }
+      for (const row of versions) if (row.artifact_type === "quick-authoring-context") {
+        const { contextFingerprint, ...identity } = JSON.parse(String(row.content_json));
+        allIds.set(contextFingerprint, sourceDigest(remapStudioValue(identity, allIds)));
+      }
       const edits = prepareEditDuplicate(messages, changeSets, allIds);
       for (const change of changeSets) if (JSON.parse(String(change.proposal_json ?? "null"))?.kind === "conversational-edit-v1") {
         allIds.set(`conversational-edit-application-${change.id}`, `conversational-edit-application-${allIds.get(String(change.id))!}`);

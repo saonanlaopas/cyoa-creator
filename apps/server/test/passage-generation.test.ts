@@ -323,6 +323,7 @@ describe("passage generation kernel API", () => {
     });
     expect(provider.calls.map((call) => call.mode)).toEqual(["generate", "repair"]);
     expect(provider.calls[1]!.boundedContext).toEqual({
+      authoringInstructions: provider.calls[0]!.boundedContext.authoringInstructions,
       schemaId: "cyoa.passage-planning-unit-candidate",
       schemaVersion: 1,
       jobId: created.jobId,

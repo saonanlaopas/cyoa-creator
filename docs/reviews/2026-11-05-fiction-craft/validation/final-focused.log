@@ -1,0 +1,92 @@
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| apps/server/test/connected-text-game.test.ts (20 tests) 33587ms
+   ✓ M3 connected complete text-game lifecycle > requires fresh v2 authoring context, preserves retry identity, and replays a completed legacy receipt  2267ms
+   ✓ M3 connected complete text-game lifecycle > authors structure/new entities/prose, accepts exact candidates, validates, simulates all endings and compiles without provider calls  2222ms
+   ✓ M3 connected complete text-game lifecycle > replays each game mutation receipt after subsequent work without adding versions or builds  1623ms
+   ✓ M3 connected complete text-game lifecycle > rolls back initialize_game_plan and its receipt atomically, then allows retry  2130ms
+   ✓ M3 connected complete text-game lifecycle > rolls back approve_game_plan and its receipt atomically, then allows retry  1442ms
+   ✓ M3 connected complete text-game lifecycle > rolls back submit_draft and its receipt atomically, then allows retry  1550ms
+   ✓ M3 connected complete text-game lifecycle > rolls back accept_drafts and its receipt atomically, then allows retry  1527ms
+   ✓ M3 connected complete text-game lifecycle > rolls back simulate_game and its receipt atomically, then allows retry  1615ms
+   ✓ M3 connected complete text-game lifecycle > rolls back compile_game and its receipt atomically, then allows retry  1732ms
+   ✓ M3 connected complete text-game lifecycle > rejects stale candidate/acceptance/compile bindings and permits revised recovery without replacing accepted prose  1871ms
+   ✓ M3 connected complete text-game lifecycle > protects locked accepted prose and preserves old candidates and approval state  1727ms
+   ✓ M3 connected complete text-game lifecycle > recovers after a reviewed material plan revision without accepting stale prose  1874ms
+   ✓ M3 connected complete text-game lifecycle > rejects new entity scope violations before canonical mutation  605ms
+   ✓ M3 connected complete text-game lifecycle > rejects new entity lifecycle violations before canonical mutation  590ms
+   ✓ M3 connected complete text-game lifecycle > rejects new entity duplicate violations before canonical mutation  538ms
+   ✓ M3 connected complete text-game lifecycle > rejects new entity schema violations before canonical mutation  610ms
+   ✓ M3 connected complete text-game lifecycle > requires current foundations/plan approval and rejects unauthorized or foreign version reads  602ms
+   ✓ M3 connected complete text-game lifecycle > rejects forged game receipts against canonical lineage and retains complete full/privacy archive history  3011ms
+   ✓ M3 connected complete text-game lifecycle > uses actual SDK connections across restart, including byte export retrieval and identical compile/simulation retries  3184ms
+   ✓ M3 connected complete text-game lifecycle > restores all game mutation receipts and duplicates newly authored entities with valid audit history  2864ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts (68 tests) 16319ms
+   ✓ A6 scoped conversational editing > A7 round-trips and duplicates real conversational Creative Direction without dangling references: full-fidelity  632ms
+   ✓ A6 scoped conversational editing > A7 round-trips and duplicates real conversational Creative Direction without dangling references: privacy-redacted  437ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: missing-lineage  366ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: all-outputs  379ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: partial-outputs  442ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: all-results  386ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: partial-results  333ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: extra-output  369ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: wrong-before  366ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: wrong-after  322ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: wrong-result  311ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: changed-groups  327ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: unknown-field  418ms
+   ✓ A6 scoped conversational editing > A7 preserves complete historical edit lineage with no-op  543ms
+   ✓ A6 scoped conversational editing > A7 preserves complete historical edit lineage with partial-selection  453ms
+   ✓ A6 scoped conversational editing > A7 preserves complete historical edit lineage with later-head  560ms
+   ✓ A6 scoped conversational editing > A7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=false)  413ms
+   ✓ A6 scoped conversational editing > A7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=true)  399ms
+   ✓ A6 scoped conversational editing > enforces initial lifecycle for new sequences: outline  422ms
+   ✓ A6 scoped conversational editing > enforces initial lifecycle for new sequences: planned  466ms
+   ✓ A6 scoped conversational editing > returns complete nonblocking passage findings through the reviewed HTTP contract  303ms
+   ✓ A6 scoped conversational editing > retrieves only grounded source ranges through accepted bootstrap stable-ID lineage, including after an edit  1774ms
+ ✓ |0| apps/server/test/foundation-bootstrap.test.ts (28 tests) 53851ms
+   ✓ A5 exact foundation generation and review boundary > A7 omits raw author requests but preserves readable bootstrap history: preview-only  1536ms
+   ✓ A5 exact foundation generation and review boundary > A7 omits raw author requests but preserves readable bootstrap history: completed  2997ms
+   ✓ A5 exact foundation generation and review boundary > A7 omits raw author requests but preserves readable bootstrap history: applied  4233ms
+   ✓ A5 exact foundation generation and review boundary > round trips a near-budget preview with 0 conversation references without expanding executable request budgets  2209ms
+   ✓ A5 exact foundation generation and review boundary > round trips a near-budget preview with 24 conversation references without expanding executable request budgets  2430ms
+   ✓ A5 exact foundation generation and review boundary > round trips a near-budget preview with 500 conversation references without expanding executable request budgets  4648ms
+   ✓ A5 exact foundation generation and review boundary > A7 restores and duplicates applied bootstrap lineage with explicit source recovery: full-fidelity  3898ms
+   ✓ A5 exact foundation generation and review boundary > A7 restores and duplicates applied bootstrap lineage with explicit source recovery: privacy-redacted  4204ms
+   ✓ A5 exact foundation generation and review boundary > completes and applies hash-free OpenRouter output with existing Creative Direction=false  1752ms
+   ✓ A5 exact foundation generation and review boundary > completes and applies hash-free OpenRouter output with existing Creative Direction=true  1560ms
+   ✓ A5 exact foundation generation and review boundary > reuses exact previews and retires only the explicitly archived unused selection without provider use  1372ms
+   ✓ A5 exact foundation generation and review boundary > generates all six ordinary unapproved drafts with existing Creative Direction=true  5607ms
+   ✓ A5 exact foundation generation and review boundary > generates all six ordinary unapproved drafts with existing Creative Direction=false  4993ms
+   ✓ A5 exact foundation generation and review boundary > rejects malformed output without any canonical write  639ms
+   ✓ A5 exact foundation generation and review boundary > rejects oversized output without any canonical write  716ms
+   ✓ A5 exact foundation generation and review boundary > rejects duplicate-id output without any canonical write  794ms
+   ✓ A5 exact foundation generation and review boundary > rejects invalid-reference output without any canonical write  873ms
+   ✓ A5 exact foundation generation and review boundary > rejects missing-provenance output without any canonical write  767ms
+   ✓ A5 exact foundation generation and review boundary > retries a failed unit with a distinct next attempt and preserves the failed history  835ms
+   ✓ A5 exact foundation generation and review boundary > cancels an abort-ignoring provider and rejects late candidate settlement and cancelled retry  826ms
+   ✓ A5 exact foundation generation and review boundary > rejects a provider race after intent mutation  679ms
+   ✓ A5 exact foundation generation and review boundary > rejects a provider race after dossier mutation  910ms
+   ✓ A5 exact foundation generation and review boundary > rejects a provider race after existing-direction mutation  697ms
+   ✓ A5 exact foundation generation and review boundary > rejects a provider race after absent-direction mutation  726ms
+   ✓ A5 exact foundation generation and review boundary > rejects stale candidate Apply after a previously absent artifact appears  1356ms
+   ✓ A5 exact foundation generation and review boundary > reopens a stopped job, safely retries, and ignores the old provider's late response  1347ms
+   ✓ A5 exact foundation generation and review boundary > times out an abort-ignoring provider with no late candidate write  871ms
+   ✓ A5 exact foundation generation and review boundary > binds the exact reviewed author request and rejects unused setup pointer inputs  374ms
+ ✓ |0| apps/server/test/authoring-delivery.test.ts (16 tests) 1369ms
+   ✓ Creator HTTP paths through a real client with mocked provider responses > Quick rejects full-envelope overflow before any provider request  795ms
+ ✓ |0| apps/server/test/project-setup.test.ts (33 tests) 4038ms
+   ✓ A2 conversational project setup > blocks proposal calls without a fresh ready understanding, including vague input and later clarification  304ms
+   ✓ A2 conversational project setup > keeps applied setup projects backup-, portable-, and duplication-safe  478ms
+ ✓ |0| packages/openrouter/test/format-only-repair.test.ts (22 tests) 29ms
+ ✓ |0| apps/server/test/authoring-settings.test.ts (6 tests) 991ms
+   ✓ installed MCP SDK settings lifecycle (native desktop remains separate) > discovers scoped guide operations, revises a neutral project, and reconnects/replays after restart  720ms
+ ✓ |0| packages/domain/test/authoring-instructions.test.ts (4 tests) 17ms
+
+ Test Files  8 passed (8)
+      Tests  197 passed (197)
+   Start at  11:12:08
+   Duration  60.83s (transform 2.39s, setup 0ms, collect 8.37s, tests 110.20s, environment 1ms, prepare 555ms)
+

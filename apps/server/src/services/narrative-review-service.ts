@@ -1,3 +1,5 @@
+import { narrativeReviewMessages } from "./openrouter-narrative-review-provider.js";
+import { assertFormatOnlyRepair, formatRepairBaseline } from "@story-to-cyoa/openrouter";
 import { createHash, randomUUID } from "node:crypto";
 import {
   NarrativeReviewCategorySchema,
@@ -236,6 +238,8 @@ export class NarrativeReviewService {
     const policy = requestedPolicy(request.policy);
     const categories = request.categories === undefined ? undefined : NarrativeReviewCategorySchema.array().parse(request.categories);
     const planInput: NarrativeReviewPlanInput = {
+      measureContextBytes: context => Buffer.byteLength(JSON.stringify(narrativeReviewMessages({ mode: "generate", context, categories: categories ?? NarrativeReviewCategorySchema.options }))),
+      authoringInstructions: this.artifacts.authoringInstructions(projectId),
       projectId, reviewInputFingerprint: reviewInput.fingerprint,
       passages: passageRefs.map((reference) => ({ versionId: reference.versionId, content: resolved.passages.find((item) => item.id === reference.entityId)! })),
       choices: choiceRefs.map((reference) => ({ versionId: reference.versionId, content: resolved.choices.find((item) => item.id === reference.entityId)! })),
@@ -274,6 +278,7 @@ export class NarrativeReviewService {
           context: unit.context, categories: next.plan.categories,
           maximumOutputTokens: Math.min(unit.maximumOutputTokens, next.plan.policy.maxOutputTokensPerUnit), signal: controller.signal,
         };
+        this.artifacts.assertAuthoringInstructionsFresh(projectId, unit.context.authoringInstructions);
         const generated = await provider.generate({ ...base, mode: "generate" });
         const usages = generated.usage ? [generated.usage] : []; const metadata = generated.metadata ? [generated.metadata] : [];
         let raw = generated.output; let validated;
@@ -284,7 +289,9 @@ export class NarrativeReviewService {
           if (malformedBytes > next.plan.policy.maxRepairInputBytes) throw Object.assign(new Error("Narrative-review repair input exceeds its bound"), { code: "review_repair_too_large", retryable: false });
           attempt.repair = { maximum: 1, performed: 1, malformedBytes, malformedSha256: createHash("sha256").update(raw).digest("hex") };
           this.assertFresh(next);
+          formatRepairBaseline(raw);
           const repaired = await provider.generate({ ...base, mode: "repair", repair: { malformedOutput: raw, validationIssues: issues(error) } });
+          assertFormatOnlyRepair(raw, repaired.output);
           if (repaired.usage) usages.push(repaired.usage); if (repaired.metadata) metadata.push(repaired.metadata);
           raw = repaired.output;
           validated = validateNarrativeReviewOutput({ raw, context: unit.context, maximumOutputTokens: base.maximumOutputTokens, policy: next.plan.policy });
@@ -317,6 +324,7 @@ export class NarrativeReviewService {
   }
 
   private assertFresh(review: NarrativeReviewAggregate): void {
+    for (const unit of review.job.units) this.artifacts.assertAuthoringInstructionsFresh(review.projectId, unit.context.authoringInstructions);
     const input = review.reviewInput; const state = this.passagePlans.state(review.projectId);
     if (state.status !== "approved" || state.approvedSnapshotId !== input.snapshotId) throw stale("Current approved snapshot no longer matches the review input");
     const snapshot = this.passagePlans.getSnapshot(input.snapshotId);

@@ -1,3 +1,5 @@
+import { registerAuthoringSettings } from "./routes/authoring-settings.js";
+import { AuthoringSettingsService } from "./services/authoring-settings-service.js";
 import fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
@@ -262,10 +264,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, authorMemory, changeSets, longFormProjects);
   registerConversationalEditRoutes(app, conversationalEdits);
   if (connectedConfig) registerConnectedEditing(app, new ConnectedEditService(database, conversationalEdits, connectedConfig.projectIds, longFormProjects, connectedConfig.allowProjectCreation,
-    new ConnectedGameService(database, conversationalEdits, passagePlanService, passageDraftService, simulationService, nativeCompilationService), assetLibrary), connectedConfig);
+    new ConnectedGameService(database, conversationalEdits, passagePlanService, passageDraftService, simulationService, nativeCompilationService, passageDraftingService), assetLibrary), connectedConfig);
   registerAssetLibrary(app, assetLibrary);
   registerIllustratedScenes(app, (projectId) => new ConnectedEditService(database, conversationalEdits, [projectId], longFormProjects, false,
-    new ConnectedGameService(database, conversationalEdits, passagePlanService, passageDraftService, simulationService, nativeCompilationService), assetLibrary));
+    new ConnectedGameService(database, conversationalEdits, passagePlanService, passageDraftService, simulationService, nativeCompilationService, passageDraftingService), assetLibrary));
   registerAuthorMemoryRoutes(app, projects, authorMemory);
   registerProjectSetupRoutes(app, projectSetupService);
   registerSourceAnalysisRoutes(app, sourceAnalysisService);
@@ -289,6 +291,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerRepairPlanningRoutes(app, repairPlanningService);
   registerRepairProposalRoutes(app, repairProposalService);
   registerRepairApplicationRoutes(app, repairApplicationService);
+  registerAuthoringSettings(app, new AuthoringSettingsService(database));
   registerQuickDraftRoutes(app, projects);
   registerCommandRoutes(app, projects, commands);
   registerImportRoutes(app, projects, artifacts, options.maxImportBytes ?? 25 * 1024 * 1024, workflow);

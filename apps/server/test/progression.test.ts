@@ -1,3 +1,4 @@
+import { testDraftingContext } from "./helpers/authoring-context.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { WorldDefinitionSchema, emptyWorld, type WorldDefinition } from "@story-to-cyoa/domain";
@@ -38,7 +39,7 @@ function fixture(db: StoryDatabase = openDatabase(), projectId = randomUUID()) {
   const compilation = new NativeCompilationService(projects, artifacts, workflow, passages, drafts), assets = new AssetLibraryService(db);
   const generate = vi.fn(async () => { throw new Error("Provider calls forbidden"); });
   const edits = new ConversationalEditService(db, longForm, [{ id: "offline-edit", generate }]);
-  const service = new ConnectedEditService(db, edits, [projectId], longForm, true, new ConnectedGameService(db, edits, plans, prose, new SimulationService(projects, artifacts, workflow, passages, drafts), compilation), assets);
+  const service = new ConnectedEditService(db, edits, [projectId], longForm, true, new ConnectedGameService(db, edits, plans, prose, new SimulationService(projects, artifacts, workflow, passages, drafts), compilation, testDraftingContext(db)), assets);
   const call = async (tool: string, input: Record<string, unknown>) => await service.call(tool as any, input) as any;
   cleanups.push(() => { edits.shutdown(); db.close(); });
   const publication = new PublicationExportService(new PortableProjectRepository(db), compilation);

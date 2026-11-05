@@ -15,7 +15,7 @@ export type GenerationStage =
   | "failed";
 
 export interface PublicGenerationError {
-  code: OpenRouterErrorCode | "GRAPH_INVALID" | "EXPORT_FAILED" | "LOCAL_STREAM_INVALID";
+  code: "AUTHORING_CONTEXT_OVERFLOW" | "AUTHORING_CONTEXT_STALE" | OpenRouterErrorCode | "GRAPH_INVALID" | "EXPORT_FAILED" | "LOCAL_STREAM_INVALID";
   message: string;
   retryable: boolean;
   retryAfterSeconds?: number;

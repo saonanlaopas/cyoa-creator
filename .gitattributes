@@ -1,0 +1,3 @@
+
+docs/writing/* text eol=lf
+packages/domain/src/generated/fiction-craft.ts text eol=lf

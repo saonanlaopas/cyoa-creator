@@ -1,6 +1,8 @@
+import { validateAuthoringInstructionArtifact } from "./authoring-instructions-validation.js";
+import { AuthoringInstructionsRepository } from "./authoring-instructions-repository.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { CreativeDirectionSchema, isUnavailableSource, normalizeAdaptationIntent, type AdaptationIntent } from "@story-to-cyoa/domain";
+import { AuthoringSettingsSchema, AUTHORING_SETTINGS_ID, CreativeDirectionSchema, isUnavailableSource, normalizeAdaptationIntent, type AdaptationIntent } from "@story-to-cyoa/domain";
 import { assertImageArtifact, assertImageProjectBudget } from "./image-asset-validation.js";
 import { validateIllustratedScene } from "./illustrated-scene-validation.js";
 import { validateWorld } from "./world-validation.js";
@@ -44,6 +46,7 @@ type ArtifactRow = {
 };
 
 function mapArtifact<T>(row: ArtifactRow): ArtifactVersion<T> {
+  validateAuthoringInstructionArtifact(row);
   const parsed = JSON.parse(row.content_json) as unknown;
   if ((row.artifact_id === "adaptation-intent" || row.artifact_type === "adaptation-intent") && (row.artifact_id !== "adaptation-intent" || row.artifact_type !== "adaptation-intent" || row.schema_version !== 1)) throw new Error("adaptation_identity_invalid");
   if ((row.artifact_id.startsWith("adaptation-intent-proposal-") || row.artifact_type === "adaptation-intent-proposal")
@@ -58,6 +61,10 @@ function mapArtifact<T>(row: ArtifactRow): ArtifactVersion<T> {
   if (creativeDirection && row.schema_version !== creativeDirection.schemaVersion) {
     throw new Error("Creative Direction schema version is invalid");
   }
+  if (row.artifact_type === AUTHORING_SETTINGS_ID || row.artifact_id === AUTHORING_SETTINGS_ID) {
+    if (row.artifact_type !== AUTHORING_SETTINGS_ID || row.artifact_id !== AUTHORING_SETTINGS_ID || row.schema_version !== 1) throw new Error("authoring_settings_identity_invalid");
+    AuthoringSettingsSchema.parse(parsed);
+  }
   const content = creativeDirection ?? parsed;
   return {
     id: row.id, projectId: row.project_id, artifactId: row.artifact_id,
@@ -68,6 +75,8 @@ function mapArtifact<T>(row: ArtifactRow): ArtifactVersion<T> {
 }
 
 export class ArtifactRepository {
+  authoringInstructions(projectId: string) { return new AuthoringInstructionsRepository(this.database).context(projectId); }
+  assertAuthoringInstructionsFresh(projectId: string, context: unknown) { new AuthoringInstructionsRepository(this.database).assertFresh(projectId, context); }
   constructor(private readonly database: StoryDatabase) {}
   foundationAuthority(projectId: string, requireApprovals = true) { return foundationBootstrapAuthority(this.database, projectId, requireApprovals); }
 
@@ -77,6 +86,12 @@ export class ArtifactRepository {
 
   saveArtifactInTransaction<T>(input: SaveArtifactInput<T>): ArtifactVersion<T> {
     const artifactType = input.artifactType ?? input.artifactId;
+    if ((artifactType === "draft-authoring-context" || input.artifactId.startsWith("draft-authoring-context:")) && this.database.prepare("SELECT 1 FROM artifact_versions WHERE project_id=? AND artifact_id=?").get(input.projectId, input.artifactId)) throw new Error("draft_authoring_context_is_immutable");
+    validateAuthoringInstructionArtifact({ project_id: input.projectId, artifact_id: input.artifactId, artifact_type: artifactType, schema_version: input.schemaVersion ?? 1, content_json: JSON.stringify(input.content) });
+    if (artifactType === AUTHORING_SETTINGS_ID || input.artifactId === AUTHORING_SETTINGS_ID) {
+      if (artifactType !== AUTHORING_SETTINGS_ID || input.artifactId !== AUTHORING_SETTINGS_ID || (input.schemaVersion ?? 1) !== 1) throw new Error("authoring_settings_identity_invalid");
+      AuthoringSettingsSchema.parse(input.content);
+    }
     const worldIdentity = artifactType === "world-definition" || input.artifactId === "world-definition";
     if (worldIdentity && (artifactType !== "world-definition" || input.artifactId !== "world-definition" || (input.schemaVersion ?? 1) !== 1)) throw new Error("world_identity_invalid");
     const world = worldIdentity ? validateWorld(this.database, input.projectId, input.content) : undefined;
@@ -183,6 +198,8 @@ export class ArtifactRepository {
   }
 
   restore<T = unknown>(projectId: string, artifactId: string, versionId: string, options: { markDependentsStale?: boolean } = {}): ArtifactVersion<T> {
+    if (artifactId === AUTHORING_SETTINGS_ID) throw new Error("authoring_settings_restore_requires_review");
+    if (artifactId.startsWith("draft-authoring-context:")) throw new Error("draft_authoring_context_is_immutable");
     if (artifactId.startsWith("image-")) throw new Error("image_restore_requires_new_candidate");
     if (artifactId.startsWith("illustrated-scene:")) throw new Error("scene_restore_requires_review");
     if (artifactId === "world-definition") throw new Error("world_restore_requires_review");

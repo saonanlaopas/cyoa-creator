@@ -32,3 +32,4 @@ export * from "./world-people.js";
 export * from "./world-economy.js";
 
 export * from "./world-journal.js";
+export * from "./authoring-instructions.js";

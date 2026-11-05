@@ -1,3 +1,4 @@
+import { validateAuthoringInstructionArtifact } from "./authoring-instructions-validation.js";
 import { randomUUID } from "node:crypto";
 import { AnalysisSourceSchema, CreativeDirectionSchema, SourceEvidenceMaterialSchema, UnavailableSourceSchema, isUnavailableSource, sourceDigest } from "@story-to-cyoa/domain";
 import { readSourceMaterial } from "./source-material.js";
@@ -148,6 +149,7 @@ export class PortableProjectRepository {
         `SELECT * FROM artifact_dependencies WHERE project_id = ? ${retainSourceEvidence ? "" : "AND upstream_artifact_id NOT IN ('source', 'source-scope') AND dependent_artifact_id NOT IN ('source', 'source-scope')"}`,
       ).all(projectId) as PortableRow[];
       else rows = this.database.prepare(`SELECT * FROM ${table} WHERE project_id = ?`).all(projectId) as PortableRow[];
+      if (table === "artifact_versions") for (const row of rows) validateAuthoringInstructionArtifact(row as unknown as { artifact_id: string; artifact_type: string; schema_version: number; content_json: string });
       tables[table] = rows.sort((a, b) => rowFingerprint(a).localeCompare(rowFingerprint(b)));
     }
     const bundle = { projectId, tables };
@@ -217,6 +219,7 @@ export class PortableProjectRepository {
     for (const table of PORTABLE_PROJECT_TABLES) {
       const expected = this.columns(table);
       for (const row of bundle.tables[table]) {
+        if (table === "artifact_versions") validateAuthoringInstructionArtifact(row as unknown as { artifact_id: string; artifact_type: string; schema_version: number; content_json: string });
         const keys = Object.keys(row).sort();
         if (keys.join("\0") !== [...expected].sort().join("\0")) throw new Error(`portable_project_schema_invalid: ${table} columns differ`);
         if (table === "projects") {

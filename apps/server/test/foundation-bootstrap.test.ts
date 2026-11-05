@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CREATIVE_DIRECTION_LIMITS, FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, REDACTED_BOOTSTRAP_CONTEXT_OVERHEAD_BYTES, LongFormStoryBibleSchema, ProjectBriefSchema, assertFoundationBootstrapContext, creativeDirectionFingerprints, defaultCreativeDirection, newAdaptationIntent, normalizeAdaptationIntent, sourceCanonicalJson, type SourceDossier } from "@story-to-cyoa/domain";
+import { builtinFictionCraft, CREATIVE_DIRECTION_LIMITS, FOUNDATION_ARTIFACT_IDS, FOUNDATION_BOOTSTRAP_LIMITS, REDACTED_BOOTSTRAP_CONTEXT_OVERHEAD_BYTES, LongFormStoryBibleSchema, ProjectBriefSchema, assertFoundationBootstrapContext, creativeDirectionFingerprints, defaultCreativeDirection, newAdaptationIntent, normalizeAdaptationIntent, sourceCanonicalJson, type SourceDossier } from "@story-to-cyoa/domain";
 import { EnvironmentCredentialStore, OpenRouterClient } from "@story-to-cyoa/openrouter";
 import { ArtifactRepository, ConversationRepository, FoundationBootstrapRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
 import { strFromU8, unzipSync } from "fflate";
@@ -193,7 +193,10 @@ describe("A5 exact foundation generation and review boundary", () => {
     let calls = 0;
     const client = new OpenRouterClient({ credentialStore: new EnvironmentCredentialStore({ environment: { OPENROUTER_API_KEY: "offline-key" } }), fetch: async (_url, init) => {
       calls++;
-      const request = JSON.parse(String(init?.body)), input = JSON.parse(request.messages[1].content).context;
+      const request = JSON.parse(String(init?.body)), input = JSON.parse(request.messages.find((m: { role: string }) => m.role === "user").content).context;
+      if (input.authoringInstructions?.appliedGuide) input.authoringInstructions.appliedGuide.text = builtinFictionCraft().text;
+      expect(request.messages.filter((m: { content: string }) => m.content.includes(builtinFictionCraft().text))).toHaveLength(1);
+      if (process.env.CYOA_CRAFT_EVIDENCE) writeFileSync(process.env.CYOA_CRAFT_EVIDENCE+`/foundation-bootstrap-${existingDirection}.json`, JSON.stringify(request,null,2)+"\n");
       const candidate = deterministicFoundationBootstrapCandidate(input);
       const { materialFingerprint: _material, provenanceFingerprint: _provenance, ...direction } = candidate.artifacts["creative-direction"];
       direction.tone.descriptors = ["hopeful"];

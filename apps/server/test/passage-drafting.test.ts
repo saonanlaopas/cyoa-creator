@@ -512,6 +512,34 @@ describe("Foundation 4B-1 draft architecture API", () => {
     await reopened.close();
   });
 
+  it.each([true, false])("rejects schema-valid prose rewriting during format-only repair with guide=%s", async enabled => {
+    const delegate = new DeterministicPassageDraftingProvider({ malformedFirstSuccessfulRequest: true });
+    const provider = { id: delegate.id, capabilities: delegate.capabilities, async generate(request: PassageDraftingProviderRequest) {
+      const result = await delegate.generate(request);
+      if (request.mode === "repair") { const value = JSON.parse(result.output); value.passages[0].proseMarkdown += " A new commitment was made."; return { ...result, output: JSON.stringify(value) }; }
+      return result;
+    } };
+    const app = buildApp({ passageDraftingProvider: provider });
+    try {
+      const { projectId, plan } = await createApprovedFixture(app), passageId = plan.passages[0].entityId;
+      const root = `/api/projects/${projectId}/authoring/`;
+      if (!enabled) {
+        const current = (await app.inject({ method: "POST", url: root+"read_authoring_settings", payload: {} })).json();
+        const input = { expectedVersionId: current.versionId, enabled: false };
+        const review = (await app.inject({ method: "POST", url: root+"review_authoring_settings", payload: input })).json();
+        expect((await app.inject({ method: "POST", url: root+"apply_authoring_settings", payload: { ...input, fingerprint: review.fingerprint, operationId: crypto.randomUUID(), approved: true } })).statusCode).toBe(200);
+      }
+      const created = (await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans`, payload: { scope: { kind: "passages", passageIds: [passageId] }, providerId: provider.id } })).json();
+      await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/plans/${created.id}/authorize`, payload: { fingerprint: created.fingerprint } });
+      await app.inject({ method: "POST", url: `/api/long-form/projects/${projectId}/drafting/jobs/${created.jobId}/start` });
+      const failed = await waitForDrafting(app, projectId, created.jobId);
+      expect(failed.status).toBe("failed"); expect(failed.units[0].normalizedError.code).toBe("format_repair_content_changed");
+      expect(delegate.calls.map(c => c.mode)).toEqual(["generate", "repair"]);
+      expect(delegate.calls[0].boundedContext.authoringInstructions.enabled).toBe(enabled);
+      expect((await app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/drafts/summary` })).json().currentDraftCount).toBe(0);
+    } finally { await app.close(); }
+  });
+
   it("performs at most one structural repair and records the exact successful attempt provenance", async () => {
     const provider = new DeterministicPassageDraftingProvider({ malformedFirstSuccessfulRequest: true });
     const app = buildApp({ passageDraftingProvider: provider });
@@ -942,7 +970,7 @@ describe("Foundation 4B-1 draft architecture API", () => {
   });
 
   it.each([
-    ["deterministic-prose-invalid-v1", 2, "drafting_output_validation_failed"],
+    ["deterministic-prose-invalid-v1", 1, "format_repair_original_unverifiable"],
     ["deterministic-prose-oversized-v1", 1, "drafting_output_validation_failed"],
   ])("fails bounded model fixture %s without unbounded or quality repair", async (modelId, expectedCalls, code) => {
     const provider = new DeterministicPassageDraftingProvider();

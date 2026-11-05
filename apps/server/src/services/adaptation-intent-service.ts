@@ -1,3 +1,4 @@
+import { assertFormatOnlyRepair, formatRepairBaseline } from "@story-to-cyoa/openrouter";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ADAPTATION_INTENT_LIMITS, AdaptationIntentSchema, AdaptationPreviewInputSchema, AdaptationSuggestionSchema, FidelityPolicySchema, PlannedWordsSchema,
@@ -189,8 +190,10 @@ export class AdaptationIntentService {
       try { suggestion = parse(raw); } catch (error) {
         if ((error as Error).message.startsWith("adaptation_")) throw error;
         this.fresh(preview);
+        formatRepairBaseline(raw);
         const repaired = await this.invoke(provider, { context: preview.context, modelId: preview.input.modelId, mode: "repair", malformedOutput: raw, signal: controller.signal });
         this.fresh(preview);
+        assertFormatOnlyRepair(raw, repaired);
         try { suggestion = parse(repaired); } catch { throw new Error("adaptation_repair_exhausted"); }
       }
       if (controller.signal.aborted) throw new Error("adaptation_generation_cancelled");

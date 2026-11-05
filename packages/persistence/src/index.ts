@@ -38,3 +38,6 @@ export { remapStudioValue } from "./studio-duplication.js";
 export { redactFoundationBootstrapRows, unavailableConversationEvidence } from "./foundation-bootstrap-portability.js";
 export * from "./illustrated-scene-validation.js";
 export * from "./world-validation.js";
+export * from "./authoring-instructions-repository.js";
+
+export { validateAuthoringInstructionArtifact } from "./authoring-instructions-validation.js";

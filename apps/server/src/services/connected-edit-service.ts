@@ -1,3 +1,4 @@
+import { AuthoringSettingsInputs, AuthoringSettingsService, type AuthoringSettingsTool } from "./authoring-settings-service.js";
 import { z } from "zod";
 import { sourceCanonicalJson, sourceDigest } from "@story-to-cyoa/domain";
 import { ArtifactRepository, ConversationRepository, ProjectRepository, transaction, type StoryDatabase } from "@story-to-cyoa/persistence";
@@ -13,6 +14,7 @@ const project = { projectId: id }, operation = { ...project, operationId: z.stri
 const selection = { ...project, proposalId: id, groupIds: z.array(id).min(1).max(EDIT_LIMITS.groups) };
 const foundation = { ...project, artifactId: z.enum(planningArtifactIds) };
 export const ConnectedEditInputs = {
+  ...AuthoringSettingsInputs,
   ...ConnectedAssetInputs,
   ...ConnectedGameInputs,
   list_projects: z.object({}).strict(),
@@ -150,6 +152,7 @@ export class ConnectedEditService {
       }, true);
     }
     const projectId = input.projectId; this.access(projectId);
+    if (tool in AuthoringSettingsInputs) return new AuthoringSettingsService(this.database).call(tool as AuthoringSettingsTool, input);
     if (tool in ConnectedAssetInputs) {
       if (!this.assets) throw new Error("connected_assets_unavailable");
       return this.assets.call(tool as ConnectedAssetTool, input).then(boundedConnectedResult);

@@ -4,6 +4,7 @@
 url = "http://127.0.0.1:3000/mcp"
 bearer_token_env_var = "CYOA_MCP_TOKEN"
 enabled_tools = [
+  "read_authoring_settings", "review_authoring_settings", "apply_authoring_settings", "read_authoring_context",
   "list_projects", "create_project", "project_state",
   "initialize_foundation", "read_foundation", "review_foundation_approval", "approve_foundation",
   "list_edit_targets", "list_edits", "prepare_edit", "submit_edit", "get_edit", "review_edit", "apply_edit", "reject_edit",

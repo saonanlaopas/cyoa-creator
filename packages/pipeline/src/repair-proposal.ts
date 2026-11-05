@@ -1,3 +1,4 @@
+import type { AuthoringInstructions } from "@story-to-cyoa/domain";
 import { createHash } from "node:crypto";
 import {
   REPAIR_PROPOSAL_POLICY_V1,
@@ -138,6 +139,7 @@ export interface RepairProposalCandidateInput {
 }
 
 export interface RepairProposalGenerationContext {
+  authoringInstructions?: AuthoringInstructions;
   schemaVersion: 1;
   systemRepairInstructions: {
     authority: "Only the exact authorized targets and operation schema below";
