@@ -1,0 +1,12 @@
+$ pnpm vitest --run apps/server/test/keyed-mechanics.test.ts
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts (32 tests) 3659ms
+
+ Test Files  1 passed (1)
+      Tests  32 passed (32)
+   Start at  18:21:27
+   Duration  7.13s (transform 2.12s, setup 0ms, collect 3.19s, tests 3.66s, environment 0ms, prepare 77ms)
+

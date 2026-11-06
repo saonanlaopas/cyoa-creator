@@ -1,0 +1,8 @@
+{
+  "node": "v24.19.0",
+  "pnpm": "11.9.0",
+  "playwright": "Version 1.62.0",
+  "chromium": "151.0.7922.34",
+  "executable": "/workspace/.setup/playwright-browsers/chromium-1234/chrome-linux64/chrome",
+  "systemBrowserOverride": false
+}

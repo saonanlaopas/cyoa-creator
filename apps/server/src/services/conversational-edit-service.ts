@@ -11,6 +11,7 @@ import type { LongFormProjectService } from "./long-form-project-service.js";
 import { StructuredMutationService } from "./structured-mutation-service.js";
 import { EDIT_LIMITS, EditOwnerSchema, EditRequestSchema, EditResponseSchema, type EditOwner, type EditPlan, type EditProvider, type EditResponse, type EditTarget } from "./conversational-edit-contract.js";
 import { editMessages } from "./conversational-edit-provider.js";
+import { authorizeMechanicKeys, mechanicCreations, mechanicKeyReferences } from "./conversational-mechanic-identities.js";
 
 const schemas = { brief: ProjectBriefSchema, "creative-direction": CreativeDirectionSchema, bible: LongFormStoryBibleSchema, routes: LongFormRoutePlanSchema,
   endings: LongFormEndingPlanSchema, mechanics: LongFormMechanicsPlanSchema, "passage-structure": PassageStructureSchema,
@@ -434,6 +435,8 @@ export class ConversationalEditService {
     if (!selected.length || new Set(selected).size !== selected.length || selected.some((id) => !response.groups.some((g) => g.id === id))) throw new Error("edit_selection_invalid");
     if (new Set(response.groups.map((g) => g.id)).size !== response.groups.length || response.groups.flatMap((g) => g.operations).length > EDIT_LIMITS.operations) throw new Error("edit_groups_invalid");
     const groups = response.groups.filter((g) => selected.includes(g.id));
+    const generated = new Set(Object.values(edit.generatedIds));
+    const creations = mechanicCreations(plan, response, generated);
     for (const group of response.groups) if (group.dependsOnGroupIds.some((id) => id === group.id || !response.groups.some((g) => g.id === id))) throw new Error("edit_dependency_invalid");
     const visit = (id: string, active = new Set<string>()): void => { if (active.has(id)) throw new Error("edit_dependency_cycle"); const next = new Set(active).add(id); response.groups.find((g) => g.id === id)!.dependsOnGroupIds.forEach((dep) => visit(dep, next)); };
     response.groups.forEach((g) => visit(g.id));
@@ -443,6 +446,8 @@ export class ConversationalEditService {
       for (const logical of Object.values(edit.generatedIds)) if (strings(operation).has(logical)) {
         const producer = response.groups.find((g) => g.operations.some((o) => (o.kind === "add-item" || o.kind === "add-entity") && o.item?.id === logical)); if (producer && producer.id !== group.id) required.add(producer.id);
       }
+      const referencedKeys = mechanicKeyReferences(operation);
+      for (const creation of creations) if (creation.groupId !== group.id && referencedKeys.has(creation.key)) required.add(creation.groupId);
     }
     if ([...required].some((id) => !selected.includes(id))) throw new Error("edit_dependency_selection_incomplete");
     const originalSnapshot = historical ? {} as ReturnType<LongFormProjectService["snapshot"]> : this.longForm.snapshot(plan.projectId), snapshot = { ...originalSnapshot }, outputs = new Map<string, EditOutput>();
@@ -466,10 +471,13 @@ export class ConversationalEditService {
       let after: unknown = applyPlanningOperations(operationBase as PlanningArtifact, enriched);
       protectInitialLifecycle(current, after);
       protectLocks(current, after);
+      const addedMechanics = creations.filter(c => selected.includes(c.groupId));
+      const authorizedKeys = target.owner === "mechanics" ? authorizeMechanicKeys(current, after, addedMechanics) : new Set<string>();
+      if (target.owner === "mechanics" && addedMechanics.some(c => collectStableIds(current).has(c.key) || existingIds.has(c.key))) throw new Error("edit_generated_id_collision");
       const oldCounts = identityCounts(current);
       for (const [id, count] of identityCounts(after)) if (count > Math.max(1, oldCounts.get(id) ?? 0)) throw new Error("edit_duplicate_identity");
-      const beforeIds = collectStableIds(current), afterIds = collectStableIds(after), generated = new Set(Object.values(edit.generatedIds));
-      if ([...afterIds].some((id) => !beforeIds.has(id) && !generated.has(id))) throw new Error("edit_generated_id_invalid");
+      const beforeIds = collectStableIds(current), afterIds = collectStableIds(after);
+      if ([...afterIds].some((id) => !beforeIds.has(id) && !generated.has(id) && !authorizedKeys.has(id))) throw new Error("edit_generated_id_invalid");
       if ([...afterIds].some((id) => !beforeIds.has(id) && existingIds.has(id))) throw new Error("edit_generated_id_collision");
       if ([...beforeIds].some((id) => !afterIds.has(id) && !applicable.some((g) => g.operations.some((op) => op.kind === "remove-item" && op.targetId === id)))) throw new Error("edit_identity_changed");
       if (target.owner === "creative-direction") {

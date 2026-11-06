@@ -1,0 +1,84 @@
+$ playwright test --workers=2 --output /workspace/.setup/pf003-20261106/browser-release
+[WebServer] (node:4198) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 58 tests using 2 workers
+(node:4247) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:4241) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+····(node:4501) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+···········F(node:5540) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+F(node:5672) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+·················(node:7883) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+······(node:8721) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+·········(node:9815) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+····(node:9933) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+·····
+
+  1) e2e/complete-visual-game.spec.ts:20:5 › W6 authors, reviews and publishes the complete visual game, restores and duplicates it, and finishes both modes offline 
+
+    Error: Test timeout of 300000ms exceeded
+
+      85 |           const confirm = async (button: Locator) => { await button.click(); await player.getByRole("button", { name: "Confirm action", exact: true }).click(); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); };
+      86 |           const imageReady = async () => {
+    > 87 |             await player.evaluate(() => document.fonts.ready); for (const img of await player.locator(".illustrated-scene img").all()) await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+         |                                                                                                                                                                                                                                            ^
+      88 |             const geometry = await player.locator(".scene-stage").evaluate((el) => { const r = el.getBoundingClientRect(); return [...el.querySelectorAll(".scene-portrait,img,figcaption")].filter((node) => node.closest(".scene-portrait")).every((node) => { const b = node.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.left >= r.left - 1 && b.right <= r.right + 1 && b.top >= r.top - 1 && b.bottom <= r.bottom + 1; }); }); expect(geometry).toBe(true);
+      89 |             expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      90 |           };
+        at imageReady (/workspace/cyoa-creator/e2e/complete-visual-game.spec.ts:87:236)
+        at /workspace/cyoa-creator/e2e/complete-visual-game.spec.ts:91:84
+
+    Error Context: ../.setup/pf003-20261106/browser-release/complete-visual-game-W6-au-26bfc-finishes-both-modes-offline/error-context.md
+
+  2) e2e/keyed-mechanics.spec.ts:9:5 › PF-003 creates keyed mechanics through MCP and Creator, then plays their conditions and effects offline 
+
+    Error: locator.check: Error: strict mode violation: getByRole('region', { name: 'Planning records' }).getByRole('checkbox') resolved to 45 elements:
+        1) <input type="checkbox"/> aka getByRole('checkbox', { name: 'brief / root brief:root' })
+        2) <input type="checkbox"/> aka getByRole('checkbox', { name: 'creative-direction / root' })
+        3) <input type="checkbox"/> aka getByRole('checkbox', { name: 'creative-direction / section:tone creative-direction:section:tone' })
+        4) <input type="checkbox"/> aka getByRole('checkbox', { name: 'creative-direction / section:pacing creative-direction:section:pacing' })
+        5) <input type="checkbox"/> aka getByRole('checkbox', { name: 'creative-direction / section:prose creative-direction:section:prose' })
+        6) <input type="checkbox"/> aka getByRole('checkbox', { name: 'creative-direction / relationshipPresentation creative-direction:section:' })
+        7) <input type="checkbox"/> aka getByRole('checkbox', { name: 'bible / Neutral mechanic' })
+        8) <input type="checkbox"/> aka getByRole('checkbox', { name: 'bible / Reviewer bible:' })
+        9) <input type="checkbox"/> aka getByRole('checkbox', { name: 'bible / Observer bible:' })
+        10) <input type="checkbox"/> aka getByRole('checkbox', { name: 'bible / Colleagues bible:' })
+        ...
+
+    Call log:
+      - waiting for getByRole('region', { name: 'Planning records' }).getByRole('checkbox')
+
+
+       97 |       await page.reload();
+       98 |       await page.getByLabel("Find planning records").fill("mechanics:root");
+    >  99 |       await page.getByRole("region", { name: "Planning records" }).getByRole("checkbox").check();
+          |                                                                                          ^
+      100 |       await page.getByLabel("Editing request").fill("Add a calibration marker");
+      101 |       await page.getByRole("button", { name: "Preview editing scope" }).click();
+      102 |       await expect(page.getByRole("region", { name: "Editing generation preview" })).toBeVisible();
+        at /workspace/cyoa-creator/e2e/keyed-mechanics.spec.ts:99:90
+
+    attachment #1: Creator mechanic review 1280 (image/png) ────────────────────────────────────────
+    ../.setup/pf003-20261106/browser-release/keyed-mechanics-PF-003-cre-923b7-ditions-and-effects-offline/attachments/Creator-mechanic-review-1280-365f79da8c701fc72f549c5b28d7f6d3081c8daf.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: Creator mechanic review 390 (image/png) ─────────────────────────────────────────
+    ../.setup/pf003-20261106/browser-release/keyed-mechanics-PF-003-cre-923b7-ditions-and-effects-offline/attachments/Creator-mechanic-review-390-667cff602fa5a448f9573cca2d752d76c1414afa.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../.setup/pf003-20261106/browser-release/keyed-mechanics-PF-003-cre-923b7-ditions-and-effects-offline/error-context.md
+
+  2 failed
+    e2e/complete-visual-game.spec.ts:20:5 › W6 authors, reviews and publishes the complete visual game, restores and duplicates it, and finishes both modes offline 
+    e2e/keyed-mechanics.spec.ts:9:5 › PF-003 creates keyed mechanics through MCP and Creator, then plays their conditions and effects offline 
+  56 passed (10.9m)
+[ELIFECYCLE] Command failed with exit code 1.

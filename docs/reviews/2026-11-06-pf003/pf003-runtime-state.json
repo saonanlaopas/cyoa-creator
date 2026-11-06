@@ -1,0 +1,86 @@
+{
+  "inspectedState": {
+    "currentPassageId": "passage-shared-route-pivot",
+    "stats": {
+      "focus": 1,
+      "insight": 0,
+      "integrity": 0,
+      "resolve": 0
+    },
+    "relationships": {
+      "cooperation": 2,
+      "relationship_1": 0
+    },
+    "flags": {
+      "calibrated_panel": true,
+      "inspected_panel": true
+    },
+    "resources": {
+      "test_charge": 1
+    },
+    "decisions": [],
+    "routes": [],
+    "knownFacts": [],
+    "visitCounts": {
+      "passage-shared-opening": 1,
+      "passage-shared-route-pivot": 1
+    },
+    "turn": 1
+  },
+  "skippedState": {
+    "currentPassageId": "passage-shared-route-pivot",
+    "stats": {
+      "focus": 0,
+      "insight": 0,
+      "integrity": 0,
+      "resolve": 0
+    },
+    "relationships": {
+      "cooperation": 0,
+      "relationship_1": 0
+    },
+    "flags": {
+      "calibrated_panel": false,
+      "inspected_panel": false
+    },
+    "resources": {
+      "test_charge": 2
+    },
+    "decisions": [],
+    "routes": [],
+    "knownFacts": [],
+    "visitCounts": {
+      "passage-shared-opening": 1,
+      "passage-shared-route-pivot": 1
+    },
+    "turn": 1
+  },
+  "replayedState": {
+    "currentPassageId": "passage-shared-route-pivot",
+    "stats": {
+      "focus": 1,
+      "insight": 0,
+      "integrity": 0,
+      "resolve": 0
+    },
+    "relationships": {
+      "cooperation": 2,
+      "relationship_1": 0
+    },
+    "flags": {
+      "calibrated_panel": true,
+      "inspected_panel": true
+    },
+    "resources": {
+      "test_charge": 1
+    },
+    "decisions": [],
+    "routes": [],
+    "knownFacts": [],
+    "visitCounts": {
+      "passage-shared-opening": 1,
+      "passage-shared-route-pivot": 1
+    },
+    "turn": 1
+  }
+}

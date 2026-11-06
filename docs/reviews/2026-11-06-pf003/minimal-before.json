@@ -1,0 +1,13 @@
+{
+  "item": {
+    "id": "$new:resource-clock",
+    "key": "clock_minutes",
+    "label": "Clock",
+    "kind": "counter",
+    "initial": 490,
+    "meaning": "Minutes after midnight during the current playable day."
+  },
+  "error": "edit_generated_id_invalid",
+  "unchanged": true,
+  "providerCalls": 0
+}

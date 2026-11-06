@@ -1,0 +1,33 @@
+$ pnpm vitest --run apps/server/test/keyed-mechanics.test.ts apps/server/test/conversational-edit.test.ts apps/server/test/connected-editing.test.ts
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| apps/server/test/connected-editing.test.ts (24 tests) 3069ms
+   ✓ M1 authenticated Streamable HTTP > uses real SDK clients for concurrent retries, cross-project rejection and restart recovery without model calls  573ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts (68 tests) 15229ms
+   ✓ A6 scoped conversational editing > A7 round-trips and duplicates real conversational Creative Direction without dangling references: full-fidelity  765ms
+   ✓ A6 scoped conversational editing > A7 round-trips and duplicates real conversational Creative Direction without dangling references: privacy-redacted  478ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: missing-lineage  474ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: all-outputs  446ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: partial-outputs  408ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: all-results  465ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: partial-results  324ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: extra-result  302ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: wrong-result  321ms
+   ✓ A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: unknown-field  376ms
+   ✓ A6 scoped conversational editing > A7 preserves complete historical edit lineage with no-op  412ms
+   ✓ A6 scoped conversational editing > A7 preserves complete historical edit lineage with partial-selection  456ms
+   ✓ A6 scoped conversational editing > A7 preserves complete historical edit lineage with later-head  476ms
+   ✓ A6 scoped conversational editing > A7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=false)  428ms
+   ✓ A6 scoped conversational editing > A7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=true)  425ms
+   ✓ A6 scoped conversational editing > enforces initial lifecycle for new sequences: outline  365ms
+   ✓ A6 scoped conversational editing > enforces initial lifecycle for new sequences: planned  389ms
+   ✓ A6 scoped conversational editing > retrieves only grounded source ranges through accepted bootstrap stable-ID lineage, including after an edit  1434ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts (30 tests) 2822ms
+
+ Test Files  3 passed (3)
+      Tests  122 passed (122)
+   Start at  18:16:24
+   Duration  21.98s (transform 2.27s, setup 0ms, collect 6.29s, tests 21.12s, environment 0ms, prepare 200ms)
+

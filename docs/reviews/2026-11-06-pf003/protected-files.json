@@ -1,0 +1,62 @@
+[
+  {
+    "path": "packages/domain/src/stable-id.ts",
+    "baseSha256": "30fac83b4504d764c2dcafd411ff4934172d28b0ebc4cf1a5ab1e9eb30c4cacf",
+    "workingSha256": "30fac83b4504d764c2dcafd411ff4934172d28b0ebc4cf1a5ab1e9eb30c4cacf",
+    "unchanged": true
+  },
+  {
+    "path": "packages/domain/src/long-form-mechanics-plan.ts",
+    "baseSha256": "d2a7a5cbdc53da573dbb698c3215d1f3b1d893a02da1d3715d2188270973ace7",
+    "workingSha256": "d2a7a5cbdc53da573dbb698c3215d1f3b1d893a02da1d3715d2188270973ace7",
+    "unchanged": true
+  },
+  {
+    "path": "packages/domain/src/repair-entity-contract.ts",
+    "baseSha256": "dda75ee36dba84b57ac45281292351dadb48c5a6b2b1b8c5484bcdb266a816bc",
+    "workingSha256": "dda75ee36dba84b57ac45281292351dadb48c5a6b2b1b8c5484bcdb266a816bc",
+    "unchanged": true
+  },
+  {
+    "path": "packages/pipeline/src/passage-plan-validator.ts",
+    "baseSha256": "8e2f916af10f68c85d54c4c8eec9640a146d08e47ab108a49fb3e01f6e2c3245",
+    "workingSha256": "8e2f916af10f68c85d54c4c8eec9640a146d08e47ab108a49fb3e01f6e2c3245",
+    "unchanged": true
+  },
+  {
+    "path": "packages/runtime/src/semantics.ts",
+    "baseSha256": "273e3dfcdec6716eabc5806b843e3d2c4707953f55ba682d74e2569f65bbeff2",
+    "workingSha256": "273e3dfcdec6716eabc5806b843e3d2c4707953f55ba682d74e2569f65bbeff2",
+    "unchanged": true
+  },
+  {
+    "path": "packages/runtime/src/player.ts",
+    "baseSha256": "7ce1238e0011830509c2074ddfbe57587a371a89b3f948185a76f5bd1dd06806",
+    "workingSha256": "7ce1238e0011830509c2074ddfbe57587a371a89b3f948185a76f5bd1dd06806",
+    "unchanged": true
+  },
+  {
+    "path": "packages/runtime/src/progression.ts",
+    "baseSha256": "d8976280b45b6bba5652ade3e8117be2be0a5bfac71f893f13b4d2d4bc68bb98",
+    "workingSha256": "d8976280b45b6bba5652ade3e8117be2be0a5bfac71f893f13b4d2d4bc68bb98",
+    "unchanged": true
+  },
+  {
+    "path": "apps/web/src/features/player/illustrated-scene.css",
+    "baseSha256": "327062374dbfb73b9f9177fc30e08c13fc55be57688d20939271e19f45766c14",
+    "workingSha256": "327062374dbfb73b9f9177fc30e08c13fc55be57688d20939271e19f45766c14",
+    "unchanged": true
+  },
+  {
+    "path": "e2e/illustrated-scenes.spec.ts",
+    "baseSha256": "3ce4e81cd305f1bbcde8355b67df6b6261c4e91d12717136a83de6a6443c3044",
+    "workingSha256": "3ce4e81cd305f1bbcde8355b67df6b6261c4e91d12717136a83de6a6443c3044",
+    "unchanged": true
+  },
+  {
+    "path": "e2e/complete-visual-game.spec.ts",
+    "baseSha256": "62b0efd70ecfa1b84d3b6bfe6d8b30f6a29bbfcdb9e0f13488c6d7862049b334",
+    "workingSha256": "62b0efd70ecfa1b84d3b6bfe6d8b30f6a29bbfcdb9e0f13488c6d7862049b334",
+    "unchanged": true
+  }
+]
