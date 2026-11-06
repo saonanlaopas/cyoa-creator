@@ -19,7 +19,44 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      build-artifact-id: ${{ steps.build-artifact.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build
+      - name: Check required build outputs
+        run: |
+          test -s apps/server/dist/main.js
+          test -s apps/web/dist/index.html
+          for package in packages/*; do
+            test -s "$package/dist/index.js"
+          done
+      - uses: actions/upload-artifact@v4
+        id: build-artifact
+        with:
+          name: build-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            apps/server/dist/
+            apps/web/dist/
+            packages/*/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  units:
+    needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -32,13 +69,52 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.build-artifact-id }}
+          merge-multiple: true
+      - run: node scripts/download-tweego.mjs
+      - run: pnpm test --reporter=default --reporter=json --outputFile=test-results/unit-results.json
+      - name: Preserve unit timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-results-${{ github.run_attempt }}
+          path: test-results/unit-results.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  browsers:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.build-artifact-id }}
+          merge-multiple: true
       - run: node scripts/download-tweego.mjs
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm build
-      - run: pnpm test
-      - run: pnpm test:e2e --reporter=github,line
+      - run: pnpm test:e2e --reporter=github,line,json
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/browser-results.json
+      - name: Preserve browser timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-results-${{ github.run_attempt }}
+          path: test-results/browser-results.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Preserve browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
@@ -47,3 +123,21 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  # Preserve the required check name and reject skipped/cancelled dependencies.
+  verify:
+    if: always()
+    needs: [prepare, units, browsers]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Require every verification job to succeed
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          UNIT_RESULT: ${{ needs.units.result }}
+          BROWSER_RESULT: ${{ needs.browsers.result }}
+        run: |
+          if [[ "$PREPARE_RESULT" != success || "$UNIT_RESULT" != success || "$BROWSER_RESULT" != success ]]; then
+            printf '%s\n' 'A required CI job did not succeed.'
+            exit 1
+          fi
