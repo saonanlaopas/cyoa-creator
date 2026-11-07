@@ -1,0 +1,63 @@
+$ pnpm vitest --run apps/server/test/collection-editing.test.ts --reporter=verbose
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > lists 27 allowlisted schema-bearing append scopes, including empty arrays, without primitive/provenance authority 156ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > keeps oversized bible root rejection atomic and provider-free 89ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > keeps oversized routes root rejection atomic and provider-free 89ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates and separately edits a witness and relationship on >256KB Bible, preserving all other records and approvals 659ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates real decisions with fresh child IDs and edits both parent and child on >256KB routes 591ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: set-fields 66ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: remove-item 72ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: reorder-items 75ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: wrong-collection 61ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-person 84ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-act 83ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: literal-child 71ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: duplicate-child 67ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-logical 63ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: extra-field 70ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > requires the parent producer group when another group references a generated child 94ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after parent changes 66ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after unrelated changes 58ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after instructions changes 58ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale review/Apply, stale target versions and stale heads without overwriting 154ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > retains exact custom instructions and approved Direction with guide enabled 49ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > retains exact custom instructions and approved Direction with guide disabled 52ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > retains exact custom instructions and approved Direction with guide legacy 53ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > does not drop oversized required instructions to make a collection scope fit 69ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through visibleStats collection scope 141ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through relationships collection scope 148ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through flags collection scope 136ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through resources collection scope 142ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects duplicate or invalid semantic keys through collection scope: resolve 66ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects duplicate or invalid semantic keys through collection scope: Bad Key 67ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects duplicate or invalid semantic keys through collection scope: _invalid 61ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > authorizes schema-defined condition IDs without declaring mechanic references 116ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > round-trips collection history through full-fidelity archives and duplication 782ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > round-trips collection history through privacy-redacted archives and duplication 510ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > verifies a full backup and restores exact applied collection history 1387ms
+ × |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > safely retries exact envelopes, conflicts changed envelopes, rolls back failed receipts and can reject a proposal 162ms
+   → expected [Function] to throw error including 'forced audit write failure' but got 'Cannot read properties of undefined (…'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > safely retries exact envelopes, conflicts changed envelopes, rolls back failed receipts and can reject a proposal
+AssertionError: expected [Function] to throw error including 'forced audit write failure' but got 'Cannot read properties of undefined (…'
+
+Expected: "forced audit write failure"
+Received: "Cannot read properties of undefined (reading 'apply')"
+
+ ❯ apps/server/test/collection-editing.test.ts:177:46
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 35 passed (36)
+   Start at  06:18:14
+   Duration  8.52s (transform 1.16s, setup 0ms, collect 1.67s, tests 6.67s, environment 0ms, prepare 49ms)
+
+[ELIFECYCLE] Test failed. See above for more details.

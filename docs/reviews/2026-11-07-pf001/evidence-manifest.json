@@ -1,0 +1,228 @@
+{
+  "base": "fd594612b3423fa9d81caee092aa52aac032c200",
+  "sourcePatch": "source.patch",
+  "sourcePatchSha256": "c3f248fb0e7458527371e4b05046ecd3f20f608413efc2384d97f56bb1f89e78",
+  "changedSourceFiles": [
+    {
+      "path": "apps/server/src/routes/connected-editing.ts",
+      "sha256": "379c912658c13c5a11384e5046d474bb201bfc72b67e69e3fc1383ac030c09ee"
+    },
+    {
+      "path": "apps/server/src/services/connected-authoring-instructions.ts",
+      "sha256": "4cc54bd2e335a27bb9b431dc9511ab1299474a4a9920e0f46d0b992291482e35"
+    },
+    {
+      "path": "apps/server/src/services/conversational-collection-targets.ts",
+      "sha256": "8c1c39b9fd081834762237da533580331f28df3bef31a16e1719d9a66bf63e4e"
+    },
+    {
+      "path": "apps/server/src/services/conversational-edit-contract.ts",
+      "sha256": "d67c7010c3bb417c930832276f9e7923721d756b1653e51a8d25c0c15b59d899"
+    },
+    {
+      "path": "apps/server/src/services/conversational-edit-provider.ts",
+      "sha256": "212e0ba79ea55aa908f5a9643a67174aed8ffba8d2bd31799f277fd18dea5d35"
+    },
+    {
+      "path": "apps/server/src/services/conversational-edit-service.ts",
+      "sha256": "95bd66fd70c333a1c9df20a7e88d0cc499e4db3981af94418dab2a4884e2ebe4"
+    },
+    {
+      "path": "apps/server/src/services/conversational-mechanic-identities.ts",
+      "sha256": "75e0a0f2b4fa57a8bd7490950c64d88d41ec6467db4861c9dc878a2d5e72a07c"
+    },
+    {
+      "path": "apps/server/test/collection-editing.test.ts",
+      "sha256": "9f2ea73d3026453db8d5b9046725f6b4f6c0ba390865d8d12df35c82a4a8b238"
+    },
+    {
+      "path": "apps/server/test/conversational-edit.test.ts",
+      "sha256": "ebd3875ad2b5e4d92a47cdf5d9f511a4ae2f2c7a6ee4b8b1a39d58a2365fe029"
+    },
+    {
+      "path": "apps/web/src/api/conversational-edit.ts",
+      "sha256": "4577b594f583f5610c20b27c2d775548f0357b4eee798dd61909d90946127cef"
+    },
+    {
+      "path": "apps/web/src/features/workspace/ConversationalEditWorkspace.tsx",
+      "sha256": "9daf8c095feb338de06e9fac11366c9283e0423129facba5a799c13d46b8205f"
+    },
+    {
+      "path": "docs/connected-editing.md",
+      "sha256": "571b06c959dbe2c1b34c841c47a0b5ad9f0c7dd6600cbf174a3a7155c48f392a"
+    },
+    {
+      "path": "docs/conversational-creator.md",
+      "sha256": "adcd8d51bea7d994c5fded4d88635c29ac14864f6a60e8d993f40d0c43da1c44"
+    },
+    {
+      "path": "e2e/collection-editing.spec.ts",
+      "sha256": "c632dc670c43b2d9cc1e05fe6ab31288f1ce8173950df87cc42221d75dfa57b7"
+    },
+    {
+      "path": "e2e/helpers/large-foundation-server.mjs",
+      "sha256": "fee3a0876916f9dbd56ac4cf048bcf8a5364bc87095b6f82393e96412deceb66"
+    },
+    {
+      "path": "e2e/helpers/large-foundations.ts",
+      "sha256": "a3712c991dd1404e3e60e0d73cd4a04b1cfc05e5dde6b65e305076e18c549beb"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "README.md",
+      "sha256": "524006b45c3cf20ed72353e54f6222af614cf95da543aeee16e18629115dc718",
+      "bytes": 13940
+    },
+    {
+      "path": "acceptance-summary.json",
+      "sha256": "d5ede7ab63c186a0abc5121a47a9cb5914ea4a2e7beee955bcac5cee6b68581f",
+      "bytes": 2696
+    },
+    {
+      "path": "after/acceptance.json",
+      "sha256": "a9bc4d95e084a3d404fd02f7c930b300fc749bf34a5ac85265ff33838e9f0869",
+      "bytes": 229144
+    },
+    {
+      "path": "after/bible-review-1280.png",
+      "sha256": "7d3071d4734ee278b4c08cba76875a71108fa4cc1e5e12798208c380ae1e30c4",
+      "bytes": 394929
+    },
+    {
+      "path": "after/bible-review-390.png",
+      "sha256": "c4a248a6dc032d2c7b428870849affc98442bd8d5cebb8dba28cc078b27d52b2",
+      "bytes": 315719
+    },
+    {
+      "path": "after/collection-workflow.zip",
+      "sha256": "75b8f58a98b1e44097d9773d547734140472a5b6d6a99df9666e3ff4545dae37",
+      "bytes": 3064075
+    },
+    {
+      "path": "after/mock-provider-requests.json",
+      "sha256": "33d5140e0df4015c00705e986cbe783d517e58f4529b7ddab62c2d21083358e0",
+      "bytes": 145316
+    },
+    {
+      "path": "after/routes-review-1280.png",
+      "sha256": "2acf3f4604940b7a249d1d4d21d96792b247f0875031e5f8c389bb2eef59c5bc",
+      "bytes": 414626
+    },
+    {
+      "path": "after/routes-review-390.png",
+      "sha256": "3a6b25133a3c217fa031865c56d651a70827153ccc6e6a0c4c244d291bb7f829",
+      "bytes": 373669
+    },
+    {
+      "path": "before/bible-desktop.png",
+      "sha256": "99f37e91c9e0f105bf9aee0796e90a303bdcf9d79bd55dc9fa2bf93c7f21e498",
+      "bytes": 249757
+    },
+    {
+      "path": "before/captured-finding.md",
+      "sha256": "604dd209477ae187d9c98f3406897463b582adcd0b12244cf7c6d35ff33c1198",
+      "bytes": 2128
+    },
+    {
+      "path": "before/nested-creation.json",
+      "sha256": "eb143a20fb4c53006ae64e91a37444409f748764bdf554d4499904024e3749a3",
+      "bytes": 5328
+    },
+    {
+      "path": "before/reproduction.json",
+      "sha256": "3f34707e67baed9c2199b6ecd06f0b5944f7c3adff55943f10c2a4529db10cdd",
+      "bytes": 28692
+    },
+    {
+      "path": "before/routes-mobile.png",
+      "sha256": "b86e6be119a844d6f66f5be367c0d48f4251827527d3c9d188ab833a12658041",
+      "bytes": 200201
+    },
+    {
+      "path": "source.patch",
+      "sha256": "c3f248fb0e7458527371e4b05046ecd3f20f608413efc2384d97f56bb1f89e78",
+      "bytes": 106196
+    },
+    {
+      "path": "validation/browser-release.log",
+      "sha256": "4be4da3e90f71e9226d37a5874db5eb2b0b3aa710566fd2d3a2a6d94d49ce71f",
+      "bytes": 9385
+    },
+    {
+      "path": "validation/browser-results.json",
+      "sha256": "24e57d5b6f18f4dfe6a8c40dfe0f248c3cbb70a5a72b98184183d7f8e93465cf",
+      "bytes": 683500
+    },
+    {
+      "path": "validation/build-release.log",
+      "sha256": "4b4acfa48db2ef8ff51b1a05a43936644cd8f2f4c11e3ec4f59a531b6bcf84f8",
+      "bytes": 1647
+    },
+    {
+      "path": "validation/collection-fifth.log",
+      "sha256": "933f6657f00b08d208bc5406ad0ba77219924739b3d206253933b130364a9f89",
+      "bytes": 7427
+    },
+    {
+      "path": "validation/collection-first.log",
+      "sha256": "34c24981160161a730d77a703ba13e45779a5223db55f4507e06c4ed5a35be0b",
+      "bytes": 6005
+    },
+    {
+      "path": "validation/collection-second.log",
+      "sha256": "5e7a1cc092af42a651fa20ef9fec3faae96c05a7f9ed10e76403b4435a27d639",
+      "bytes": 7318
+    },
+    {
+      "path": "validation/final-checks.json",
+      "sha256": "b738ba887e0610474f5dc473e3a0489ad11d9321bb15ef37863e800b0736270d",
+      "bytes": 337
+    },
+    {
+      "path": "validation/focused-sdk-fourth.log",
+      "sha256": "e6a4ce0bd5433490436c0ec82de05a8c76869f81d40d07c733a59cab65daf374",
+      "bytes": 7178
+    },
+    {
+      "path": "validation/focused-third.log",
+      "sha256": "afa5d06bca828e0d6ceb22eb8bc2f92bfda40dcad33f6d128a276c9c17a28784",
+      "bytes": 32593
+    },
+    {
+      "path": "validation/lint-release.log",
+      "sha256": "001786a42f788ad09f9b1c48ab31ddc54590fe32fe9765f00fa59e8fa38e9526",
+      "bytes": 829
+    },
+    {
+      "path": "validation/namespace-and-evidence-final.log",
+      "sha256": "8e3c2edfb2ed0871b6608c81c1ce013db42ad94665818f4e263af045b077dfb5",
+      "bytes": 19680
+    },
+    {
+      "path": "validation/namespace-pin-before.log",
+      "sha256": "c3dd66dca16220711aaae59498d32267c962f595cf7aea8e80ed260259888373",
+      "bytes": 9684
+    },
+    {
+      "path": "validation/release-checks.json",
+      "sha256": "fb015f2473c256d7953bdf24a6529b62a8732d6479b173609c9a90dea13408af",
+      "bytes": 289
+    },
+    {
+      "path": "validation/typecheck-release.log",
+      "sha256": "ef53f637dd721e71e125fc6f10f06ebb5d8638f90ef75ebf582c74276731b47f",
+      "bytes": 875
+    },
+    {
+      "path": "validation/unit-release.log",
+      "sha256": "dd02cdc475f744f4bc65a68efb53bda070999f6823b38c6bfee06c2d9bcf3753",
+      "bytes": 61903
+    },
+    {
+      "path": "validation/unit-results.json",
+      "sha256": "5bd1b2c8b4c02e169ae408d3fa32425eec5b97d1220a48c2270942df49b87dd0",
+      "bytes": 616595
+    }
+  ]
+}

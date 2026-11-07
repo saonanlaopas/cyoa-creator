@@ -1,0 +1,68 @@
+$ pnpm vitest --run apps/server/test/collection-editing.test.ts -t 'legacy IDs distinct' --reporter=verbose
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > lists 27 allowlisted schema-bearing append scopes, including empty arrays, without primitive/provenance authority
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > keeps oversized bible root rejection atomic and provider-free
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > keeps oversized routes root rejection atomic and provider-free
+ × |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > keeps legacy IDs distinct from collection keys and rejects forged versioned descriptors 308ms
+   → expected '{"summary":null,"decisions":[{"id":"1…' not to contain 'This legacy character alone must keep…'
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > retains the canonical collection maximum even though the prompt contains only a descriptor
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates and separately edits a witness and relationship on >256KB Bible, preserving all other records and approvals
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates real decisions with fresh child IDs and edits both parent and child on >256KB routes
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: set-fields
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: remove-item
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: reorder-items
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: wrong-collection
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > supports the captured decision-and-seven-hooks selection as an explicit bounded creative batch
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-person
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-act
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: literal-child
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: duplicate-child
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-logical
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: extra-field
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > requires the parent producer group when another group references a generated child
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after parent changes
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after unrelated changes
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after instructions changes
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale review/Apply, stale target versions and stale heads without overwriting
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > retains exact custom instructions and approved Direction with guide enabled
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > retains exact custom instructions and approved Direction with guide disabled
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > retains exact custom instructions and approved Direction with guide legacy
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > does not drop oversized required instructions to make a collection scope fit
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through visibleStats collection scope
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through relationships collection scope
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through flags collection scope
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through resources collection scope
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects duplicate or invalid semantic keys through collection scope: resolve
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects duplicate or invalid semantic keys through collection scope: Bad Key
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects duplicate or invalid semantic keys through collection scope: _invalid
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > authorizes schema-defined condition IDs without declaring mechanic references
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates an ending with a fresh variant and required hook/budget changes in one validated batch
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates scoped Direction through a collection and retains its separately approved override in later contexts
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > round-trips collection history through full-fidelity archives and duplication
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > round-trips collection history through privacy-redacted archives and duplication
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > verifies a full backup and restores exact applied collection history
+ ↓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > safely retries exact envelopes, conflicts changed envelopes, rolls back failed receipts and can reject a proposal
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > keeps legacy IDs distinct from collection keys and rejects forged versioned descriptors
+AssertionError: expected '{"summary":null,"decisions":[{"id":"1…' not to contain 'This legacy character alone must keep…'
+
+Expected: "This legacy character alone must keep its occupation."
+Received: "{"summary":null,"decisions":[{"id":"19fae894-ca00-414c-a4c0-a1be4ed800d1","stableId":"f3628765-8945-4a2d-91fb-0967e42a521c","projectId":"45c13ff5-c680-4134-9383-53ef4f3a10c3","version":1,"scope":{"kind":"artifact","artifactId":"bible"},"relatedIds":[],"content":"Every Bible addition preserves attributed evidence.","status":"active","provenance":{"note":"Pinned directly by author"},"supersedesVersionId":null,"createdAt":"2026-11-07T06:35:57.438Z","updatedAt":"2026-11-07T06:35:57.438Z"},{"id":"5571e823-26e8-48f5-a33d-c1c9e82718cb","stableId":"f759a57a-20d5-4ec4-98bc-8e80a2c15819","projectId":"45c13ff5-c680-4134-9383-53ef4f3a10c3","version":1,"scope":{"kind":"entity","artifactId":"bible","entityKind":"character","entityId":"collection:characters"},"relatedIds":[],"content":"This legacy character alone must keep its occupation.","status":"active","provenance":{"note":"Pinned directly by author"},"supersedesVersionId":null,"createdAt":"2026-11-07T06:35:57.437Z","updatedAt":"2026-11-07T06:35:57.437Z"}],"recentMessages":[{"role":"user","content":"Add only the requested investigation records."}],"diagnostics":{"summaryStatus":"none","staleSummaryReasons":[],"omittedDecisionCount":0,"omittedDecisionBytes":0,"omittedRecentMessageCount":0,"omittedRecentMessageBytes":0,"recentMessageBytes":45,"totalAuthorMemoryBytes":45,"limits":{"recentMessageCount":8,"recentMessageBytes":24000,"recentMessageIndividualBytes":8000,"summaryIncrementMessages":48,"summaryBytes":12000,"decisionContentBytes":2000,"relatedIdCount":40,"contextDecisionCount":24,"contextDecisionBytes":12000,"totalAuthorMemoryBytes":48000,"providerConversationBytes":64000},"omittedScopedDecisionCount":0}}"
+
+ ❯ apps/server/test/collection-editing.test.ts:75:55
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 40 skipped (41)
+   Start at  06:35:53
+   Duration  4.41s (transform 2.50s, setup 0ms, collect 3.78s, tests 310ms, environment 0ms, prepare 89ms)
+
+[ELIFECYCLE] Test failed. See above for more details.

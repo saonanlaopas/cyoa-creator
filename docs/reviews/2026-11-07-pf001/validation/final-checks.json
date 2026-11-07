@@ -1,0 +1,22 @@
+[
+  {
+    "check": "server-lint-final",
+    "seconds": 9.21,
+    "exitCode": 0
+  },
+  {
+    "check": "server-typecheck-final",
+    "seconds": 8.92,
+    "exitCode": 0
+  },
+  {
+    "check": "server-build-final",
+    "seconds": 9.72,
+    "exitCode": 0
+  },
+  {
+    "check": "browser-release",
+    "seconds": 327.51,
+    "exitCode": 0
+  }
+]

@@ -22,7 +22,8 @@ export const EditResponseSchema = z.object({ message: z.string().trim().min(1).m
   })).min(1).max(EDIT_LIMITS.operations),
 }).strict()).max(EDIT_LIMITS.groups) }).strict();
 export type EditResponse = z.infer<typeof EditResponseSchema>;
-export interface EditTarget { key: string; owner: EditOwner; targetId: string; label: string; path: string; versionId: string; value: unknown }
+export interface EditTarget { key: string; owner: EditOwner; targetId: string; label: string; path: string; versionId: string; value: unknown;
+  scope?: { kind: "collection"; version: 1; collection: string } }
 export interface EditPlan {
   id: string; projectId: string; conversationId: string; request: z.infer<typeof EditRequestSchema>;
   targets: EditTarget[]; context: Record<string, unknown>; contextBytes: number; headFingerprint: string; fingerprint: string;

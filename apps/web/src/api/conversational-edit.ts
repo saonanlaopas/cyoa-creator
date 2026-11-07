@@ -1,4 +1,4 @@
-export interface EditTarget { key: string; owner: string; targetId: string; label: string; path: string; versionId: string }
+export interface EditTarget { key: string; owner: string; targetId: string; label: string; path: string; versionId: string; scope?: { kind: "collection"; version: 1; collection: string } }
 export interface EditPlan { id: string; conversationId: string; fingerprint: string; contextBytes: number; targets: EditTarget[] }
 export type EditPreview = { status: "ready"; plan: EditPlan; impact: string[]; estimatedInputTokens: number; cost: number | null }
   | { status: "clarification"; question: string; candidates: EditTarget[] }

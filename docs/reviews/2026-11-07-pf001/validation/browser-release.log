@@ -1,0 +1,95 @@
+$ playwright test --workers=2 --reporter=line,json
+[WebServer] (node:24768) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 59 tests using 2 workers
+
+(node:24781) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+(node:24780) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/59] e2e/asset-library.spec.ts:9:5 › V1 imports through MCP, uploads/reviews/replaces in Creator and restores/duplicates complete image history
+[2/59] e2e/adaptation-intent.spec.ts:38:1 › A4 explicit adoption, dimensions, source/override separation, evidence and history on desktop/mobile
+[3/59] e2e/collection-editing.spec.ts:12:5 › PF-001 creates and edits bounded records in large foundations through Creator and reconnecting MCP
+[4/59] e2e/adaptation-intent.spec.ts:75:1 › A4 requested ending, reviewed exception, invention and 30k+50k=80k expansion with honest discrepancy
+[5/59] e2e/adaptation-intent.spec.ts:99:1 › A4 bounded source selection and explicit conversational preview/review/Apply
+(node:25021) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[6/59] e2e/complete-visual-game.spec.ts:20:5 › W6 authors, reviews and publishes the complete visual game, restores and duplicates it, and finishes both modes offline
+[7/59] e2e/connected-editing.spec.ts:5:5 › M1 connected proposals are reviewable in Creator; browser and MCP Apply share exact draft-only outcomes
+[8/59] e2e/connected-foundations.spec.ts:6:5 › M2 creates and authors original foundations through MCP; Creator reviews revisions and displays exact approvals
+[9/59] e2e/connected-text-game.spec.ts:11:5 › M3 authors a complete text game through MCP, reviews exact prose in Creator, revises and plays all exported endings offline
+[10/59] e2e/economy.spec.ts:14:5 › W4 authors trade with stale edits and safe retries, then plays atomic inventory and shops offline
+[11/59] e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, quick, 1280px
+[12/59] e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, long-form, 1280px
+[13/59] e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, quick, 390px
+[14/59] e2e/fiction-craft.spec.ts:4:7 › Fiction Craft creative preference review, long-form, 390px
+[15/59] e2e/fiction-craft.spec.ts:51:5 › Quick preferences fit a wider local fallback font
+[16/59] e2e/illustrated-scenes.spec.ts:43:5 › V2 reviews browser scenes, replays lost Apply and plays packaged backgrounds, expressions and authored choices offline
+[17/59] e2e/journal-progression.spec.ts:15:5 › W5 journal-only stationary events and chapter transitions observe short windows in actual offline exports
+[18/59] e2e/journal.spec.ts:15:5 › W5 authors visibility with stale edits and retries, then uses character and journal offline
+[19/59] e2e/keyed-mechanics.spec.ts:9:5 › PF-003 creates keyed mechanics through MCP and Creator, then plays their conditions and effects offline
+[20/59] e2e/people-review.spec.ts:15:5 › W3 review fixes complete required costs, observe effects before discovery and preview genuine losses offline
+[21/59] e2e/people.spec.ts:16:5 › W3 authors weekly schedules, resolves mandatory priorities and plays presence overrides offline
+[22/59] e2e/progression.spec.ts:15:5 › W2 authors optional chapters/events and previews carry/expiry before offline standalone/static save-resume
+[23/59] e2e/publication-exports.spec.ts:25:5 › static subdirectory publication plays, saves, rewinds, and reloads without authoring APIs
+[24/59] e2e/publication-exports.spec.ts:48:5 › standalone file publication keeps hostile prose inert and remains playable
+[25/59] e2e/publication-exports.spec.ts:58:5 › real compiled SugarCube route matches native runtime state
+[26/59] e2e/story-to-cyoa.spec.ts:253:5 › complete private adaptation offline smoke
+[27/59] e2e/story-to-cyoa.spec.ts:262:5 › observable quick generation stays offline and shows provider activity
+[28/59] e2e/story-to-cyoa.spec.ts:281:5 › offline non-JSON provider failure exposes a redacted diagnostic
+[29/59] e2e/world.spec.ts:14:5 › W1 reviews shared world operations and travels home/cafe/station with free maps, midnight and offline save/resume
+[30/59] e2e/story-to-cyoa.spec.ts:294:5 › long-form workspace persists and approves a project brief
+[31/59] e2e/story-to-cyoa.spec.ts:358:5 › Creative Direction edits, explains, approves, and previews bounded context without providers
+[32/59] e2e/story-to-cyoa.spec.ts:390:5 › long-form passage workspace renders, filters, and jumps within a 300-passage fixture
+[33/59] e2e/story-to-cyoa.spec.ts:439:5 › recovery deletion dialog traps keyboard focus and returns it without changing data
+[34/59] e2e/story-to-cyoa.spec.ts:461:5 › project health stays compact and provider-free for a 300-passage fixture
+[35/59] e2e/story-to-cyoa.spec.ts:481:5 › manual passage drafts persist, stale selectively, and stay separate in a 300-passage workspace
+[36/59] e2e/story-to-cyoa.spec.ts:548:5 › deterministic simulation runs and reopens a 300-passage exact path without prose or provider requests
+(node:26188) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[37/59] e2e/conversational-edit.spec.ts:65:1 › A6 exact scope, explicit generation, saved review and transactional Apply work on desktop and mobile
+[38/59] e2e/story-to-cyoa.spec.ts:577:5 › seeded playtesting analyzes and replays a durable 300-passage campaign without providers
+[39/59] e2e/conversational-edit.spec.ts:88:1 › A6 ambiguous scope, adjusted authorization, discussion and prose candidate routing remain noncanonical
+[40/59] e2e/conversational-edit.spec.ts:103:1 › A6 300-passage flow is metadata-first, bounded, and changes one exact entity
+[41/59] e2e/story-to-cyoa.spec.ts:624:5 › bounded narrative review authorizes exact 300-passage evidence and reopens findings without mutation
+[42/59] e2e/conversational-edit.spec.ts:120:1 › A6 review exposes effective passage warnings through HTTP and UI without blocking Apply
+(node:26321) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[43/59] e2e/foundation-bootstrap.spec.ts:48:1 › A5 offline preview, generation, provenance review and dependency-safe draft Apply leave approval and prose untouched
+[44/59] e2e/story-to-cyoa.spec.ts:672:5 › bounded prose drafting previews context, repairs, retries, persists, and cancels offline
+[45/59] e2e/story-to-cyoa.spec.ts:788:5 › draft review queue previews dependency-safe batches and blocks a neighbor-invalidating batch
+[46/59] e2e/story-to-cyoa.spec.ts:828:5 › bounded passage generation previews, authorizes, retries, cancels, and reopens offline
+[47/59] e2e/story-to-cyoa.spec.ts:901:5 › passage proposal review blocks stale and hard-invalid selections without mutation
+[48/59] e2e/story-to-cyoa.spec.ts:978:5 › failed passage candidate validation remains inspectable without mutating the project
+[49/59] e2e/story-to-cyoa.spec.ts:1018:5 › repair planning and bounded proposals stay explicit and immutable across a 300-passage project
+[50/59] e2e/story-to-cyoa.spec.ts:1135:5 › native publication compiles exact accepted prose deterministically and blocks stale prose
+[51/59] e2e/foundation-bootstrap.spec.ts:108:1 › A5 unused-preview archive recovery requires a real download and leaves canonical work untouched
+[52/59] e2e/story-to-cyoa.spec.ts:1270:5 › native browser player opens a 300-passage exact build without rendering the corpus
+(node:26510) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[53/59] e2e/project-setup.spec.ts:46:1 › A2 author journey reviews, edits and explicitly applies foundations without generating passages
+[54/59] e2e/story-to-cyoa.spec.ts:1309:5 › verified recovery downloads, detects change, previews without writes, rejects collision, restores, and recompiles
+(node:26605) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[55/59] e2e/source-analysis.spec.ts:41:1 › A3 import, exact scope, bounded analysis, evidence, correction, history and explicit approval
+[56/59] e2e/source-analysis.spec.ts:94:1 › A3 explicit identity merge and split remap dependent references, without adaptation overrides
+[57/59] e2e/project-setup.spec.ts:108:1 › A2 non-romance detective refinement stays noncanonical and can be rejected
+[58/59] e2e/source-analysis.spec.ts:122:1 › A3 field review reassigns ordinary associations through paginated supported-record controls
+[59/59] e2e/source-analysis.spec.ts:156:1 › A3 large-source metadata stays paginated and cancellation cannot publish a late dossier
+  59 passed (5.4m)

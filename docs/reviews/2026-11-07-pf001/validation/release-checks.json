@@ -1,0 +1,22 @@
+[
+  {
+    "check": "lint",
+    "seconds": 40.98,
+    "exitCode": 0
+  },
+  {
+    "check": "typecheck",
+    "seconds": 41.2,
+    "exitCode": 0
+  },
+  {
+    "check": "build",
+    "seconds": 35.26,
+    "exitCode": 0
+  },
+  {
+    "check": "unit",
+    "seconds": 401.49,
+    "exitCode": 0
+  }
+]

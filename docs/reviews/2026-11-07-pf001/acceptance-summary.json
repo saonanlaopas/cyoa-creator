@@ -1,0 +1,117 @@
+{
+  "rootBytes": {
+    "bible": 280117,
+    "routes": 275013
+  },
+  "prepareRestart": true,
+  "submitRestart": true,
+  "applyRestart": true,
+  "unrelatedRecordsUnchanged": true,
+  "staleRejected": true,
+  "offlineMockCalls": 4,
+  "paidProviderCalls": 0,
+  "preparedContexts": [
+    {
+      "targets": [
+        {
+          "key": "bible:a6_2beb3f07b49c6d65fdab18bf",
+          "versionId": "59ec3375-1111-4f93-a462-c292e68032d1"
+        }
+      ],
+      "contextBytes": 10913,
+      "enabled": true
+    },
+    {
+      "targets": [
+        {
+          "key": "collection:bible:relationships",
+          "versionId": "6fe03489-b245-4254-b14a-67b9e9228490"
+        },
+        {
+          "key": "bible:a6_2beb3f07b49c6d65fdab18bf",
+          "versionId": "6fe03489-b245-4254-b14a-67b9e9228490"
+        },
+        {
+          "key": "bible:person-0",
+          "versionId": "6fe03489-b245-4254-b14a-67b9e9228490"
+        }
+      ],
+      "contextBytes": 22270,
+      "enabled": true
+    },
+    {
+      "targets": [
+        {
+          "key": "bible:a6_2ea000b88fc58d181afdb2ef",
+          "versionId": "02268a74-a1bb-4fd8-b62b-bdc4b72d0774"
+        }
+      ],
+      "contextBytes": 21769,
+      "enabled": true
+    },
+    {
+      "targets": [
+        {
+          "key": "routes:a6_cc524561cfec5f3e0f316861",
+          "versionId": "7d083f30-087e-4a70-81be-ec76feabf1ea"
+        },
+        {
+          "key": "routes:a6_40c0eed78dd7af0144a25a1f",
+          "versionId": "7d083f30-087e-4a70-81be-ec76feabf1ea"
+        }
+      ],
+      "contextBytes": 21338,
+      "enabled": true
+    },
+    {
+      "targets": [
+        {
+          "key": "collection:routes:decisionPoints",
+          "versionId": "57976017-29f1-42d3-b951-fa6b4f37a9c8"
+        },
+        {
+          "key": "routes:shared-route-pivot",
+          "versionId": "57976017-29f1-42d3-b951-fa6b4f37a9c8"
+        }
+      ],
+      "contextBytes": 21271,
+      "enabled": true
+    },
+    {
+      "targets": [
+        {
+          "key": "collection:bible:relationships",
+          "versionId": "ad5a9ff3-8e07-47bf-b720-7de34a5480bd"
+        }
+      ],
+      "contextBytes": 12031,
+      "enabled": true
+    },
+    {
+      "targets": [
+        {
+          "key": "bible:a6_2beb3f07b49c6d65fdab18bf",
+          "versionId": "ad5a9ff3-8e07-47bf-b720-7de34a5480bd"
+        }
+      ],
+      "contextBytes": 11395,
+      "enabled": true
+    },
+    {
+      "targets": [
+        {
+          "key": "routes:a6_bd195196da88861432dfd2ac",
+          "versionId": "af61baeb-d807-4b66-a71d-79f70505e15f"
+        }
+      ],
+      "contextBytes": 21375,
+      "enabled": true
+    }
+  ],
+  "mockRequestBytes": [
+    17440,
+    17177,
+    27353,
+    27337
+  ]
+}

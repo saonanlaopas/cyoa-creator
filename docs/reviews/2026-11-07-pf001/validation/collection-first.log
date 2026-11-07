@@ -1,0 +1,73 @@
+$ pnpm vitest --run apps/server/test/collection-editing.test.ts --reporter=verbose
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > lists 27 allowlisted schema-bearing append scopes, including empty arrays, without primitive/provenance authority 162ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > keeps oversized bible root rejection atomic and provider-free 90ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > keeps oversized routes root rejection atomic and provider-free 83ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates and separately edits a witness and relationship on >256KB Bible, preserving all other records and approvals 634ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates real decisions with fresh child IDs and edits both parent and child on >256KB routes 542ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: set-fields 60ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: remove-item 65ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: reorder-items 61ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: wrong-collection 59ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-person 72ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-act 79ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: literal-child 66ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: duplicate-child 57ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-logical 62ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: extra-field 56ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > requires the parent producer group when another group references a generated child 85ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after parent changes 61ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after unrelated changes 56ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after instructions changes 60ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale review/Apply, stale target versions and stale heads without overwriting 140ms
+ × |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > safely retries exact envelopes, conflicts changed envelopes, rolls back failed receipts and can reject a proposal 229ms
+   → [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "approved"
+    ],
+    "path": [],
+    "message": "Unrecognized key(s) in object: 'approved'"
+  }
+]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > safely retries exact envelopes, conflicts changed envelopes, rolls back failed receipts and can reject a proposal
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "approved"
+    ],
+    "path": [],
+    "message": "Unrecognized key(s) in object: 'approved'"
+  }
+]
+ ❯ Object.get error [as error] node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js:39:31
+ ❯ ZodObject.parse node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js:114:22
+ ❯ ConnectedEditService.call apps/server/src/services/connected-edit-service.ts:140:45
+    138|   }
+    139|   call(tool: ConnectedEditTool, value: unknown): unknown {
+    140|     const input = ConnectedEditInputs[tool].parse(value);
+       |                                             ^
+    141|     if (tool === "list_projects") return { projects: this.projectIds.f…
+    142|       const p = this.projects.get(id); return p && !p.archived && p.mo…
+ ❯ Object.call apps/server/test/collection-editing.test.ts:32:96
+ ❯ apps/server/test/collection-editing.test.ts:130:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { issues: [ { code: 'unrecognized_keys', keys: [ 'approved' ], path: [], message: 'Unrecognized key(s) in object: \'approved\'' } ], addIssue: 'Function<anonymous>', addIssues: 'Function<anonymous>', errors: [ { code: 'unrecognized_keys', keys: [ 'approved' ], path: [], message: 'Unrecognized key(s) in object: \'approved\'' } ], format: 'Function<format>', isEmpty: false, flatten: 'Function<flatten>', formErrors: { formErrors: [ 'Unrecognized key(s) in object: \'approved\'' ], fieldErrors: {} } }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 20 passed (21)
+   Start at  06:14:36
+   Duration  4.40s (transform 982ms, setup 0ms, collect 1.45s, tests 2.78s, environment 0ms, prepare 50ms)
+
+[ELIFECYCLE] Test failed. See above for more details.

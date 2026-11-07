@@ -1,0 +1,47 @@
+$ pnpm vitest --run apps/server/test/connected-editing.test.ts apps/server/test/connected-foundations.test.ts --reporter=verbose
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > discovers only configured projects and bounded targets, stores truthful external proposals and applies only reviewed draft versions 149ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > replays identical lost-response retries and rejects operation-ID reuse or a second submission for one captured plan 114ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects a concurrent browser edit at the prepare-head boundary without overwriting it 65ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects a concurrent browser edit at the prepare-target boundary without overwriting it 28ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects a concurrent browser edit at the submit boundary without overwriting it 33ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects a concurrent browser edit at the apply boundary without overwriting it 83ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects invalid external scope atomically and permits corrected submission 68ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects invalid external lifecycle atomically and permits corrected submission 52ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects invalid external identity atomically and permits corrected submission 63ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects invalid external dependency atomically and permits corrected submission 68ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects invalid external overflow atomically and permits corrected submission 65ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rolls back the shared multi-target Apply and its receipt on persistence failure, then allows retry 101ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > does not trust a forged success receipt when canonical proposal/application lineage disagrees 69ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > requires separate creation capability, an explicit configured empty slot and author consent 41ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > authors and approves coherent originals in all six schemas, resumes without chat and keeps approval separate from Apply 1049ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects cancelled service submission and allows exact, retry-safe proposal rejection 80ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > preserves shared prerequisites and validation; incomplete mechanics cannot be approved 104ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rolls back create and receipt together on failure, allowing an exact retry 35ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rolls back initialize and receipt together on failure, allowing an exact retry 35ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > bounds responses and keeps full-fidelity/restricted history portable without leaking requests in privacy exports 218ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rolls back approve and receipt together on failure, allowing an exact retry 30ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rejects stale head, version, approval fingerprint, scope and changed-argument retries 43ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > binds approval to changes in prerequisite state even if the reviewed version is unchanged 38ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rejects historical prerequisite approvals and recovers after approving the current revision 57ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > is disabled by default and fails closed for missing credentials, broad listeners or invalid project configuration 172ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects missing transport access before mutations 73ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects wrong transport access before mutations 88ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rejects proposed revisions without changing canonical work, then permits a new corrected draft and explicit reapproval 109ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > bounds foundation reads and refuses forged approval receipts without canonical approval evidence 24ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects remote transport access before mutations 106ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects host transport access before mutations 127ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects origin transport access before mutations 59ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects delete transport access before mutations 86ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects oversize transport access before mutations 81ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > uses real SDK clients for concurrent retries, cross-project rejection and restart recovery without model calls 594ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > creates once across concurrent SDK connections and recovers foundation approvals after a full server restart 1369ms
+
+ Test Files  2 passed (2)
+      Tests  36 passed (36)
+   Start at  06:26:36
+   Duration  5.57s (transform 2.00s, setup 0ms, collect 4.84s, tests 5.58s, environment 0ms, prepare 127ms)
+

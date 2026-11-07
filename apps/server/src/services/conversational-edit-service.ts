@@ -12,6 +12,7 @@ import { StructuredMutationService } from "./structured-mutation-service.js";
 import { EDIT_LIMITS, EditOwnerSchema, EditRequestSchema, EditResponseSchema, type EditOwner, type EditPlan, type EditProvider, type EditResponse, type EditTarget } from "./conversational-edit-contract.js";
 import { editMessages } from "./conversational-edit-provider.js";
 import { authorizeMechanicKeys, mechanicCreations, mechanicKeyReferences } from "./conversational-mechanic-identities.js";
+import { collectionTargets, assertCollectionTarget, creationCollection, creationIdentityValues, collectionReview } from "./conversational-collection-targets.js";
 
 const schemas = { brief: ProjectBriefSchema, "creative-direction": CreativeDirectionSchema, bible: LongFormStoryBibleSchema, routes: LongFormRoutePlanSchema,
   endings: LongFormEndingPlanSchema, mechanics: LongFormMechanicsPlanSchema, "passage-structure": PassageStructureSchema,
@@ -131,6 +132,7 @@ export class ConversationalEditService {
         for (const [key, child] of Object.entries(v)) if (!["fieldProvenance", "materialFingerprint", "provenanceFingerprint"].includes(key)) visit(child, `${path}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`);
       };
       visit(value, "");
+      targets.push(...collectionTargets(owner, versionId, value));
       if (owner === "creative-direction" && !(value as Record<string, unknown>).relationshipPresentation) targets.push({ key: "creative-direction:section:relationshipPresentation", owner, targetId: "section:relationshipPresentation", path: "/relationshipPresentation", versionId, label: "creative-direction / relationshipPresentation", value: { projectDefault: { mechanicsVisibility: "subtle", customGuidance: "" }, profiles: [] } });
     };
     for (const id of planningArtifactIds) { const v = this.artifacts.getCurrent(projectId, id); if (v) add(id, v.id, v.content); }
@@ -155,7 +157,7 @@ export class ConversationalEditService {
     if (new Set(keys).size !== keys.length) throw new Error("edit_duplicate_scope");
     if (keys.length) return keys.map((key) => { const t = targets.find((t) => t.key === key); if (!t) throw new Error("edit_target_not_found"); return t; });
     const text = message.toLowerCase();
-    const named = targets.filter((t) => t.targetId !== "root" && !t.targetId.startsWith("section:") && (text.includes(t.targetId.toLowerCase()) ||
+    const named = targets.filter((t) => !t.scope && t.targetId !== "root" && !t.targetId.startsWith("section:") && (text.includes(t.targetId.toLowerCase()) ||
       typeof (t.value as Record<string, unknown>).name === "string" && Boolean((t.value as Record<string, unknown>).name) && text.includes(String((t.value as Record<string, unknown>).name).toLowerCase())));
     if (named.length) return named;
     if (/\b(tone|pacing|prose guidance|mechanics visibility)\b/.test(text)) {
@@ -163,7 +165,7 @@ export class ConversationalEditService {
       return targets.filter((t) => t.key === `creative-direction:section:${section}`);
     }
     const owner = /\bending\b/.test(text) ? "endings" : /\broute\b/.test(text) ? "routes" : /\bcharacter\b/.test(text) ? "bible" : /\bmechanic\b/.test(text) ? "mechanics" : /\bpassage\b/.test(text) ? "passage" : /\bbrief|premise\b/.test(text) ? "brief" : null;
-    return targets.filter((t) => t.owner === owner && (owner === "brief" ? t.targetId === "root" : t.targetId !== "root" && !t.targetId.startsWith("section:")));
+    return targets.filter((t) => !t.scope && t.owner === owner && (owner === "brief" ? t.targetId === "root" : t.targetId !== "root" && !t.targetId.startsWith("section:")));
   }
   preview(projectId: string, value: unknown) {
     return transaction(this.database, () => this.previewInTransaction(projectId, value));
@@ -183,13 +185,13 @@ export class ConversationalEditService {
     if (request.conversationId && (!conversation || conversation.projectId !== projectId || conversation.purpose !== "planning" || conversation.scope.kind !== "project")) throw new Error("edit_conversation_not_found");
     const currentConversation = conversation ?? this.conversations.create(projectId, scope, "Conversational editing");
     const memory = this.authorContext(projectId, currentConversation.id, targets);
-    const references = new Set(targets.flatMap((t) => [...strings(t.value)]));
+    const references = new Set(targets.filter(t => !t.scope).flatMap((t) => [...strings(t.value)]));
     const relevant: EditTarget[] = [];
     const queue = [...references];
     const seen = new Set(targets.map((t) => t.key));
     while (queue.length) {
       const ref = queue.shift()!;
-      for (const dependency of all.filter((t) => t.targetId === ref && !seen.has(t.key))) {
+      for (const dependency of all.filter((t) => !t.scope && t.targetId === ref && !seen.has(t.key))) {
         seen.add(dependency.key); relevant.push(dependency);
         if (relevant.length > EDIT_LIMITS.dependencies) throw new Error("edit_dependency_overflow_narrow_scope");
       }
@@ -197,7 +199,7 @@ export class ConversationalEditService {
     const evidence = this.sourceEvidence(projectId, [...targets, ...relevant]);
     const directionVersion = this.database.prepare("SELECT approved_version_id id FROM artifact_workflow_state WHERE project_id=? AND artifact_id='creative-direction'").get(projectId) as { id: string | null } | undefined;
     const direction = directionVersion?.id ? this.artifacts.getVersion(directionVersion.id) : null;
-    const directionScopeIds = [...strings([...targets, ...relevant])];
+    const directionScopeIds = [...strings([...targets.filter(t => !t.scope), ...relevant])];
     const approvedDirection = direction ? { versionId: direction.id, context: selectCreativeDirectionContext(CreativeDirectionSchema.parse(direction.content), { routeIds: directionScopeIds, actIds: directionScopeIds, relationshipIds: directionScopeIds, characterIds: directionScopeIds }).context } : null;
     const context = { approvedDirection, targets, references: relevant, evidence, memory, authoringInstructions: this.artifacts.authoringInstructions(projectId) };
     const definition = { projectId, conversationId: currentConversation.id, request, targets, context, contextBytes: bytes(context), headFingerprint: this.heads(projectId) };
@@ -222,13 +224,13 @@ export class ConversationalEditService {
     const dossier = SourceDossierSchema.parse(version.content), source = this.artifacts.getCurrent(projectId, "source");
     if (dossier.projectId !== projectId || !source || source.id !== dossier.binding.sourceVersionId) throw new Error("edit_source_evidence_unavailable");
     if (isUnavailableSource(source.content)) throw new Error("edit_source_evidence_unavailable: reattach the exact source first");
-    const references = strings(targets.map((t) => t.value));
+    const references = strings(targets.filter(t => !t.scope).map((t) => t.value));
     // Follow accepted bootstrap field lineage by stable identity, not by a possibly shifted array index.
     const rows = this.database.prepare(`SELECT c.content_json FROM foundation_bootstrap_applications a JOIN foundation_bootstrap_candidates c
       ON c.id=json_extract(a.content_json,'$.candidateId') AND c.project_id=a.project_id WHERE a.project_id=? ORDER BY a.rowid DESC LIMIT 40`).all(projectId) as { content_json: string }[];
     for (const row of rows) {
       const candidate = JSON.parse(row.content_json) as FoundationBootstrapCandidate;
-      for (const target of targets.filter((t) => isArtifact(t.owner))) {
+      for (const target of targets.filter((t) => isArtifact(t.owner) && !t.scope)) {
         const path = target.targetId === "root" ? "" : target.targetId.startsWith("section:") ? target.path : entityPath(candidate.artifacts[target.owner as PlanningArtifactId], target.targetId);
         if (path === null) continue;
         for (const field of candidate.provenance) if (field.artifactId === target.owner && (!path || field.fieldPath === path || field.fieldPath.startsWith(`${path}/`))) field.sourceRecordIds.forEach((id) => references.add(id));
@@ -243,7 +245,7 @@ export class ConversationalEditService {
     for (const target of targets) {
       const rows = this.database.prepare(`SELECT v.decision_id FROM pinned_decision_versions v JOIN pinned_decision_heads h ON h.current_version_id=v.id
         WHERE v.project_id=? AND v.status='active' AND v.artifact_id=? AND (v.scope_kind='artifact' OR (v.scope_kind='entity' AND v.entity_id=?))
-        ORDER BY v.created_at DESC, v.id LIMIT 25`).all(projectId, target.owner, target.targetId) as { decision_id: string }[];
+        ORDER BY v.created_at DESC, v.id LIMIT 25`).all(projectId, target.owner, target.scope ? null : target.targetId) as { decision_id: string }[];
       for (const row of rows) { const decision = this.memory.getDecision(projectId, row.decision_id)!; relevant.set(decision.id, decision); }
     }
     let used = 0;
@@ -307,9 +309,10 @@ export class ConversationalEditService {
       }
       const generatedIds: Record<string, string> = {};
       for (const group of response.groups) for (const op of group.operations) if (op.kind === "add-item" || op.kind === "add-entity") {
-        const logical = op.item?.id;
+        for (const logical of creationIdentityValues(plan.targets.find(t => t.key === op.targetKey), op)) {
         if (typeof logical !== "string" || !/^\$new:[a-zA-Z0-9_-]{1,80}$/.test(logical) || generatedIds[logical]) throw new Error("edit_generated_id_invalid");
         generatedIds[logical] = `a6_${sourceDigest({ plan: plan.fingerprint, logical }).slice(0, 24)}`;
+        }
       }
       const remap = (v: unknown): unknown => typeof v === "string" && v.startsWith("$new:") ? generatedIds[v] ?? (() => { throw new Error("edit_generated_reference_invalid"); })()
         : Array.isArray(v) ? v.map(remap) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, child]) => [k, remap(child)])) : v;
@@ -345,6 +348,7 @@ export class ConversationalEditService {
       const plan = this.plan(projectId, message.id);
       EditRequestSchema.parse(plan.request);
       if (plan.contextBytes !== bytes(plan.context) || plan.contextBytes > EDIT_LIMITS.contextBytes || plan.targets.length > EDIT_LIMITS.targets) throw new Error("edit_archive_plan_invalid");
+      if (plan.targets.some(t => t.scope) && sourceCanonicalJson(plan.context.targets) !== sourceCanonicalJson(plan.targets)) throw new Error("edit_archive_target_content_invalid");
       for (const target of plan.targets) {
         const version = isArtifact(target.owner) ? this.artifacts.getVersion(target.versionId)
           : target.owner === "passage-structure"
@@ -353,6 +357,10 @@ export class ConversationalEditService {
               .get(target.versionId, target.owner, target.targetId) as { projectId: string } | undefined;
         if (!version || version.projectId !== projectId) throw new Error("edit_archive_target_lineage_invalid");
         if (isArtifact(target.owner) && (!("artifactId" in version) || version.artifactId !== target.owner)) throw new Error("edit_archive_target_lineage_invalid");
+        if (target.scope) {
+          if (!("content" in version)) throw new Error("edit_collection_scope_invalid");
+          assertCollectionTarget(target, version.content);
+        }
       }
     }
     const records = this.database.prepare("SELECT id FROM change_sets WHERE project_id=? AND json_extract(proposal_json,'$.kind')='conversational-edit-v1'").all(projectId) as { id: string }[];
@@ -400,7 +408,8 @@ export class ConversationalEditService {
       const content = JSON.parse((row as { content_json: string }).content_json);
       const scope = target.path.split("/").filter(Boolean).reduce<unknown>((value, key) => value && typeof value === "object"
         ? (value as Record<string, unknown>)[key.replaceAll("~1", "/").replaceAll("~0", "~")] : undefined, content);
-      const expected = scope ?? (target.owner === "creative-direction" && target.path === "/relationshipPresentation"
+      if (target.scope) assertCollectionTarget(target, content);
+      const expected = target.scope ? target.value : scope ?? (target.owner === "creative-direction" && target.path === "/relationshipPresentation"
         ? { projectDefault: { mechanicsVisibility: "subtle", customGuidance: "" }, profiles: [] } : undefined);
       const key = outputKey(target);
       if (sourceCanonicalJson(expected) !== sourceCanonicalJson(target.value)
@@ -444,14 +453,14 @@ export class ConversationalEditService {
     for (const group of groups) for (const operation of group.operations) {
       const target = plan.targets.find((t) => t.key === operation.targetKey); if (!target) throw new Error("edit_scope_exceeded");
       for (const logical of Object.values(edit.generatedIds)) if (strings(operation).has(logical)) {
-        const producer = response.groups.find((g) => g.operations.some((o) => (o.kind === "add-item" || o.kind === "add-entity") && o.item?.id === logical)); if (producer && producer.id !== group.id) required.add(producer.id);
+        const producer = response.groups.find((g) => g.operations.some((o) => creationIdentityValues(plan.targets.find(t => t.key === o.targetKey), o).includes(logical))); if (producer && producer.id !== group.id) required.add(producer.id);
       }
       const referencedKeys = mechanicKeyReferences(operation);
       for (const creation of creations) if (creation.groupId !== group.id && referencedKeys.has(creation.key)) required.add(creation.groupId);
     }
     if ([...required].some((id) => !selected.includes(id))) throw new Error("edit_dependency_selection_incomplete");
     const originalSnapshot = historical ? {} as ReturnType<LongFormProjectService["snapshot"]> : this.longForm.snapshot(plan.projectId), snapshot = { ...originalSnapshot }, outputs = new Map<string, EditOutput>();
-    const existingIds = historical ? new Set<string>() : new Set(this.allTargets(plan.projectId).flatMap((t) => [...collectStableIds(t.value)]));
+    const existingIds = historical ? new Set<string>() : new Set(this.allTargets(plan.projectId).filter(t => !t.scope).flatMap((t) => [...collectStableIds(t.value)]));
     for (const target of plan.targets) {
       const relevantGroups = groups.filter((g) => g.operations.some((op) => op.targetKey === target.key && op.kind !== "add-entity")); if (!relevantGroups.length) continue;
       const storageKey = isArtifact(target.owner) || target.owner === "passage-structure" ? target.owner : target.key;
@@ -460,10 +469,11 @@ export class ConversationalEditService {
       const applicable = groups.map((g) => ({ id: g.id, label: g.label, summary: g.explanation, dependsOnGroupIds: g.dependsOnGroupIds, safeToApplyIndependently: true,
         operations: g.operations.filter((op) => { const t = plan.targets.find((t) => t.key === op.targetKey); return op.kind !== "add-entity" && t && (t.owner === target.owner) && (isArtifact(target.owner) || target.owner === "passage-structure" || t.targetId === target.targetId); }).map((op): ProposedPlanningOperation => {
           const t = plan.targets.find((t) => t.key === op.targetKey)!;
+          if (t.scope) { assertCollectionTarget(t, current); creationCollection(t, op); }
           if ((t.value as { planningStatus?: string }).planningStatus === "locked") throw new Error("edit_planning_lock_protected");
           if (op.kind === "add-item") protectInitialLifecycle(undefined, op.item);
           if (op.changes && Object.keys(op.changes).some((key) => ["id", "schemaId", "schemaVersion", "materialFingerprint", "provenanceFingerprint", "fieldProvenance", "planningStatus", "lifecycleStatus", "proseMarkdown"].includes(key))) throw new Error("edit_protected_field");
-          return { ...op, kind: op.kind as ProposedPlanningOperation["kind"], targetId: isArtifact(t.owner) || t.owner === "passage-structure" ? t.targetId : "root" };
+          return { ...op, kind: op.kind as ProposedPlanningOperation["kind"], targetId: t.scope ? "root" : isArtifact(t.owner) || t.owner === "passage-structure" ? t.targetId : "root" };
         }) })).filter((g) => g.operations.length);
       const operationBase = target.owner === "creative-direction" && !(current as Record<string, unknown>).relationshipPresentation && applicable.some((g) => g.operations.some((op) => op.targetId === "section:relationshipPresentation"))
         ? { ...current as object, relationshipPresentation: { projectDefault: { mechanicsVisibility: "subtle", customGuidance: "" }, profiles: [] } } : current;
@@ -555,6 +565,8 @@ export class ConversationalEditService {
     const outputs = edit.plan.targets.flatMap((target) => {
       if (!preview.groups.some((g) => g.operations.some((op) => op.targetKey === target.key))) return [];
       const output = preview.outputs.find((o) => o.owner === target.owner && (isArtifact(o.owner) || o.owner === "passage-structure" || o.targetId === target.targetId));
+      if (target.scope && output) return [collectionReview(target, output.before, output.after,
+        preview.groups.flatMap(g => g.operations.filter(op => op.targetKey === target.key)))];
       const content = (value: unknown) => { if (target.path === "") return value; try { return planningSection(value as PlanningArtifact, target.targetId).content; } catch { return null; } };
       return output ? [{ owner: target.owner, targetId: target.targetId, before: content(output.before), after: content(output.after) }] : [];
     });

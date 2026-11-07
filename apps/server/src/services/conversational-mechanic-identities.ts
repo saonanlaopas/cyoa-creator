@@ -1,5 +1,6 @@
 import { RepairFlagMechanicSchema, RepairRelationshipMechanicSchema, RepairResourceMechanicSchema, RepairVisibleStatMechanicSchema, sourceCanonicalJson } from "@story-to-cyoa/domain";
 import type { EditPlan, EditResponse } from "./conversational-edit-contract.js";
+import { creationCollection } from "./conversational-collection-targets.js";
 
 const collections = {
   visibleStats: RepairVisibleStatMechanicSchema.strict(), relationships: RepairRelationshipMechanicSchema.strict(),
@@ -22,7 +23,7 @@ export function mechanicCreations(plan: EditPlan, response: EditResponse, genera
   const result: MechanicCreation[] = [];
   for (const group of response.groups) for (const op of group.operations) {
     const target = plan.targets.find(t => t.key === op.targetKey);
-    if (op.kind !== "add-item" || target?.owner !== "mechanics" || target.targetId !== "root" || target.path !== ""
+    if (op.kind !== "add-item" || target?.owner !== "mechanics" || !creationCollection(target, op)
       || !op.collection || !Object.hasOwn(collections, op.collection)) continue;
     const item = collections[op.collection as keyof typeof collections].parse(op.item);
     if (sourceCanonicalJson(item) !== sourceCanonicalJson(op.item)) throw new Error("edit_candidate_not_closed");

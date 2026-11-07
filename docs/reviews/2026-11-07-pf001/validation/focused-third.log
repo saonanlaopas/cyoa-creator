@@ -1,0 +1,200 @@
+$ pnpm vitest --run apps/server/test/collection-editing.test.ts apps/server/test/conversational-edit.test.ts apps/server/test/keyed-mechanics.test.ts apps/server/test/connected-editing.test.ts apps/server/test/connected-foundations.test.ts --reporter=verbose
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in /workspace/cyoa-creator/vitest.config.ts instead.
+
+ RUN  v3.2.7 /workspace/cyoa-creator
+
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > lists 27 allowlisted schema-bearing append scopes, including empty arrays, without primitive/provenance authority 183ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > keeps oversized bible root rejection atomic and provider-free 99ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > keeps oversized routes root rejection atomic and provider-free 88ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > keeps legacy IDs distinct from collection keys and rejects forged versioned descriptors 113ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > retains the canonical collection maximum even though the prompt contains only a descriptor 136ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 round-trips and duplicates real conversational Creative Direction without dangling references: full-fidelity 629ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates and separately edits a witness and relationship on >256KB Bible, preserving all other records and approvals 761ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 round-trips and duplicates real conversational Creative Direction without dangling references: privacy-redacted 386ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates real decisions with fresh child IDs and edits both parent and child on >256KB routes 704ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: set-fields 88ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: remove-item 95ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: reorder-items 83ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: missing-lineage 314ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects collection authority misuse: wrong-collection 72ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-person 80ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-act 73ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: literal-child 75ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: all-outputs 310ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: duplicate-child 57ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: unknown-logical 63ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects invalid creation atomically: extra-field 64ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > requires the parent producer group when another group references a generated child 90ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: partial-outputs 286ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after parent changes 63ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after unrelated changes 63ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale submit after instructions changes 70ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: all-results 289ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects stale review/Apply, stale target versions and stale heads without overwriting 168ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > retains exact custom instructions and approved Direction with guide enabled 65ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > retains exact custom instructions and approved Direction with guide disabled 83ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > retains exact custom instructions and approved Direction with guide legacy 85ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: partial-results 352ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > does not drop oversized required instructions to make a collection scope fit 78ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through visibleStats collection scope 168ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: extra-output 315ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through relationships collection scope 206ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through flags collection scope 166ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: extra-result 360ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > preserves PF-003 ID/key authorization through resources collection scope 170ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects duplicate or invalid semantic keys through collection scope: resolve 76ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: wrong-before 296ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects duplicate or invalid semantic keys through collection scope: Bad Key 64ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > rejects duplicate or invalid semantic keys through collection scope: _invalid 71ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > authorizes schema-defined condition IDs without declaring mechanic references 132ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: wrong-after 292ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates an ending with a fresh variant and required hook/budget changes in one validated batch 224ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: wrong-result 296ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: changed-groups 380ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 rejects incomplete or mismatched edit audits during import and backup certification: unknown-field 363ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > creates scoped Direction through a collection and retains its separately approved override in later contexts 181ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 preserves complete historical edit lineage with no-op 425ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > round-trips collection history through full-fidelity archives and duplication 903ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 preserves complete historical edit lineage with partial-selection 424ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > round-trips collection history through privacy-redacted archives and duplication 566ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 preserves complete historical edit lineage with later-head 410ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=false) 447ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > A7 preserves sealed edit history, targets and applied versions across full backup and duplication (applied=true) 448ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > invalidates only drafts under a materially edited sequence through Apply, approval and refresh 173ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > invalidates only drafts under a materially edited act through Apply, approval and refresh 135ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > keeps drafts fresh for cosmetic/no-op structure edits (no-op=false) 106ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > verifies a full backup and restores exact applied collection history 1619ms
+ ✓ |0| apps/server/test/collection-editing.test.ts > PF-001 bounded collection editing > safely retries exact envelopes, conflicts changed envelopes, rolls back failed receipts and can reject a proposal 279ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > keeps drafts fresh for cosmetic/no-op structure edits (no-op=true) 100ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > enforces initial lifecycle for new sequences: outline 396ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > enforces initial lifecycle for new sequences: planned 375ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > enforces initial lifecycle for new sequences: reviewed 175ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > enforces initial lifecycle for new sequences: locked 144ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > reports passage warnings, existing errors and accurate truncation without blocking non-error changes 158ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > returns complete nonblocking passage findings through the reviewed HTTP contract 248ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > reviews and applies representative natural-language request: Rename Mira to "Ren" 103ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > reviews and applies representative natural-language request: Change tone to "restrained tension" 114ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > reviews and applies representative natural-language request: Change mechanics visibility to "visible" 132ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > requires separate creation capability, an explicit configured empty slot and author consent 41ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > edits one exact routes record and preserves sibling versions 151ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > authors and approves coherent originals in all six schemas, resumes without chat and keeps approval separate from Apply 968ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > preserves shared prerequisites and validation; incomplete mechanics cannot be approved 94ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > edits one exact endings record and preserves sibling versions 114ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rolls back create and receipt together on failure, allowing an exact retry 34ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rolls back initialize and receipt together on failure, allowing an exact retry 44ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rolls back approve and receipt together on failure, allowing an exact retry 43ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > edits one exact passage record and preserves sibling versions 108ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > edits one exact choice record and preserves sibling versions 89ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rejects stale head, version, approval fingerprint, scope and changed-argument retries 49ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > binds approval to changes in prerequisite state even if the reviewed version is unchanged 44ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rejects historical prerequisite approvals and recovers after approving the current revision 47ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > edits one exact thread record and preserves sibling versions 96ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > requires ambiguity clarification and rejects unknown, cross-project and duplicate scopes without provider calls 47ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > preserves canonical state for discussion, reject, history and local validation 111ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > rejects proposed revisions without changing canonical work, then permits a new corrected draft and explicit reapproval 116ms
+ ✓ |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > bounds foundation reads and refuses forged approval receipts without canonical approval evidence 46ms
+ × |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > creates once across concurrent SDK connections and recovers foundation approvals after a full server restart 133ms
+   → listen EPERM: operation not permitted 127.0.0.1
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > requires cross-artifact dependencies, revalidates effective state and rolls every write back atomically 124ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > selectively applies an independent group and leaves other records untouched 144ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > does not force unrelated cross-artifact groups into a selective Apply 89ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > derives generated IDs locally and requires their producer for dependent additions 141ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects missing Creative Direction references and validates generated cross-artifact scopes in effective state 145ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects canonical drift at before-generation 68ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects canonical drift at in-flight 72ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects canonical drift at before-apply 77ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects canonical drift at transaction-boundary 108ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects pinned-decision drift and includes scoped decisions and bounded recent continuity 167ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > revalidates pinned decisions before Apply while allowing ordinary conversation continuity 101ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > discovers only configured projects and bounded targets, stores truthful external proposals and applies only reviewed draft versions 178ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > replays identical lost-response retries and rejects operation-ID reuse or a second submission for one captured plan 94ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > cancels overlapping and late provider output, then allows a new preview retry 115ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > aborts an in-flight generation during shutdown without writing a proposal 72ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects a concurrent browser edit at the prepare-head boundary without overwriting it 31ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects a concurrent browser edit at the prepare-target boundary without overwriting it 27ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects a concurrent browser edit at the submit boundary without overwriting it 52ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects malformed or unauthorized response 0 without canonical changes 78ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects malformed or unauthorized response 1 without canonical changes 74ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects a concurrent browser edit at the apply boundary without overwriting it 60ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects invalid external scope atomically and permits corrected submission 49ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects invalid external lifecycle atomically and permits corrected submission 41ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects malformed or unauthorized response 2 without canonical changes 63ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects malformed or unauthorized response 3 without canonical changes 73ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects invalid external identity atomically and permits corrected submission 57ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects invalid external dependency atomically and permits corrected submission 43ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects invalid external overflow atomically and permits corrected submission 63ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rolls back the shared multi-target Apply and its receipt on persistence failure, then allows retry 90ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects malformed or unauthorized response 4 without canonical changes 90ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects new passage reference errors against the original planning baseline 79ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > routes prose to ordinary candidates and preserves accepted/locked prose during planning Apply 111ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > does not trust a forged success receipt when canonical proposal/application lineage disagrees 53ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > rejects cancelled service submission and allows exact, retry-safe proposal rejection 51ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > protects a nested planning lock against both direct and root replacement 123ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > rejects lifecycle-only and historical presentation bypasses without false staleness 97ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 shared connected editing operations > bounds responses and keeps full-fidelity/restricted history portable without leaking requests in privacy exports 209ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > is disabled by default and fails closed for missing credentials, broad listeners or invalid project configuration 155ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > treats no-op proposals as no-op canonical writes with no false staleness 157ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > records array provenance using native field paths without false material staleness 119ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects missing transport access before mutations 99ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects wrong transport access before mutations 67ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > fails oversized context before provider execution and keeps target catalogue metadata-only 134ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects remote transport access before mutations 100ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects host transport access before mutations 84ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > survives database handoff and blocks legacy Apply bypasses 115ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > exposes a closed bounded OpenRouter output contract without requiring model-generated hashes 94ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects origin transport access before mutations 71ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects delete transport access before mutations 94ms
+ ✓ |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > rejects oversize transport access before mutations 123ms
+ × |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > uses real SDK clients for concurrent retries, cross-project rejection and restart recovery without model calls 71ms
+   → listen EPERM: operation not permitted 127.0.0.1
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > uses project-owned durable HTTP proposals with explicit generation and reviewed Apply 142ms
+ ✓ |0| apps/server/test/conversational-edit.test.ts > A6 scoped conversational editing > retrieves only grounded source ranges through accepted bootstrap stable-ID lineage, including after an edit 1251ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > passes identity authorization for the minimal resource, retaining the canonical unused-mechanic diagnostic 104ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > accepts the label-only control while retaining the existing key 90ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > creates a schema-valid visibleStats identity/key pair and preserves unrelated approved records 106ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > creates a schema-valid relationships identity/key pair and preserves unrelated approved records 94ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > creates a schema-valid flags identity/key pair and preserves unrelated approved records 91ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > creates a schema-valid resources identity/key pair and preserves unrelated approved records 92ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects an invalid or noncanonical key Bad Key atomically 45ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects an invalid or noncanonical key Uppercase atomically 49ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects an invalid or noncanonical key _bad atomically 49ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects an invalid or noncanonical key 9bad atomically 51ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects an invalid or noncanonical key aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa atomically 46ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects an invalid or noncanonical key  trimmed  atomically 50ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > keeps existing key/ID collision protections: resolve 46ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > keeps existing key/ID collision protections: stat-resolve 53ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > keeps existing key/ID collision protections: character-observer 48ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > keeps existing key/ID collision protections: route-1 46ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects duplicate keys across new collections and collisions with a generated entity ID 58ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects existing-key renaming through nested editing 46ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects existing-key renaming through root editing 55ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects existing-key renaming through swap editing 44ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > does not authorize keys injected through replacement arrays, other owners or nested records 81ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > binds new keys to their exact creation IDs/collections rather than a batch-wide key whitelist 76ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > requires the creation group for semantic-key references, then accepts subsequent valid conditions and rejects unknown references 211ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > replays exact prepare/submit/Apply receipts and rejects changed retries without duplicate creation 90ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > does not treat a label matching a proposed key as a semantic reference 78ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects stale submit after a browser edit without overwriting it 40ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects stale apply after a browser edit without overwriting it 71ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rolls back submit and its receipt, then supports the identical retry 63ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rolls back apply and its receipt, then supports the identical retry 92ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > preserves paired keys and auditable history through full-fidelity export/import and duplication 224ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > preserves paired keys and auditable history through privacy-redacted export/import and duplication 148ms
+ ✓ |0| apps/server/test/keyed-mechanics.test.ts > PF-003 keyed mechanic authoring > rejects unknown relationship references and incompatible mechanic values atomically 64ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |0| apps/server/test/connected-editing.test.ts > M1 authenticated Streamable HTTP > uses real SDK clients for concurrent retries, cross-project rejection and restart recovery without model calls
+ FAIL  |0| apps/server/test/connected-foundations.test.ts > M2 original-game foundation authoring > creates once across concurrent SDK connections and recovers foundation approvals after a full server restart
+Error: listen EPERM: operation not permitted 127.0.0.1
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'EPERM', errno: -1, syscall: 'listen', address: '127.0.0.1' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  2 failed | 3 passed (5)
+      Tests  2 failed | 174 passed (176)
+   Start at  06:25:15
+   Duration  20.10s (transform 2.01s, setup 0ms, collect 6.16s, tests 28.88s, environment 1ms, prepare 274ms)
+
+[ELIFECYCLE] Test failed. See above for more details.

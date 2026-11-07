@@ -496,6 +496,8 @@ describe("A6 scoped conversational editing", () => {
     const review = await post(`${editing}/proposals/${generated.proposal.id}/review`, { groupIds: groups }); expect(review.evidence.sourceRecords).toEqual(first.plan.context.evidence);
     await post(`${editing}/proposals/${generated.proposal.id}/apply`, { groupIds: groups, fingerprint: review.fingerprint });
     const next = await post(`${editing}/preview`, { message: "Discuss Ren", targetKeys: [key], intent: "discuss" }); expect(next.plan.context.evidence).toEqual(first.plan.context.evidence);
+    const collectionContext = await post(`${editing}/preview`, { message: "Discuss a new canon record with this exact source reference", targetKeys: ["collection:bible:canonFacts", key], intent: "discuss" });
+    expect(collectionContext.plan.context.evidence).toEqual(first.plan.context.evidence);
     const db = openDatabase(path); const artifacts = new ArtifactRepository(db); artifacts.saveArtifact({ projectId: id, artifactId: "source", content: { ...source.source, metadata: { ...source.source.metadata, title: "Reimported source" } } }); db.close();
     const failed = await app.inject({ method: "POST", url: `${editing}/preview`, payload: { message: "Discuss Ren", targetKeys: [key] } }); expect(failed.statusCode).toBe(409); expect(failed.json().error).toMatch(/evidence_unavailable/);
   });

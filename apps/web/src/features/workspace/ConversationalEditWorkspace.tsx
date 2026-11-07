@@ -40,6 +40,7 @@ export function ConversationalEditWorkspace({ projectId, onApplied, onDraftRoute
       </label>)}</div>
       <div className="artifact-actions"><button disabled={busy || offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>Previous records</button><span>{catalogue.total ? offset + 1 : 0}-{Math.min(offset + 50, catalogue.total)} of {catalogue.total}</span><button disabled={busy || offset + 50 >= catalogue.total} onClick={() => setOffset(offset + 50)}>Next records</button></div>
       <h3>Selected scope ({scope.length}/12)</h3>
+      {scope.some(t => t.scope?.kind === "collection") && <p>Collection scopes add new records only. Select referenced records separately and review the complete additions before Apply. Foundation approval remains separate.</p>}
       {scope.length ? <ul>{scope.map((target) => <li key={target.key}>{target.label} <code>{target.key}</code> <button disabled={busy} onClick={() => toggleTarget(target)}>Remove</button></li>)}</ul> : <p>No explicit scope selected</p>}
     </section>
     <section className="brief-section"><h2>Director request</h2>

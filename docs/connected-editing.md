@@ -87,6 +87,12 @@ All six new mutations (initialize/approve plan, submit/accept drafts, simulate, 
 
 Use dedicated test projects and deterministic requests for verification. No provider credential or paid call is required. M3's narrative simulation remains available alongside the later native visual/world systems; it is not a substitute for their exported-game tests.
 
+### Large foundation additions (PF-001)
+
+`list_edit_targets` includes versioned append scopes such as `collection:bible:characters` and `collection:routes:decisionPoints`. Prepare those exact keys/versions and relevant existing references; the descriptor includes the canonical item schema/count/limit instead of the whole array. Submit `add-item` only in that scope's collection. The server reconstructs and validates the complete artifact/project, preserving collisions, references, exact freshness, locks, staleness and operation receipts. Review contains the complete added records and counts and remains bound to the full candidate; it never approves unseen foundation content.
+
+New route decisions declare their own ID and required choice IDs using distinct `$new:<logical-key>` values. Ending variants, gate conditions and relationship bands have similarly explicit schema identity slots. Arbitrary nested strings/reference fields are not declarations. Generated children belong to their parent creation group; cross-group references require that producer. Once applied, use ordinary concrete entity targets for later edits. Existing fitting-root additions and historical root/entity plans remain supported; limits and key-renaming restrictions are unchanged. See [conversational operation](conversational-creator.md#authoring-and-artwork) for workflow and remaining bounds.
+
 ## Asset Library (V1)
 
 V1 adds nine scoped tools for image catalogue/history/usage reads, restricted staging import and exact candidate revision/review/approval/rejection. Creator uploads and MCP imports use the same image validation, content-addressed storage and lifecycle service. The server must explicitly configure `CYOA_ASSET_STAGING_DIR` for staging import; no arbitrary path or URL reader is exposed. Image candidates remain separate from approvals and scene assignment. See [Asset Library](asset-library.md) for bounds, retry/recovery and backup/restore/duplication support.

@@ -1,0 +1,151 @@
+{
+  "cases": [
+    {
+      "logicalChildIds": true,
+      "request": {
+        "operationId": "ef11014d-a29d-40f6-bb81-f9726b7cfc85",
+        "planId": "fdf7ee2f-92ac-49ec-be9e-608009c9388d",
+        "fingerprint": "37f2fff23cf64bccb85d2a4ca1985d31f772fb024aeaac476bc649b198e92506",
+        "response": {
+          "message": "Review the new decision",
+          "groups": [
+            {
+              "id": "new-record",
+              "label": "New record",
+              "explanation": "Append only the requested record.",
+              "dependsOnGroupIds": [],
+              "operations": [
+                {
+                  "targetKey": "routes:root",
+                  "kind": "add-item",
+                  "collection": "decisionPoints",
+                  "item": {
+                    "id": "$new:decision-extra",
+                    "label": "A second inspection",
+                    "actId": "shared-route-pivot",
+                    "question": "Which inspection should proceed?",
+                    "choices": [
+                      {
+                        "id": "$new:decision-choice-1",
+                        "label": "Inspect evidence set 1",
+                        "destinationActId": "route-1-act",
+                        "routeId": "route-1",
+                        "conditions": [],
+                        "consequences": []
+                      },
+                      {
+                        "id": "$new:decision-choice-2",
+                        "label": "Inspect evidence set 2",
+                        "destinationActId": "route-2-act",
+                        "routeId": "route-2",
+                        "conditions": [],
+                        "consequences": []
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "edit_generated_reference_invalid"
+          }
+        ],
+        "isError": true
+      },
+      "before": "6fab02fb7dc1250017eb68f2810cd08c793089c54fe8ad530e2a0e7102f6ac66",
+      "after": "6fab02fb7dc1250017eb68f2810cd08c793089c54fe8ad530e2a0e7102f6ac66",
+      "providerCalls": 0
+    },
+    {
+      "logicalChildIds": false,
+      "request": {
+        "operationId": "52d28202-72fe-4ab4-b804-ed994f215663",
+        "planId": "fdf7ee2f-92ac-49ec-be9e-608009c9388d",
+        "fingerprint": "37f2fff23cf64bccb85d2a4ca1985d31f772fb024aeaac476bc649b198e92506",
+        "response": {
+          "message": "Review the new decision",
+          "groups": [
+            {
+              "id": "new-record",
+              "label": "New record",
+              "explanation": "Append only the requested record.",
+              "dependsOnGroupIds": [],
+              "operations": [
+                {
+                  "targetKey": "routes:root",
+                  "kind": "add-item",
+                  "collection": "decisionPoints",
+                  "item": {
+                    "id": "$new:decision-extra",
+                    "label": "A second inspection",
+                    "actId": "shared-route-pivot",
+                    "question": "Which inspection should proceed?",
+                    "choices": [
+                      {
+                        "id": "new-fixed-choice-1",
+                        "label": "Inspect evidence set 1",
+                        "destinationActId": "route-1-act",
+                        "routeId": "route-1",
+                        "conditions": [],
+                        "consequences": []
+                      },
+                      {
+                        "id": "new-fixed-choice-2",
+                        "label": "Inspect evidence set 2",
+                        "destinationActId": "route-2-act",
+                        "routeId": "route-2",
+                        "conditions": [],
+                        "consequences": []
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "edit_generated_id_invalid"
+          }
+        ],
+        "isError": true
+      },
+      "before": "6fab02fb7dc1250017eb68f2810cd08c793089c54fe8ad530e2a0e7102f6ac66",
+      "after": "6fab02fb7dc1250017eb68f2810cd08c793089c54fe8ad530e2a0e7102f6ac66",
+      "providerCalls": 0
+    }
+  ],
+  "databasePath": "/workspace/.setup/pf001-20261106/small-85ef6a92-d62b-4e15-a849-2081b7885c92.sqlite",
+  "purpose": "Existing small-root behavior only; not a collection-target implementation or acceptance test",
+  "control": {
+    "contextBytes": 25092,
+    "proposed": {
+      "proposalId": "34949cc8-b25c-4bd8-bd14-72032d8e7b89",
+      "conversationId": "7dfd9a5b-447e-48dc-8d9e-48c9917e2078",
+      "status": "proposed",
+      "provenance": "connected-assistant",
+      "providerCalls": 0
+    },
+    "applied": {
+      "proposalId": "34949cc8-b25c-4bd8-bd14-72032d8e7b89",
+      "applicationId": "d2495bc5-e65b-4328-b8f4-925fe664eca1",
+      "resultingVersions": {
+        "routes": "18bdf6af-0a01-405a-950f-a775fd78744a"
+      },
+      "status": "applied",
+      "providerCalls": 0
+    },
+    "exactSubmitAndApplyRetries": true,
+    "providerCalls": 0
+  }
+}
