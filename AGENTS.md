@@ -12,6 +12,8 @@ Do not claim native desktop MCP verification from SDK tests. Keep that gate sepa
 
 ## Implementation and validation workflow
 
+When returning from Cloud development to local Creator operation, read [the desktop handoff](docs/desktop-handoff.md). Reuse the laptop's existing persistent project and private configuration; Git does not transfer that ignored state, and Cloud SDK tests do not establish native desktop MCP access.
+
 - Before editing, check the branch, full HEAD and working-tree status. Preserve unrelated changes and follow the task's scope and accepted base.
 - During implementation, reproduce the issue and run focused tests for the affected contracts. For example, use `pnpm test apps/server/test/<name>.test.ts` or `pnpm test:e2e e2e/<name>.spec.ts --grep '<case>'`. Broaden coverage when dependencies, failures or unresolved concerns justify it.
 - At source freeze, complete the required lint, typecheck, build, unit and browser checks once. Repeat affected checks after relevant changes or failures; avoid restarting full suites after each small edit. Explicit task validation requirements take precedence. For documentation-only changes, use relevant structural and diff checks rather than rerunning unrelated suites unless required.

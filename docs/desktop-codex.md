@@ -22,7 +22,7 @@ node scripts/configure-local-creator.mjs --database /absolute/path/to/creator.sq
 
 Use this alternative **instead of** the first setup command. An explicit project ID disables creation; it does not create or search for that project. Existing IDs are visible in Creator's `GET /api/projects` response (select a Long-form project). Without `--project-id`, the reserved empty slot permits separately approved `create_project`; it does not grant access to other existing projects. Use a smoke project before editing accepted work. Make a verified backup through Creator before substantial changes to an existing project.
 
-Merge [the complete 47-tool example](examples/codex-local-mcp.toml) into the workspace's ignored `.codex/config.toml`. Preserve other configuration and update an existing `cyoa_creator` table rather than defining it twice. Match the port to the setup output. Trust/open this exact local workspace in Codex; run the conversation locally, not as a Cloud task or in a container with a different loopback network. Do not broaden the server listener or expose a tunnel.
+Merge [the complete tool allowlist](examples/codex-local-mcp.toml) into the workspace's ignored `.codex/config.toml`. Preserve other configuration and update an existing `cyoa_creator` table rather than defining it twice. Match the port to the setup output. Trust/open this exact local workspace in Codex; run the conversation locally, not as a Cloud task or in a container with a different loopback network. Do not broaden the server listener or expose a tunnel.
 
 ## Start and stop
 
