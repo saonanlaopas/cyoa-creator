@@ -20,7 +20,7 @@ import { PublicationExportService } from "../src/services/publication-export-ser
 import { buildApp } from "../src/app.js";
 import { validatePortableAuthoringProject } from "../src/services/portable-project-validator.js";
 import { prepareStudioHistoryDuplicate } from "../src/services/studio-history-duplication.js";
-import { completeOriginalFoundations, originalTitle } from "../../../e2e/helpers/original-foundations.js";
+import { applyFoundation, approveFoundation, completeOriginalFoundations, originalTitle, proposeFoundation } from "../../../e2e/helpers/original-foundations.js";
 import { acceptGameDrafts, applyGameEdit, approveGamePlan, completeConnectedTextGame, proposeGameEdit, submitGameDraft } from "../../../e2e/helpers/connected-text-game.js";
 
 const cleanups: Array<() => void | Promise<void>> = [];
@@ -41,13 +41,143 @@ function fixture(db = openDatabase(), projectId = randomUUID()) {
   cleanups.push(() => { edits.shutdown(); db.close(); });
   return { db, projectId, projects, artifacts, workflow, drafts, passages, plans, prose, acceptance, edits, simulations, compilation, service, call, calls, generate, longForm };
 }
-async function initialized() {
+async function initialized(effectMechanics = false) {
   const f = fixture(); await completeOriginalFoundations(f.call, f.projectId);
+  if (effectMechanics) {
+    const mechanics = (await f.call("read_foundation", { projectId: f.projectId, artifactId: "mechanics" })).content;
+    const proposal = await proposeFoundation(f.call, f.projectId, "mechanics", {
+      choiceEffectPlans: mechanics.choiceEffectPlans.map((plan: { mechanicKeys: string[] }) => ({ ...plan, mechanicKeys: [...plan.mechanicKeys, "clock_minutes", "signal_seen"] })),
+    }, [
+      { targetKey: "mechanics:root", kind: "add-item", collection: "resources", item: { id: "$new:clock", key: "clock_minutes", label: "Fixture counter", kind: "counter", initial: 0, meaning: "An isolated numeric test input, not world time." } },
+      { targetKey: "mechanics:root", kind: "add-item", collection: "flags", item: { id: "$new:seen", key: "signal_seen", label: "Signal seen", meaning: "Whether the signal is remembered." } },
+    ]);
+    await applyFoundation(f.call, f.projectId, proposal.proposalId);
+    await approveFoundation(f.call, f.projectId, "mechanics");
+  }
   const state = await f.call("game_state", { projectId: f.projectId });
   await f.call("initialize_game_plan", { projectId: f.projectId, operationId: randomUUID(), headFingerprint: state.headFingerprint, approved: true });
   return f;
 }
 async function completed() { const f = fixture(), proof = await completeConnectedTextGame(f.call, f.projectId); return { ...f, proof }; }
+
+describe("PF004 connected choice effects", () => {
+  const openingId = "passage-shared-opening", choiceId = "choice-passage-shared-opening-continue";
+  const effect = { id: "$new:effect", mechanicKey: "resolve", operation: "add", value: 2, feedback: "The choice changes resolve.", visibility: "visible" };
+  const counts = (f: Awaited<ReturnType<typeof initialized>>) => f.db.prepare(`SELECT
+    (SELECT COUNT(*) FROM messages) messages, (SELECT COUNT(*) FROM change_sets) proposals,
+    (SELECT COUNT(*) FROM passage_entity_versions) versions, (SELECT COUNT(*) FROM artifact_versions) artifacts`).get();
+  const group = (id: string, operations: unknown[]) => ({ id, label: id, explanation: "Review the exact scoped change.", dependsOnGroupIds: [], operations });
+  async function prepare(f: Awaited<ReturnType<typeof initialized>>, targets: Array<{ key: string; versionId: string }>) {
+    const { plan } = await f.call("prepare_edit", { projectId: f.projectId, operationId: randomUUID(), message: "Review choice effects",
+      headFingerprint: (await f.call("project_state", { projectId: f.projectId })).headFingerprint, targets });
+    return { projectId: f.projectId, operationId: randomUUID(), planId: plan.id, fingerprint: plan.fingerprint };
+  }
+
+  it("rejects a literal ID on an existing choice, but accepts the scoped effects append", async () => {
+    const f = await initialized(true), choice = f.passages.currentEntity(f.projectId, "choice", choiceId)!;
+    const target = { key: `choice:${choiceId}`, versionId: choice.id };
+    const clock = { ...effect, mechanicKey: "clock_minutes", value: 15, feedback: "The fixture counter advances fifteen." };
+    const input = await prepare(f, [target]), before = counts(f);
+    const submit = (op: unknown) => f.call("submit_edit", { ...input, response: { message: "Add one effect", groups: [group("game", [op])] } });
+    await expect(submit({ targetKey: target.key, kind: "set-fields", changes: { effects: [{ ...clock, id: "effect-opening-clock-minimal" }] } })).rejects.toThrow("edit_generated_id_invalid");
+    expect(counts(f)).toEqual(before);
+    expect(f.passages.currentEntity(f.projectId, "choice", choiceId)).toEqual(choice);
+    const proposal = await submit({ targetKey: target.key, kind: "add-item", collection: "effects", item: clock });
+    const review = await f.call("review_edit", { projectId: f.projectId, proposalId: proposal.proposalId, groupIds: ["game"] });
+    const first = { ...clock, id: review.generatedIds[clock.id] };
+    expect(review.outputs).toEqual([{ owner: "choice", targetId: choiceId, before: choice.content,
+      after: { ...choice.content as object, effects: [first] } }]);
+    const applied = await applyGameEdit(f.call, f.projectId, proposal.proposalId);
+    const existing = f.passages.currentEntity(f.projectId, "choice", choiceId)!;
+    expect(existing.content).toEqual(review.outputs[0].after);
+    const next = await proposeGameEdit(f.call, f.projectId, "Append a second effect", [{ ...target, versionId: existing.id }], [
+      { targetKey: target.key, kind: "add-item", collection: "effects", item: { ...effect, id: "$new:subtract", operation: "subtract" } },
+    ]);
+    await applyGameEdit(f.call, f.projectId, next.proposalId);
+    expect(f.passages.currentEntity(f.projectId, "choice", choiceId)?.content).toMatchObject({ id: choiceId, effects: [first, { operation: "subtract", value: 2 }] });
+    expect(applied.resultingVersions[target.key]).toBe(existing.id);
+    expect(f.generate).not.toHaveBeenCalled();
+  });
+
+  it("declares and resolves a new choice's nested effect before reviewing and applying the complete record", async () => {
+    const f = await initialized(true), structure = f.passages.currentStructure(f.projectId)!;
+    const choice = f.passages.currentEntity(f.projectId, "choice", choiceId)!;
+    const opening = f.passages.currentEntity<{ choiceIds: string[] }>(f.projectId, "passage", openingId)!;
+    const parent = { key: "passage-structure:root", versionId: structure.id }, source = { key: `passage:${openingId}`, versionId: opening.id };
+    const flag = { ...effect, id: "$new:set", mechanicKey: "signal_seen", operation: "set", value: true };
+    const clear = { ...flag, id: "$new:clear", operation: "clear", value: null, visibility: "hidden" };
+    const item = { ...choice.content as object, id: "$new:alternative", label: "Choose an alternative", position: 1, effects: [effect, flag, clear] };
+    const create = { targetKey: parent.key, kind: "add-entity", entityKind: "choice", item };
+    const link = { targetKey: source.key, kind: "set-fields", changes: { choiceIds: [...opening.content.choiceIds, item.id] } };
+    const input = await prepare(f, [parent, source]), groupIds = ["create", "link"];
+    const proposal = await f.call("submit_edit", { ...input, response: { message: "Author an alternative with effects", groups: [group("create", [create]), group("link", [link])] } });
+    const before = counts(f);
+    const reviewInput = { projectId: f.projectId, proposalId: proposal.proposalId, groupIds };
+    await expect(f.call("review_edit", { ...reviewInput, groupIds: ["link"] })).rejects.toThrow("edit_dependency_selection_incomplete");
+    await expect(f.call("apply_edit", { ...reviewInput, groupIds: ["link"], operationId: randomUUID(), approved: true, fingerprint: input.fingerprint })).rejects.toThrow("edit_dependency_selection_incomplete");
+    expect(counts(f)).toEqual(before);
+    const review = await f.call("review_edit", reviewInput);
+    const createdId = review.generatedIds[item.id], effectId = review.generatedIds[effect.id];
+    expect(createdId).toMatch(/^a6_[0-9a-f]{24}$/);
+    expect(effectId).toMatch(/^a6_[0-9a-f]{24}$/);
+    expect(createdId).not.toBe(effectId);
+    const expected = { ...item, id: createdId, effects: item.effects.map(item => ({ ...item, id: review.generatedIds[item.id] })) };
+    expect(new Set(expected.effects.map(item => item.id)).size).toBe(3);
+    expect(review.outputs).toContainEqual({ owner: "choice", targetId: createdId, before: null, after: expected });
+    expect(f.passages.currentEntity(f.projectId, "choice", createdId)).toBeUndefined();
+    const competing = await proposeGameEdit(f.call, f.projectId, "Append an effect on the original choice", [{ key: `choice:${choiceId}`, versionId: choice.id }], [
+      { targetKey: `choice:${choiceId}`, kind: "add-item", collection: "effects", item: effect },
+    ]);
+    const oldReview = await f.call("review_edit", { projectId: f.projectId, proposalId: competing.proposalId, groupIds: ["game"] });
+    const projectBefore = await f.call("project_state", { projectId: f.projectId });
+    const gameBefore = await f.call("game_state", { projectId: f.projectId });
+    await f.call("apply_edit", { ...reviewInput, operationId: randomUUID(), fingerprint: review.fingerprint, approved: true });
+    expect(f.passages.currentEntity(f.projectId, "choice", createdId)?.content).toEqual(expected);
+    expect(f.passages.currentEntity(f.projectId, "choice", choiceId)).toEqual(choice);
+    expect(f.passages.currentEntity(f.projectId, "passage", openingId)?.content).toMatchObject({ choiceIds: [...opening.content.choiceIds, createdId] });
+    const projectAfter = await f.call("project_state", { projectId: f.projectId });
+    const gameAfter = await f.call("game_state", { projectId: f.projectId });
+    expect(projectAfter.workflow).toEqual(projectBefore.workflow);
+    expect(gameAfter.state).toMatchObject({ status: "draft", approvedSnapshotId: gameBefore.state.approvedSnapshotId });
+    expect(gameAfter.items.every((item: { acceptedDraftVersionId: string | null }) => !item.acceptedDraftVersionId)).toBe(true);
+    const after = counts(f);
+    await expect(f.call("apply_edit", { projectId: f.projectId, proposalId: competing.proposalId, groupIds: ["game"], operationId: randomUUID(),
+      fingerprint: oldReview.fingerprint, approved: true })).rejects.toThrow("edit_base_stale_repreview");
+    expect(counts(f)).toEqual(after);
+    f.edits.validateArchiveHistory(f.projectId);
+  });
+
+  it("rejects invalid identities, ownership, and mechanic references without a proposal or receipt", async () => {
+    const f = await initialized(), structure = f.passages.currentStructure(f.projectId)!;
+    const opening = f.passages.currentEntity<{ choiceIds: string[] }>(f.projectId, "passage", openingId)!;
+    const choice = f.passages.currentEntity(f.projectId, "choice", choiceId)!;
+    const parent = { key: "passage-structure:root", versionId: structure.id }, source = { key: `passage:${openingId}`, versionId: opening.id };
+    const existing = { key: `choice:${choiceId}`, versionId: choice.id };
+    const item = { ...choice.content as object, id: "$new:alternative", label: "Choose an alternative", position: 1, effects: [effect] };
+    const link = { targetKey: source.key, kind: "set-fields", changes: { choiceIds: [...opening.content.choiceIds, item.id] } };
+    const create = (effects: unknown[], targetKey = parent.key) => ({ targetKey, kind: "add-entity", entityKind: "choice", item: { ...item, effects } });
+    const input = await prepare(f, [parent, source, existing]), before = counts(f);
+    const cases: Array<[string, unknown[]]> = [
+      ["edit_generated_id_invalid", [create([{ ...effect, id: "effect-literal" }]), link]],
+      ["edit_generated_id_invalid", [create([{ ...effect, id: choiceId }]), link]],
+      ["edit_generated_id_invalid", [create([{ ...effect, id: item.id }]), link]],
+      ["edit_generated_id_invalid", [create([effect, effect]), link]],
+      ["edit_scope_exceeded", [create([effect]), link, { ...link, targetKey: "passage:unprepared" }]],
+      ["edit_entity_creation_scope_invalid", [create([], existing.key), link]],
+      ["edit_generated_reference_invalid", [create([{ ...effect, mechanicKey: "$new:missing" }]), link]],
+      ["edit_validation_failed", [create([{ ...effect, mechanicKey: "unknown-mechanic" }]), link]],
+      ["edit_validation_failed", [create([{ ...effect, operation: "clear", value: null }]), link]],
+      ["edit_effect_creation_scope_invalid", [create([effect]), link, { targetKey: existing.key, kind: "set-fields", changes: { effects: [effect] } }]],
+      ["edit_generated_id_collision", [create([effect]), link, { targetKey: parent.key, kind: "set-fields",
+        changes: { sequences: [...(structure.content as { sequences: object[] }).sequences, { ...(structure.content as { sequences: object[] }).sequences[0], id: effect.id }] } }]],
+    ];
+    for (const [error, operations] of cases) {
+      await expect(f.call("submit_edit", { ...input, response: { message: "Invalid choice effect", groups: [group("game", operations)] } })).rejects.toThrow(error);
+      expect(counts(f)).toEqual(before);
+      expect(f.passages.currentEntity(f.projectId, "choice", choiceId)).toEqual(choice);
+    }
+  });
+});
 
 describe("M3 connected complete text-game lifecycle", () => {
   it("requires fresh v2 authoring context, preserves retry identity, and replays a completed legacy receipt", async () => {
@@ -232,10 +362,21 @@ describe("M3 connected complete text-game lifecycle", () => {
     const first = await start(); await first.call("create_project", { projectId, operationId: randomUUID(), name: originalTitle, approved: true });
     const proof = await completeConnectedTextGame(first.call, projectId);
     const download = await fetch(`${first.address}${proof.exported.downloadPath}`); expect(download.ok).toBe(true); expect(await download.text()).toContain("connect-src 'none'");
-    const saved = first.calls.filter((c) => ["compile_game", "simulate_game", "accept_drafts"].includes(c.tool));
+    const saved = first.calls.filter((c) => ["compile_game", "simulate_game", "accept_drafts", "submit_edit", "apply_edit"].includes(c.tool));
+    expect(saved.filter(c => c.result.proposalId === proof.graphProposalId)).toHaveLength(2);
     await first.client.close(); await first.app.close(); const fresh = await start();
     expect((await fresh.call("game_state", { projectId })).total).toBe(8);
+    const choiceInput = { projectId, kind: "choice", entityId: proof.generated["$new:beacon-exit"] };
+    const before = await fresh.call("read_game_record", choiceInput);
+    expect(before.record.content.effects).toEqual([expect.objectContaining({ id: proof.generated["$new:beacon-insight"], mechanicKey: "insight", operation: "add", value: 1 })]);
+    const proposals = await fresh.call("list_edits", { projectId });
     for (const item of saved) expect(await fresh.call(item.tool, item.input)).toEqual(item.result);
+    for (const item of saved.filter(c => c.result.proposalId === proof.graphProposalId)) {
+      const changed = item.tool === "submit_edit" ? { response: { ...item.input.response as object, message: "A different response" } } : { fingerprint: sourceDigest("changed-fingerprint") };
+      await expect(fresh.call(item.tool, { ...item.input, ...changed })).rejects.toThrow("connected_operation_id_conflict");
+    }
+    expect(await fresh.call("read_game_record", choiceInput)).toEqual(before);
+    expect(await fresh.call("list_edits", { projectId })).toEqual(proposals);
   });
 
   it("restores all game mutation receipts and duplicates newly authored entities with valid audit history", async () => {

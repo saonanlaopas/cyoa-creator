@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { CreativeDirectionSchema, LongFormStoryBibleSchema, LongFormRoutePlanSchema, LongFormEndingPlanSchema,
-  LongFormMechanicsPlanSchema, sourceCanonicalJson, sourceDigest } from "@story-to-cyoa/domain";
+  LongFormMechanicsPlanSchema, RepairChoicePlanSchema, RepairStateEffectSchema, sourceCanonicalJson, sourceDigest } from "@story-to-cyoa/domain";
 import type { EditOwner, EditTarget, EditResponse } from "./conversational-edit-contract.js";
 
 // Version 1 is intentionally allowlisted. Primitive arrays and protected provenance are not creation scopes.
@@ -64,6 +64,19 @@ export function creationCollection(target: EditTarget | undefined, op: Operation
 const childFields: Readonly<Record<string, string>> = {
   "routes.decisionPoints": "choices", "endings.endings": "variants", "mechanics.gates": "conditions", "mechanics.relationships": "bands",
 };
+export function choiceEffectCreation(target: EditTarget | undefined, op: Operation): { choiceId: string; effectIds: string[] } | undefined {
+  if (target?.owner === "choice" && target.path === "" && target.key === `choice:${target.targetId}` && !target.scope
+    && op.kind === "add-item" && op.collection === "effects") {
+    const effect = RepairStateEffectSchema.safeParse(op.item);
+    if (effect.success) return { choiceId: target.targetId, effectIds: [effect.data.id] };
+  }
+  if (target?.owner === "passage-structure" && target.targetId === "root" && target.path === "" && !target.scope
+    && op.kind === "add-entity" && op.entityKind === "choice") {
+    const choice = RepairChoicePlanSchema.safeParse(op.item);
+    if (choice.success) return { choiceId: choice.data.id, effectIds: choice.data.effects.map(effect => effect.id) };
+  }
+}
+
 export function creationIdentityValues(target: EditTarget | undefined, op: Operation): unknown[] {
   if (op.kind !== "add-item" && op.kind !== "add-entity") return [];
   const result: unknown[] = [op.item?.id], collection = creationCollection(target, op);
@@ -72,6 +85,7 @@ export function creationIdentityValues(target: EditTarget | undefined, op: Opera
     const children = op.item?.[childField];
     if (Array.isArray(children)) result.push(...children.map(child => child.id));
   }
+  if (op.kind === "add-entity") result.push(...(choiceEffectCreation(target, op)?.effectIds ?? []));
   return result;
 }
 

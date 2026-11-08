@@ -87,6 +87,10 @@ All six new mutations (initialize/approve plan, submit/accept drafts, simulate, 
 
 Use dedicated test projects and deterministic requests for verification. No provider credential or paid call is required. M3's narrative simulation remains available alongside the later native visual/world systems; it is not a substitute for their exported-game tests.
 
+### Creating passage choice effects (PF-004)
+
+For an existing choice, prepare its exact `choice:<id>` target/version and submit `add-item` with `collection: "effects"`. For a new choice, include the effects in the complete `add-entity` item under `passage-structure:root`. In either case, each new effect needs a distinct `id: "$new:<logical-key>"` and the canonical `mechanicKey`, `operation`, `value`, `feedback` and `visibility`. Do not introduce new IDs by replacing the effects array with `set-fields`; preserve existing IDs when revising values. Review the complete choice and effects before draft-only Apply. These are narrative choice effects, not replacements for canonical world time, economy/inventory or progression.
+
 ### Large foundation additions (PF-001)
 
 `list_edit_targets` includes versioned append scopes such as `collection:bible:characters` and `collection:routes:decisionPoints`. Prepare those exact keys/versions and relevant existing references; the descriptor includes the canonical item schema/count/limit instead of the whole array. Submit `add-item` only in that scope's collection. The server reconstructs and validates the complete artifact/project, preserving collisions, references, exact freshness, locks, staleness and operation receipts. Review contains the complete added records and counts and remains bound to the full candidate; it never approves unseen foundation content.

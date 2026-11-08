@@ -12,7 +12,7 @@ import { StructuredMutationService } from "./structured-mutation-service.js";
 import { EDIT_LIMITS, EditOwnerSchema, EditRequestSchema, EditResponseSchema, type EditOwner, type EditPlan, type EditProvider, type EditResponse, type EditTarget } from "./conversational-edit-contract.js";
 import { editMessages } from "./conversational-edit-provider.js";
 import { authorizeMechanicKeys, mechanicCreations, mechanicKeyReferences } from "./conversational-mechanic-identities.js";
-import { collectionTargets, assertCollectionTarget, creationCollection, creationIdentityValues, collectionReview } from "./conversational-collection-targets.js";
+import { collectionTargets, assertCollectionTarget, creationCollection, creationIdentityValues, choiceEffectCreation, collectionReview } from "./conversational-collection-targets.js";
 
 const schemas = { brief: ProjectBriefSchema, "creative-direction": CreativeDirectionSchema, bible: LongFormStoryBibleSchema, routes: LongFormRoutePlanSchema,
   endings: LongFormEndingPlanSchema, mechanics: LongFormMechanicsPlanSchema, "passage-structure": PassageStructureSchema,
@@ -445,6 +445,11 @@ export class ConversationalEditService {
     if (new Set(response.groups.map((g) => g.id)).size !== response.groups.length || response.groups.flatMap((g) => g.operations).length > EDIT_LIMITS.operations) throw new Error("edit_groups_invalid");
     const groups = response.groups.filter((g) => selected.includes(g.id));
     const generated = new Set(Object.values(edit.generatedIds));
+    const effectOwners = new Map<string, string>();
+    for (const group of groups) for (const op of group.operations) {
+      const creation = choiceEffectCreation(plan.targets.find(t => t.key === op.targetKey), op);
+      if (creation) for (const id of creation.effectIds) effectOwners.set(id, creation.choiceId);
+    }
     const creations = mechanicCreations(plan, response, generated);
     for (const group of response.groups) if (group.dependsOnGroupIds.some((id) => id === group.id || !response.groups.some((g) => g.id === id))) throw new Error("edit_dependency_invalid");
     const visit = (id: string, active = new Set<string>()): void => { if (active.has(id)) throw new Error("edit_dependency_cycle"); const next = new Set(active).add(id); response.groups.find((g) => g.id === id)!.dependsOnGroupIds.forEach((dep) => visit(dep, next)); };
@@ -517,6 +522,19 @@ export class ConversationalEditService {
         || ids.some((id) => id !== targetId && !Object.values(edit.generatedIds).includes(id))) throw new Error("edit_generated_id_invalid");
       if (outputs.has(key) || !historical && (ids.some((id) => existingIds.has(id)) || this.passages.currentEntity(plan.projectId, operation.entityKind, targetId))) throw new Error("edit_generated_id_collision");
       outputs.set(key, { owner: operation.entityKind, targetId, before: null, after });
+    }
+    // A generated effect ID is an identity only in its declaring choice's effects array.
+    for (const output of outputs.values()) {
+      const before = output.owner === "choice" && output.before !== null ? ChoicePlanSchema.parse(output.before).effects : [];
+      const effects = output.owner === "choice" ? ChoicePlanSchema.parse(output.after).effects : [];
+      const effectIds = new Set(effects.map(effect => effect.id));
+      const oldEffectIds = new Set(before.map(effect => effect.id));
+      if (effects.some(effect => !oldEffectIds.has(effect.id) && effectOwners.get(effect.id) !== output.targetId)) throw new Error("edit_effect_creation_scope_invalid");
+      if (effectOwners.size) for (const [id, count] of identityCounts(output.after)) {
+        if (effectOwners.has(id) && (count !== 1 || output.owner !== "choice" || effectOwners.get(id) !== output.targetId || !effectIds.has(id))) {
+          throw new Error("edit_generated_id_collision");
+        }
+      }
     }
     if (outputs.size > EDIT_LIMITS.targets) throw new Error("edit_output_scope_overflow_split_batch");
     if (historical) return { outputs: [...outputs.values()], groups, requiredGroupIds: [...required].sort(), findings: [], draftImpacts: [] };
