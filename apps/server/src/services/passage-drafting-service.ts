@@ -20,6 +20,7 @@ import {
   type LongFormStoryBible,
   type NarrativeThread,
   type PassageDraftingContextPack,
+  type PassageDraftingContextInput,
   type PassageDraftingProvider,
   type PassageDraftingProviderUsage,
   type PassageDraftingScope,
@@ -148,7 +149,25 @@ export class PassageDraftingService {
     await Promise.allSettled(this.tasks.values());
   }
 
-  private build(projectId: string, request: PassageDraftingPlanRequest) {
+  previewConnectedContext(projectId: string, passageId: string, fits: NonNullable<PassageDraftingContextInput["connectedContextFits"]>) {
+    const input = this.approvedContextInputs(projectId);
+    const targets = input.passages.filter((item) => item.content.id === passageId);
+    if (targets.length !== 1 || !input.structure.sequences.some((item) =>
+      item.id === targets[0]!.content.sequenceId && item.passageIds.includes(passageId))) {
+      throw new Error("connected_authoring_passage_not_in_approved_snapshot");
+    }
+    return buildPassageDraftingContext({
+      ...input,
+      authoringInstructions: this.artifacts.authoringInstructions(projectId),
+      unitId: passageId,
+      targetPassageIds: [passageId],
+      maximumEstimatedInputTokens: passageDraftingPolicyV1.maxEstimatedInputTokensPerUnit,
+      requestedMaximumOutputTokens: passageDraftingPolicyV1.maxOutputTokensPerPassage,
+      connectedContextFits: fits,
+    });
+  }
+
+  private approvedContextInputs(projectId: string) {
     this.requireProject(projectId);
     assertPassageFidelityAuthority(this.artifacts, projectId);
     const state = this.passagePlans.state(projectId);
@@ -169,8 +188,7 @@ export class PassageDraftingService {
       .map((item) => ({ versionId: item.id, content: item.content }));
     const exact = this.exactUpstream(projectId, snapshot.upstreamVersions);
     const acceptedDrafts = this.acceptedDrafts(projectId, passages.map((item) => item.content.id));
-    const scope = request.scope as PassageDraftingScope;
-    return buildPassageDraftingPlan({
+    return {
       projectId,
       snapshotId: snapshot.id,
       structureVersionId: structure.id,
@@ -178,25 +196,26 @@ export class PassageDraftingService {
       structure: structure.content,
       passages,
       choices,
-      scope,
+      threads,
+      ...exact,
+      acceptedDrafts,
+    };
+  }
+
+  private build(projectId: string, request: PassageDraftingPlanRequest) {
+    const input = this.approvedContextInputs(projectId);
+    return buildPassageDraftingPlan({
+      ...input,
+      scope: request.scope as PassageDraftingScope,
       providerId: request.providerId?.trim() || "offline-drafting",
       modelId: request.modelId?.trim() || "deterministic-prose-v1",
       policy: passageDraftingPolicyV1,
       buildUnitContext: ({ unitId, passageIds, requestedMaximumOutputTokens, maximumEstimatedInputTokens }) => {
         const result = buildPassageDraftingContext({
+          ...input,
           authoringInstructions: this.artifacts.authoringInstructions(projectId),
-          projectId,
           unitId,
-          snapshotId: snapshot.id,
-          structureVersionId: structure.id,
-          upstreamVersions: snapshot.upstreamVersions,
-          structure: structure.content,
-          passages,
-          choices,
-          threads,
           targetPassageIds: passageIds,
-          ...exact,
-          acceptedDrafts,
           maximumEstimatedInputTokens,
           requestedMaximumOutputTokens,
         });

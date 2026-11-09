@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CreativeDirectionSchema, sourceCanonicalJson, sourceDigest } from "@story-to-cyoa/domain";
-import { planningArtifactIds } from "@story-to-cyoa/pipeline";
+import { planningArtifactIds, type PassageDraftingContextPack } from "@story-to-cyoa/pipeline";
 import { ArtifactRepository, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, type DraftAcceptanceApplication, type StoryDatabase } from "@story-to-cyoa/persistence";
 import type { ConversationalEditService } from "./conversational-edit-service.js";
 import type { PassageDraftingService } from "./passage-drafting-service.js";
@@ -15,6 +15,7 @@ const id = z.string().trim().min(1).max(240), digest = z.string().regex(/^[a-f0-
 const project = { projectId: id }, operation = { ...project, operationId: z.string().uuid() };
 const bound = { ...operation, headFingerprint: digest, approved: z.literal(true) };
 const selections = z.array(z.object({ passageId: id, candidateDraftVersionId: id }).strict()).min(1).max(12);
+const authoringContextBytes = 64_000;
 export const ConnectedGameInputs = {
   ...SceneInputs,
   ...WorldInputs,
@@ -48,12 +49,14 @@ export class ConnectedGameService {
   private authoringContext(projectId: string, passageId: string, request: string) {
     if (this.passages.state(projectId).status !== "approved") throw new Error("connected_approved_current_plan_required");
     if (!this.drafting) throw new Error("connected_authoring_context_unavailable");
-    const plan = this.drafting.preview(projectId, { scope: { kind: "passages", passageIds: [passageId] } });
-    if (plan.units.length !== 1) throw new Error("connected_authoring_context_narrow_scope");
-    const boundedContext = plan.units[0]!.context;
-    if (!boundedContext) throw new Error("connected_authoring_context_unavailable");
-    const result = { contextVersion: 2 as const, projectId, passageId, task: { kind: "draft" as const, request }, headFingerprint: this.head(projectId), context: boundedContext };
-    if (Buffer.byteLength(sourceCanonicalJson(result)) > 64_000) throw new Error("connected_authoring_context_overflow_narrow_scope");
+    const base = { contextVersion: 2 as const, projectId, passageId, task: { kind: "draft" as const, request }, headFingerprint: this.head(projectId) };
+    const binding = (context: PassageDraftingContextPack, omittedNeighborProseCount: number) => ({ ...base, context, omittedNeighborProseCount });
+    const fits = (context: PassageDraftingContextPack, omitted: number) =>
+      Buffer.byteLength(sourceCanonicalJson({ ...binding(context, omitted), fingerprint: "0".repeat(64), providerCalls: 0 })) <= authoringContextBytes;
+    const { context, diagnostics } = this.drafting.previewConnectedContext(projectId, passageId, fits);
+    const omitted = diagnostics.omittedOptionalContext.acceptedNeighborPassageIds!.length;
+    if (!fits(context, omitted)) throw new Error("connected_authoring_required_context_overflow");
+    const result = binding(context, omitted);
     return { ...result, fingerprint: sourceDigest(result), providerCalls: 0 };
   }
   private head(projectId: string) {

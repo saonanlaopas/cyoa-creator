@@ -96,6 +96,7 @@ export interface PassageDraftingContextInput {
   requiredNeighborPassageIds?: string[];
   maximumEstimatedInputTokens: number;
   requestedMaximumOutputTokens: number;
+  connectedContextFits?: (context: PassageDraftingContextPack, omittedNeighborProseCount: number) => boolean;
 }
 
 export class BoundedPassageDraftingContextError extends Error {
@@ -148,12 +149,19 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
     || item.content.setupPassageIds.some((id) => targets.has(id))
     || item.content.payoffPassageIds.some((id) => targets.has(id)))
     .sort((left, right) => left.content.id.localeCompare(right.content.id));
+  const connected = input.connectedContextFits;
+  const endingIds = new Set(targetRecords.flatMap((item) => item.content.endingId ? [item.content.endingId] : []));
+  const linkedEndings = input.endings.endings.filter((item) => endingIds.has(item.id));
   const routeIds = new Set([
     ...targetRecords.flatMap((item) => item.content.routeIds),
     ...sequences.flatMap((item) => item.routeIds),
     ...threads.flatMap((item) => item.content.routeIds),
+    ...(connected ? linkedEndings.map((item) => item.routeId) : []),
   ]);
-  const endingIds = new Set(targetRecords.flatMap((item) => item.content.endingId ? [item.content.endingId] : []));
+  const endingHookIds = new Set([
+    ...sequences.flatMap((item) => item.endingHookIds),
+    ...(connected ? linkedEndings.map((item) => item.hookId) : []),
+  ]);
   const characterIds = new Set(targetRecords.flatMap((item) => item.content.characterIds));
   const relationshipIds = new Set(targetRecords.flatMap((item) => item.content.relationshipIds));
   const locationIds = new Set(targetRecords.flatMap((item) => item.content.locationIds));
@@ -164,6 +172,7 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
   const decisionIds = new Set([
     ...sequences.flatMap((item) => item.requiredDecisionIds),
     ...connectedChoices.flatMap((item) => item.content.sourceDecisionIds),
+    ...(connected ? linkedEndings.flatMap((item) => item.contributingDecisionIds) : []),
   ]);
   const mechanicKeys = new Set<string>();
   connectedChoices.forEach((item) => {
@@ -176,9 +185,10 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
 
   const routes = input.routes.routes.filter((item) => routeIds.has(item.id));
   routes.flatMap((item) => item.relationshipArcs).forEach((item) => relationshipIds.add(item.relationshipId));
+  // Connected drafting includes whole linked records, not siblings that only share a route.
   const decisions = input.routes.decisionPoints.filter((item) => decisionIds.has(item.id)
-    || item.choices.some((choice) => choice.routeId !== null && routeIds.has(choice.routeId)));
-  const endings = input.endings.endings.filter((item) => endingIds.has(item.id) || routeIds.has(item.routeId));
+    || (!connected && item.choices.some((choice) => choice.routeId !== null && routeIds.has(choice.routeId))));
+  const endings = connected ? linkedEndings : input.endings.endings.filter((item) => endingIds.has(item.id) || routeIds.has(item.routeId));
   endings.flatMap((item) => item.characterOutcomes).forEach((item) => characterIds.add(item.characterId));
   endings.flatMap((item) => item.relationshipOutcomes).forEach((item) => relationshipIds.add(item.relationshipId));
   input.bible.relationships.filter((item) => relationshipIds.has(item.id))
@@ -233,8 +243,8 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
         routes,
         decisionPoints: decisions,
         reconvergences: input.routes.reconvergences.filter((item) => preservedDifferenceIds.has(item.id)),
-        endingHooks: input.routes.endingHooks.filter((item) => routeIds.has(item.routeId)
-          || sequences.some((sequence) => sequence.endingHookIds.includes(item.id))),
+        endingHooks: input.routes.endingHooks.filter((item) => endingHookIds.has(item.id)
+          || (!connected && routeIds.has(item.routeId))),
       },
       endings: { schemaVersion: input.endings.schemaVersion, title: input.endings.title, endings },
       mechanics: {
@@ -268,31 +278,46 @@ export function buildPassageDraftingContext(input: PassageDraftingContextInput):
     }
   }
   const requiredTokens = estimateTokens(base);
-  if (requiredTokens > input.maximumEstimatedInputTokens) {
+  if (!connected && requiredTokens > input.maximumEstimatedInputTokens) {
     throw new BoundedPassageDraftingContextError(
       `Required drafting context requires ${requiredTokens} estimated tokens; limit is ${input.maximumEstimatedInputTokens}`,
     );
   }
-  const orderedNeighbors = neighborIds
+  const orderedNeighbors = (connected ? [...new Set([...neighborIds, ...requiredNeighborIds])] : neighborIds)
     .map((id) => acceptedByPassage.get(id))
     .filter((item): item is AcceptedNeighborDraftInput => Boolean(item) && !item!.stale)
     .sort((left, right) => Number(graphNeighborIds.has(right.passageId)) - Number(graphNeighborIds.has(left.passageId))
       || left.passageId.localeCompare(right.passageId));
+  const applyAuthority = () => {
+    if (input.adaptationIntentAdopted) delete base.upstream.brief.adaptationFidelity;
+    if (input.foundationAuthority) base.foundationAuthority = input.foundationAuthority;
+  };
+  if (connected) {
+    // Required context, including authority and required prose, must fit the complete response.
+    applyAuthority();
+    base.acceptedNeighborProse = orderedNeighbors.filter((item) => requiredNeighborIds.has(item.passageId)).map(withoutStale);
+    if (!connected(base, orderedNeighbors.length - base.acceptedNeighborProse.length)) {
+      throw new BoundedPassageDraftingContextError("connected_authoring_required_context_overflow: complete required drafting context exceeds the response budget");
+    }
+  }
   const omittedNeighborIds: string[] = [];
   for (const neighbor of orderedNeighbors) {
+    if (connected && requiredNeighborIds.has(neighbor.passageId)) continue;
     const candidate = { ...base, acceptedNeighborProse: [...base.acceptedNeighborProse, withoutStale(neighbor)] };
-    if (estimateTokens(candidate) <= input.maximumEstimatedInputTokens || requiredNeighborIds.has(neighbor.passageId)) {
+    const fits = connected
+      ? connected(candidate, orderedNeighbors.length - candidate.acceptedNeighborProse.length)
+      : estimateTokens(candidate) <= input.maximumEstimatedInputTokens || requiredNeighborIds.has(neighbor.passageId);
+    if (fits) {
       base.acceptedNeighborProse.push(withoutStale(neighbor));
     } else {
       omittedNeighborIds.push(neighbor.passageId);
     }
   }
   const estimatedInputTokens = estimateTokens(base);
-  if (estimatedInputTokens > input.maximumEstimatedInputTokens) {
+  if (!connected && estimatedInputTokens > input.maximumEstimatedInputTokens) {
     throw new BoundedPassageDraftingContextError("Required accepted neighboring prose exceeds the drafting context limit");
   }
-  if (input.adaptationIntentAdopted) delete base.upstream.brief.adaptationFidelity;
-  if (input.foundationAuthority) base.foundationAuthority = input.foundationAuthority;
+  if (!connected) applyAuthority();
   const contextFingerprint = fingerprintPassageDraftingContext(base);
   const serializedBytes = Buffer.byteLength(stableJson(base), "utf8");
   const diagnostics: PassageDraftingContextDiagnostics = {

@@ -153,6 +153,44 @@ describe("bounded passage drafting context", () => {
     expect(() => buildPassageDraftingContext(input)).toThrow(/missing route route-missing/);
   });
 
+  it("resolves exact ending-only links and applicable direction before testing the connected budget", () => {
+    const input = fixture(), target = input.passages[1]!.content, ending = input.endings.endings[0]!;
+    target.routeIds = [];
+    target.terminal = true;
+    target.choiceIds = [];
+    input.choices = input.choices.slice(0, 1);
+    input.choices[0]!.content.sourceDecisionIds = [];
+    input.structure.sequences[0]!.routeIds = [];
+    input.structure.sequences[0]!.requiredDecisionIds = [];
+    input.structure.sequences[0]!.endingHookIds = [];
+    input.threads[0]!.content.routeIds = [];
+    const endingDecision = { ...input.routes.decisionPoints[0]!, id: "decision-ending-only" };
+    input.routes.decisionPoints.push(endingDecision);
+    ending.contributingDecisionIds = [endingDecision.id];
+    input.creativeDirection = normalizeCreativeDirection({
+      tone: {}, pacing: {}, prose: {}, fieldProvenance: [],
+      scopedVariations: input.routes.routes.map(route => ({
+        id: `variation-${route.id}`, scopeKind: "route", scopeId: route.id,
+        toneDescriptors: [], pacingGuidance: "", proseGuidance: `Exact prose guidance for ${route.id}.`,
+      })),
+    });
+    const foundationAuthority = { versionId: "fixture-authority", requirements: ["Retain exact source obligations."] };
+    const { context } = buildPassageDraftingContext({
+      ...input, foundationAuthority, adaptationIntentAdopted: true,
+      connectedContextFits: (candidate) => {
+        expect(candidate.foundationAuthority).toEqual(foundationAuthority);
+        expect(candidate.upstream.brief).not.toHaveProperty("adaptationFidelity");
+        return true;
+      },
+    });
+    expect(context.upstream.endings.endings).toEqual([ending]);
+    expect(context.upstream.routes.endingHooks).toEqual([input.routes.endingHooks[0]]);
+    expect(context.upstream.routes.decisionPoints).toEqual([endingDecision]);
+    expect(context.upstream.creativeDirection?.scopedVariations).toEqual([input.creativeDirection.scopedVariations[0]]);
+    expect(context.upstream.mechanics.gates).toEqual(input.mechanics.gates);
+    expect(context.upstream.mechanics.flags).toEqual(input.mechanics.flags);
+  });
+
   it("trims optional accepted prose deterministically and reports the exact omission", () => {
     const input = fixture();
     input.acceptedDrafts[0]!.proseMarkdown = "continuity ".repeat(4_000);

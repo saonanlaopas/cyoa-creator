@@ -87,6 +87,8 @@ All six new mutations (initialize/approve plan, submit/accept drafts, simulate, 
 
 Use dedicated test projects and deterministic requests for verification. No provider credential or paid call is required. M3's narrative simulation remains available alongside the later native visual/world systems; it is not a substitute for their exported-game tests.
 
+Connected draft context fits the complete response within 64,000 UTF-8 bytes. It retains the exact passage, applicable approved direction and full active instructions. It includes the passage's linked ending, its hook and contributing decisions, and explicit sequence/choice references, rather than every ending, hook or decision sharing a route. Optional accepted neighboring prose is included whole when it fits; `omittedNeighborProseCount` reports budget omissions. If required context alone is too large, the read and submission fail without truncation. Re-read before submitting if an older context fingerprint no longer matches; completed receipts remain replayable.
+
 ### Creating passage choice effects (PF-004)
 
 For an existing choice, prepare its exact `choice:<id>` target/version and submit `add-item` with `collection: "effects"`. For a new choice, include the effects in the complete `add-entity` item under `passage-structure:root`. In either case, each new effect needs a distinct `id: "$new:<logical-key>"` and the canonical `mechanicKey`, `operation`, `value`, `feedback` and `visibility`. Do not introduce new IDs by replacing the effects array with `set-fields`; preserve existing IDs when revising values. Review the complete choice and effects before draft-only Apply. These are narrative choice effects, not replacements for canonical world time, economy/inventory or progression.
