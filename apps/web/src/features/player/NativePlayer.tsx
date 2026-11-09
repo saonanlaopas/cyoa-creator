@@ -277,12 +277,13 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
     <div className="native-player-layout">
       <article className="native-player-card native-player-passage">
         <header>
+          {installation.bundle.preview && <p className="eyebrow">Partial preview</p>}
           <p className="eyebrow">{view.terminal.result ? "Ending" : `Turn ${session.state.turn + 1}`}</p>
           <h1 ref={headingRef} tabIndex={-1}>{view.passage.presentation.title}</h1>
         </header>
-        {installation.bundle.world && <WorldPanel world={installation.bundle.world} state={session.state} onViewChange={setWorldView} disabled={busy || recoveryRequired || Boolean(view.terminal.result)} onAction={(command, label, preview) => setWorldAction({ command, label, ...(preview ? { preview } : {}) })} />}
+        {installation.bundle.world && <WorldPanel world={installation.bundle.world} state={session.state} onViewChange={setWorldView} disabled={busy || recoveryRequired || view.previewStopped || Boolean(view.terminal.result)} onAction={(command, label, preview) => setWorldAction({ command, label, ...(preview ? { preview } : {}) })} />}
         {!secondaryView && installation.bundle.illustratedPresentation && <IllustratedScene presentation={installation.bundle.illustratedPresentation} passageId={view.passage.id} />}
-        {!secondaryView && <div className="native-player-prose">
+        {(!secondaryView || view.previewStopped) && <div className="native-player-prose">
           {paragraphs(view.passage.proseMarkdown).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
         </div>}
         {!secondaryView && actionOutcome && <section className="native-player-prose" aria-label="Action outcome" aria-live="polite">
@@ -297,7 +298,8 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
           </div>
         </section>}
         {view.terminal.result && <p className="native-player-ending" role="status">This ending is complete.</p>}
-        {!secondaryView && !view.terminal.result && <section className="native-player-choices" aria-label="Choices">
+        {view.previewStopped && <p className="native-player-ending" role="status">Preview boundary reached.</p>}
+        {!secondaryView && !view.terminal.result && !view.previewStopped && <section className="native-player-choices" aria-label="Choices">
           {view.choices.map(({ choice, availability }) => <button
             key={choice.id}
             disabled={busy || recoveryRequired || !availability.enabled}

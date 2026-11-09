@@ -47,6 +47,8 @@ import { assertNativePlayerConfig, stableFingerprint } from "@story-to-cyoa/runt
 import {
   NATIVE_BUILD_ARTIFACT_ID,
   NATIVE_COMPILATION_INPUT_ARTIFACT_ID,
+  NATIVE_PREVIEW_INPUT_ARTIFACT_ID,
+  NATIVE_PREVIEW_BUILD_ARTIFACT_ID,
   NATIVE_PLAYER_CONFIG_ARTIFACT_ID,
   NativeCompilationService,
 } from "./native-compilation-service.js";
@@ -233,8 +235,14 @@ function validateArtifactRow(input: {
     case "native-player-config":
       exactIdentity(row, NATIVE_PLAYER_CONFIG_ARTIFACT_ID, [1]); canonical(assertNativePlayerConfig(content), content, row); return;
     case "native-compilation-input":
+      if (row.artifact_id === NATIVE_PREVIEW_INPUT_ARTIFACT_ID) {
+        exactIdentity(row, NATIVE_PREVIEW_INPUT_ARTIFACT_ID, [1]); parse(() => native.validatePreviewInput(projectId, row.id), `native preview input ${row.id}`); return;
+      }
       exactIdentity(row, NATIVE_COMPILATION_INPUT_ARTIFACT_ID, [1]); parse(() => native.validateStoredInput(projectId, row.id), `native input ${row.id}`); return;
     case "native-build":
+      if (row.artifact_id === NATIVE_PREVIEW_BUILD_ARTIFACT_ID) {
+        exactIdentity(row, NATIVE_PREVIEW_BUILD_ARTIFACT_ID, [1]); parse(() => native.loadPreviewBuild(projectId, row.id), `native preview build ${row.id}`); return;
+      }
       exactIdentity(row, NATIVE_BUILD_ARTIFACT_ID, [1]); parse(() => native.validateBuild(projectId, row.id), `native build ${row.id}`); return;
     case "simulation-input":
       exactIdentity(row, "simulation-inputs", [1]); parse(() => simulation.resolveInput(projectId, row.id), `simulation input ${row.id}`); return;

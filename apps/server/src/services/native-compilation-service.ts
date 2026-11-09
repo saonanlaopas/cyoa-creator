@@ -16,6 +16,7 @@ import {
   creativeDirectionMaterialEquivalent,
   assertNativeCompilationInput,
   compileNativeGame,
+  inspectNativePreviewBoundary,
   nativePublicationFinding,
   sourceInputFingerprint,
   validateLongFormProject,
@@ -31,6 +32,7 @@ import {
   type NativeCompilationEntityReference,
   type NativeCompilationInput,
   type NativePublicationFinding,
+  type NativePreviewSelection,
   type NarrativeThread,
   type PassagePlan,
   type PassagePlanFinding,
@@ -76,6 +78,8 @@ import {
 
 export const NATIVE_COMPILATION_INPUT_ARTIFACT_ID = "native-compilation-inputs";
 export const NATIVE_BUILD_ARTIFACT_ID = "native-builds";
+export const NATIVE_PREVIEW_INPUT_ARTIFACT_ID = "native-preview-inputs";
+export const NATIVE_PREVIEW_BUILD_ARTIFACT_ID = "native-preview-builds";
 export const NATIVE_PLAYER_CONFIG_ARTIFACT_ID = "native-player-config";
 
 const baseRequiredUpstreamIds = ["brief", "bible", "routes", "endings", "mechanics"] as const;
@@ -160,6 +164,7 @@ export class NativeCompilationServiceError extends Error {
 interface Inspection {
   readiness: PublicationReadiness;
   resolved: ResolvedNativeCompilationInput | null;
+  boundary?: ReturnType<typeof inspectNativePreviewBoundary>["boundary"];
 }
 
 interface PlayerConfigContext {
@@ -213,7 +218,18 @@ export class NativeCompilationService {
     resolved: ResolvedNativeCompilationInput;
   } {
     this.requireProject(projectId);
-    const inputVersion = this.requireInputVersion(projectId, versionId);
+    return this.validateInput(projectId, versionId, false);
+  }
+
+  validatePreviewInput(projectId: string, versionId: string) {
+    const result = this.validateInput(projectId, versionId, true);
+    this.buildPlayerConfig(projectId, result.resolved, compileNativeGame(result.resolved));
+    return result;
+  }
+
+  private validateInput(projectId: string, versionId: string, preview: boolean) {
+    this.requireProject(projectId);
+    const inputVersion = this.requireInputVersion(projectId, versionId, preview);
     return { inputVersion, resolved: this.resolveStoredInput(projectId, inputVersion.content) };
   }
 
@@ -228,22 +244,77 @@ export class NativeCompilationService {
     const inputVersion = inputArtifactVersionId
       ? this.requireInputVersion(projectId, inputArtifactVersionId)
       : this.captureInput(projectId, options);
+    return this.persistBuild(projectId, inputVersion, options);
+  }
+
+  reviewPreview(projectId: string, selection: NativePreviewSelection) {
+    this.requireProject(projectId);
+    return this.inspectCurrent(projectId, selection);
+  }
+
+  compilePreviewInTransaction(projectId: string, selection: NativePreviewSelection, sourceFingerprint: string) {
+    this.requireProject(projectId);
+    const inspected = this.inspectCurrent(projectId, selection);
+    if (!inspected.resolved || inspected.resolved.input.sourceInputFingerprint !== sourceFingerprint) {
+      throw new NativeCompilationServiceError("preview_not_ready_or_stale", "Review the exact current partial preview before compiling", inspected.readiness);
+    }
+    const input = this.artifacts.saveArtifactInTransaction({
+      projectId, artifactId: NATIVE_PREVIEW_INPUT_ARTIFACT_ID, artifactType: "native-compilation-input",
+      schemaVersion: NATIVE_COMPILATION_INPUT_SCHEMA_VERSION, content: inspected.resolved.input, schema: NativeCompilationInputSchema,
+      markDependentsStale: false,
+    });
+    return this.persistBuild(projectId, input, { inTransaction: true });
+  }
+
+  private persistBuild(projectId: string, inputVersion: ArtifactVersion<NativeCompilationInput>, options: { inTransaction?: boolean }) {
     const resolved = this.resolveStoredInput(projectId, inputVersion.content);
     const bundle = compileNativeGame(resolved);
+    const { playerConfig, playerConfigVersionId } = this.buildPlayerConfig(projectId, resolved, bundle);
+    const buildContent = this.buildRecord(projectId, inputVersion, resolved, bundle);
+    const save = options.inTransaction ? this.artifacts.saveArtifactInTransaction.bind(this.artifacts) : this.artifacts.saveArtifact.bind(this.artifacts);
+    const build = save({
+      projectId,
+      artifactId: resolved.input.preview ? NATIVE_PREVIEW_BUILD_ARTIFACT_ID : NATIVE_BUILD_ARTIFACT_ID,
+      artifactType: "native-build",
+      schemaVersion: 1,
+      content: buildContent,
+      ...(resolved.input.preview ? { markDependentsStale: false } : {}),
+    });
+    return { input: inputVersion, build, bundle, playerConfig, playerConfigVersionId };
+  }
+
+  private buildPlayerConfig(projectId: string, resolved: ResolvedNativeCompilationInput, bundle: NativeGameBundle) {
     const mechanics = resolved.upstreamArtifacts.find((item) => item.artifactId === "mechanics")
       ?.content as LongFormMechanicsPlan | undefined;
     if (!mechanics) throw new NativeCompilationServiceError(
       "native_input_mechanics_missing",
       "Native compilation input has no exact mechanics artifact",
     );
-    const playerConfigVersion = this.artifacts.getCurrent<NativePlayerConfig>(projectId, NATIVE_PLAYER_CONFIG_ARTIFACT_ID) ?? null;
-    const playerConfig = this.resolvePlayerConfig(bundle, mechanics, playerConfigVersion?.content);
+    const preview = resolved.input.preview;
+    const playerConfigVersion = preview
+      ? preview.playerConfigVersionId ? this.artifacts.getVersion<NativePlayerConfig>(preview.playerConfigVersionId) : null
+      : this.artifacts.getCurrent<NativePlayerConfig>(projectId, NATIVE_PLAYER_CONFIG_ARTIFACT_ID);
+    if (preview?.playerConfigVersionId && (!playerConfigVersion || playerConfigVersion.projectId !== projectId
+      || playerConfigVersion.artifactId !== NATIVE_PLAYER_CONFIG_ARTIFACT_ID || playerConfigVersion.artifactType !== NATIVE_PLAYER_CONFIG_ARTIFACT_ID)) {
+      throw new NativeCompilationServiceError("preview_player_config_lineage_invalid", "The exact preview player configuration is unavailable");
+    }
+    let value = playerConfigVersion?.content;
+    if (preview && value) {
+      const config = assertNativePlayerConfig(value);
+      if (config.gameId !== projectId) throw new Error("preview_player_config_project_mismatch");
+      const { configFingerprint: _fingerprint, ...settings } = config;
+      value = createNativePlayerConfig({ ...settings, gameId: bundle.gameId }, bundle);
+    }
+    return { playerConfig: this.resolvePlayerConfig(bundle, mechanics, value), playerConfigVersionId: playerConfigVersion?.id ?? null };
+  }
+
+  private buildRecord(projectId: string, inputVersion: ArtifactVersion<NativeCompilationInput>, resolved: ResolvedNativeCompilationInput, bundle: NativeGameBundle): NativeBuildRecord {
     const loaded = loadNativeGame(bundle);
     const initialState = initializeNativeGame(loaded);
     const passage = currentNativePassage(loaded, initialState);
     const availableChoices = listNativeGameChoices(loaded, initialState);
     const acceptedWordCount = resolved.acceptedDrafts.reduce((total, item) => total + item.selection.wordCount, 0);
-    const buildContent: NativeBuildRecord = {
+    return {
       schemaVersion: 1,
       id: `nativebuild_${stableFingerprint({
         inputArtifactVersionId: inputVersion.id,
@@ -274,15 +345,6 @@ export class NativeCompilationService {
         availableChoiceCount: availableChoices.length,
       },
     };
-    const save = options.inTransaction ? this.artifacts.saveArtifactInTransaction.bind(this.artifacts) : this.artifacts.saveArtifact.bind(this.artifacts);
-    const build = save({
-      projectId,
-      artifactId: NATIVE_BUILD_ARTIFACT_ID,
-      artifactType: "native-build",
-      schemaVersion: 1,
-      content: buildContent,
-    });
-    return { input: inputVersion, build, bundle, playerConfig, playerConfigVersionId: playerConfigVersion?.id ?? null };
   }
 
   getPlayerConfig(projectId: string): NativePlayerConfigWorkspace {
@@ -377,48 +439,27 @@ export class NativeCompilationService {
   }
 
   validateBuild(projectId: string, versionId: string): ArtifactVersion<NativeBuildRecord> {
+    return this.resolveBuild(projectId, versionId, false).build;
+  }
+
+  loadPreviewBuild(projectId: string, versionId: string) {
+    const { build, input, resolved, bundle } = this.resolveBuild(projectId, versionId, true);
+    return { build, input, bundle, ...this.buildPlayerConfig(projectId, resolved, bundle) };
+  }
+
+  private resolveBuild(projectId: string, versionId: string, preview: boolean) {
     this.requireProject(projectId);
     const version = this.artifacts.getVersion<NativeBuildRecord>(versionId);
-    if (!version || version.projectId !== projectId || version.artifactId !== NATIVE_BUILD_ARTIFACT_ID
+    if (!version || version.projectId !== projectId || version.artifactId !== (preview ? NATIVE_PREVIEW_BUILD_ARTIFACT_ID : NATIVE_BUILD_ARTIFACT_ID)
       || version.artifactType !== "native-build" || version.schemaVersion !== 1) {
       throw new NativeCompilationServiceError("native_build_not_found", "Native build was not found");
     }
-    const { inputVersion, resolved } = this.validateStoredInput(projectId, version.content.compilationInputArtifactVersionId);
+    const { inputVersion, resolved } = this.validateInput(projectId, version.content.compilationInputArtifactVersionId, preview);
     const bundle = compileNativeGame(resolved);
-    const game = loadNativeGame(bundle);
-    const initialState = initializeNativeGame(game);
-    const passage = currentNativePassage(game, initialState);
-    const availableChoices = listNativeGameChoices(game, initialState);
-    const expected: NativeBuildRecord = {
-      schemaVersion: 1,
-      id: `nativebuild_${stableFingerprint({
-        inputArtifactVersionId: inputVersion.id,
-        sourceInputFingerprint: resolved.input.sourceInputFingerprint,
-        bundleFingerprint: bundle.bundleFingerprint,
-      })}`,
-      projectId,
-      compilationInputArtifactVersionId: inputVersion.id,
-      sourceInputFingerprint: resolved.input.sourceInputFingerprint,
-      bundleFingerprint: bundle.bundleFingerprint,
-      runtimeFingerprint: bundle.runtimeFingerprint,
-      snapshotId: resolved.input.snapshot.id,
-      structureVersionId: resolved.input.snapshot.structureVersionId,
-      compilerPolicyId: resolved.input.compilerPolicy.id,
-      compilerPolicyVersion: resolved.input.compilerPolicy.version,
-      compilerVersion: resolved.input.compilerPolicy.compilerVersion,
-      runtimeContractVersion: resolved.input.runtimeContract.version,
-      bundleSchemaId: resolved.input.bundleContract.schemaId,
-      bundleSchemaVersion: resolved.input.bundleContract.schemaVersion,
-      passageCount: bundle.passages.length,
-      choiceCount: bundle.choices.length,
-      acceptedWordCount: resolved.acceptedDrafts.reduce((total, item) => total + item.selection.wordCount, 0),
-      serializedBytes: serializedBytes(bundle),
-      validation: { valid: true, loaded: true, smokePassageId: passage.id, availableChoiceCount: availableChoices.length },
-    };
-    if (stableFingerprint(version.content) !== stableFingerprint(expected)) {
+    if (stableFingerprint(version.content) !== stableFingerprint(this.buildRecord(projectId, inputVersion, resolved, bundle))) {
       throw new NativeCompilationServiceError("native_build_invalid", "Native build metadata does not match its exact immutable compilation input");
     }
-    return version;
+    return { build: version, input: inputVersion, resolved, bundle };
   }
 
   private currentPlayerConfigContext(projectId: string): PlayerConfigContext {
@@ -503,7 +544,8 @@ export class NativeCompilationService {
     return config;
   }
 
-  private inspectCurrent(projectId: string): Inspection {
+  private inspectCurrent(projectId: string, selection?: NativePreviewSelection): Inspection {
+    if (selection) selection = { ...selection, passageIds: [...selection.passageIds].sort() };
     const blockers: PublicationDiagnostic[] = [];
     const warningDiagnostics: PublicationDiagnostic[] = [];
     const acknowledgedWarnings: PublicationDiagnostic[] = [];
@@ -657,13 +699,24 @@ export class NativeCompilationService {
       }
     }
 
+    let previewWorld: ResolvedNativeCompilationInput["world"];
+    let boundary: Inspection["boundary"];
+    const selectedIds = new Set(selection?.passageIds);
+    const draftPassages = selection ? passages.filter(passage => selectedIds.has(passage.id)) : passages;
+    if (selection) {
+      try { previewWorld = resolveWorld(this.artifacts, projectId, entityReferences(passageVersions)); }
+      catch (error) { blocker("publication.world-invalid", (error as Error).message, "project", projectId); }
+      const inspected = inspectNativePreviewBoundary(selection, passages, choices, previewWorld?.presentation ?? undefined);
+      boundary = inspected.boundary;
+      for (const finding of inspected.blockers) blocker("preview.boundary-invalid", finding.message, finding.source, finding.id);
+    }
     const acceptedDrafts: Array<{ selection: NativeAcceptedDraftSelection; proseMarkdown: string }> = [];
     const passageReferenceById = new Map(passageVersions.map((item) => [item.entityId, item]));
     const acceptedHeads = new Map(this.passageDrafts.listAcceptedHeadsForPassages(
       projectId,
-      passages.map((passage) => passage.id),
+      draftPassages.map((passage) => passage.id),
     ).map((head) => [head.passageId, head]));
-    for (const passage of passages) {
+    for (const passage of draftPassages) {
       const passageVersion = passageReferenceById.get(passage.id)!;
       const head = acceptedHeads.get(passage.id);
       const draft = head?.accepted;
@@ -735,7 +788,7 @@ export class NativeCompilationService {
 
     let resolved: ResolvedNativeCompilationInput | null = null;
     if (!blockers.length && exactStructure && brief && bible && routes && endings && mechanics
-      && acceptedDrafts.length === passages.length) {
+      && acceptedDrafts.length === draftPassages.length) {
       const identity = {
         schemaId: NATIVE_COMPILATION_INPUT_SCHEMA_ID,
         schemaVersion: NATIVE_COMPILATION_INPUT_SCHEMA_VERSION,
@@ -758,6 +811,7 @@ export class NativeCompilationService {
         upstreamArtifacts: [...upstreamReferences].sort((left, right) => left.artifactId.localeCompare(right.artifactId)),
         acceptedDrafts: acceptedDrafts.map((item) => item.selection).sort((left, right) => left.passageId.localeCompare(right.passageId)),
         warnings: validationWarnings.sort((left, right) => left.fingerprint.localeCompare(right.fingerprint)),
+        ...(selection && boundary ? { preview: { selection, boundary, playerConfigVersionId: this.artifacts.getCurrent(projectId, NATIVE_PLAYER_CONFIG_ARTIFACT_ID)?.id ?? null } } : {}),
         compilerPolicy: {
           id: NATIVE_COMPILER_POLICY_ID,
           version: NATIVE_COMPILER_POLICY_VERSION,
@@ -771,12 +825,14 @@ export class NativeCompilationService {
         },
       };
       let illustrations: ResolvedNativeCompilationInput["illustrations"];
-      let world: ResolvedNativeCompilationInput["world"];
-      try { world = resolveWorld(this.artifacts, projectId, identity.passages); }
-      catch (error) { blocker("publication.world-invalid", (error as Error).message, "project", projectId); }
+      let world = previewWorld;
+      if (!selection) {
+        try { world = resolveWorld(this.artifacts, projectId, identity.passages); }
+        catch (error) { blocker("publication.world-invalid", (error as Error).message, "project", projectId); }
+      }
       if (world?.presentation?.progression) for (const finding of progressionDiagnostics(world.presentation.progression, world.presentation.initialMinutes, world.presentation.economy)) warningDiagnostics.push(diagnostic(finding.code, "warning", `${finding.message} Limited static analysis; not exhaustive.`, "world-progression", finding.entityId));
       if (world?.presentation?.people) for (const finding of peopleDiagnostics(world.presentation.people, world.presentation.progression)) warningDiagnostics.push(diagnostic(finding.code, "warning", finding.message, "world-people", finding.entityId));
-      try { illustrations = resolveIllustrations(this.artifacts, projectId, identity.passages); }
+      try { illustrations = resolveIllustrations(this.artifacts, projectId, selection ? identity.passages.filter(passage => selectedIds.has(passage.entityId)) : identity.passages); }
       catch (error) { blocker("publication.illustration-invalid", (error as Error).message, "illustrated-scene", projectId); }
       const input = NativeCompilationInputSchema.parse({
         ...identity,
@@ -801,6 +857,7 @@ export class NativeCompilationService {
       resolved = resolvedCandidate;
       try {
         const bundle = compileNativeGame(resolvedCandidate);
+        if (selection) this.buildPlayerConfig(projectId, resolvedCandidate, bundle);
         const loaded = loadNativeGame(bundle);
         currentNativePassage(loaded, initializeNativeGame(loaded));
         info.push(diagnostic(
@@ -818,12 +875,12 @@ export class NativeCompilationService {
     const finalReadiness = readiness(projectId, blockers, warningDiagnostics, acknowledgedWarnings, info, resolved?.input ?? null, {
       snapshotId: snapshot.id,
       structureVersionId: snapshot.structureVersionId,
-      passageCount: passages.length,
-      choiceCount: choices.length,
+      passageCount: draftPassages.length,
+      choiceCount: selection ? choices.filter(choice => selectedIds.has(choice.sourcePassageId) && choice.sourcePassageId !== selection.stopPassageId).length : choices.length,
       acceptedDraftCount: acceptedDrafts.length,
       acceptedWordCount: acceptedDrafts.reduce((total, item) => total + item.selection.wordCount, 0),
     });
-    return { readiness: finalReadiness, resolved: finalReadiness.ready ? resolved : null };
+    return { readiness: finalReadiness, resolved: finalReadiness.ready ? resolved : null, boundary };
   }
 
   private resolveStoredInput(projectId: string, value: unknown): ResolvedNativeCompilationInput {
@@ -889,6 +946,7 @@ export class NativeCompilationService {
     if (upstream["creative-direction"]) {
       parsedUpstream["creative-direction"] = CreativeDirectionSchema.parse(upstream["creative-direction"]);
     }
+    const selected = input.preview ? new Set(input.preview.selection.passageIds) : null;
     const resolved: ResolvedNativeCompilationInput = {
       input,
       structure: { versionId: structureVersion.id, content: structure },
@@ -900,7 +958,7 @@ export class NativeCompilationService {
         content: parsedUpstream[reference.artifactId],
       })) as ResolvedNativeCompilationInput["upstreamArtifacts"],
       acceptedDrafts,
-      ...(input.illustrations ? { illustrations: resolveIllustrations(this.artifacts, projectId, input.passages, input.illustrations.versions) } : {}),
+      ...(input.illustrations ? { illustrations: resolveIllustrations(this.artifacts, projectId, selected ? input.passages.filter(passage => selected.has(passage.entityId)) : input.passages, input.illustrations.versions) } : {}),
       ...(input.world ? { world: resolveWorld(this.artifacts, projectId, input.passages, input.world, LongFormMechanicsPlanSchema.parse(parsedUpstream.mechanics).relationships, LongFormMechanicsPlanSchema.parse(parsedUpstream.mechanics)) } : {}),
     };
     return resolved;
@@ -965,9 +1023,10 @@ export class NativeCompilationService {
     }
   }
 
-  private requireInputVersion(projectId: string, versionId: string): ArtifactVersion<NativeCompilationInput> {
+  private requireInputVersion(projectId: string, versionId: string, preview = false): ArtifactVersion<NativeCompilationInput> {
     const version = this.artifacts.getVersion<NativeCompilationInput>(versionId);
-    if (!version || version.projectId !== projectId || version.artifactId !== NATIVE_COMPILATION_INPUT_ARTIFACT_ID
+    if (!version || version.projectId !== projectId || Boolean(version.content?.preview) !== preview
+      || version.artifactId !== (preview ? NATIVE_PREVIEW_INPUT_ARTIFACT_ID : NATIVE_COMPILATION_INPUT_ARTIFACT_ID)
       || version.artifactType !== "native-compilation-input" || version.schemaVersion !== NATIVE_COMPILATION_INPUT_SCHEMA_VERSION) {
       throw new NativeCompilationServiceError("native_input_not_found", "Native compilation input was not found");
     }

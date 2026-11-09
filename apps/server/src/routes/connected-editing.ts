@@ -41,6 +41,9 @@ const descriptions: Record<ConnectedEditTool, string> = {
   accept_drafts: "Accept only the explicitly author-approved candidate selection and exact acceptance fingerprint. Shared Creator acceptance guards stale bases, neighbors and locks, preserving old versions. No automatic unlock or review/lock lifecycle promotion. Retry identical UUID/arguments.",
   publication_readiness: "Inspect current shared compiler readiness, blockers, warnings and counts without generating prose or compiling. Approve the exact fingerprint/head separately to compile. Omitted diagnostic counts remain explicit.",
   compile_game: "After explicit author approval, compile the exact current publication-ready game through Creator's native compiler, capturing immutable input/build versions. No silent staleness override. Use identical operation UUID/arguments for retry.",
+  review_preview: "Read-only review of a partial playtest. Select passageIds, startPassageId and a non-ending stopPassageId. Requires current accepted prose throughout the slice. Show the exact stop and suppressed choices/World commands and any escaping references to the author before asking for consent. Not publication readiness.",
+  compile_preview: "After explicit author approval, compile only the exact reviewed partial preview using the same selection and current review/head fingerprints. The stop shows accepted prose, then prevents all further choice and World actions; it is not an authored ending. No publication or prose acceptance. Retry identical operation UUID and arguments.",
+  export_preview: "Return an authenticated same-server download path for an exact partial preview build. Fetch it with the same local MCP authorization (never put the token in the URL). The native standalone HTML plays offline; it is not a full publication.",
   simulate_game: "Run a deterministic authored choice-ID path against an exact approved current plan, with optional expected ending. Stores reproducible input/trace, never provider narration. Inspect with read_simulation and revise through proposals. Requires consent and exact game head; retry identical UUID/arguments.",
   read_simulation: "Read and verify a stored deterministic simulation trace, paginated 50 steps, including actual result and final state. No claims of exhaustive correctness.",
   export_game: "Prepare a download link for one exact native build as standalone HTML, static ZIP or text-only manuscript Markdown. Illustrated scenes require native HTML/ZIP; incompatible Markdown is rejected. Fetch the returned same-server path to render/download through Creator's existing export service; this tool returns no file bytes and writes no file. Historical content requires allowHistorical=true. Creator uses current player configuration. Published games require no AI service.",
@@ -61,15 +64,15 @@ const descriptions: Record<ConnectedEditTool, string> = {
   reject_edit: "Reject a saved pending proposal; changes no canonical content. Use a retry-safe UUID.",
 };
 const reads = new Set<ConnectedEditTool>(["read_authoring_settings", "review_authoring_settings", "read_authoring_context", "list_projects", "project_state", "list_edit_targets", "list_edits", "get_edit", "review_edit", "read_foundation", "review_foundation_approval"]);
-for (const name of ["game_state", "read_game_record", "review_game_plan", "review_drafts", "publication_readiness", "read_simulation", "export_game"] as const) reads.add(name);
+for (const name of ["game_state", "read_game_record", "review_game_plan", "review_drafts", "publication_readiness", "read_simulation", "export_game", "review_preview", "export_preview"] as const) reads.add(name);
 for (const name of ["list_assets", "read_asset", "asset_usage", "list_staged_assets", "review_asset"] as const) reads.add(name);
 for (const name of ["read_scene", "review_scene"] as const) reads.add(name);
 for (const name of ["read_world", "review_world", "inspect_world_economy", "inspect_world_journal", "preview_chapter_transition", "inspect_world_presence"] as const) reads.add(name);
 
-export function registerConnectedEditing(app: FastifyInstance, service: ConnectedEditService, config: ConnectedEditingConfig) {
+export function registerConnectedEditing(app: FastifyInstance, service: ConnectedEditService, config: ConnectedEditingConfig,
+  renderPreview: (projectId: string, buildVersionId: string) => Promise<{ html: string; fingerprint: string }>) {
   const token = Buffer.from(`Bearer ${config.token}`);
-  app.route({ method: ["POST", "GET", "DELETE"], url: "/mcp", bodyLimit: 196_000,
-    onRequest: async (req, reply) => {
+  const authorize: import("fastify").onRequestAsyncHookHandler = async (req, reply) => {
       const authorization = Buffer.from(req.headers.authorization ?? "");
       if (authorization.length !== token.length || !timingSafeEqual(authorization, token)) {
         return reply.code(401).header("WWW-Authenticate", 'Bearer realm="cyoa-connected-editing"').send({ error: "connected_auth_required" });
@@ -78,7 +81,19 @@ export function registerConnectedEditing(app: FastifyInstance, service: Connecte
         || !/^(127\.0\.0\.1|localhost|\[::1\])(:[0-9]{1,5})?$/.test(req.headers.host ?? "") || req.headers.origin !== undefined) {
         return reply.code(403).send({ error: "connected_loopback_client_required" });
       }
-    },
+  };
+  app.get<{ Params: { projectId: string; buildVersionId: string } }>("/mcp/previews/:projectId/:buildVersionId/standalone", { onRequest: authorize }, async (req, reply) => {
+    try {
+      const { projectId, buildVersionId } = req.params;
+      await service.call("export_preview", { projectId, buildVersionId });
+      const { html, fingerprint } = await renderPreview(projectId, buildVersionId);
+      return reply.type("text/html; charset=utf-8").header("content-disposition", 'attachment; filename="cyoa-partial-preview.html"')
+        .header("cache-control", "no-store").header("x-content-type-options", "nosniff").header("x-cyoa-artifact-fingerprint", fingerprint).send(html);
+    } catch (error) {
+      return reply.code(404).send({ error: (error as Error).message });
+    }
+  });
+  app.route({ method: ["POST", "GET", "DELETE"], url: "/mcp", bodyLimit: 196_000, onRequest: authorize,
     handler: async (req, reply) => {
       if (req.method !== "POST") return reply.code(405).header("Allow", "POST").send({ error: "connected_stateless_post_required" });
       const server = new McpServer({ name: "cyoa-connected-editing", version: "1.0.0" }, { instructions: CONNECTED_AUTHORING_INSTRUCTIONS });

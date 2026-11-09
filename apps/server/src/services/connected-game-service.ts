@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CreativeDirectionSchema, sourceCanonicalJson, sourceDigest } from "@story-to-cyoa/domain";
-import { planningArtifactIds, type PassageDraftingContextPack } from "@story-to-cyoa/pipeline";
+import { NativePreviewSelectionSchema, planningArtifactIds, type NativeCompilationInput, type NativePreviewSelection, type PassageDraftingContextPack } from "@story-to-cyoa/pipeline";
 import { ArtifactRepository, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, type DraftAcceptanceApplication, type StoryDatabase } from "@story-to-cyoa/persistence";
 import type { ConversationalEditService } from "./conversational-edit-service.js";
 import type { PassageDraftingService } from "./passage-drafting-service.js";
@@ -30,12 +30,19 @@ export const ConnectedGameInputs = {
   accept_drafts: z.object({ ...operation, selections, fingerprint: digest, approved: z.literal(true) }).strict(),
   publication_readiness: z.object(project).strict(),
   compile_game: z.object({ ...bound, fingerprint: digest }).strict(),
+  review_preview: z.object({ ...project, selection: NativePreviewSelectionSchema }).strict(),
+  compile_preview: z.object({ ...bound, fingerprint: digest, selection: NativePreviewSelectionSchema }).strict(),
+  export_preview: z.object({ ...project, buildVersionId: id }).strict(),
   simulate_game: z.object({ ...bound, choiceIds: z.array(id).max(100), expectedEndingId: id.optional() }).strict(),
   read_simulation: z.object({ ...project, versionId: id, offset: z.number().int().min(0).max(10000).default(0) }).strict(),
   export_game: z.object({ ...project, buildVersionId: id, format: z.enum(["standalone", "static", "markdown"]), allowHistorical: z.boolean().default(false) }).strict(),
 };
 export type ConnectedGameTool = keyof typeof ConnectedGameInputs;
-export const connectedGameMutations = new Set<ConnectedGameTool>(["apply_world", "apply_scene", "initialize_game_plan", "approve_game_plan", "submit_draft", "accept_drafts", "compile_game", "simulate_game"]);
+export const connectedGameMutations = new Set<ConnectedGameTool>(["apply_world", "apply_scene", "initialize_game_plan", "approve_game_plan", "submit_draft", "accept_drafts", "compile_game", "compile_preview", "simulate_game"]);
+const previewSelection = (selection: NativePreviewSelection) => ({ ...selection, passageIds: [...selection.passageIds].sort() });
+const previewFingerprint = (headFingerprint: string, input: NativeCompilationInput) => sourceDigest({
+  kind: "partial-preview", headFingerprint, sourceInputFingerprint: input.sourceInputFingerprint, preview: input.preview,
+});
 
 export class ConnectedGameService {
   private readonly passages: PassagePlanRepository;
@@ -89,6 +96,23 @@ export class ConnectedGameService {
       blockers: blockers.slice(0, 50), warnings: warnings.slice(0, 50), acknowledgedWarnings: acknowledgedWarnings.slice(0, 50),
       counts: { blockers: blockers.length, warnings: warnings.length, acknowledgedWarnings: acknowledgedWarnings.length, diagnostics: diagnostics.length },
       omittedFindings: Math.max(0, blockers.length - 50) + Math.max(0, warnings.length - 50) + Math.max(0, acknowledgedWarnings.length - 50) };
+  }
+  private previewReview(projectId: string, requested: NativePreviewSelection) {
+    this.approvedFoundations(projectId);
+    const selection = previewSelection(requested), headFingerprint = this.head(projectId);
+    const { readiness, boundary } = this.compilation.reviewPreview(projectId, selection);
+    const { inputPreview, diagnostics, blockers, warnings, acknowledgedWarnings, ...summary } = readiness;
+    const binding = { kind: "partial-preview" as const, selection, boundary: boundary ?? null, headFingerprint };
+    return {
+      ...summary, ...binding, fingerprint: inputPreview ? previewFingerprint(headFingerprint, inputPreview) : sourceDigest({ ...binding, readiness }),
+      acceptedDrafts: inputPreview?.acceptedDrafts.map(({ passageId, versionId, basedOnPassagePlanVersionId, proseFingerprint }) =>
+        ({ passageId, versionId, basedOnPassagePlanVersionId, proseFingerprint })) ?? [],
+      world: inputPreview?.world ?? null, illustrations: inputPreview?.illustrations ?? null,
+      playerConfigVersionId: inputPreview?.preview?.playerConfigVersionId ?? null,
+      blockers: blockers.slice(0, 50), warnings: warnings.slice(0, 50), acknowledgedWarnings: acknowledgedWarnings.slice(0, 50),
+      omittedFindings: Math.max(0, blockers.length - 50) + Math.max(0, warnings.length - 50) + Math.max(0, acknowledgedWarnings.length - 50),
+      totalFindings: diagnostics.length, providerCalls: 0,
+    };
   }
   call(tool: ConnectedGameTool, value: unknown): unknown {
     switch (tool) {
@@ -186,6 +210,28 @@ export class ConnectedGameService {
         const result = this.compilation.compile(i.projectId, undefined, { inTransaction: true });
         return { inputVersionId: result.input.id, buildVersionId: result.build.id, build: result.build.content, providerCalls: 0 };
       }
+      case "review_preview": {
+        const i = ConnectedGameInputs.review_preview.parse(value);
+        return this.previewReview(i.projectId, i.selection);
+      }
+      case "compile_preview": {
+        const i = ConnectedGameInputs.compile_preview.parse(value);
+        this.fresh(i.projectId, i.headFingerprint);
+        const review = this.previewReview(i.projectId, i.selection);
+        if (review.fingerprint !== i.fingerprint) throw new Error("connected_preview_review_stale_repreview");
+        if (!review.ready || !review.sourceInputFingerprint) throw new Error("connected_preview_not_ready_read_review_blockers");
+        const result = this.compilation.compilePreviewInTransaction(i.projectId, i.selection, review.sourceInputFingerprint);
+        return { kind: "partial-preview", reviewFingerprint: i.fingerprint, inputVersionId: result.input.id,
+          buildVersionId: result.build.id, build: result.build.content, providerCalls: 0 };
+      }
+      case "export_preview": {
+        const i = ConnectedGameInputs.export_preview.parse(value);
+        const { build, input } = this.compilation.loadPreviewBuild(i.projectId, i.buildVersionId);
+        return { kind: "partial-preview", buildVersionId: build.id, inputVersionId: input.id,
+          bundleFingerprint: build.content.bundleFingerprint, format: "standalone", providerCalls: 0,
+          downloadPath: `/mcp/previews/${encodeURIComponent(i.projectId)}/${encodeURIComponent(build.id)}/standalone`,
+          delivery: "authenticated-download-link-rendered-on-fetch" };
+      }
       case "simulate_game": {
         const i = ConnectedGameInputs.simulate_game.parse(value); this.fresh(i.projectId, i.headFingerprint); this.approvedFoundations(i.projectId);
         const input = this.simulations.createInput(i.projectId, { inTransaction: true });
@@ -256,6 +302,13 @@ export class ConnectedGameService {
     } else if (tool === "compile_game") {
       const build = this.compilation.validateBuild(input.projectId, r.buildVersionId);
       if (build.content.compilationInputArtifactVersionId !== r.inputVersionId || !equal(build.content, r.build)) throw new Error("connected_receipt_lineage_invalid");
+    } else if (tool === "compile_preview") {
+      const i = ConnectedGameInputs.compile_preview.parse(value);
+      const { build, input } = this.compilation.loadPreviewBuild(i.projectId, r.buildVersionId);
+      if (r.kind !== "partial-preview" || r.reviewFingerprint !== i.fingerprint || previewFingerprint(i.headFingerprint, input.content) !== i.fingerprint || input.id !== r.inputVersionId
+        || !equal(input.content.preview?.selection, previewSelection(i.selection)) || !equal(build.content, r.build)) {
+        throw new Error("connected_receipt_lineage_invalid");
+      }
     }
   }
 }

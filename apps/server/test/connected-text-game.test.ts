@@ -22,6 +22,10 @@ import { validatePortableAuthoringProject } from "../src/services/portable-proje
 import { prepareStudioHistoryDuplicate } from "../src/services/studio-history-duplication.js";
 import { applyFoundation, approveFoundation, completeOriginalFoundations, originalTitle, proposeFoundation } from "../../../e2e/helpers/original-foundations.js";
 import { acceptGameDrafts, applyGameEdit, approveGamePlan, completeConnectedTextGame, proposeGameEdit, submitGameDraft } from "../../../e2e/helpers/connected-text-game.js";
+import { applyPreviewWorld, boundaryProse, completePreviewOpening, initializePreviewOpening, openingSelection, previewChoice, previewStart, previewStop, previewWorld } from "../../../e2e/helpers/partial-preview.js";
+import { authoredWorld } from "../../../e2e/helpers/world.js";
+import { withAuthoredProgression } from "../../../e2e/helpers/progression.js";
+import { chooseNativePlayerSession, createNativePlayerSession, nativePlayerView } from "@story-to-cyoa/runtime";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
@@ -60,6 +64,199 @@ async function initialized(effectMechanics = false) {
   return f;
 }
 async function completed() { const f = fixture(), proof = await completeConnectedTextGame(f.call, f.projectId); return { ...f, proof }; }
+
+describe("PF-008 reviewed partial preview", () => {
+  const review = (f: ReturnType<typeof fixture>, selection = openingSelection) => f.call("review_preview", { projectId: f.projectId, selection });
+  const args = (f: ReturnType<typeof fixture>, r: any) => ({ projectId: f.projectId, selection: r.selection,
+    headFingerprint: r.headFingerprint, fingerprint: r.fingerprint, approved: true, operationId: randomUUID() });
+  const writes = (f: ReturnType<typeof fixture>) => f.db.prepare(`SELECT
+    (SELECT COUNT(*) FROM artifact_versions) artifacts, (SELECT COUNT(*) FROM messages) messages,
+    (SELECT COUNT(*) FROM passage_draft_versions) drafts, (SELECT COUNT(*) FROM passage_plan_snapshots) snapshots`).get();
+
+  it("requires exact accepted prose and reviewed stop; builds an isolated opening without changing the authoring or publication state", async () => {
+    const f = fixture(), { call, projectId } = f;
+    const candidates = await initializePreviewOpening(call, projectId);
+    await acceptGameDrafts(call, projectId, candidates.slice(0, 1));
+    const missing = await review(f), beforeMissing = writes(f);
+    expect(missing.ready).toBe(false);
+    expect(missing.blockers).toEqual([expect.objectContaining({ code: "publication.accepted-prose-missing", sourceId: previewStop })]);
+    expect(f.drafts.getHead(projectId, previewStop)?.current?.id).toBe(candidates[1]!.candidateDraftVersionId);
+    await expect(call("compile_preview", args(f, missing))).rejects.toThrow("connected_preview_not_ready");
+    expect(writes(f)).toEqual(beforeMissing);
+    await acceptGameDrafts(call, projectId, candidates.slice(1));
+    const before = writes(f), authored = await call("game_state", { projectId }), foundations = await call("project_state", { projectId });
+    const ready = await review(f), full = await call("publication_readiness", { projectId });
+    expect(writes(f)).toEqual(before);
+    expect(ready).toMatchObject({ ready: true, kind: "partial-preview", acceptedDraftCount: 2, passageCount: 2, choiceCount: 1,
+      boundary: { stopPassageId: previewStop, suppressedChoices: expect.arrayContaining([
+        { id: "choice-passage-shared-route-pivot-continue", destinationPassageId: "passage-route-1-act" },
+      ]), suppressedWorldCommands: [] } });
+    expect(ready.acceptedDrafts.map((draft: { versionId: string }) => draft.versionId)).toEqual(
+      [f.drafts.getHead(projectId, previewStart)!.accepted!.id, f.drafts.getHead(projectId, previewStop)!.accepted!.id]);
+    expect(full.ready).toBe(false);
+    expect(full.blockers.some((b: { sourceId: string }) => b.sourceId === "passage-ending-1")).toBe(true);
+    const { selection: _selection, ...fullInput } = args(f, full);
+    await expect(call("compile_game", fullInput)).rejects.toThrow("Current project is not ready for native compilation");
+    const input = args(f, ready);
+    await expect(call("compile_preview", { ...input, approved: false })).rejects.toThrow();
+    await expect(call("compile_preview", { ...input, selection: { ...openingSelection, stopPassageId: previewStart } })).rejects.toThrow("connected_preview_review_stale");
+    expect(writes(f)).toEqual(before);
+    const built = await call("compile_preview", input);
+    const { bundle, playerConfig } = f.compilation.loadPreviewBuild(projectId, built.buildVersionId);
+    expect(bundle.preview).toEqual(ready.boundary);
+    expect(bundle.passages.map(passage => passage.id)).toEqual(openingSelection.passageIds);
+    const initial = createNativePlayerSession(bundle, playerConfig);
+    const stopped = chooseNativePlayerSession(bundle, playerConfig, initial, previewChoice).session;
+    expect(stopped.state.stats.resolve).toBe(initial.state.stats.resolve! + 1);
+    const view = nativePlayerView(bundle, playerConfig, stopped);
+    expect(view).toMatchObject({ previewStopped: true, choices: [], passage: { proseMarkdown: boundaryProse }, terminal: { result: null } });
+    expect(await call("game_state", { projectId })).toEqual(authored);
+    expect((await call("project_state", { projectId })).workflow).toEqual(foundations.workflow);
+    expect(await call("publication_readiness", { projectId })).toEqual(full);
+    expect(f.compilation.listBuilds(projectId)).toEqual([]);
+    expect(() => f.compilation.compile(projectId, built.inputVersionId)).toThrow();
+    await expect(call("export_game", { projectId, buildVersionId: built.buildVersionId, format: "standalone", allowHistorical: true })).rejects.toThrow();
+    const after = writes(f);
+    expect(await call("compile_preview", input)).toEqual(built);
+    await expect(call("compile_preview", { ...input, selection: { ...openingSelection, stopPassageId: previewStart } })).rejects.toThrow("connected_operation");
+    expect(writes(f)).toEqual(after);
+    const exports = new PublicationExportService(new PortableProjectRepository(f.db), f.compilation);
+    const restored = fixtureFromBackup(f, exports.exportStudioPortable(projectId, "full-fidelity").bytes);
+    expect(await restored.call("compile_preview", input)).toEqual(built);
+    const copy = restored.projects.duplicate(projectId, "Copied partial playtest", validatePortableAuthoringProject, prepareStudioHistoryDuplicate);
+    const copyBuild = restored.artifacts.getCurrent(copy.id, "native-preview-builds")!;
+    expect(restored.compilation.loadPreviewBuild(copy.id, copyBuild.id).bundle.preview).toEqual(bundle.preview);
+    expect(restored.compilation.readiness(copy.id).ready).toBe(false);
+    expect(f.generate).not.toHaveBeenCalled();
+  });
+
+  function fixtureFromBackup(f: ReturnType<typeof fixture>, bytes: Uint8Array) {
+    const db = openDatabase();
+    try { new PublicationExportService(new PortableProjectRepository(db), undefined).importPortable(bytes); }
+    catch (error) { db.close(); throw error; }
+    return fixture(db, f.projectId);
+  }
+
+  it("blocks a choice escape outside the stop and stale review/prose with no preview writes", async () => {
+    const f = fixture(), { call, projectId } = f;
+    await completePreviewOpening(call, projectId);
+    const original = await review(f);
+    expect(original.ready).toBe(true);
+    const escape = await review(f, { ...openingSelection, passageIds: [previewStart, "passage-route-1-act"], stopPassageId: "passage-route-1-act" });
+    expect(escape.blockers).toContainEqual(expect.objectContaining({ sourceId: previewChoice, message: expect.stringContaining(previewStop) }));
+    const beforeEscape = writes(f);
+    await expect(call("compile_preview", args(f, escape))).rejects.toThrow("connected_preview_not_ready");
+    expect(writes(f)).toEqual(beforeEscape);
+    const { record } = await call("read_game_record", { projectId, kind: "passage", entityId: previewStop });
+    const key = `passage:${previewStop}`;
+    const proposal = await proposeGameEdit(call, projectId, "Move the harbor decision under the clock",
+      [{ key, versionId: record.id }], [{ targetKey: key, kind: "set-fields", changes: { summary: "Mira reads the ledger beside the harbor clock." } }]);
+    await applyGameEdit(call, projectId, proposal.proposalId);
+    await approveGamePlan(call, projectId);
+    const stale = await review(f), beforeStale = writes(f);
+    expect(stale.blockers).toContainEqual(expect.objectContaining({ code: "publication.accepted-prose-stale" }));
+    await expect(call("compile_preview", args(f, original))).rejects.toThrow("head_stale");
+    await expect(call("compile_preview", args(f, stale))).rejects.toThrow("connected_preview_not_ready");
+    expect(writes(f)).toEqual(beforeStale);
+  });
+
+  it("names all escaping World passage destinations and binds World changes and the receipt atomically", async () => {
+    const f = fixture(), { call, projectId } = f;
+    await completePreviewOpening(call, projectId);
+    const world = await withAuthoredProgression(call, projectId, await authoredWorld(call, projectId));
+    world.progression!.events[0]!.passage = world.locations.find(location => location.id === "station")!.passage;
+    await applyPreviewWorld(call, projectId, world);
+    const escaping = await review(f);
+    expect(escaping.ready).toBe(false);
+    for (const id of ["station", "cafe-station", "notice", "next"]) {
+      expect(escaping.blockers).toContainEqual(expect.objectContaining({ sourceId: id, message: expect.stringContaining("passage-route-1-act") }));
+    }
+    const before = writes(f);
+    await expect(call("compile_preview", args(f, escaping))).rejects.toThrow("connected_preview_not_ready");
+    expect(writes(f)).toEqual(before);
+    const closed = await previewWorld(call, projectId);
+    await applyPreviewWorld(call, projectId, closed);
+    const ready = await review(f);
+    expect(ready).toMatchObject({ ready: true, boundary: { suppressedWorldCommands: expect.arrayContaining([
+      { kind: "travel", id: "cafe-home", destinationPassageId: previewStart }, { kind: "wait", minutes: 15 },
+    ]) } });
+    await applyPreviewWorld(call, projectId, { ...closed, initialMinutes: 1429 });
+    const changed = await review(f), beforeFailure = writes(f);
+    await expect(call("compile_preview", args(f, ready))).rejects.toThrow("head_stale");
+    f.db.exec("CREATE TEMP TRIGGER fail_preview_receipt BEFORE INSERT ON messages WHEN json_extract(NEW.metadata_json,'$.connectedOperation.tool')='compile_preview' BEGIN SELECT RAISE(ABORT,'preview receipt failed'); END");
+    const input = args(f, changed);
+    await expect(call("compile_preview", input)).rejects.toThrow("preview receipt failed");
+    expect(writes(f)).toEqual(beforeFailure);
+    f.db.exec("DROP TRIGGER fail_preview_receipt");
+    const built = await call("compile_preview", input);
+    expect(f.compilation.loadPreviewBuild(projectId, built.buildVersionId).bundle.world?.initialMinutes).toBe(1429);
+  });
+
+  it("replays an exact preview across real MCP SDK reconnects without appending artifacts or changing its pinned player configuration", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cyoa-pf008-sdk-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const projectId = randomUUID(), token = "pf008-disposable-auth-credential-00000000", databasePath = join(dir, "preview.sqlite");
+    const start = async () => {
+      const app = buildApp({ databasePath, connectedEditing: { token, projectIds: [projectId], allowProjectCreation: true } });
+      const address = await app.listen({ host: "127.0.0.1", port: 0 });
+      cleanups.push(() => app.close());
+      const client = new Client({ name: "pf008-no-model-test", version: "1" });
+      const headers = { Authorization: `Bearer ${token}` };
+      await client.connect(new StreamableHTTPClientTransport(new URL(`${address}/mcp`), { requestInit: { headers } }));
+      cleanups.push(() => client.close());
+      const call = async (tool: string, input: Record<string, unknown>) => {
+        const response = await client.callTool({ name: tool, arguments: input });
+        if (response.isError) throw new Error(JSON.stringify(response.content));
+        return response.structuredContent as any;
+      };
+      return { app, client, call, address, headers };
+    };
+    const first = await start();
+    const discovered = (await first.client.listTools()).tools;
+    expect(discovered.filter(tool => tool.name.endsWith("_preview")).map(tool => [tool.name, tool.annotations?.readOnlyHint]))
+      .toEqual(expect.arrayContaining([["review_preview", true], ["compile_preview", false], ["export_preview", true]]));
+    await first.call("create_project", { projectId, name: originalTitle, operationId: randomUUID(), approved: true });
+    // A project must be publication-ready to author a custom player configuration.
+    const full = await completeConnectedTextGame(first.call, projectId);
+    const config = { rewindPolicy: { kind: "previous-step" }, visibleMechanicKeys: ["resolve"], autosaveEnabled: false, manualSlotLimit: 5 };
+    const configure = async (target: Awaited<ReturnType<typeof start>>, value: unknown) => {
+      const response = await target.app.inject({ method: "PUT", url: `/api/long-form/projects/${projectId}/publication/player-config`, payload: value as object });
+      expect(response.statusCode, response.body).toBe(201);
+      return response.json();
+    };
+    const playerConfig = await configure(first, config);
+    const selection = openingSelection, review = await first.call("review_preview", { projectId, selection });
+    expect(review.playerConfigVersionId).toBe(playerConfig.version.id);
+    const input = { projectId, selection: review.selection, operationId: randomUUID(), approved: true,
+      fingerprint: review.fingerprint, headFingerprint: review.headFingerprint };
+    const built = await first.call("compile_preview", input);
+    const exported = await first.call("export_preview", { projectId, buildVersionId: built.buildVersionId });
+    const get = async (target: Awaited<ReturnType<typeof start>>) => {
+      const response = await fetch(`${target.address}${exported.downloadPath}`, { headers: target.headers });
+      expect(response.ok).toBe(true);
+      return response.text();
+    };
+    const original = await get(first);
+    await first.client.close(); await first.app.close();
+    const fresh = await start();
+    await configure(fresh, { ...config, autosaveEnabled: true });
+    await expect(fresh.call("compile_preview", { ...input, operationId: randomUUID() })).rejects.toThrow("head_stale");
+    expect(await fresh.call("compile_preview", input)).toEqual(built);
+    expect(await get(fresh)).toBe(original);
+    await expect(fresh.call("compile_preview", { ...input, fingerprint: "0".repeat(64) })).rejects.toThrow("connected_operation_id_conflict");
+    const otherProject = randomUUID();
+    await expect(fresh.call("export_preview", { projectId: otherProject, buildVersionId: built.buildVersionId })).rejects.toThrow("connected_project_access_denied");
+    expect((await fetch(`${fresh.address}${exported.downloadPath.replace(projectId, otherProject)}`, { headers: fresh.headers })).status).toBe(404);
+    await fresh.client.close(); await fresh.app.close();
+    const db = openDatabase(databasePath);
+    try {
+      const artifacts = new ArtifactRepository(db);
+      expect(artifacts.listVersions(projectId, "native-preview-builds").map(version => version.id)).toEqual([built.buildVersionId]);
+      expect(artifacts.listVersions(projectId, "native-preview-inputs").map(version => version.id)).toEqual([built.inputVersionId]);
+      expect(artifacts.listVersions(projectId, "native-builds").map(version => version.id)).toEqual([full.compiled.buildVersionId]);
+    } finally { db.close(); }
+  });
+});
 
 async function largeEndingFixture(requiredOverflow = false) {
   const f = fixture(), { projectId, call } = f;

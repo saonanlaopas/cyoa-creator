@@ -215,8 +215,18 @@ export class PublicationExportService {
 
   async exportStandalone(projectId: string, inputArtifactVersionId?: string): Promise<{ html: string; fingerprint: string }> {
     const source = this.requireNativeCompilation().compile(projectId, inputArtifactVersionId);
+    return this.renderStandalone(source, this.projectTitle(projectId, source.bundle), "standalone-html");
+  }
+
+  async exportPreviewStandalone(projectId: string, buildVersionId: string) {
+    const source = this.requireNativeCompilation().loadPreviewBuild(projectId, buildVersionId);
+    const start = source.bundle.passages.find(passage => passage.id === source.bundle.startPassageId)!;
+    return this.renderStandalone(source, `Partial preview: ${start.presentation.title}`, "standalone-preview-html");
+  }
+
+  private async renderStandalone(source: Parameters<typeof publicationMeaning>[1], title: string, format: string) {
     const assets = await playerAssets();
-    const title = this.projectTitle(projectId, source.bundle); const meaning = publicationMeaning("standalone-html", source, title); const fingerprint = stableFingerprint(meaning);
+    const meaning = publicationMeaning(format, source, title); const fingerprint = stableFingerprint(meaning);
     const payload = Buffer.from(canonical({ bundle: source.bundle, config: source.playerConfig, publication: { ...meaning, publicationFingerprint: fingerprint } }), "utf8").toString("base64");
     const inlineCss = new TextDecoder().decode(assets.css).replace(/<\/style/gi, "<\\/style");
     const inlineJs = new TextDecoder().decode(assets.js).replace(/<\/script/gi, "<\\/script");

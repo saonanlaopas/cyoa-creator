@@ -74,7 +74,7 @@ describe("installed MCP SDK settings lifecycle (native desktop remains separate)
     };
     let current = await start();
     try {
-      const tools = (await current.client.listTools()).tools.map(t => t.name); expect(tools).toHaveLength(51);
+      const tools = (await current.client.listTools()).tools.map(t => t.name); expect(tools).toHaveLength(54);
       expect(tools).toEqual(expect.arrayContaining(["read_authoring_context", "read_authoring_settings", "review_authoring_settings", "apply_authoring_settings"]));
       await current.call("create_project", { projectId, name: "Neutral room fiction", operationId: randomUUID(), approved: true });
       const before = await current.call("read_authoring_settings", { projectId }); expect(before.context.enabled).toBe(true);

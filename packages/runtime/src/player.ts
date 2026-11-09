@@ -10,6 +10,7 @@ import {
   NATIVE_RUNTIME_CONTRACT_VERSION,
   NativeGameBundleSchema,
   NativeRuntimeStateSchema,
+  atNativePreviewStop,
   chooseNativeGameChoice,
   currentNativePassage,
   listNativeGameChoices,
@@ -208,6 +209,7 @@ export interface NativePlayerView {
   passage: NativeGamePassage;
   choices: NativeChoiceView[];
   terminal: { result: RuntimeResult | null; conditionResults: boolean[] };
+  previewStopped: boolean;
   visibleState: Array<{
     key: string;
     category: "stat" | "relationship" | "resource";
@@ -417,6 +419,7 @@ export function nativePlayerView(
     passage: currentNativePassage(game, session.state),
     choices: listNativeGameChoices(game, session.state).filter((item) => item.availability.visible),
     terminal: nativeGameTerminal(game, session.state),
+    previewStopped: atNativePreviewStop(game, session.state),
     visibleState: game.bundle.world?.journal ? inspectWorldJournal(game.bundle.world, session.state).character : config.visibleMechanics.map((item) => {
       const definition = game.runtime.mechanics[item.key]!;
       const value = definition.category === "stat" ? session.state.stats[item.key]!
@@ -456,6 +459,7 @@ export function chooseNativePlayerSession(
 export function actNativePlayerWorld(bundleValue: unknown, configValue: unknown, sessionValue: unknown, command: WorldCommand): { session: NativePlayerSession; message: string } {
   const game = loadNativeGame(bundleValue), config = assertNativePlayerConfig(configValue, game.bundle);
   const session = assertNativePlayerSession(game.bundle, config, sessionValue);
+  if (atNativePreviewStop(game, session.state)) throw new NativePlayerError("player_choice_rejected", "native_preview_stop_reached");
   if (!game.bundle.world || nativeGameTerminal(game, session.state).result) throw new NativePlayerError("player_choice_rejected", "World actions are unavailable");
   const transition = transitionWorld(game.bundle.world, session.state, command);
   const state = transition.state;

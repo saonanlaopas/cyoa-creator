@@ -11,6 +11,7 @@ import {
   compiledRuntimeFingerprint,
   initializeRuntimeState,
   nativeBundleFingerprint,
+  NativePreviewStopSchema,
   stableFingerprint,
   validateNativeGameBundle,
   IllustratedPresentationSchema,
@@ -39,6 +40,7 @@ import {
 import type {
   PlanningArtifactId,
 } from "./long-form-foundation.js";
+import { inspectNativePreviewBoundary, NativePreviewSelectionSchema } from "./native-preview-boundary.js";
 
 export const NATIVE_COMPILATION_INPUT_SCHEMA_ID = "cyoa.native-compilation-input" as const;
 export const NATIVE_COMPILATION_INPUT_SCHEMA_VERSION = 1 as const;
@@ -118,6 +120,11 @@ export const NativeCompilationInputSchema = z.object({
     schemaVersion: z.literal(NATIVE_GAME_BUNDLE_SCHEMA_VERSION),
   }).strict(),
   sourceInputFingerprint: Fingerprint,
+  preview: z.object({
+    selection: NativePreviewSelectionSchema,
+    boundary: NativePreviewStopSchema,
+    playerConfigVersionId: StableId.nullable(),
+  }).strict().optional(),
   world: z.object({ schemaVersion: z.literal(1), versionId: StableId, contentFingerprint: Fingerprint, presentationFingerprint: Fingerprint }).strict().optional(),
   illustrations: z.object({ schemaVersion: z.literal(1), versions: z.array(z.object({ versionId: StableId, contentFingerprint: Fingerprint }).strict()).max(10000), presentationFingerprint: Fingerprint }).strict().optional(),
 }).strict();
@@ -177,15 +184,28 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
   const endings = resolvedArtifact<LongFormEndingPlan>(input, "endings");
   const mechanics = resolvedArtifact<LongFormMechanicsPlan>(input, "mechanics");
   const bible = resolvedArtifact<LongFormStoryBible>(input, "bible");
+  const preview = exact.preview;
+  const selected = preview ? new Set(preview.selection.passageIds) : null;
+  if (preview) {
+    const checked = inspectNativePreviewBoundary(preview.selection, input.passages.map(item => item.content),
+      input.choices.map(item => item.content), input.world?.presentation ?? undefined);
+    if (checked.blockers.length || stableFingerprint(checked.boundary) !== stableFingerprint(preview.boundary)) {
+      throw inputError("native_preview_boundary_invalid", checked.blockers[0]?.message ?? "Suppression manifest does not match the captured input");
+    }
+  }
   const source: RuntimeCompileSource = {
     snapshotId: exact.snapshot.id,
     structureVersionId: exact.snapshot.structureVersionId,
-    startPassageId: input.structure.content.startPassageId,
-    passageVersions: exact.passages.map((reference) => ({
+    startPassageId: preview?.selection.startPassageId ?? input.structure.content.startPassageId,
+    passageVersions: exact.passages.filter(reference => !selected || selected.has(reference.entityId)).map((reference) => ({
       versionId: reference.versionId,
       ...passageById.get(reference.entityId)!.content,
+      ...(reference.entityId === preview?.selection.stopPassageId ? { choiceIds: [] } : {}),
     })),
-    choiceVersions: exact.choices.map((reference) => ({
+    choiceVersions: exact.choices.filter(reference => {
+      const choice = choiceById.get(reference.entityId)!.content;
+      return !selected || selected.has(choice.sourcePassageId) && choice.sourcePassageId !== preview?.selection.stopPassageId;
+    }).map((reference) => ({
       versionId: reference.versionId,
       ...choiceById.get(reference.entityId)!.content,
     })),
@@ -195,13 +215,13 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
     endings: endings.endings.map((ending) => ({ id: ending.id, routeId: ending.routeId })),
     mechanics,
   };
-  const runtime = compileRuntime(source);
+  const runtime = compileRuntime(source, { previewStopPassageId: preview?.selection.stopPassageId });
   const nativeMechanics = Object.values(runtime.mechanics).sort((left, right) => left.key.localeCompare(right.key)).map(nativeMechanic);
   const upstreamVersions = Object.fromEntries(exact.upstreamArtifacts.map((item) => [item.artifactId, item.versionId]));
   const provisional: NativeGameBundle = {
     schemaId: NATIVE_GAME_BUNDLE_SCHEMA_ID,
     schemaVersion: NATIVE_GAME_BUNDLE_SCHEMA_VERSION,
-    gameId: exact.gameId,
+    gameId: preview ? `preview_${stableFingerprint(exact.projectId)}` : exact.gameId,
     projectId: exact.projectId,
     source: {
       inputFingerprint: exact.sourceInputFingerprint,
@@ -243,6 +263,7 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
     factIds: [...new Set(bible.canonFacts.map((fact) => fact.id))].sort(),
     ...(input.illustrations ? { illustratedPresentation: input.illustrations.presentation } : {}),
     ...(input.world?.presentation ? { world: input.world.presentation } : {}),
+    ...(preview ? { preview: preview.boundary } : {}),
     ...(exact.compilerPolicy.includeDebugProvenance ? {
       debug: {
         upstreamVersions,
@@ -371,7 +392,8 @@ function validateAcceptedDrafts(
 ): void {
   const expectedByPassage = uniqueMap(exact.acceptedDrafts, (item) => item.passageId, "accepted draft selection");
   const resolvedByPassage = uniqueMap(resolved.acceptedDrafts, (item) => item.selection.passageId, "resolved accepted draft");
-  const passageById = uniqueMap(exact.passages, (item) => item.entityId, "exact passage reference");
+  const selected = exact.preview ? new Set(exact.preview.selection.passageIds) : null;
+  const passageById = uniqueMap(exact.passages.filter(item => !selected || selected.has(item.entityId)), (item) => item.entityId, "exact passage reference");
   if (expectedByPassage.size !== resolvedByPassage.size || expectedByPassage.size !== passageById.size) {
     throw inputError("native_compilation_draft_lineage_invalid", "Resolved accepted drafts are not an exact passage bijection");
   }

@@ -264,7 +264,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerLongFormChatRoutes(app, openRouter, projects, artifacts, conversations, authorMemory, changeSets, longFormProjects);
   registerConversationalEditRoutes(app, conversationalEdits);
   if (connectedConfig) registerConnectedEditing(app, new ConnectedEditService(database, conversationalEdits, connectedConfig.projectIds, longFormProjects, connectedConfig.allowProjectCreation,
-    new ConnectedGameService(database, conversationalEdits, passagePlanService, passageDraftService, simulationService, nativeCompilationService, passageDraftingService), assetLibrary), connectedConfig);
+    new ConnectedGameService(database, conversationalEdits, passagePlanService, passageDraftService, simulationService, nativeCompilationService, passageDraftingService), assetLibrary), connectedConfig,
+    (projectId, buildVersionId) => publicationExportService.exportPreviewStandalone(projectId, buildVersionId));
   registerAssetLibrary(app, assetLibrary);
   registerIllustratedScenes(app, (projectId) => new ConnectedEditService(database, conversationalEdits, [projectId], longFormProjects, false,
     new ConnectedGameService(database, conversationalEdits, passagePlanService, passageDraftService, simulationService, nativeCompilationService, passageDraftingService), assetLibrary));

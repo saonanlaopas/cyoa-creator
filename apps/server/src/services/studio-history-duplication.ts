@@ -4,7 +4,7 @@ import { ArtifactRepository, PassageDraftRepository, PassagePlanRepository, Proj
 import { repairApplicationDefinitionFromRecord, RepairApplicationRecordSchema, RepairPlanRecordSchema, RepairProposalRecordSchema, sourceCanonicalJson } from "@story-to-cyoa/domain";
 import { compileNativeGame, narrativeReviewDigest, repairProposalFingerprint as repairDigest, selectCreativeDirectionContext, sourceInputFingerprint, type NativeCompilationInput, type ResolvedNativeCompilationInput } from "@story-to-cyoa/pipeline";
 import { createNativePlayerConfig, currentNativePassage, initializeNativeGame, listNativeGameChoices, loadNativeGame, runDeterministicPath, runPlaytestCampaign, serializedBytes, stableFingerprint, type PlaytestCampaignRecord } from "@story-to-cyoa/runtime";
-import { NativeCompilationService, type NativeBuildRecord } from "./native-compilation-service.js";
+import { NATIVE_PREVIEW_INPUT_ARTIFACT_ID, NativeCompilationService, type NativeBuildRecord } from "./native-compilation-service.js";
 import { buildPlaytestAnalysisSource } from "./playtest-service.js";
 import { SimulationService, type SimulationInputRecord, type SimulationRunRecord } from "./simulation-service.js";
 import type { NarrativeReviewAggregate } from "./narrative-review-service.js";
@@ -103,7 +103,8 @@ export function prepareStudioHistoryDuplicate(db: StoryDatabase, projectId: stri
   const nativeInputs = new Map<string, ResolvedNativeCompilationInput>();
   for (const row of ofType("native-compilation-input")) {
     const original = JSON.parse(row.content_json) as NativeCompilationInput;
-    const resolved = mapped(native.validateStoredInput(projectId, row.id).resolved);
+    const resolved = mapped((row.artifact_id === NATIVE_PREVIEW_INPUT_ARTIFACT_ID
+      ? native.validatePreviewInput(projectId, row.id) : native.validateStoredInput(projectId, row.id)).resolved);
     if (resolved.world) resolved.input.world = worldReference(resolved.world);
     if (resolved.illustrations && resolved.input.illustrations) {
       resolved.input.illustrations.presentationFingerprint = stableFingerprint(resolved.illustrations.presentation);

@@ -7,6 +7,7 @@ export * from "./prng.js";
 export * from "./playtest-types.js";
 export * from "./playtest.js";
 export * from "./native-bundle.js";
+export * from "./native-preview.js";
 export * from "./player.js";
 export * from "./illustrated-scenes.js";
 export * from "./world.js";

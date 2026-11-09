@@ -25,6 +25,8 @@ import type {
   RuntimeState,
 } from "./types.js";
 
+import { NativePreviewStopSchema, previewWorldSuppressions } from "./native-preview.js";
+
 export const NATIVE_GAME_BUNDLE_SCHEMA_ID = "cyoa.native-game-bundle" as const;
 export const NATIVE_GAME_BUNDLE_SCHEMA_VERSION = 1 as const;
 export const NATIVE_COMPILER_POLICY_ID = "foundation-7a-native-compiler" as const;
@@ -170,6 +172,7 @@ export const NativeGameBundleSchema = z.object({
   factIds: z.array(StableId).max(NATIVE_BUNDLE_LIMITS.maximumFacts),
   illustratedPresentation: IllustratedPresentationSchema.optional(),
   world: NativeWorldSchema.optional(),
+  preview: NativePreviewStopSchema.optional(),
   debug: z.object({
     upstreamVersions: z.record(StableId),
     threadVersionIds: z.array(StableId).max(5_000),
@@ -225,6 +228,7 @@ function gameplayPayload(bundle: NativeGameBundle): unknown {
     factIds: bundle.factIds,
     ...(bundle.illustratedPresentation ? { illustratedPresentation: bundle.illustratedPresentation } : {}),
     ...(bundle.world ? { world: bundle.world } : {}),
+    ...(bundle.preview ? { preview: bundle.preview } : {}),
   };
 }
 
@@ -315,6 +319,15 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
   }
   const bundle = parsed.data;
   const findings: NativeBundleFinding[] = [];
+  if (bundle.preview) {
+    const stop = bundle.passages.find(passage => passage.id === bundle.preview!.stopPassageId);
+    const suppressedIds = bundle.preview.suppressedChoices.map(choice => choice.id);
+    if (!stop || stop.terminal || stop.endingId !== null || stop.choiceIds.length
+      || duplicateIds(suppressedIds).length || bundle.choices.some(choice => suppressedIds.includes(choice.id))
+      || canonical(bundle.preview.suppressedWorldCommands) !== canonical(previewWorldSuppressions(bundle.world))) {
+      findings.push({ code: "native.bundle.preview-invalid", message: "Partial preview stop or suppression manifest is invalid" });
+    }
+  }
   if (bundle.world) {
     const world = bundle.world;
     if (world.journal && (world.journal.mechanics.length !== bundle.mechanics.filter((m) => m.category === "stat" || m.category === "relationship").length || world.journal.mechanics.some((r) => !bundle.mechanics.some((d) => d.category === r.category && d.key === r.key && (d.minimum ?? -1_000_000_000) === r.minimum && (d.maximum ?? 1_000_000_000) === r.maximum && d.initial === r.initial)))) findings.push({ code: "journal.mechanic-bindings-invalid", message: "Journal mechanics must match exact canonical definitions" });
@@ -390,7 +403,7 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
     if (!passage.terminal && passage.endingId !== null) add({
       code: "native.bundle.nonterminal-ending", message: `Nonterminal passage ${passage.id} references an ending`, passageId: passage.id,
     });
-    if (!passage.terminal && !passage.choiceIds.length) add({
+    if (!passage.terminal && !passage.choiceIds.length && passage.id !== bundle.preview?.stopPassageId) add({
       code: "native.bundle.dead-end", message: `Nonterminal passage ${passage.id} has no choices`, passageId: passage.id,
     });
     passage.choiceIds.forEach((choiceId) => {
@@ -499,6 +512,7 @@ export function currentNativePassage(game: LoadedNativeGame, state: RuntimeState
 }
 
 export function listNativeGameChoices(game: LoadedNativeGame, state: RuntimeState): NativeChoiceView[] {
+  if (atNativePreviewStop(game, state)) return [];
   const pending = game.bundle.world ? mandatoryEventStatus(game.bundle.world, state) : null;
   return listRuntimeChoices(game.runtime, state).map((availability) => ({
     choice: game.choices.get(availability.choiceId)!, availability: pending?.eventId || pending?.conflict ? { ...availability, enabled: false, reason: "Complete the required encounter first" } : availability,
@@ -524,6 +538,7 @@ export function chooseNativeGameChoice(
   state: RuntimeState,
   choiceId: string,
 ): RuntimeChoiceTransition {
+  if (atNativePreviewStop(game, state)) throw new Error("native_preview_stop_reached");
   if (game.bundle.world) assertWorldActionAllowed(game.bundle.world, state);
   const transition = applyRuntimeChoice(game.runtime, game.bundle.source.inputFingerprint, state, choiceId, state.turn);
   if (transition.ok && game.bundle.world && transition.state.world) {
@@ -543,4 +558,8 @@ export function chooseNativeGameChoice(
 
 export function nativeGameTerminal(game: LoadedNativeGame, state: RuntimeState) {
   return resolveRuntimeTerminal(game.runtime, state);
+}
+
+export function atNativePreviewStop(game: LoadedNativeGame, state: RuntimeState): boolean {
+  return game.bundle.preview?.stopPassageId === state.currentPassageId;
 }
