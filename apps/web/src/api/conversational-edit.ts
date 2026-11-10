@@ -1,4 +1,6 @@
-export interface EditTarget { key: string; owner: string; targetId: string; label: string; path: string; versionId: string; scope?: { kind: "collection"; version: 1; collection: string } }
+export interface EditTarget { key: string; owner: string; targetId: string; label: string; path: string; versionId: string;
+  scope?: { kind: "collection"; version: 1; collection: string } | { kind: "entity-creation"; version: 1; entityKind: string }
+    | { kind: "sequence-passage-append"; version: 1; sequenceId: string } }
 export interface EditPlan { id: string; conversationId: string; fingerprint: string; contextBytes: number; targets: EditTarget[] }
 export type EditPreview = { status: "ready"; plan: EditPlan; impact: string[]; estimatedInputTokens: number; cost: number | null }
   | { status: "clarification"; question: string; candidates: EditTarget[] }
@@ -10,6 +12,7 @@ export interface EditReview {
   outputs: Array<{ owner: string; targetId: string; before: unknown; after: unknown }>;
   findings: Array<{ code: string; severity: string; message: string; entityId?: string; entityType?: string; artifactId?: string; evidence?: string[] }>;
   draftImpacts: Array<{ passageId: string; reasonCode: string; changedFields: string[] }>;
+  draftImpactPage?: { total: number; offset: number };
   evidence: { request: string; messageId: string; sourceRecords: Array<{ record: { id: string; claim: string }; excerpts: Array<{ text: string }> }> }; generatedIds: Record<string, string>;
   validation: { totalFindings: number; omittedFindings: number };
 }
@@ -29,7 +32,7 @@ export class ConversationalEditApi {
   preview(body: { message: string; targetKeys: string[]; intent: string; providerId: string; modelId: string; conversationId?: string }) { return this.request<EditPreview>("/preview", body); }
   generate(plan: EditPlan) { return this.request<{ message: string; proposal: EditProposal | null }>(`/plans/${encodeURIComponent(plan.id)}/generate`, { fingerprint: plan.fingerprint }); }
   cancel(plan: EditPlan) { return this.request(`/plans/${encodeURIComponent(plan.id)}/cancel`, {}); }
-  review(id: string, groupIds: string[]) { return this.request<EditReview>(`/proposals/${encodeURIComponent(id)}/review`, { groupIds }); }
+  review(id: string, groupIds: string[], draftImpactOffset?: number) { return this.request<EditReview>(`/proposals/${encodeURIComponent(id)}/review`, { groupIds, draftImpactOffset }); }
   apply(id: string, groupIds: string[], fingerprint: string) { return this.request(`/proposals/${encodeURIComponent(id)}/apply`, { groupIds, fingerprint }); }
   reject(id: string) { return this.request(`/proposals/${encodeURIComponent(id)}/reject`, {}); }
 }

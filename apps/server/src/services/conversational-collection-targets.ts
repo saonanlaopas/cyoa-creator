@@ -2,7 +2,8 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { CreativeDirectionSchema, LongFormStoryBibleSchema, LongFormRoutePlanSchema, LongFormEndingPlanSchema,
   LongFormMechanicsPlanSchema, RepairChoicePlanSchema, RepairStateEffectSchema, sourceCanonicalJson, sourceDigest } from "@story-to-cyoa/domain";
-import type { EditOwner, EditTarget, EditResponse } from "./conversational-edit-contract.js";
+import type { EditOwner, EditTarget, EditOperation as Operation } from "./conversational-edit-contract.js";
+import { permitsEntityCreation } from "./conversational-passage-targets.js";
 
 // Version 1 is intentionally allowlisted. Primitive arrays and protected provenance are not creation scopes.
 const definitions = {
@@ -12,7 +13,6 @@ const definitions = {
   endings: { schema: LongFormEndingPlanSchema, fields: ["endings", "unresolvedQuestions"] },
   mechanics: { schema: LongFormMechanicsPlanSchema, fields: ["visibleStats", "relationships", "flags", "resources", "gates", "choiceEffectPlans", "balancingRules", "unresolvedQuestions"] },
 } as const;
-type Operation = EditResponse["groups"][number]["operations"][number];
 const unwrap = (schema: z.ZodTypeAny): z.ZodTypeAny => {
   while (schema instanceof z.ZodEffects || schema instanceof z.ZodDefault || schema instanceof z.ZodOptional) {
     schema = schema instanceof z.ZodEffects ? schema.innerType() : schema instanceof z.ZodDefault ? schema.removeDefault() : schema.unwrap();
@@ -51,12 +51,12 @@ export function assertCollectionTarget(target: EditTarget, artifact: unknown): v
 }
 export function creationCollection(target: EditTarget | undefined, op: Operation): string | undefined {
   if (!target) return undefined;
-  if (target.scope) {
-    if (target.scope.kind !== "collection" || target.scope.version !== 1 || op.kind !== "add-item"
+  if (target.scope?.kind === "collection") {
+    if (target.scope.version !== 1 || op.kind !== "add-item"
       || op.collection !== target.scope.collection || !definition(target.owner, op.collection)) throw new Error("edit_collection_operation_not_allowed");
     return op.collection;
   }
-  return target.targetId === "root" && target.path === "" && op.kind === "add-item" && op.collection && definition(target.owner, op.collection)
+  return !target.scope && target.targetId === "root" && target.path === "" && op.kind === "add-item" && op.collection && definition(target.owner, op.collection)
     ? op.collection : undefined;
 }
 
@@ -70,8 +70,7 @@ export function choiceEffectCreation(target: EditTarget | undefined, op: Operati
     const effect = RepairStateEffectSchema.safeParse(op.item);
     if (effect.success) return { choiceId: target.targetId, effectIds: [effect.data.id] };
   }
-  if (target?.owner === "passage-structure" && target.targetId === "root" && target.path === "" && !target.scope
-    && op.kind === "add-entity" && op.entityKind === "choice") {
+  if (permitsEntityCreation(target, op) && op.entityKind === "choice") {
     const choice = RepairChoicePlanSchema.safeParse(op.item);
     if (choice.success) return { choiceId: choice.data.id, effectIds: choice.data.effects.map(effect => effect.id) };
   }
@@ -90,8 +89,9 @@ export function creationIdentityValues(target: EditTarget | undefined, op: Opera
 }
 
 export function collectionReview(target: EditTarget, before: unknown, after: unknown, operations: Operation[]) {
+  if (target.scope?.kind !== "collection") throw new Error("edit_collection_scope_invalid");
   assertCollectionTarget(target, before);
-  const field = target.scope!.collection;
+  const field = target.scope.collection;
   const old = (before as Record<string, unknown[]>)[field]!, next = (after as Record<string, Array<{ id: string }>>)[field]!;
   const ids = operations.map(op => { creationCollection(target, op); return op.item!.id; });
   const addedRecords = ids.map(id => { const item = next.find(record => record.id === id); if (!item) throw new Error("edit_collection_result_invalid"); return item; });

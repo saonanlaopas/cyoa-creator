@@ -26,6 +26,7 @@ import { applyPreviewWorld, boundaryProse, completePreviewOpening, initializePre
 import { authoredWorld } from "../../../e2e/helpers/world.js";
 import { withAuthoredProgression } from "../../../e2e/helpers/progression.js";
 import { chooseNativePlayerSession, createNativePlayerSession, nativePlayerView } from "@story-to-cyoa/runtime";
+import type { PassageStructure } from "@story-to-cyoa/pipeline";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
@@ -43,11 +44,13 @@ function fixture(db = openDatabase(), projectId = randomUUID()) {
   const calls: Array<{ tool: string; input: Record<string, unknown>; result: any }> = [];
   const call = async (tool: string, input: Record<string, unknown>) => { const result = service.call(tool as any, input) as any; calls.push({ tool, input, result }); return result; };
   if (!projects.get(projectId)) service.call("create_project", { projectId, operationId: randomUUID(), name: originalTitle, approved: true });
-  cleanups.push(() => { edits.shutdown(); db.close(); });
-  return { db, projectId, projects, artifacts, workflow, drafts, passages, plans, prose, acceptance, edits, simulations, compilation, service, call, calls, generate, longForm, drafting };
+  let closed = false;
+  const close = () => { if (!closed) { closed = true; edits.shutdown(); db.close(); } };
+  cleanups.push(close);
+  return { db, projectId, projects, artifacts, workflow, drafts, passages, plans, prose, acceptance, edits, simulations, compilation, service, call, calls, generate, longForm, drafting, close };
 }
-async function initialized(effectMechanics = false) {
-  const f = fixture(); await completeOriginalFoundations(f.call, f.projectId);
+async function initialized(effectMechanics = false, f = fixture()) {
+  await completeOriginalFoundations(f.call, f.projectId);
   if (effectMechanics) {
     const mechanics = (await f.call("read_foundation", { projectId: f.projectId, artifactId: "mechanics" })).content;
     const proposal = await proposeFoundation(f.call, f.projectId, "mechanics", {
@@ -64,6 +67,213 @@ async function initialized(effectMechanics = false) {
   return f;
 }
 async function completed() { const f = fixture(), proof = await completeConnectedTextGame(f.call, f.projectId); return { ...f, proof }; }
+
+async function largePassagePlan(f: ReturnType<typeof fixture>, sequenceSize = 410) {
+  const { projectId } = f;
+  const bundle = f.plans.bundle(projectId);
+  const anchor = bundle.passages.find(item => item.id === "passage-route-1-act")!;
+  const outgoing = bundle.choices.find(item => item.id === "choice-passage-route-1-act-continue")!;
+  const sequence = bundle.structure.sequences.find(item => item.id === anchor.sequenceId)!;
+  const ids = Array.from({ length: sequenceSize - sequence.passageIds.length }, (_, i) => `passage-harbor-watch-route-public-quay-ledger-investigation-and-testimony-at-the-signal-station-before-the-next-shift-with-the-port-watch-and-dockworkers-${i + 1}`);
+  const destination = outgoing.destinationPassageId;
+  outgoing.destinationPassageId = ids[0]!;
+  ids.forEach((id, i) => {
+    const choiceId = `choice-harbor-watch-${i + 1}-continue`;
+    bundle.passages.push({ ...anchor, id, title: `Watch testimony ${i + 1}`, summary: "The harbor watch records a new witness and checks the ledger.", wordTarget: 180, choiceIds: [choiceId], position: i + 1 });
+    bundle.choices.push({ ...outgoing, id: choiceId, sourcePassageId: id, destinationPassageId: ids[i + 1] ?? destination, position: 0 });
+  });
+  sequence.passageIds.push(...ids);
+  sequence.summary += " Keep the testimony attributed and separate eyewitness accounts from inference. Preserve the ledger's chronology and the risks to the harbor crew.".repeat(25);
+  f.plans.saveBundle(projectId, bundle);
+  await approveGamePlan(f.call, projectId);
+  return { bundle, anchor, outgoing, sequence };
+}
+
+describe("PF-005 bounded passage-plan creation", () => {
+  const writes = (f: ReturnType<typeof fixture>) => f.db.prepare(`SELECT
+    (SELECT COUNT(*) FROM messages) messages, (SELECT COUNT(*) FROM change_sets) proposals,
+    (SELECT COUNT(*) FROM artifact_versions) artifacts, (SELECT COUNT(*) FROM passage_structure_versions) structures,
+    (SELECT COUNT(*) FROM passage_entity_versions) entities, (SELECT COUNT(*) FROM passage_draft_versions) drafts`).get();
+  const prepare = async (f: ReturnType<typeof fixture>, targets: Array<{ key: string; versionId: string }>) => {
+    const { projectId, call } = f;
+    const { headFingerprint } = await call("project_state", { projectId });
+    return call("prepare_edit", { projectId, operationId: randomUUID(), message: "Add a ledger inspection beat and link it to the harbor investigation.", headFingerprint, targets });
+  };
+  const create = (kind: string) => `create:passage-plan:${kind}`;
+  const link = (sequenceId: string) => `collection:sequence:${sequenceId}:passageIds`;
+  async function prepared(f: ReturnType<typeof fixture>, data: Awaited<ReturnType<typeof largePassagePlan>>, extraKeys: string[] = []) {
+    const { projectId, call } = f, { anchor, sequence, outgoing } = data;
+    const keys = [create("passage"), create("choice"), create("thread"), link(sequence.id), `passage:${anchor.id}`, ...extraKeys];
+    const targets = await Promise.all(keys.map(async key => {
+      const result = await call("list_edit_targets", { projectId, search: key });
+      const target = result.items.find((item: { key: string }) => item.key === key);
+      expect(target, key).toBeDefined();
+      return { key, versionId: target.versionId };
+    }));
+    const { plan } = await prepare(f, targets);
+    const add = (entityKind: string, item: object) => ({ kind: "add-entity", targetKey: create(entityKind), entityKind, item });
+    const additions = [
+      add("passage", { ...anchor, id: "$new:inspection", title: "Check the ledger seal", position: sequence.passageIds.length,
+        choiceIds: ["$new:resume"], payoffThreadIds: ["$new:seal-thread"] }),
+      add("choice", { ...outgoing, id: "$new:resume", label: "Resume the watch", sourcePassageId: "$new:inspection",
+        effects: [{ id: "$new:resolve-effect", mechanicKey: "resolve", operation: "add", value: 1, feedback: "Mira commits to the inquiry.", visibility: "visible" }] }),
+      add("choice", { ...outgoing, id: "$new:inspect", label: "Check the seal first", destinationPassageId: "$new:inspection", position: 2 }),
+      add("thread", { id: "$new:seal-thread", label: "The broken seal", description: "The opened ledger confirms the earlier clue.",
+        setupPassageIds: [anchor.id], payoffPassageIds: ["$new:inspection"], routeIds: anchor.routeIds, required: false, status: "planned", waiverRationale: "" }),
+    ];
+    const linking = [
+      { kind: "append-passage", targetKey: link(sequence.id), passageId: "$new:inspection" },
+      { kind: "set-fields", targetKey: `passage:${anchor.id}`, changes: { choiceIds: [...anchor.choiceIds, "$new:inspect"], setupThreadIds: [...anchor.setupThreadIds, "$new:seal-thread"] } },
+    ];
+    const group = (id: string, operations: unknown[]) => ({ id, label: id, explanation: "Connect the evidence to its consequence.", dependsOnGroupIds: [], operations });
+    const submit = { projectId, operationId: randomUUID(), planId: plan.id, fingerprint: plan.fingerprint,
+      response: { message: "An optional ledger inspection with a visible Resolve effect.", groups: [group("create", additions), group("link", linking)] } };
+    return { plan, additions, linking, group, submit, targets };
+  }
+
+  it("reproduces the sole-root overflow on a valid, large sequence with real passage and choice records", async () => {
+    const f = await initialized(), { sequence } = await largePassagePlan(f);
+    expect(Buffer.byteLength(sourceCanonicalJson(sequence))).toBeGreaterThan(64_000);
+    const { id: versionId } = f.passages.currentStructure(f.projectId)!;
+    const before = writes(f);
+    await expect(prepare(f, [{ key: "passage-structure:root", versionId }])).rejects.toThrow("edit_dependency_overflow_narrow_scope");
+    expect(writes(f)).toEqual(before);
+  });
+
+  it("reviews and atomically applies linked records without the root, then replays exact receipts after reopening", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cyoa-pf005-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, "fixture.sqlite"), f = await initialized(false, fixture(openDatabase(path))), { call, projectId } = f;
+    const data = await largePassagePlan(f, 999), { bundle, anchor, sequence, outgoing } = data;
+    expect(sequence.passageIds).toHaveLength(999);
+    const unrelated = await submitGameDraft(call, projectId, previewStart, "Mira leaves the lamp burning and takes the ledger into the rain.");
+    await acceptGameDrafts(call, projectId, [{ passageId: previewStart, candidateDraftVersionId: unrelated.draftVersionId }]);
+    const accepted = f.drafts.getHead(projectId, previewStart), state = f.passages.state(projectId);
+    const foundations = (await call("project_state", { projectId })).workflow;
+    const outgoingBefore = f.passages.currentEntity(projectId, "choice", outgoing.id);
+    const { plan, submit, targets } = await prepared(f, data);
+    expect(plan.targets.map((item: { key: string }) => item.key)).toEqual(targets.map(item => item.key));
+    expect(plan.context.authoringInstructions).toEqual(f.artifacts.authoringInstructions(projectId));
+    expect(plan.context.approvedDirection.versionId).toBe(f.workflow.get(projectId, "creative-direction").approvedVersionId);
+    expect(plan.targets.find((item: { key: string }) => item.key === link(sequence.id)).value).toMatchObject({ itemCount: sequence.passageIds.length, maxItems: 1000 });
+    expect(sourceCanonicalJson(plan.context)).not.toContain(sequence.passageIds.at(-1)!);
+    expect(plan.contextBytes).toBeLessThan(64_000);
+    const proposed = await call("submit_edit", submit);
+    const { proposal, omittedDraftImpactCount } = await call("get_edit", { projectId, proposalId: proposed.proposalId });
+    expect(omittedDraftImpactCount).toBeGreaterThanOrEqual(1000);
+    expect(proposal.expectedDraftImpacts).toBeUndefined();
+    const ids = proposal.generatedIds;
+    const before = writes(f), canonicalBefore = sourceDigest(f.plans.bundle(projectId));
+    const groupIds = ["create", "link"], reviewInput = { projectId, proposalId: proposed.proposalId, groupIds };
+    await expect(call("review_edit", { ...reviewInput, groupIds: ["link"] })).rejects.toThrow("edit_dependency_selection_incomplete");
+    await expect(call("review_edit", { ...reviewInput, groupIds: ["create"] })).rejects.toThrow("edit_sequence_passage_link_required");
+    const review = await call("review_edit", reviewInput);
+    const next = await call("review_edit", { ...reviewInput, draftImpactOffset: 50 });
+    expect(next.fingerprint).toBe(review.fingerprint);
+    expect(next.draftImpactPage).toMatchObject({ offset: 50, total: expect.any(Number) });
+    expect(next.draftImpactPage.total).toBe(omittedDraftImpactCount);
+    expect(next.draftImpacts[0]).not.toEqual(review.draftImpacts[0]);
+    expect(review.outputs).toEqual(expect.arrayContaining([
+      { owner: "passage-structure", targetId: sequence.id, before: expect.objectContaining({ count: sequence.passageIds.length }),
+        after: { sequenceId: sequence.id, count: sequence.passageIds.length + 1, appendedPassageIds: [ids["$new:inspection"]], existingOrderUnchanged: true } },
+      { owner: "choice", targetId: ids["$new:resume"], before: null,
+        after: expect.objectContaining({ sourcePassageId: ids["$new:inspection"], effects: [expect.objectContaining({ id: ids["$new:resolve-effect"], mechanicKey: "resolve", value: 1 })] }) },
+      { owner: "thread", targetId: ids["$new:seal-thread"], before: null, after: expect.objectContaining({ payoffPassageIds: [ids["$new:inspection"]] }) },
+    ]));
+    const apply = { ...reviewInput, operationId: randomUUID(), fingerprint: review.fingerprint, approved: true };
+    await expect(call("apply_edit", { ...apply, approved: false })).rejects.toThrow();
+    await expect(call("apply_edit", { ...apply, fingerprint: "0".repeat(64) })).rejects.toThrow("edit_apply_preview_stale");
+    f.db.exec("CREATE TEMP TRIGGER fail_pf005 BEFORE INSERT ON messages WHEN json_extract(NEW.metadata_json,'$.connectedOperation.tool')='apply_edit' BEGIN SELECT RAISE(ABORT,'PF-005 receipt failed'); END");
+    await expect(call("apply_edit", apply)).rejects.toThrow("PF-005 receipt failed");
+    expect(writes(f)).toEqual(before);
+    expect(sourceDigest(f.plans.bundle(projectId))).toBe(canonicalBefore);
+    f.db.exec("DROP TRIGGER fail_pf005");
+    const applied = await call("apply_edit", apply);
+    const expected = structuredClone(bundle.structure);
+    expected.sequences.find(item => item.id === sequence.id)!.passageIds.push(ids["$new:inspection"]);
+    expect(f.passages.currentStructure(projectId)?.content).toEqual(expected);
+    expect(f.passages.currentEntity(projectId, "choice", outgoing.id)).toEqual(outgoingBefore);
+    expect(f.passages.currentEntity(projectId, "passage", anchor.id)?.content).toEqual({ ...anchor,
+      choiceIds: [...anchor.choiceIds, ids["$new:inspect"]], setupThreadIds: [...anchor.setupThreadIds, ids["$new:seal-thread"]] });
+    expect(f.passages.currentEntity(projectId, "passage", ids["$new:inspection"])?.content).toMatchObject({ sequenceId: sequence.id,
+      choiceIds: [ids["$new:resume"]], payoffThreadIds: [ids["$new:seal-thread"]] });
+    expect(f.passages.state(projectId)).toMatchObject({ status: "draft", approvedSnapshotId: state.approvedSnapshotId });
+    expect((await call("project_state", { projectId })).workflow).toEqual(foundations);
+    expect(f.drafts.getHead(projectId, previewStart)).toEqual(accepted);
+    expect(f.drafts.getHead(projectId, ids["$new:inspection"])).toBeUndefined();
+    await expect(prepare(f, targets)).rejects.toThrow("edit_target_version_stale_repreview");
+    const preparedCall = f.calls.find(item => item.result?.plan?.id === plan.id)!;
+    const after = writes(f);
+    f.edits.validateArchiveHistory(projectId);
+    f.close();
+    const reopened = fixture(openDatabase(path), projectId);
+    expect(await reopened.call("prepare_edit", preparedCall.input)).toEqual(preparedCall.result);
+    expect(await reopened.call("submit_edit", submit)).toEqual(proposed);
+    expect(await reopened.call("apply_edit", apply)).toEqual(applied);
+    await expect(reopened.call("apply_edit", { ...apply, groupIds: ["create"] })).rejects.toThrow("connected_operation_id_conflict");
+    await expect(reopened.call("submit_edit", { ...submit, response: { ...submit.response, message: "A different request." } })).rejects.toThrow("connected_operation_id_conflict");
+    expect(writes(reopened)).toEqual(after);
+    const overflow = await prepared(reopened, data);
+    const beforeOverflow = writes(reopened);
+    await expect(reopened.call("submit_edit", overflow.submit)).rejects.toThrow("edit_sequence_passage_capacity_exceeded");
+    expect(writes(reopened)).toEqual(beforeOverflow);
+    expect(f.generate).not.toHaveBeenCalled();
+    expect(reopened.generate).not.toHaveBeenCalled();
+  });
+
+  it("rejects wrong scope, references, locked or mismatched links, and stale submit/Apply without writes", async () => {
+    const f = await initialized(), { projectId, call } = f, data = await largePassagePlan(f);
+    const otherSequence = data.bundle.structure.sequences.find(item => item.id !== data.sequence.id)!;
+    const { additions, linking, submit, group } = await prepared(f, data, [link(otherSequence.id)]);
+    const [passage, choice, , thread] = additions, [append, changeSource] = linking;
+    const replace = (index: number, changes: object) => additions.map((op, i) => i === index ? { ...op, ...changes } : op);
+    const input = (creates: unknown[], links: unknown[]) => ({ ...submit, response: { ...submit.response,
+      groups: [group("create", creates), group("link", links)] } });
+    const errors: Array<[string, unknown[], unknown[]]> = [
+      ["edit_entity_creation_scope_invalid", replace(0, { targetKey: create("thread") }), linking],
+      ["edit_scope_exceeded", replace(0, { targetKey: "passage-structure:root" }), linking],
+      ["edit_entity_creation_scope_invalid", [...additions, { kind: "set-fields", targetKey: create("thread"), changes: { label: "Not authorized" } }], linking],
+      ["edit_generated_id_invalid", replace(0, { item: { ...passage!.item, id: "literal-passage" } }), linking],
+      ["edit_generated_id_invalid", replace(1, { item: { ...choice!.item, effects: [
+        { id: "$new:inspection", mechanicKey: "resolve", operation: "add", value: 1, feedback: "", visibility: "visible" },
+      ] } }), linking],
+      ["edit_generated_reference_invalid", replace(1, { item: { ...choice!.item, destinationPassageId: "$new:unknown" } }), linking],
+      ["edit_validation_failed", replace(1, { item: { ...choice!.item, destinationPassageId: "missing-passage" } }), linking],
+      ["edit_validation_failed", replace(3, { item: { ...thread!.item, setupPassageIds: ["missing-passage"] } }), linking],
+      ["edit_sequence_passage_scope_invalid", additions, [{ ...append, targetKey: changeSource!.targetKey }, changeSource]],
+      ["edit_sequence_passage_scope_invalid", additions, [{ kind: "set-fields", targetKey: append!.targetKey, changes: { passageIds: [] } }, changeSource]],
+      ["edit_sequence_passage_link_invalid", additions, [{ ...append, targetKey: link(otherSequence.id) }, changeSource]],
+      ["edit_sequence_passage_link_invalid", additions, [{ ...append, passageId: data.anchor.id }, changeSource]],
+      ["edit_sequence_passage_duplicate", additions, [...linking, append]],
+      ["edit_sequence_passage_link_required", additions, [changeSource]],
+      ["edit_validation_failed", additions, [append]],
+    ];
+    const before = writes(f);
+    for (const [error, creates, links] of errors) {
+      await expect(call("submit_edit", input(creates, links)), error).rejects.toThrow(error);
+      expect(writes(f)).toEqual(before);
+    }
+    f.db.exec("CREATE TEMP TRIGGER fail_pf005_submit BEFORE INSERT ON messages WHEN json_extract(NEW.metadata_json,'$.connectedOperation.tool')='submit_edit' BEGIN SELECT RAISE(ABORT,'PF-005 submit receipt failed'); END");
+    await expect(call("submit_edit", submit)).rejects.toThrow("PF-005 submit receipt failed");
+    expect(writes(f)).toEqual(before);
+    f.db.exec("DROP TRIGGER fail_pf005_submit");
+    const proposal = await call("submit_edit", submit);
+    const reviewArgs = { projectId, proposalId: proposal.proposalId, groupIds: ["create", "link"] };
+    const review = await call("review_edit", reviewArgs);
+    const unsent = await prepared(f, data);
+    const structure = f.passages.currentStructure<PassageStructure>(projectId)!.content;
+    structure.sequences.find(item => item.id === data.sequence.id)!.planningStatus = "locked";
+    f.plans.saveStructure(projectId, structure);
+    const afterLock = writes(f);
+    await expect(call("submit_edit", unsent.submit)).rejects.toThrow("edit_base_stale_repreview");
+    await expect(call("apply_edit", { ...reviewArgs, operationId: randomUUID(), fingerprint: review.fingerprint, approved: true })).rejects.toThrow("edit_base_stale_repreview");
+    expect(writes(f)).toEqual(afterLock);
+    const locked = await prepared(f, data);
+    const beforeLockedSubmit = writes(f);
+    await expect(call("submit_edit", locked.submit)).rejects.toThrow("edit_planning_lock_protected");
+    expect(writes(f)).toEqual(beforeLockedSubmit);
+  });
+});
 
 describe("PF-008 reviewed partial preview", () => {
   const review = (f: ReturnType<typeof fixture>, selection = openingSelection) => f.call("review_preview", { projectId: f.projectId, selection });

@@ -10,20 +10,25 @@ export const EditRequestSchema = z.object({ message: z.string().trim().min(1).ma
   modelId: id.default("offline-edit-v1") }).strict();
 export const EditResponseSchema = z.object({ message: z.string().trim().min(1).max(6000), groups: z.array(z.object({
   id, label: z.string().trim().min(1).max(300), explanation: z.string().trim().min(1).max(2000), dependsOnGroupIds: z.array(id).max(EDIT_LIMITS.groups),
-  operations: z.array(z.object({ targetKey: id, kind: z.enum(["set-fields", "add-item", "remove-item", "reorder-items", "add-entity"]),
+  operations: z.array(z.object({ targetKey: id, kind: z.enum(["set-fields", "add-item", "remove-item", "reorder-items", "add-entity", "append-passage"]),
     entityKind: z.enum(["passage", "choice", "thread"]).optional(),
+    passageId: id.optional(),
     changes: z.record(z.unknown()).optional(), collection: id.optional(), item: z.record(z.unknown()).optional(), orderedIds: z.array(id).max(500).optional(),
   }).strict().superRefine((op, ctx) => {
-    const fields = op.kind === "set-fields" ? ["changes"] : op.kind === "add-item" ? ["collection", "item"] : op.kind === "reorder-items" ? ["collection", "orderedIds"] : op.kind === "add-entity" ? ["entityKind", "item"] : [];
-    for (const field of ["changes", "collection", "item", "orderedIds", "entityKind"] as const) {
+    const fields = op.kind === "set-fields" ? ["changes"] : op.kind === "add-item" ? ["collection", "item"] : op.kind === "reorder-items" ? ["collection", "orderedIds"] : op.kind === "add-entity" ? ["entityKind", "item"] : op.kind === "append-passage" ? ["passageId"] : [];
+    for (const field of ["changes", "collection", "item", "orderedIds", "entityKind", "passageId"] as const) {
       if (fields.includes(field) !== (op[field] !== undefined)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Invalid ${field} for ${op.kind}`, path: [field] });
     }
     if (op.orderedIds && new Set(op.orderedIds).size !== op.orderedIds.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Duplicate reorder IDs" });
   })).min(1).max(EDIT_LIMITS.operations),
 }).strict()).max(EDIT_LIMITS.groups) }).strict();
 export type EditResponse = z.infer<typeof EditResponseSchema>;
+export type EditOperation = EditResponse["groups"][number]["operations"][number];
+export type EditTargetScope = { kind: "collection"; version: 1; collection: string }
+  | { kind: "entity-creation"; version: 1; entityKind: NonNullable<EditOperation["entityKind"]> }
+  | { kind: "sequence-passage-append"; version: 1; sequenceId: string };
 export interface EditTarget { key: string; owner: EditOwner; targetId: string; label: string; path: string; versionId: string; value: unknown;
-  scope?: { kind: "collection"; version: 1; collection: string } }
+  scope?: EditTargetScope }
 export interface EditPlan {
   id: string; projectId: string; conversationId: string; request: z.infer<typeof EditRequestSchema>;
   targets: EditTarget[]; context: Record<string, unknown>; contextBytes: number; headFingerprint: string; fingerprint: string;

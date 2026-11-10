@@ -19,7 +19,10 @@ export function registerConversationalEditRoutes(app: FastifyInstance, service: 
   app.post<{ Params: Params }>(`${root}/plans/:id/cancel`, (req, reply) => call(reply, () => service.cancel(req.params.projectId, req.params.id)));
   app.get<{ Params: Params }>(`${root}/conversations/:id`, (req, reply) => call(reply, () => service.history(req.params.projectId, req.params.id)));
   app.get<{ Params: Params }>(`${root}/proposals/:id`, (req, reply) => call(reply, () => service.proposal(req.params.projectId, req.params.id)));
-  app.post<{ Params: Params; Body: unknown }>(`${root}/proposals/:id/review`, (req, reply) => call(reply, () => service.review(req.params.projectId, req.params.id, selection.parse(req.body).groupIds)));
+  app.post<{ Params: Params; Body: unknown }>(`${root}/proposals/:id/review`, (req, reply) => call(reply, () => {
+    const { groupIds, draftImpactOffset } = selection.extend({ draftImpactOffset: z.number().int().min(0).max(100000).optional() }).parse(req.body);
+    return service.review(req.params.projectId, req.params.id, groupIds, draftImpactOffset);
+  }));
   app.post<{ Params: Params; Body: unknown }>(`${root}/proposals/:id/apply`, (req, reply) => call(reply, () => { const s = selection.extend({ fingerprint: id }).parse(req.body); return service.apply(req.params.projectId, req.params.id, s.groupIds, s.fingerprint); }));
   app.post<{ Params: Params }>(`${root}/proposals/:id/reject`, (req, reply) => call(reply, () => service.reject(req.params.projectId, req.params.id)));
 }

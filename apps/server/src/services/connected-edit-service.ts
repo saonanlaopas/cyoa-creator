@@ -30,7 +30,7 @@ export const ConnectedEditInputs = {
     targets: z.array(z.object({ key: id, versionId: id }).strict()).min(1).max(EDIT_LIMITS.targets) }).strict(),
   submit_edit: z.object({ ...operation, planId: id, fingerprint: digest, response: EditResponseSchema }).strict(),
   get_edit: z.object({ ...project, proposalId: id }).strict(),
-  review_edit: z.object(selection).strict(),
+  review_edit: z.object({ ...selection, draftImpactOffset: z.number().int().min(0).max(100000).optional() }).strict(),
   apply_edit: z.object({ ...operation, ...selection, fingerprint: digest, approved: z.literal(true) }).strict(),
   reject_edit: z.object({ ...operation, proposalId: id }).strict(),
 };
@@ -219,8 +219,8 @@ export class ConnectedEditService {
           return { proposalId: result.proposal!.id, conversationId: result.proposal!.conversationId, status: "proposed", provenance: "connected-assistant", providerCalls: 0 };
         });
       }
-      case "get_edit": { const i = ConnectedEditInputs.get_edit.parse(input); return boundedConnectedResult(this.edits.proposal(projectId, i.proposalId)); }
-      case "review_edit": { const i = ConnectedEditInputs.review_edit.parse(input); return boundedConnectedResult(this.edits.review(projectId, i.proposalId, i.groupIds)); }
+      case "get_edit": { const i = ConnectedEditInputs.get_edit.parse(input); return boundedConnectedResult(this.edits.connectedProposal(projectId, i.proposalId, CONNECTED_RESULT_BYTES)); }
+      case "review_edit": { const i = ConnectedEditInputs.review_edit.parse(input); return boundedConnectedResult(this.edits.review(projectId, i.proposalId, i.groupIds, i.draftImpactOffset)); }
       case "apply_edit": {
         const i = ConnectedEditInputs.apply_edit.parse(input);
         return this.once(projectId, i.operationId, tool, i, () => {
