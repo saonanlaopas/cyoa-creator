@@ -67,6 +67,12 @@ Include the intended gate or `choiceEffectPlans` entry in the same reviewed batc
 
 Existing-key renaming is **unsupported**, including swaps or root-array replacements. Updating a label is supported. A future rename operation would need an independently reviewed design that updates and validates every condition/effect/world reference atomically. Use existing world time, economy/inventory and progression for those mechanics; a new counter does not implement a second clock, wallet or inventory system.
 
+### Removing keyed mechanics (PF-006)
+
+Prepare the exact current `mechanics:<record-id>` target and submit `remove-item` against it. This removes the record, its owned semantic key, and its own nested records (such as relationship bands). It does not remove other references, authorize key reuse, or permit replacing keyed arrays to achieve a deletion.
+
+If a choice, gate, or effect plan still uses the key, include explicitly targeted, valid reference edits in the same selected batch and review them together. World and player configuration bindings must be updated separately through their normal review flows before preparing the removal. Creator reports remaining reference locations and rejects incomplete selections without writes. Removal makes a draft; historical approved versions and builds remain intact.
+
 Reject unwanted revisions through `reject_edit`; rejection never changes canonical content. A revised proposal uses fresh preparation and new operation IDs; Apply preserves earlier approved versions and marks affected work draft/stale. Approval remains version-specific. All three M2 mutations (creation, initialization, approval) commit their outcome receipts atomically and support identical retry after concurrent requests or server restart. Operation receipts describe historical outcomes, not a promise that the project still has that state today; read `project_state` to resume current work.
 
 MCP results are bounded to 256,000 bytes; use narrower scope when that limit is exceeded. Full-fidelity archives preserve conversation requests and receipts. Privacy-redacted archives intentionally omit them while retaining sealed canonical edit history. Reopening the same full database preserves retry recovery; duplicated/redacted projects should begin with new operation IDs and fresh plans rather than reuse old authorizations.

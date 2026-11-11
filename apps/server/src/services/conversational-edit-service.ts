@@ -1,17 +1,19 @@
 import { selectCreativeDirectionContext } from "@story-to-cyoa/domain";
 import { z } from "zod";
-import { AnalysisSourceSchema, SourceDossierSchema, isUnavailableSource, resolveSourceEvidence, collectStableIds, CREATIVE_DIRECTION_LIMITS, CreativeDirectionInputSchema, creativeDirectionFingerprints, creativeDirectionReferenceIssues, sourceCanonicalJson, sourceDigest, type FoundationBootstrapCandidate } from "@story-to-cyoa/domain";
+import { AnalysisSourceSchema, SourceDossierSchema, isUnavailableSource, resolveSourceEvidence, collectStableIds, CREATIVE_DIRECTION_LIMITS, CreativeDirectionInputSchema, creativeDirectionFingerprints, creativeDirectionReferenceIssues, sourceCanonicalJson, sourceDigest, type FoundationBootstrapCandidate, type WorldDefinition } from "@story-to-cyoa/domain";
 import { applyPlanningOperations, enrichOperationGroups, planningSection, planningArtifactIds, validateLongFormProject,
   ProjectBriefSchema, CreativeDirectionSchema, LongFormStoryBibleSchema, LongFormRoutePlanSchema, LongFormEndingPlanSchema, LongFormMechanicsPlanSchema,
   PassagePlanSchema, ChoicePlanSchema, NarrativeThreadSchema, PassageStructureSchema, validatePassagePlan,
-  type PlanningArtifact, type PlanningArtifactId, type ProposedPlanningOperation, type PassagePlanBundle, type PassageStructure, type PlanningFinding, type PassagePlanFinding } from "@story-to-cyoa/pipeline";
+  type PlanningArtifact, type PlanningArtifactId, type ProposedPlanningOperation, type ChoicePlan, type PassagePlanBundle, type PassageStructure, type PlanningFinding, type PassagePlanFinding } from "@story-to-cyoa/pipeline";
+import type { NativePlayerConfig } from "@story-to-cyoa/runtime";
 import { ArtifactRepository, ChangeSetRepository, ConversationRepository, AuthorMemoryRepository, PassagePlanRepository, PassageDraftRepository,
   WorkflowRepository, transaction, classifyPassageDraftStaleness, type DraftStalenessImpact, type StoryDatabase } from "@story-to-cyoa/persistence";
 import type { LongFormProjectService } from "./long-form-project-service.js";
 import { StructuredMutationService } from "./structured-mutation-service.js";
 import { EDIT_LIMITS, EditOwnerSchema, EditRequestSchema, EditResponseSchema, type EditOperation, type EditOwner, type EditPlan, type EditProvider, type EditResponse, type EditTarget } from "./conversational-edit-contract.js";
 import { editMessages } from "./conversational-edit-provider.js";
-import { authorizeMechanicKeys, mechanicCreations, mechanicKeyReferences } from "./conversational-mechanic-identities.js";
+import { authorizeMechanicKeys, authorizeMechanicRemovals, keyedMechanicTarget, mechanicCreations, mechanicKeyReferences } from "./conversational-mechanic-identities.js";
+import { assertRemovedMechanicsUnreferenced, choiceMechanicReferences, mechanicPlanReferences, worldMechanicReferences } from "./mechanic-removal-references.js";
 import { collectionTargets, assertCollectionTarget, creationCollection, creationIdentityValues, choiceEffectCreation, collectionReview } from "./conversational-collection-targets.js";
 import { appendSequencePassages, assertPassageTarget, passageCreationTargets, permitsEntityCreation, sequenceAppendReview } from "./conversational-passage-targets.js";
 
@@ -86,6 +88,7 @@ const entityPath = (value: unknown, id: string, path = ""): string | null => {
 interface StoredEdit { kind: "conversational-edit-v1"; plan: EditPlan; response: EditResponse; generatedIds: Record<string, string>; expectedStaleness: string[]; expectedDraftImpacts?: DraftStalenessImpact[]; fingerprint: string }
 type EditOutput = { owner: EditOwner; targetId: string; before: unknown; after: unknown };
 const auditId = z.string().min(1).max(240), auditDigest = z.string().regex(/^[a-f0-9]{64}$/);
+const MechanicRemovalBindingsSchema = z.object({ worldVersionId: auditId.nullable(), playerConfigVersionId: auditId.nullable() }).strict();
 const EditApplicationSchema = z.object({
   proposalId: auditId, proposalFingerprint: auditDigest, previewFingerprint: auditDigest,
   selectedGroupIds: z.array(auditId).min(1).max(EDIT_LIMITS.groups), generatedIds: z.record(auditId), resultingVersions: z.record(auditId),
@@ -216,7 +219,8 @@ export class ConversationalEditService {
     const direction = directionVersion?.id ? this.artifacts.getVersion(directionVersion.id) : null;
     const directionScopeIds = [...strings([...targets.filter(t => !t.scope || t.scope.kind === "sequence-passage-append"), ...relevant])];
     const approvedDirection = direction ? { versionId: direction.id, context: selectCreativeDirectionContext(CreativeDirectionSchema.parse(direction.content), { routeIds: directionScopeIds, actIds: directionScopeIds, relationshipIds: directionScopeIds, characterIds: directionScopeIds }).context } : null;
-    const context = { approvedDirection, targets, references: relevant, evidence, memory, authoringInstructions: this.artifacts.authoringInstructions(projectId) };
+    const context = { approvedDirection, targets, references: relevant, evidence, memory, authoringInstructions: this.artifacts.authoringInstructions(projectId),
+      ...(targets.some(keyedMechanicTarget) ? { mechanicRemovalDependencies: this.mechanicRemovalBindings(projectId).versions } : {}) };
     const definition = { projectId, conversationId: currentConversation.id, request, targets, context, contextBytes: bytes(context), headFingerprint: this.heads(projectId) };
     const candidate = { ...definition, id: "preview", fingerprint: sourceDigest(definition) }; editMessages(candidate);
     const message = this.conversations.addMessage({ conversationId: currentConversation.id, role: "user", content: request.message, intent: request.intent, scope, context: this.canonicalContext(projectId), metadata: { editPlan: definition, editFingerprint: candidate.fingerprint } });
@@ -231,6 +235,11 @@ export class ConversationalEditService {
     return { ...definition, id, fingerprint: String(message.metadata.editFingerprint) };
   }
   private fresh(plan: EditPlan) { this.artifacts.assertAuthoringInstructionsFresh(plan.projectId, plan.context.authoringInstructions); if (this.heads(plan.projectId) !== plan.headFingerprint) throw new Error("edit_base_stale_repreview"); }
+  private mechanicRemovalBindings(projectId: string) {
+    const world = this.artifacts.getCurrent<WorldDefinition>(projectId, "world-definition");
+    const config = this.artifacts.getCurrent<NativePlayerConfig>(projectId, "native-player-config");
+    return { world: world?.content, config: config?.content, versions: { worldVersionId: world?.id ?? null, playerConfigVersionId: config?.id ?? null } };
+  }
   private canonicalContext(projectId: string) {
     return Object.fromEntries([...planningArtifactIds].sort().flatMap((id) => { const v = this.artifacts.getCurrent(projectId, id); return v ? [[`${id}VersionId`, v.id]] : []; }));
   }
@@ -370,6 +379,16 @@ export class ConversationalEditService {
       EditRequestSchema.parse(plan.request);
       if (plan.contextBytes !== bytes(plan.context) || plan.contextBytes > EDIT_LIMITS.contextBytes || plan.targets.length > EDIT_LIMITS.targets) throw new Error("edit_archive_plan_invalid");
       if (plan.targets.some(t => t.scope) && sourceCanonicalJson(plan.context.targets) !== sourceCanonicalJson(plan.targets)) throw new Error("edit_archive_target_content_invalid");
+      if (plan.context.mechanicRemovalDependencies !== undefined) {
+        const { worldVersionId, playerConfigVersionId } = MechanicRemovalBindingsSchema.parse(plan.context.mechanicRemovalDependencies);
+        for (const [artifactId, versionId] of [["world-definition", worldVersionId], ["native-player-config", playerConfigVersionId]] as const) {
+          if (!versionId) continue;
+          const version = this.artifacts.getVersion(versionId);
+          if (!version || version.projectId !== projectId || version.artifactId !== artifactId || version.artifactType !== artifactId) {
+            throw new Error("edit_archive_mechanic_removal_binding_invalid");
+          }
+        }
+      }
       for (const target of plan.targets) {
         const version = isArtifact(target.owner) ? this.artifacts.getVersion(target.versionId)
           : target.owner === "passage-structure"
@@ -470,6 +489,7 @@ export class ConversationalEditService {
     const structure = historical ? historical.get("passage-structure") as PassageStructure | undefined : currentStructure?.content;
     const links = new Map<string, string[]>();
     const boundedEntities = new Map<string, { owner: EditOwner; sequenceId: unknown }>();
+    const removedMechanicKeys = new Set<string>();
     const effectOwners = new Map<string, string>();
     for (const group of groups) for (const op of group.operations) {
       const creation = choiceEffectCreation(plan.targets.find(t => t.key === op.targetKey), op);
@@ -537,13 +557,17 @@ export class ConversationalEditService {
       protectLocks(current, after);
       const addedMechanics = creations.filter(c => selected.includes(c.groupId));
       const authorizedKeys = target.owner === "mechanics" ? authorizeMechanicKeys(current, after, addedMechanics) : new Set<string>();
+      const operations = applicable.flatMap(group => group.operations);
+      const removals = target.owner === "mechanics" ? authorizeMechanicRemovals(current, after, plan.targets.filter(t => t.owner === "mechanics"), operations) : undefined;
+      for (const removed of removals?.removals ?? []) removedMechanicKeys.add(removed.record.key);
       if (target.owner === "mechanics" && addedMechanics.some(c => collectStableIds(current).has(c.key) || existingIds.has(c.key))) throw new Error("edit_generated_id_collision");
       const oldCounts = identityCounts(current);
       for (const [id, count] of identityCounts(after)) if (count > Math.max(1, oldCounts.get(id) ?? 0)) throw new Error("edit_duplicate_identity");
       const beforeIds = collectStableIds(current), afterIds = collectStableIds(after);
       if ([...afterIds].some((id) => !beforeIds.has(id) && !generated.has(id) && !authorizedKeys.has(id))) throw new Error("edit_generated_id_invalid");
       if ([...afterIds].some((id) => !beforeIds.has(id) && existingIds.has(id))) throw new Error("edit_generated_id_collision");
-      if ([...beforeIds].some((id) => !afterIds.has(id) && !applicable.some((g) => g.operations.some((op) => op.kind === "remove-item" && op.targetId === id)))) throw new Error("edit_identity_changed");
+      if ([...beforeIds].some((id) => !afterIds.has(id) && !removals?.identities.has(id)
+        && !operations.some(op => op.kind === "remove-item" && op.targetId === id))) throw new Error("edit_identity_changed");
       if (target.owner === "creative-direction") {
         const raw = after as Record<string, unknown>, { materialFingerprint: _m, provenanceFingerprint: _p, ...input } = raw;
         const direction = CreativeDirectionInputSchema.parse(input), paths = directionPaths(direction), old = current as typeof direction;
@@ -554,6 +578,9 @@ export class ConversationalEditService {
           direction.fieldProvenance.push({ fieldPath: path, ...(stableEntityId ? { stableEntityId } : {}), reference: { kind: "user-message", targetId: plan.id, excerpt } });
         }
         after = { ...direction, ...creativeDirectionFingerprints(direction) };
+      }
+      if (target.owner === "mechanics" && removedMechanicKeys.size) {
+        assertRemovedMechanicsUnreferenced(removedMechanicKeys, mechanicPlanReferences(LongFormMechanicsPlanSchema.innerType().parse(after)));
       }
       const parsed = schemas[target.owner].parse(after);
       if (sourceCanonicalJson(parsed) !== sourceCanonicalJson(after)) throw new Error("edit_candidate_not_closed");
@@ -597,6 +624,14 @@ export class ConversationalEditService {
     }
     if (outputs.size > EDIT_LIMITS.targets) throw new Error("edit_output_scope_overflow_split_batch");
     if (historical) return { outputs: [...outputs.values()], groups, requiredGroupIds: [...required].sort(), findings: [], draftImpacts: [] };
+    if (removedMechanicKeys.size) {
+      const { world, config, versions } = this.mechanicRemovalBindings(plan.projectId);
+      const captured = plan.context.mechanicRemovalDependencies ?? { worldVersionId: null, playerConfigVersionId: null };
+      if (sourceCanonicalJson(versions) !== sourceCanonicalJson(captured)) throw new Error("edit_mechanic_removal_bindings_stale_repreview");
+      const choices = new Map(this.passages.currentEntities<ChoicePlan>(plan.projectId, "choice").map(v => [v.entityId, v.content]));
+      for (const output of outputs.values()) if (output.owner === "choice") choices.set(output.targetId, output.after as ChoicePlan);
+      assertRemovedMechanicsUnreferenced(removedMechanicKeys, [...[...choices.values()].flatMap(choiceMechanicReferences), ...worldMechanicReferences(world, config)]);
+    }
     const findings: Array<PlanningFinding | PassagePlanFinding> = validateLongFormProject(snapshot), original = validateLongFormProject(this.longForm.snapshot(plan.projectId));
     const baseline = new Set(original.filter((f) => f.severity === "error").map((f) => sourceDigest(f)));
     const errors = findings.filter((f) => f.severity === "error" && !baseline.has(sourceDigest(f))).map((f) => f.message);

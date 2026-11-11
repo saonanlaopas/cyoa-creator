@@ -1,5 +1,5 @@
-import { RepairFlagMechanicSchema, RepairRelationshipMechanicSchema, RepairResourceMechanicSchema, RepairVisibleStatMechanicSchema, sourceCanonicalJson } from "@story-to-cyoa/domain";
-import type { EditPlan, EditResponse } from "./conversational-edit-contract.js";
+import { RepairFlagMechanicSchema, RepairRelationshipMechanicSchema, RepairResourceMechanicSchema, RepairVisibleStatMechanicSchema, collectStableIds, sourceCanonicalJson, type ProposedPlanningOperation } from "@story-to-cyoa/domain";
+import type { EditPlan, EditResponse, EditTarget } from "./conversational-edit-contract.js";
 import { creationCollection } from "./conversational-collection-targets.js";
 
 const collections = {
@@ -7,6 +7,7 @@ const collections = {
   flags: RepairFlagMechanicSchema.strict(), resources: RepairResourceMechanicSchema.strict(),
 };
 interface MechanicCreation { collection: string; id: string; key: string; groupId: string }
+type MechanicCollection = keyof typeof collections;
 
 /** References use schema fields, not incidental words in labels or prose. */
 export function mechanicKeyReferences(value: unknown, result = new Set<string>()): Set<string> {
@@ -50,4 +51,43 @@ export function authorizeMechanicKeys(before: unknown, after: unknown, creations
     if (!old && !creations.some(c => c.collection === item.collection && c.id === item.id && c.key === item.key)) throw new Error("edit_generated_id_invalid");
   }
   return new Set(creations.map(c => c.key));
+}
+
+export function keyedMechanicTarget(target: EditTarget) {
+  if (target.owner !== "mechanics" || target.scope || target.key !== `mechanics:${target.targetId}`) return;
+  const path = /^\/([^/]+)\/(0|[1-9][0-9]*)$/.exec(target.path);
+  if (!path || !Object.hasOwn(collections, path[1]!)) return;
+  const collection = path[1] as MechanicCollection;
+  const record = collections[collection].parse(target.value);
+  if (record.id === target.targetId) return { collection, index: Number(path[2]), record };
+}
+
+export function authorizeMechanicRemovals(before: unknown, after: unknown, targets: EditTarget[], operations: ProposedPlanningOperation[]) {
+  const removals = targets.filter(target => operations.some(op => op.kind === "remove-item" && op.targetId === target.targetId))
+    .flatMap(target => { const removal = keyedMechanicTarget(target); return removal ? [removal] : []; });
+  const identities = new Set<string>();
+  if (!removals.length) return { identities, removals };
+  if (operations.some(op => op.kind === "set-fields" && op.targetId === "root" && Object.keys(op.changes!).some(field => Object.hasOwn(collections, field)))) {
+    throw new Error("edit_mechanic_removal_requires_exact_scope");
+  }
+  const remaining = structuredClone(before) as Record<MechanicCollection, unknown[]>;
+  // Remove only captured record slots; surviving occurrences of the same string stay owned by their original records.
+  for (const { collection, index, record } of removals.sort((a, b) => b.index - a.index)) {
+    if (sourceCanonicalJson(remaining[collection][index]) !== sourceCanonicalJson(record)) throw new Error("edit_mechanic_removal_target_stale");
+    remaining[collection].splice(index, 1);
+    collectStableIds(record, identities);
+  }
+  const count = (value: unknown, result = new Map<string, number>()): Map<string, number> => {
+    if (value && typeof value === "object") for (const [field, child] of Object.entries(value)) {
+      if ((field === "id" || field === "key") && typeof child === "string" && identities.has(child)) {
+        const token = `${field}:${child}`;
+        result.set(token, (result.get(token) ?? 0) + 1);
+      } else count(child, result);
+    }
+    return result;
+  };
+  const permitted = count(remaining), actual = count(after);
+  if ([...actual].some(([token, n]) => n > (permitted.get(token) ?? 0))) throw new Error("edit_mechanic_removal_identity_reused");
+  if ([...permitted].some(([token, n]) => n > (actual.get(token) ?? 0))) throw new Error("edit_identity_changed");
+  return { identities, removals };
 }
