@@ -11,7 +11,6 @@ import {
   compiledRuntimeFingerprint,
   initializeRuntimeState,
   nativeBundleFingerprint,
-  NativePreviewStopSchema,
   stableFingerprint,
   validateNativeGameBundle,
   IllustratedPresentationSchema,
@@ -40,7 +39,7 @@ import {
 import type {
   PlanningArtifactId,
 } from "./long-form-foundation.js";
-import { inspectNativePreviewBoundary, NativePreviewSelectionSchema } from "./native-preview-boundary.js";
+import { inspectNativePreviewBoundary, NativePreviewBoundarySchema, NativePreviewSelectionSchema } from "./native-preview-boundary.js";
 
 export const NATIVE_COMPILATION_INPUT_SCHEMA_ID = "cyoa.native-compilation-input" as const;
 export const NATIVE_COMPILATION_INPUT_SCHEMA_VERSION = 1 as const;
@@ -122,7 +121,7 @@ export const NativeCompilationInputSchema = z.object({
   sourceInputFingerprint: Fingerprint,
   preview: z.object({
     selection: NativePreviewSelectionSchema,
-    boundary: NativePreviewStopSchema,
+    boundary: NativePreviewBoundarySchema,
     playerConfigVersionId: StableId.nullable(),
   }).strict().optional(),
   world: z.object({ schemaVersion: z.literal(1), versionId: StableId, contentFingerprint: Fingerprint, presentationFingerprint: Fingerprint }).strict().optional(),
@@ -186,13 +185,18 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
   const bible = resolvedArtifact<LongFormStoryBible>(input, "bible");
   const preview = exact.preview;
   const selected = preview ? new Set(preview.selection.passageIds) : null;
+  let projection: ReturnType<typeof inspectNativePreviewBoundary>["projection"];
   if (preview) {
     const checked = inspectNativePreviewBoundary(preview.selection, input.passages.map(item => item.content),
       input.choices.map(item => item.content), input.world?.presentation ?? undefined);
     if (checked.blockers.length || stableFingerprint(checked.boundary) !== stableFingerprint(preview.boundary)) {
       throw inputError("native_preview_boundary_invalid", checked.blockers[0]?.message ?? "Suppression manifest does not match the captured input");
     }
+    projection = checked.projection;
   }
+  const excludedChoices = new Set(projection?.restrictions.filter(item => item.kind === "choice").map(item => item.id));
+  const previewChoiceSources = new Set(projection?.restrictions.flatMap(item => item.kind === "choice" && item.sourcePassageId ? [item.sourcePassageId] : []));
+  const world = projection?.world ?? input.world?.presentation;
   const source: RuntimeCompileSource = {
     snapshotId: exact.snapshot.id,
     structureVersionId: exact.snapshot.structureVersionId,
@@ -200,11 +204,12 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
     passageVersions: exact.passages.filter(reference => !selected || selected.has(reference.entityId)).map((reference) => ({
       versionId: reference.versionId,
       ...passageById.get(reference.entityId)!.content,
-      ...(reference.entityId === preview?.selection.stopPassageId ? { choiceIds: [] } : {}),
+      ...(reference.entityId === preview?.selection.stopPassageId ? { choiceIds: [] }
+        : previewChoiceSources.has(reference.entityId) ? { choiceIds: passageById.get(reference.entityId)!.content.choiceIds.filter(id => !excludedChoices.has(id)) } : {}),
     })),
     choiceVersions: exact.choices.filter(reference => {
       const choice = choiceById.get(reference.entityId)!.content;
-      return !selected || selected.has(choice.sourcePassageId) && choice.sourcePassageId !== preview?.selection.stopPassageId;
+      return !selected || selected.has(choice.sourcePassageId) && choice.sourcePassageId !== preview?.selection.stopPassageId && !excludedChoices.has(choice.id);
     }).map((reference) => ({
       versionId: reference.versionId,
       ...choiceById.get(reference.entityId)!.content,
@@ -215,7 +220,7 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
     endings: endings.endings.map((ending) => ({ id: ending.id, routeId: ending.routeId })),
     mechanics,
   };
-  const runtime = compileRuntime(source, { previewStopPassageId: preview?.selection.stopPassageId });
+  const runtime = compileRuntime(source, { previewStopPassageId: preview?.selection.stopPassageId, previewChoiceSources });
   const nativeMechanics = Object.values(runtime.mechanics).sort((left, right) => left.key.localeCompare(right.key)).map(nativeMechanic);
   const upstreamVersions = Object.fromEntries(exact.upstreamArtifacts.map((item) => [item.artifactId, item.versionId]));
   const provisional: NativeGameBundle = {
@@ -262,8 +267,12 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
     decisionIds: [...runtime.decisionIds],
     factIds: [...new Set(bible.canonFacts.map((fact) => fact.id))].sort(),
     ...(input.illustrations ? { illustratedPresentation: input.illustrations.presentation } : {}),
-    ...(input.world?.presentation ? { world: input.world.presentation } : {}),
-    ...(preview ? { preview: preview.boundary } : {}),
+    ...(world ? { world } : {}),
+    ...(preview ? { preview: {
+      stopPassageId: preview.boundary.stopPassageId, suppressedChoices: preview.boundary.suppressedChoices,
+      suppressedWorldCommands: preview.boundary.suppressedWorldCommands,
+      ...(projection ? { playtest: { boundaryFingerprint: exact.sourceInputFingerprint, restrictions: projection.restrictions } } : {}),
+    } } : {}),
     ...(exact.compilerPolicy.includeDebugProvenance ? {
       debug: {
         upstreamVersions,

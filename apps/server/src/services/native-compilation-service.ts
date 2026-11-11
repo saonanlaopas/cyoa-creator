@@ -700,16 +700,16 @@ export class NativeCompilationService {
     }
 
     let previewWorld: ResolvedNativeCompilationInput["world"];
-    let boundary: Inspection["boundary"];
+    let previewBoundary: ReturnType<typeof inspectNativePreviewBoundary> | undefined;
     const selectedIds = new Set(selection?.passageIds);
     const draftPassages = selection ? passages.filter(passage => selectedIds.has(passage.id)) : passages;
     if (selection) {
       try { previewWorld = resolveWorld(this.artifacts, projectId, entityReferences(passageVersions)); }
       catch (error) { blocker("publication.world-invalid", (error as Error).message, "project", projectId); }
-      const inspected = inspectNativePreviewBoundary(selection, passages, choices, previewWorld?.presentation ?? undefined);
-      boundary = inspected.boundary;
-      for (const finding of inspected.blockers) blocker("preview.boundary-invalid", finding.message, finding.source, finding.id);
+      previewBoundary = inspectNativePreviewBoundary(selection, passages, choices, previewWorld?.presentation ?? undefined);
+      for (const finding of previewBoundary.blockers) blocker("preview.boundary-invalid", finding.message, finding.source, finding.id);
     }
+    const boundary = previewBoundary?.boundary;
     const acceptedDrafts: Array<{ selection: NativeAcceptedDraftSelection; proseMarkdown: string }> = [];
     const passageReferenceById = new Map(passageVersions.map((item) => [item.entityId, item]));
     const acceptedHeads = new Map(this.passageDrafts.listAcceptedHeadsForPassages(
@@ -830,8 +830,9 @@ export class NativeCompilationService {
         try { world = resolveWorld(this.artifacts, projectId, identity.passages); }
         catch (error) { blocker("publication.world-invalid", (error as Error).message, "project", projectId); }
       }
-      if (world?.presentation?.progression) for (const finding of progressionDiagnostics(world.presentation.progression, world.presentation.initialMinutes, world.presentation.economy)) warningDiagnostics.push(diagnostic(finding.code, "warning", `${finding.message} Limited static analysis; not exhaustive.`, "world-progression", finding.entityId));
-      if (world?.presentation?.people) for (const finding of peopleDiagnostics(world.presentation.people, world.presentation.progression)) warningDiagnostics.push(diagnostic(finding.code, "warning", finding.message, "world-people", finding.entityId));
+      const playableWorld = previewBoundary?.projection?.world ?? world?.presentation;
+      if (playableWorld?.progression) for (const finding of progressionDiagnostics(playableWorld.progression, playableWorld.initialMinutes, playableWorld.economy)) warningDiagnostics.push(diagnostic(finding.code, "warning", `${finding.message} Limited static analysis; not exhaustive.`, "world-progression", finding.entityId));
+      if (playableWorld?.people) for (const finding of peopleDiagnostics(playableWorld.people, playableWorld.progression)) warningDiagnostics.push(diagnostic(finding.code, "warning", finding.message, "world-people", finding.entityId));
       try { illustrations = resolveIllustrations(this.artifacts, projectId, selection ? identity.passages.filter(passage => selectedIds.has(passage.entityId)) : identity.passages); }
       catch (error) { blocker("publication.illustration-invalid", (error as Error).message, "illustrated-scene", projectId); }
       const input = NativeCompilationInputSchema.parse({
@@ -876,7 +877,7 @@ export class NativeCompilationService {
       snapshotId: snapshot.id,
       structureVersionId: snapshot.structureVersionId,
       passageCount: draftPassages.length,
-      choiceCount: selection ? choices.filter(choice => selectedIds.has(choice.sourcePassageId) && choice.sourcePassageId !== selection.stopPassageId).length : choices.length,
+      choiceCount: previewBoundary?.retainedChoiceCount ?? choices.length,
       acceptedDraftCount: acceptedDrafts.length,
       acceptedWordCount: acceptedDrafts.reduce((total, item) => total + item.selection.wordCount, 0),
     });

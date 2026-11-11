@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { inspectWorldEconomy, type NativeWorld, type RuntimeState, type WorldCommand } from "@story-to-cyoa/runtime";
+import { inspectWorldEconomy, OUTSIDE_PLAYTEST, playtestActionKey, visiblePlaytestRestrictions, type NativePreviewStop, type NativeWorld, type RuntimeState, type WorldCommand } from "@story-to-cyoa/runtime";
 import "./economy.css";
 import { economyFeedback } from "./economy-feedback.js";
-export function EconomyPanel({ world, state, disabled, onAction, selectedView }: { world: NativeWorld; state: RuntimeState; disabled: boolean; onAction: (command: WorldCommand, label: string) => void; selectedView?: "inventory" | "shops" | "gifts" }) {
+export function EconomyPanel({ world, state, disabled, onAction, selectedView, preview }: { world: NativeWorld; state: RuntimeState; disabled: boolean; onAction: (command: WorldCommand, label: string) => void; selectedView?: "inventory" | "shops" | "gifts"; preview?: NativePreviewStop }) {
   const [localView, setView] = useState<"inventory" | "shops" | "gifts" | null>(null);
   const view = selectedView ?? localView;
   if (!world.economy) return null;
   const e = world.economy, current = inspectWorldEconomy(world, state), item = (id: string) => e.items.find((i) => i.id === id)!;
+  const outside = visiblePlaytestRestrictions(preview, state, false).filter(item => item.kind === (view === "inventory" ? "use" : view === "shops" ? "purchase" : view === "gifts" ? "gift" : null));
   return <section className="economy-panel" aria-label="Inventory and shops">
     <p>{current.currency.name}: <strong>{current.currency.amount}</strong></p>
     {!selectedView && <nav aria-label="Belongings and trade">{(["inventory", "shops", "gifts"] as const).map((key) => <button key={key} aria-pressed={view === key} onClick={() => setView(view === key ? null : key)}>{key === "inventory" ? "Inventory" : key === "shops" ? "Shops here" : "Give a gift"}</button>)}</nav>}
@@ -28,5 +29,6 @@ export function EconomyPanel({ world, state, disabled, onAction, selectedView }:
       const feedback = economyFeedback(e, undefined, rule.effects); const label = `${a.label} · ${rule.quantity} ${item(rule.itemId).name} to ${recipient.name} · ${rule.minutes} min${feedback ? " · " + feedback : ""}`;
       return <div key={a.id}><button disabled={disabled || !a.enabled} onClick={() => onAction({ kind: "gift", id: a.id }, label)}>{label}</button>{a.reason && <small>{a.reason}</small>}</div>;
     })}</section>}
+    {outside.map(item => <button key={playtestActionKey(item)} disabled>{OUTSIDE_PLAYTEST}</button>)}
   </section>;
 }

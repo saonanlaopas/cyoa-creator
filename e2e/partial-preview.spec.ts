@@ -8,8 +8,11 @@ import { pathToFileURL } from "node:url";
 import { applyPreviewWorld, boundaryProse, completePreviewOpening, openingProse, openingSelection, previewStop, previewWorld } from "./helpers/partial-preview.js";
 import { imageMetadata } from "./helpers/image-assets.js";
 import { townMap } from "./helpers/world.js";
+import { boundedSelection, boundedWorld } from "./helpers/bounded-playtest.js";
 
-test("PF-008 plays a reviewed opening offline on desktop and mobile without advancing past the accepted stop", async ({ browser, playwright }, info) => {
+for (const bounded of [false, true]) test(bounded
+  ? "Bounded World playtest hides future titles and plays the correction offline on desktop and mobile"
+  : "PF-008 plays a reviewed opening offline on desktop and mobile without advancing past the accepted stop", async ({ browser, playwright }, info) => {
   test.setTimeout(120000);
   const directory = await mkdtemp(join(tmpdir(), "cyoa-preview-browser-"));
   const token = randomBytes(32).toString("hex"), projectId = randomUUID();
@@ -59,11 +62,15 @@ test("PF-008 plays a reviewed opening offline on desktop and mobile without adva
       const review = await call("review_asset", { projectId, assetId: candidate.assetId, versionId: candidate.versionId });
       const asset = await call("approve_asset", { projectId, operationId: randomUUID(), approved: true, assetId: candidate.assetId,
         versionId: candidate.versionId, fingerprint: review.fingerprint });
-      await applyPreviewWorld(call, projectId, await previewWorld(call, projectId, { assetId: asset.assetId, versionId: asset.versionId }));
+      const world = bounded ? boundedWorld : previewWorld;
+      await applyPreviewWorld(call, projectId, await world(call, projectId, { assetId: asset.assetId, versionId: asset.versionId }));
       const full = await call("publication_readiness", { projectId });
       expect(full.ready).toBe(false);
-      const preview = await call("review_preview", { projectId, selection: openingSelection });
+      const preview = await call("review_preview", { projectId, selection: bounded ? boundedSelection : openingSelection });
       expect(preview).toMatchObject({ ready: true, kind: "partial-preview", acceptedDraftCount: 2, boundary: { stopPassageId: previewStop } });
+      if (bounded) expect(preview.boundary.boundedPlaytest.exclusions).toContainEqual(expect.objectContaining({
+        id: "future-encounter", label: "Secret future encounter", presentation: "hidden", destinationPassageId: "passage-route-1-act",
+      }));
       const built = await call("compile_preview", { projectId, selection: preview.selection, operationId: randomUUID(), approved: true,
         fingerprint: preview.fingerprint, headFingerprint: preview.headFingerprint });
       const exported = await call("export_preview", { projectId, buildVersionId: built.buildVersionId });
@@ -72,7 +79,7 @@ test("PF-008 plays a reviewed opening offline on desktop and mobile without adva
       expect((await request.get(exported.downloadPath, { headers: { ...authorization, Origin: "https://other.invalid" } })).status()).toBe(403);
       const download = await request.get(exported.downloadPath, { headers: authorization });
       await expect(download).toBeOK();
-      expect(download.headers()["content-disposition"]).toContain("cyoa-partial-preview.html");
+      expect(download.headers()["content-disposition"]).toContain(bounded ? "cyoa-bounded-playtest.html" : "cyoa-partial-preview.html");
       await writeFile(file, await download.body());
     } finally { await request.dispose(); }
     child.kill("SIGTERM");
@@ -86,23 +93,43 @@ test("PF-008 plays a reviewed opening offline on desktop and mobile without adva
         await page.goto(pathToFileURL(file).href);
         const world = page.getByRole("region", { name: "Locations and time" });
         const clock = world.getByLabel("Game time");
-        await expect(page.getByText("Partial preview", { exact: true })).toBeVisible();
+        const label = bounded ? "Bounded playtest" : "Partial preview";
+        await expect(page.getByText(label, { exact: true })).toBeVisible();
+        await expect(page).toHaveTitle(new RegExp(`^${label}:`));
         await expect(page.getByText(openingProse, { exact: true })).toBeVisible();
         await world.getByText("Map", { exact: true }).click();
         await expect(world.getByRole("img")).toHaveJSProperty("naturalWidth", 640);
         await expect(clock).toHaveText("Day 1 · 23:50");
-        await world.getByRole("navigation", { name: "Travel", exact: true }).getByRole("button", { name: "Cafe · 15 min", exact: true }).click();
+        if (bounded) {
+          const blocked = page.getByRole("button", { name: "Outside this preview", exact: true });
+          await expect(blocked).toHaveCount(3);
+          for (const button of await blocked.all()) await expect(button).toBeDisabled();
+          await expect(page.getByText(/Secret future|secret itinerary|Station/)).toHaveCount(0);
+          await world.getByRole("button", { name: "Wait 15 min", exact: true }).click();
+          await page.getByRole("button", { name: "Confirm action", exact: true }).click();
+          await expect(clock).toHaveText("Day 2 · 00:05");
+          await expect(page.getByText(/Required encounter/)).toHaveCount(0);
+          await world.getByRole("button", { name: /^Correct the ledger/ }).click();
+        } else {
+          await world.getByRole("navigation", { name: "Travel", exact: true }).getByRole("button", { name: "Cafe · 15 min", exact: true }).click();
+        }
         await page.getByRole("button", { name: "Confirm action", exact: true }).click();
-        await expect(clock).toHaveText("Day 2 · 00:05");
+        const stopTime = bounded ? "Day 2 · 00:10" : "Day 2 · 00:05";
+        await expect(clock).toHaveText(stopTime);
+        if (bounded) {
+          await expect(page.getByRole("region", { name: "Action outcome" })).toHaveText("The corrected ledger balances.");
+          await expect(page.getByRole("region", { name: "Inventory and shops" })).toContainText("Coins: 7");
+        }
         const assertStop = async () => {
           await expect(page.getByText(boundaryProse, { exact: true })).toBeVisible();
           await expect(page.getByText("Preview boundary reached.", { exact: true })).toBeVisible();
           await expect(page.getByText("This ending is complete.", { exact: true })).toHaveCount(0);
           await expect(page.getByRole("region", { name: "Choices" })).toHaveCount(0);
           await expect(world.getByRole("button", { name: "Home · 15 min", exact: true })).toBeDisabled();
-          await expect(world.getByRole("button", { name: "Read departure board · 5 min", exact: true })).toBeDisabled();
+          if (bounded) await expect(world.getByRole("button", { name: "Read departure board · 5 min", exact: true })).toHaveCount(0);
+          else await expect(world.getByRole("button", { name: "Read departure board · 5 min", exact: true })).toBeDisabled();
           await expect(world.getByRole("button", { name: "Wait 15 min", exact: true })).toBeDisabled();
-          await expect(clock).toHaveText("Day 2 · 00:05");
+          await expect(clock).toHaveText(stopTime);
         };
         await assertStop();
         await page.getByRole("button", { name: "Save game", exact: true }).click();

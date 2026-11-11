@@ -1,7 +1,7 @@
 import { assertWorldActionAllowed, mandatoryEventStatus, revealProgressionEvents } from "./progression.js";
 import { z } from "zod";
 import { IllustratedPresentationSchema } from "./illustrated-scenes.js";
-import { NativeWorldSchema, WorldStateSchema, initialWorldState } from "./world.js";
+import { NativeProjectedWorldSchema, WorldStateSchema, initialWorldState } from "./world.js";
 import { canonical, serializedBytes, stableFingerprint } from "./canonical.js";
 import { compiledRuntimeFingerprint } from "./compile.js";
 import {
@@ -25,7 +25,7 @@ import type {
   RuntimeState,
 } from "./types.js";
 
-import { NativePreviewStopSchema, previewWorldSuppressions } from "./native-preview.js";
+import { assertPlaytestCommand, NativePreviewStopSchema, playtestActionKey, previewWorldSuppressions } from "./native-preview.js";
 
 export const NATIVE_GAME_BUNDLE_SCHEMA_ID = "cyoa.native-game-bundle" as const;
 export const NATIVE_GAME_BUNDLE_SCHEMA_VERSION = 1 as const;
@@ -171,7 +171,7 @@ export const NativeGameBundleSchema = z.object({
   decisionIds: z.array(StableId).max(20_000),
   factIds: z.array(StableId).max(NATIVE_BUNDLE_LIMITS.maximumFacts),
   illustratedPresentation: IllustratedPresentationSchema.optional(),
-  world: NativeWorldSchema.optional(),
+  world: NativeProjectedWorldSchema.optional(),
   preview: NativePreviewStopSchema.optional(),
   debug: z.object({
     upstreamVersions: z.record(StableId),
@@ -319,6 +319,20 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
   }
   const bundle = parsed.data;
   const findings: NativeBundleFinding[] = [];
+  const playtest = bundle.preview?.playtest;
+  const boundedChoiceSources = new Set(playtest?.restrictions.filter(item => item.kind === "choice").map(item => item.sourcePassageId));
+  if (bundle.world && !bundle.world.waitMinutes.length && !playtest) findings.push({ code: "world.wait-required", message: "A faithful World must configure at least one wait duration" });
+  if (playtest) {
+    const executable = new Set([
+      ...bundle.choices.map(item => playtestActionKey({ kind: "choice", id: item.id })),
+      ...previewWorldSuppressions(bundle.world).map(item => playtestActionKey(item.kind === "wait" ? { kind: "wait", id: String(item.minutes) } : item)),
+    ]);
+    if (!bundle.world || playtest.boundaryFingerprint !== bundle.source.inputFingerprint || duplicateIds(playtest.restrictions.map(playtestActionKey)).length
+      || playtest.restrictions.some(item => executable.has(playtestActionKey(item))
+        || item.kind === "choice" && (!item.sourcePassageId || !bundle.passages.some(p => p.id === item.sourcePassageId)))) {
+      findings.push({ code: "native.bundle.playtest-invalid", message: "A bounded playtest restriction overlaps an executable command or has an invalid source" });
+    }
+  }
   if (bundle.preview) {
     const stop = bundle.passages.find(passage => passage.id === bundle.preview!.stopPassageId);
     const suppressedIds = bundle.preview.suppressedChoices.map(choice => choice.id);
@@ -403,7 +417,7 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
     if (!passage.terminal && passage.endingId !== null) add({
       code: "native.bundle.nonterminal-ending", message: `Nonterminal passage ${passage.id} references an ending`, passageId: passage.id,
     });
-    if (!passage.terminal && !passage.choiceIds.length && passage.id !== bundle.preview?.stopPassageId) add({
+    if (!passage.terminal && !passage.choiceIds.length && passage.id !== bundle.preview?.stopPassageId && !boundedChoiceSources.has(passage.id)) add({
       code: "native.bundle.dead-end", message: `Nonterminal passage ${passage.id} has no choices`, passageId: passage.id,
     });
     passage.choiceIds.forEach((choiceId) => {
@@ -524,6 +538,7 @@ export function evaluateNativeGameChoice(
   state: RuntimeState,
   choiceId: string,
 ): NativeChoiceView {
+  assertPlaytestCommand(game.bundle.preview, { kind: "choice", id: choiceId });
   const choice = game.choices.get(choiceId);
   if (!choice) throw new NativeBundleValidationError([{
     code: "native.choice.missing", message: `Native choice ${choiceId} does not exist`, choiceId,
@@ -539,6 +554,7 @@ export function chooseNativeGameChoice(
   choiceId: string,
 ): RuntimeChoiceTransition {
   if (atNativePreviewStop(game, state)) throw new Error("native_preview_stop_reached");
+  assertPlaytestCommand(game.bundle.preview, { kind: "choice", id: choiceId });
   if (game.bundle.world) assertWorldActionAllowed(game.bundle.world, state);
   const transition = applyRuntimeChoice(game.runtime, game.bundle.source.inputFingerprint, state, choiceId, state.turn);
   if (transition.ok && game.bundle.world && transition.state.world) {

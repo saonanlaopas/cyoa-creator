@@ -41,7 +41,7 @@ const descriptions: Record<ConnectedEditTool, string> = {
   accept_drafts: "Accept only the explicitly author-approved candidate selection and exact acceptance fingerprint. Shared Creator acceptance guards stale bases, neighbors and locks, preserving old versions. No automatic unlock or review/lock lifecycle promotion. Retry identical UUID/arguments.",
   publication_readiness: "Inspect current shared compiler readiness, blockers, warnings and counts without generating prose or compiling. Approve the exact fingerprint/head separately to compile. Omitted diagnostic counts remain explicit.",
   compile_game: "After explicit author approval, compile the exact current publication-ready game through Creator's native compiler, capturing immutable input/build versions. No silent staleness override. Use identical operation UUID/arguments for retry.",
-  review_preview: "Read-only review of a partial playtest. Select passageIds, startPassageId and a non-ending stopPassageId. Requires current accepted prose throughout the slice. Show the exact stop and suppressed choices/World commands and any escaping references to the author before asking for consent. Not publication readiness.",
+  review_preview: "Read-only review of a partial playtest. Select passageIds, startPassageId and a non-ending stopPassageId. Requires current accepted prose throughout the slice. Default mode faithful-slice requires strict closure. Opt into bounded-playtest for an enabled World and give exact exclusions by kind, id and disabled/hidden presentation. Show the author the exact stop, suppressions, exclusions (including hidden details), projected omissions and blockers before asking for consent. Not publication readiness.",
   compile_preview: "After explicit author approval, compile only the exact reviewed partial preview using the same selection and current review/head fingerprints. The stop shows accepted prose, then prevents all further choice and World actions; it is not an authored ending. No publication or prose acceptance. Retry identical operation UUID and arguments.",
   export_preview: "Return an authenticated same-server download path for an exact partial preview build. Fetch it with the same local MCP authorization (never put the token in the URL). The native standalone HTML plays offline; it is not a full publication.",
   simulate_game: "Run a deterministic authored choice-ID path against an exact approved current plan, with optional expected ending. Stores reproducible input/trace, never provider narration. Inspect with read_simulation and revise through proposals. Requires consent and exact game head; retry identical UUID/arguments.",
@@ -85,9 +85,10 @@ export function registerConnectedEditing(app: FastifyInstance, service: Connecte
   app.get<{ Params: { projectId: string; buildVersionId: string } }>("/mcp/previews/:projectId/:buildVersionId/standalone", { onRequest: authorize }, async (req, reply) => {
     try {
       const { projectId, buildVersionId } = req.params;
-      await service.call("export_preview", { projectId, buildVersionId });
+      const metadata = await service.call("export_preview", { projectId, buildVersionId }) as { mode?: string };
       const { html, fingerprint } = await renderPreview(projectId, buildVersionId);
-      return reply.type("text/html; charset=utf-8").header("content-disposition", 'attachment; filename="cyoa-partial-preview.html"')
+      const filename = metadata.mode === "bounded-playtest" ? "cyoa-bounded-playtest.html" : "cyoa-partial-preview.html";
+      return reply.type("text/html; charset=utf-8").header("content-disposition", `attachment; filename="${filename}"`)
         .header("cache-control", "no-store").header("x-content-type-options", "nosniff").header("x-cyoa-artifact-fingerprint", fingerprint).send(html);
     } catch (error) {
       return reply.code(404).send({ error: (error as Error).message });

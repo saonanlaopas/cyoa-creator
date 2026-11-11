@@ -2,10 +2,10 @@ import { WorldViews } from "./WorldViews.js";
 import { economyFeedback } from "./economy-feedback.js";
 import { EconomyPanel } from "./EconomyPanel.js";
 import { useState } from "react";
-import { worldClock, worldLocationOpen, presentCharacters, mandatoryEventStatus, prerequisitesMet, progressionEventAvailability, previewChapterTransition, type ChapterTransitionPreview, type NativeWorld, type RuntimeState, type WorldCommand } from "@story-to-cyoa/runtime";
+import { worldClock, worldLocationOpen, presentCharacters, mandatoryEventStatus, prerequisitesMet, progressionEventAvailability, previewChapterTransition, OUTSIDE_PLAYTEST, playtestActionKey, visiblePlaytestRestrictions, type ChapterTransitionPreview, type NativePreviewStop, type NativeWorld, type RuntimeState, type WorldCommand } from "@story-to-cyoa/runtime";
 import "./world.css";
 
-export function WorldPanelCore({ world, state, disabled, onAction }: { world: NativeWorld; state: RuntimeState; disabled: boolean; onAction: (command: WorldCommand, label: string, preview?: ChapterTransitionPreview) => void; onViewChange?: (view: string) => void }) {
+export function WorldPanelCore({ world, state, disabled, onAction, preview }: { world: NativeWorld; state: RuntimeState; disabled: boolean; onAction: (command: WorldCommand, label: string, preview?: ChapterTransitionPreview) => void; onViewChange?: (view: string) => void; preview?: NativePreviewStop }) {
   const current = world.locations.find((l) => l.id === state.world!.locationId)!;
   const [mapId, setMapId] = useState<string | null>(null), [inspected, setInspected] = useState<string | null>(null);
   const [failedImages, setFailedImages] = useState<string[]>([]);
@@ -17,6 +17,7 @@ export function WorldPanelCore({ world, state, disabled, onAction }: { world: Na
   const people = presentCharacters(world, state);
   const events = world.people ? [...(world.progression?.events ?? [])].sort((a, b) => (world.people!.events.find((r) => r.eventId === b.id)?.priority ?? 0) - (world.people!.events.find((r) => r.eventId === a.id)?.priority ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) : world.progression?.events ?? [];
   const travel = (id: string) => world.connections.filter((c) => c.from === current.id && c.to === id);
+  const outside = visiblePlaytestRestrictions(preview, state, false).filter(item => !["purchase", "gift", "use"].includes(item.kind));
   return <section className="world-panel" aria-label="Locations and time">
     <header><strong>{current.name}</strong><time aria-label="Game time">{worldClock(state.world!.minutes)}</time></header>
     {world.people && <section aria-label="People present"><p>Here now: {people.map((p) => p.name).join(", ") || "No one encountered"}</p></section>}
@@ -30,7 +31,7 @@ export function WorldPanelCore({ world, state, disabled, onAction }: { world: Na
       <nav aria-label="Chapter transitions">{world.progression.transitions.filter((transition) => transition.fromChapterId === state.world!.progression!.chapterId).map((transition) => <button key={transition.id} disabled={actionDisabled || state.world!.minutes + transition.minutes > 52_560_000 || !prerequisitesMet(transition.prerequisites, state)}
         onClick={() => { const preview = previewChapterTransition(world, state, transition.id); onAction({ kind: "chapter-transition", id: transition.id, previewFingerprint: preview.fingerprint }, `${transition.label} (${transition.minutes} min)`, preview); }}>{transition.label} · {transition.minutes} min</button>)}</nav>
     </section>}
-    {world.economy && !world.journal && <EconomyPanel world={world} state={state} disabled={actionDisabled} onAction={onAction} />}
+    {world.economy && !world.journal && <EconomyPanel world={world} state={state} disabled={actionDisabled} onAction={onAction} preview={preview} />}
     <details><summary>Map</summary>
       <label>Area<select value={map.id} onChange={(e) => { setMapId(e.target.value); setInspected(null); }}>{knownLocations.map((l) => <option value={l.id} key={l.id}>{l.name}</option>)}</select></label>
       <div className="world-map">
@@ -53,6 +54,7 @@ export function WorldPanelCore({ world, state, disabled, onAction }: { world: Na
     })}</nav>
     <nav aria-label="Local actions">{world.actions.filter((a) => a.locationId === current.id).map((a) => <button key={a.id} disabled={actionDisabled} onClick={() => onAction({ kind: "action", id: a.id }, `${a.label} (${a.minutes} min)`)}>{a.label} · {a.minutes} min</button>)}</nav>
     <nav aria-label="Wait">{world.waitMinutes.map((minutes) => <button key={minutes} disabled={actionDisabled} onClick={() => onAction({ kind: "wait", minutes }, `Wait ${minutes} minutes`)}>Wait {minutes} min</button>)}</nav>
+    {outside.length > 0 && <nav aria-label="Unavailable World actions">{outside.map(item => <button key={playtestActionKey(item)} disabled>{OUTSIDE_PLAYTEST}</button>)}</nav>}
   </section>;
 }
 

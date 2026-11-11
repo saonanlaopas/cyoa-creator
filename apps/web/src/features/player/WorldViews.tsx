@@ -15,7 +15,7 @@ export function WorldViews(props: ComponentProps<typeof WorldPanelCore>) {
     <div id={panelId}><h3 ref={heading} tabIndex={-1}>{labels[view]}</h3>
       {view === "explore" ? <WorldPanelCore {...props} /> : <>
         <header className="world-view-context"><strong>{world.locations.find((l) => l.id === state.world!.locationId)!.name}</strong><time aria-label="Game time">{worldClock(state.world!.minutes)}</time></header>
-        {view === "character" ? <CharacterPanel world={world} state={state} /> : view === "journal" ? <JournalPanel world={world} state={state} /> : <EconomyPanel world={world} state={state} disabled={disabled} onAction={onAction} selectedView={view} />}
+        {view === "character" ? <CharacterPanel world={world} state={state} /> : view === "journal" ? <JournalPanel world={world} state={state} /> : <EconomyPanel world={world} state={state} disabled={disabled} onAction={onAction} preview={props.preview} selectedView={view} />}
         <button onClick={() => select("explore", true)}>Back to exploration</button>
       </>}
     </div>

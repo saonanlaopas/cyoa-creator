@@ -221,7 +221,8 @@ export class PublicationExportService {
   async exportPreviewStandalone(projectId: string, buildVersionId: string) {
     const source = this.requireNativeCompilation().loadPreviewBuild(projectId, buildVersionId);
     const start = source.bundle.passages.find(passage => passage.id === source.bundle.startPassageId)!;
-    return this.renderStandalone(source, `Partial preview: ${start.presentation.title}`, "standalone-preview-html");
+    const label = source.bundle.preview?.playtest ? "Bounded playtest" : "Partial preview";
+    return this.renderStandalone(source, `${label}: ${start.presentation.title}`, source.bundle.preview?.playtest ? "standalone-bounded-playtest-html" : "standalone-preview-html");
   }
 
   private async renderStandalone(source: Parameters<typeof publicationMeaning>[1], title: string, format: string) {

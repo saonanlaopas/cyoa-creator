@@ -104,7 +104,9 @@ export class ConnectedGameService {
     const { inputPreview, diagnostics, blockers, warnings, acknowledgedWarnings, ...summary } = readiness;
     const binding = { kind: "partial-preview" as const, selection, boundary: boundary ?? null, headFingerprint };
     return {
-      ...summary, ...binding, fingerprint: inputPreview ? previewFingerprint(headFingerprint, inputPreview) : sourceDigest({ ...binding, readiness }),
+      ...summary, ...binding, mode: selection.mode ?? "faithful-slice",
+      ...(selection.mode === "bounded-playtest" ? { reachability: "Structural path only; this does not prove every state-dependent playthrough can reach the stop." } : {}),
+      fingerprint: inputPreview ? previewFingerprint(headFingerprint, inputPreview) : sourceDigest({ ...binding, readiness }),
       acceptedDrafts: inputPreview?.acceptedDrafts.map(({ passageId, versionId, basedOnPassagePlanVersionId, proseFingerprint }) =>
         ({ passageId, versionId, basedOnPassagePlanVersionId, proseFingerprint })) ?? [],
       world: inputPreview?.world ?? null, illustrations: inputPreview?.illustrations ?? null,
@@ -228,6 +230,7 @@ export class ConnectedGameService {
         const i = ConnectedGameInputs.export_preview.parse(value);
         const { build, input } = this.compilation.loadPreviewBuild(i.projectId, i.buildVersionId);
         return { kind: "partial-preview", buildVersionId: build.id, inputVersionId: input.id,
+          ...(input.content.preview?.selection.mode === "bounded-playtest" ? { mode: "bounded-playtest" } : {}),
           bundleFingerprint: build.content.bundleFingerprint, format: "standalone", providerCalls: 0,
           downloadPath: `/mcp/previews/${encodeURIComponent(i.projectId)}/${encodeURIComponent(build.id)}/standalone`,
           delivery: "authenticated-download-link-rendered-on-fetch" };

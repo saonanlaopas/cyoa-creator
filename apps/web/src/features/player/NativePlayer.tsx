@@ -12,6 +12,9 @@ import {
   loadNativePlayerSave,
   nativePlayerSaveCompatibility,
   nativePlayerView,
+  OUTSIDE_PLAYTEST,
+  playtestActionKey,
+  visiblePlaytestRestrictions,
   restartNativePlayerSession,
   rewindNativePlayerSession,
   type NativePlayerInstallation,
@@ -277,11 +280,11 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
     <div className="native-player-layout">
       <article className="native-player-card native-player-passage">
         <header>
-          {installation.bundle.preview && <p className="eyebrow">Partial preview</p>}
+          {installation.bundle.preview && <p className="eyebrow">{installation.bundle.preview.playtest ? "Bounded playtest" : "Partial preview"}</p>}
           <p className="eyebrow">{view.terminal.result ? "Ending" : `Turn ${session.state.turn + 1}`}</p>
           <h1 ref={headingRef} tabIndex={-1}>{view.passage.presentation.title}</h1>
         </header>
-        {installation.bundle.world && <WorldPanel world={installation.bundle.world} state={session.state} onViewChange={setWorldView} disabled={busy || recoveryRequired || view.previewStopped || Boolean(view.terminal.result)} onAction={(command, label, preview) => setWorldAction({ command, label, ...(preview ? { preview } : {}) })} />}
+        {installation.bundle.world && <WorldPanel world={installation.bundle.world} state={session.state} onViewChange={setWorldView} disabled={busy || recoveryRequired || view.previewStopped || Boolean(view.terminal.result)} preview={view.previewStopped || view.terminal.result ? undefined : installation.bundle.preview} onAction={(command, label, preview) => setWorldAction({ command, label, ...(preview ? { preview } : {}) })} />}
         {!secondaryView && installation.bundle.illustratedPresentation && <IllustratedScene presentation={installation.bundle.illustratedPresentation} passageId={view.passage.id} />}
         {(!secondaryView || view.previewStopped) && <div className="native-player-prose">
           {paragraphs(view.passage.proseMarkdown).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
@@ -310,6 +313,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
             {!availability.enabled && choice.unavailableExplanation
               ? <small id={`${choice.id}-reason`}>{choice.unavailableExplanation}</small> : null}
           </button>)}
+          {visiblePlaytestRestrictions(installation.bundle.preview, session.state, true).map(item => <button key={playtestActionKey(item)} disabled>{OUTSIDE_PLAYTEST}</button>)}
         </section>}
       </article>
 

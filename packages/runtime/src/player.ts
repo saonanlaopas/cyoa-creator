@@ -25,6 +25,7 @@ import { cloneRuntimeState } from "./semantics.js";
 import type { RuntimeResult, RuntimeState, RuntimeStateDelta } from "./types.js";
 import { enterPassage } from "./engine.js";
 import { assertProgressionState, revealProgressionEvents } from "./progression.js";
+import { assertPlaytestCommand } from "./native-preview.js";
 import { transitionWorld, type WorldCommand } from "./world.js";
 
 export const NATIVE_PLAYER_CONFIG_SCHEMA_ID = "cyoa.native-player-config" as const;
@@ -460,6 +461,7 @@ export function actNativePlayerWorld(bundleValue: unknown, configValue: unknown,
   const game = loadNativeGame(bundleValue), config = assertNativePlayerConfig(configValue, game.bundle);
   const session = assertNativePlayerSession(game.bundle, config, sessionValue);
   if (atNativePreviewStop(game, session.state)) throw new NativePlayerError("player_choice_rejected", "native_preview_stop_reached");
+  assertPlaytestCommand(game.bundle.preview, command);
   if (!game.bundle.world || nativeGameTerminal(game, session.state).result) throw new NativePlayerError("player_choice_rejected", "World actions are unavailable");
   const transition = transitionWorld(game.bundle.world, session.state, command);
   const state = transition.state;

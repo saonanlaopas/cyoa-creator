@@ -13,11 +13,11 @@ const id = z.string().min(1).max(200), label = z.string().min(1).max(200);
 export const WorldStateSchema = z.object({ schemaVersion: z.literal(1), locationId: id,
   progression: ProgressionStateSchema.optional(), people: PeopleStateSchema.optional(), economy: EconomyStateSchema.optional(), journal: JournalStateSchema.optional(),
   minutes: z.number().int().min(0).max(52_560_000), stationaryTurns: z.number().int().min(0).max(1_000_000).optional() }).strict();
-export const NativeWorldSchema = z.object({
+const NativeWorldBaseSchema = z.object({
   schemaId: z.literal("cyoa.native-world"), schemaVersion: z.literal(1),
   progression: NativeProgressionSchema.optional(), people: NativePeopleSchema.optional(), economy: NativeEconomySchema.optional(), journal: NativeJournalSchema.optional(),
   startLocationId: id, initialMinutes: z.number().int().min(0).max(52_560_000),
-  waitMinutes: z.array(z.number().int().min(1).max(1440)).min(1).max(6),
+  waitMinutes: z.array(z.number().int().min(1).max(1440)).max(6),
   locations: z.array(z.object({ id, name: label, parentId: id.nullable(), passageId: id.nullable(), mapImage: id.nullable(),
     marker: z.object({ x: z.number().min(0).max(100), y: z.number().min(0).max(100) }).strict().nullable(),
     hours: z.object({ opens: z.number().int().min(0).max(1439), closes: z.number().int().min(0).max(1439) }).strict().nullable(),
@@ -25,7 +25,8 @@ export const NativeWorldSchema = z.object({
   connections: z.array(z.object({ id, from: id, to: id, minutes: z.number().int().min(0).max(1440) }).strict()).max(100),
   actions: z.array(z.object({ id, locationId: id, label, minutes: z.number().int().min(0).max(1440), result: z.string().min(1).max(1000) }).strict()).max(100),
   assets: IllustratedPresentationSchema.shape.assets,
-}).strict().superRefine((world, ctx) => {
+}).strict();
+export const NativeProjectedWorldSchema = NativeWorldBaseSchema.superRefine((world, ctx) => {
   if (world.people) { try { validatePeopleReferences(world.people, world.progression, world.locations); } catch (e) { ctx.addIssue({ code: "custom", message: (e as Error).message }); } }
   try { validateEconomyReferences(world.economy, world.progression, world.people, world.locations); } catch (e) { ctx.addIssue({ code: "custom", message: (e as Error).message }); }
   try { validateJournalReferences(world); } catch (e) { ctx.addIssue({ code: "custom", message: (e as Error).message }); }
@@ -48,6 +49,9 @@ export const NativeWorldSchema = z.object({
     for (const condition of item.prerequisites) if (condition.kind === "location" && !locations.get(condition.locationId)?.passageId) fail();
     if (world.locations.filter((l) => l.passageId).every((l) => item.prerequisites.some((c) => c.kind === "location" && !c.present && c.locationId === l.id))) ctx.addIssue({ code: "custom", message: `progression_contradictory_location:${item.id}` });
   }
+});
+export const NativeWorldSchema = NativeProjectedWorldSchema.superRefine((world, ctx) => {
+  if (!world.waitMinutes.length) ctx.addIssue({ code: "custom", message: "world_wait_required" });
 });
 export type NativeWorld = z.infer<typeof NativeWorldSchema>;
 export type WorldCommand = EconomyCommand | ProgressionCommand | { kind: "travel"; id: string } | { kind: "action"; id: string } | { kind: "wait"; minutes: number };

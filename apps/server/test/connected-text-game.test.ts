@@ -25,8 +25,11 @@ import { acceptGameDrafts, applyGameEdit, approveGamePlan, completeConnectedText
 import { applyPreviewWorld, boundaryProse, completePreviewOpening, initializePreviewOpening, openingSelection, previewChoice, previewStart, previewStop, previewWorld } from "../../../e2e/helpers/partial-preview.js";
 import { authoredWorld } from "../../../e2e/helpers/world.js";
 import { withAuthoredProgression } from "../../../e2e/helpers/progression.js";
-import { chooseNativePlayerSession, createNativePlayerSession, nativePlayerView } from "@story-to-cyoa/runtime";
-import type { PassageStructure } from "@story-to-cyoa/pipeline";
+import { boundedSelection, boundedWorld } from "../../../e2e/helpers/bounded-playtest.js";
+import { actNativePlayerWorld, chooseNativePlayerSession, createNativePlayerSave, createNativePlayerSession, loadNativePlayerSave, mandatoryEventStatus,
+  nativePlayerView, presentCharacters, previewChapterTransition, transitionWorld, visiblePlaytestRestrictions, type WorldCommand } from "@story-to-cyoa/runtime";
+import { inspectNativePreviewBoundary, type NativePreviewSelection, type PassageStructure } from "@story-to-cyoa/pipeline";
+import { resolveWorld } from "../src/services/world-service.js";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
@@ -272,6 +275,156 @@ describe("PF-005 bounded passage-plan creation", () => {
     const beforeLockedSubmit = writes(f);
     await expect(call("submit_edit", locked.submit)).rejects.toThrow("edit_planning_lock_protected");
     expect(writes(f)).toEqual(beforeLockedSubmit);
+  });
+});
+
+describe("explicit bounded World playtests", () => {
+  const review = (f: ReturnType<typeof fixture>, selection: NativePreviewSelection = boundedSelection) =>
+    f.call("review_preview", { projectId: f.projectId, selection });
+  const args = (f: ReturnType<typeof fixture>, r: any) => ({ projectId: f.projectId, selection: r.selection,
+    headFingerprint: r.headFingerprint, fingerprint: r.fingerprint, approved: true, operationId: randomUUID() });
+  const writes = (f: ReturnType<typeof fixture>) => f.db.prepare(`SELECT
+    (SELECT COUNT(*) FROM artifact_versions) artifacts, (SELECT COUNT(*) FROM messages) messages,
+    (SELECT COUNT(*) FROM passage_draft_versions) drafts, (SELECT COUNT(*) FROM passage_plan_snapshots) snapshots`).get();
+  async function setup(f = fixture()) {
+    await completePreviewOpening(f.call, f.projectId);
+    const world = await boundedWorld(f.call, f.projectId);
+    const applied = await applyPreviewWorld(f.call, f.projectId, world);
+    return { f, world, versionId: applied.versionId };
+  }
+
+  it("reviews exact hidden/disabled exclusions, then blocks every excluded dispatch without losing entering effects", async () => {
+    const { f, world, versionId } = await setup(), { call, projectId } = f;
+    const fullBefore = await call("publication_readiness", { projectId });
+    const faithful = await review(f, openingSelection);
+    expect(faithful).toMatchObject({ mode: "faithful-slice", ready: false });
+    expect(faithful.blockers).toContainEqual(expect.objectContaining({ sourceId: "future-encounter" }));
+    const r = await review(f);
+    expect(r).toMatchObject({ ready: true, mode: "bounded-playtest", acceptedDraftCount: 2, choiceCount: 0,
+      reachability: expect.stringContaining("does not prove"), world: { versionId } });
+    expect(r.boundary.boundedPlaytest.exclusions).toHaveLength(boundedSelection.exclusions!.length);
+    expect(r.boundary.boundedPlaytest.exclusions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "event", id: "future-encounter", mandatory: true, presentation: "hidden",
+        label: "Secret future encounter", sourceLocationId: "home", sourceChapterId: "day-one", sourcePassageId: previewStart,
+        destinationPassageId: "passage-route-1-act", destinationLocationId: "station", destinationTitle: expect.any(String) }),
+      expect.objectContaining({ kind: "travel", id: "home-station", presentation: "disabled", sourceLocationId: "home", destinationLocationId: "station" }),
+    ]));
+    expect(r.boundary.boundedPlaytest.omitted).toEqual(expect.arrayContaining([
+      { kind: "location", id: "station" }, { kind: "travel", id: "station-home" },
+      { kind: "schedule", id: "mara-future" }, { kind: "override-destination", id: "mara-off-map", ownerId: "station" },
+    ]));
+    const built = await call("compile_preview", args(f, r));
+    const { bundle, playerConfig } = f.compilation.loadPreviewBuild(projectId, built.buildVersionId);
+    const initial = createNativePlayerSession(bundle, playerConfig), before = structuredClone(initial);
+    const step = (command: WorldCommand, session = initial) => actNativePlayerWorld(bundle, playerConfig, session, command);
+    const projection = bundle.world!;
+    expect(projection.locations.map(l => l.id)).toEqual(["town", "home", "cafe"]);
+    expect(bundle.choices).toEqual([]);
+    expect(projection.people!.events.map(e => e.eventId)).toEqual(["correction"]);
+    expect(projection.economy!.eventEffects.map(e => e.eventId)).toEqual(["correction"]);
+    expect(projection.progression!.transitions[0]!.expireEventIds).toEqual([]);
+    expect(JSON.stringify(bundle)).not.toMatch(/Secret future encounter|Read the secret itinerary|Secret future gift|Secret future use/);
+    expect(visiblePlaytestRestrictions(bundle.preview, initial.state, true).map(a => a.id)).toEqual([previewChoice]);
+    expect(visiblePlaytestRestrictions(bundle.preview, initial.state, false).map(a => a.id)).toEqual(["home-station", "future-chapter", "future-offer"]);
+    expect(() => chooseNativePlayerSession(bundle, playerConfig, initial, previewChoice)).toThrow("Outside this preview");
+    const commands: WorldCommand[] = [
+      { kind: "travel", id: "home-station" }, { kind: "action", id: "future-local" }, { kind: "wait", minutes: 60 },
+      { kind: "event", id: "future-encounter" }, { kind: "chapter-transition", id: "future-chapter", previewFingerprint: "0".repeat(32) },
+      { kind: "purchase", id: "future-offer" }, { kind: "gift", id: "future-gift" }, { kind: "use", id: "future-use" },
+    ];
+    for (const command of commands) {
+      expect(() => step(command)).toThrow("Outside this preview");
+      expect(() => transitionWorld(projection, initial.state, command)).toThrow();
+      expect(initial).toEqual(before);
+    }
+    const waited = step({ kind: "wait", minutes: 15 }).session;
+    expect(waited.state.world).toMatchObject({ minutes: 1445, progression: { knownEventIds: ["correction"], expiredEventIds: [], events: {} } });
+    expect(presentCharacters(projection, waited.state)).toEqual([]);
+    expect(mandatoryEventStatus(projection, waited.state)).toEqual({ eventId: null, conflict: false });
+    const closing = previewChapterTransition(projection, initial.state, "close-day");
+    expect(closing.lostOpportunities.map(item => item.id)).not.toContain("future-encounter");
+    expect(step({ kind: "chapter-transition", id: "close-day", previewFingerprint: closing.fingerprint }).session.state.world!.progression)
+      .toMatchObject({ chapterId: "closing", expiredEventIds: [], transitions: { "close-day": 1 } });
+    expect(step({ kind: "travel", id: "home-cafe" }).session.state.world).toMatchObject({ locationId: "cafe", minutes: 1445 });
+    const corrected = step({ kind: "event", id: "correction" });
+    expect(corrected).toMatchObject({ message: "The corrected ledger balances.", session: { state: {
+      currentPassageId: previewStop, world: { locationId: "cafe", minutes: 1435, economy: { currency: 7, items: { tea: 0 } },
+        progression: { events: { correction: { count: 1 } }, expiredEventIds: [], milestones: ["corrected"] } },
+    } } });
+    const save = createNativePlayerSave(bundle, playerConfig, corrected.session);
+    const restored = loadNativePlayerSave(bundle, playerConfig, save);
+    expect(restored.state).toEqual(corrected.session.state);
+    expect(nativePlayerView(bundle, playerConfig, restored)).toMatchObject({ previewStopped: true, passage: { proseMarkdown: boundaryProse }, terminal: { result: null } });
+    expect(() => step({ kind: "travel", id: "cafe-home" }, restored)).toThrow("native_preview_stop_reached");
+    const revised: NativePreviewSelection = { ...boundedSelection, exclusions: boundedSelection.exclusions!.map(e => e.id === "home-station" ? { ...e, presentation: "hidden" } : e) };
+    const changed = await review(f, revised);
+    const next = f.compilation.loadPreviewBuild(projectId, (await call("compile_preview", args(f, changed))).buildVersionId);
+    expect(next.bundle.bundleFingerprint).not.toBe(bundle.bundleFingerprint);
+    expect(() => loadNativePlayerSave(next.bundle, next.playerConfig, save)).toThrow();
+    expect((await call("read_world", { projectId })).world).toEqual(world);
+    expect(await call("publication_readiness", { projectId })).toEqual(fullBefore);
+    expect(fullBefore.ready).toBe(false);
+  });
+
+  it("blocks unreviewed escapes, invalid exclusions, broken canonical references and a missing structural route", async () => {
+    const { f, world } = await setup(), { projectId } = f;
+    const cases: Array<[NativePreviewSelection, string]> = [
+      [{ ...boundedSelection, exclusions: boundedSelection.exclusions!.filter(e => e.id !== "home-station") }, "explicitly exclude this command"],
+      [{ ...boundedSelection, exclusions: [...boundedSelection.exclusions!, boundedSelection.exclusions![0]!] }, "Duplicate exclusion"],
+      [{ ...boundedSelection, exclusions: [...boundedSelection.exclusions!, { kind: "event", id: "invented", presentation: "hidden" }] }, "not an exact command"],
+      [{ ...boundedSelection, mode: "faithful-slice" }, "Exclusions require bounded playtest"],
+      [{ ...boundedSelection, startPassageId: previewStop }, "Use the canonical World start"],
+      [{ ...boundedSelection, exclusions: [...boundedSelection.exclusions!, { kind: "travel", id: "home-cafe", presentation: "hidden" },
+        { kind: "event", id: "correction", presentation: "hidden" }, { kind: "chapter-transition", id: "close-day", presentation: "hidden" }] }, "no structural path"],
+    ];
+    const before = writes(f);
+    for (const [selection, diagnostic] of cases) {
+      const r = await review(f, selection);
+      expect(r.ready).toBe(false);
+      expect(r.blockers).toContainEqual(expect.objectContaining({ message: expect.stringContaining(diagnostic) }));
+      await expect(f.call("compile_preview", args(f, r))).rejects.toThrow("connected_preview_not_ready");
+    }
+    expect(writes(f)).toEqual(before);
+    const snapshot = f.plans.bundle(projectId);
+    const native = resolveWorld(f.artifacts, projectId, f.passages.currentEntities(projectId, "passage").map(p => ({ entityId: p.entityId, versionId: p.id })))!.presentation!;
+    native.progression!.events.find(e => e.id === "future-encounter")!.passageId = "missing-canonical-passage";
+    expect(inspectNativePreviewBoundary(boundedSelection, snapshot.passages, snapshot.choices, native).blockers)
+      .toContainEqual(expect.objectContaining({ id: "future-encounter", message: expect.stringContaining("missing canonical destination") }));
+    world.progression!.events[0]!.prerequisites.push({ kind: "location", locationId: "station", present: false });
+    await applyPreviewWorld(f.call, projectId, world);
+    const depends = await review(f);
+    expect(depends.blockers).toContainEqual(expect.objectContaining({ sourceId: "correction", message: expect.stringContaining("depends on excluded location station") }));
+  });
+
+  it("binds the exact reviewed version, rolls back a failed receipt, and replays a portable build after reopening", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cyoa-bounded-playtest-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, "fixture.sqlite");
+    const { f, world } = await setup(fixture(openDatabase(path))), { projectId, call } = f;
+    const stale = await review(f);
+    await applyPreviewWorld(call, projectId, { ...world, initialMinutes: 1429 });
+    const current = await review(f), input = args(f, current), before = writes(f);
+    await expect(call("compile_preview", args(f, stale))).rejects.toThrow("head_stale");
+    await expect(call("compile_preview", { ...input, selection: { ...boundedSelection, exclusions: boundedSelection.exclusions!.map(e => ({ ...e, presentation: "hidden" })) } }))
+      .rejects.toThrow("connected_preview_review_stale");
+    f.db.exec("CREATE TEMP TRIGGER fail_bounded_receipt BEFORE INSERT ON messages WHEN json_extract(NEW.metadata_json,'$.connectedOperation.tool')='compile_preview' BEGIN SELECT RAISE(ABORT,'bounded receipt failed'); END");
+    await expect(call("compile_preview", input)).rejects.toThrow("bounded receipt failed");
+    expect(writes(f)).toEqual(before);
+    f.db.exec("DROP TRIGGER fail_bounded_receipt");
+    const built = await call("compile_preview", input), after = writes(f);
+    f.close();
+    const reopened = fixture(openDatabase(path), projectId);
+    expect(await reopened.call("compile_preview", input)).toEqual(built);
+    await expect(reopened.call("compile_preview", { ...input, fingerprint: "0".repeat(64) })).rejects.toThrow("connected_operation_id_conflict");
+    expect(writes(reopened)).toEqual(after);
+    const exports = new PublicationExportService(new PortableProjectRepository(reopened.db), reopened.compilation);
+    for (const mode of ["full-fidelity", "privacy-redacted"] as const) {
+      const target = openDatabase();
+      try {
+        new PublicationExportService(new PortableProjectRepository(target), undefined).importPortable(exports.exportStudioPortable(projectId, mode).bytes);
+        validatePortableAuthoringProject(target, projectId);
+      } finally { target.close(); }
+    }
   });
 });
 

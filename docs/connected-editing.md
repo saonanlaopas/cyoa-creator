@@ -100,6 +100,16 @@ Game mutations share the transactional operation-receipt mechanism. Identical re
 
 Preview is not publication readiness. Unfinished passages, approved foundations and accepted prose remain intact. Use the ordinary publication workflow for a complete game.
 
+#### Bounded World playtests
+
+The default selection mode is `faithful-slice` (the strict closure rules above). For an enabled World with unfinished future destinations, opt into `mode: "bounded-playtest"` and use the canonical start. Add `exclusions` to the same selection: for example, `{ kind: "travel", id: "road-to-station", presentation: "disabled" }`. Supported kinds are `choice`, `travel`, `action`, `wait`, `event` (including encounters), `chapter-transition`, `purchase`, `gift`, and `use`. For `wait`, the ID is the configured duration in minutes as a decimal string. Use canonical IDs, not labels.
+
+Show the author each exact exclusion with its authored label and applicable source and destination, even for `hidden`. The player shows a generic **Outside this preview** disabled control or nothing, respectively. Neither presentation can execute. Excluded events do not trigger, become mandatory, or count as missed; an NPC scheduled at a projected-out location is absent there rather than rescheduled elsewhere.
+
+Review lists off-slice locations and their local commands omitted by the projection. A choice or travel leaving an included source, or an event or chapter transition that can enter an excluded passage, must be included or explicitly excluded. Broken canonical references are errors, not exclusions. Retained rules whose dependencies cannot be preserved block the build. The projected graph must have a structural route to the stop using choices or World entries; this does not prove every state-dependent playthrough can finish.
+
+Review and compilation bind the exact mode, exclusions, selected passages, stop, and current content, World, assets, and player configuration. The offline player and export are labeled **Bounded playtest**. Saves are isolated by the exact reviewed boundary. The canonical World and full publication rules do not change.
+
 Use dedicated test projects and deterministic requests for verification. No provider credential or paid call is required. M3's narrative simulation remains available alongside the later native visual/world systems; it is not a substitute for their exported-game tests.
 
 Connected draft context fits the complete response within 64,000 UTF-8 bytes. It retains the exact passage, applicable approved direction and full active instructions. It includes the passage's linked ending, its hook and contributing decisions, and explicit sequence/choice references, rather than every ending, hook or decision sharing a route. Optional accepted neighboring prose is included whole when it fits; `omittedNeighborProseCount` reports budget omissions. If required context alone is too large, the read and submission fail without truncation. Re-read before submitting if an older context fingerprint no longer matches; completed receipts remain replayable.
