@@ -15,7 +15,7 @@ const id = z.string().trim().min(1).max(240), digest = z.string().regex(/^[a-f0-
 const project = { projectId: id }, operation = { ...project, operationId: z.string().uuid() };
 const bound = { ...operation, headFingerprint: digest, approved: z.literal(true) };
 const selections = z.array(z.object({ passageId: id, candidateDraftVersionId: id }).strict()).min(1).max(12);
-const authoringContextBytes = 64_000;
+const connectedDraftContextBytes = 96_000;
 export const ConnectedGameInputs = {
   ...SceneInputs,
   ...WorldInputs,
@@ -59,7 +59,7 @@ export class ConnectedGameService {
     const base = { contextVersion: 2 as const, projectId, passageId, task: { kind: "draft" as const, request }, headFingerprint: this.head(projectId) };
     const binding = (context: PassageDraftingContextPack, omittedNeighborProseCount: number) => ({ ...base, context, omittedNeighborProseCount });
     const fits = (context: PassageDraftingContextPack, omitted: number) =>
-      Buffer.byteLength(sourceCanonicalJson({ ...binding(context, omitted), fingerprint: "0".repeat(64), providerCalls: 0 })) <= authoringContextBytes;
+      Buffer.byteLength(sourceCanonicalJson({ ...binding(context, omitted), fingerprint: "0".repeat(64), providerCalls: 0 })) <= connectedDraftContextBytes;
     const { context, diagnostics } = this.drafting.previewConnectedContext(projectId, passageId, fits);
     const omitted = diagnostics.omittedOptionalContext.acceptedNeighborPassageIds!.length;
     if (!fits(context, omitted)) throw new Error("connected_authoring_required_context_overflow");

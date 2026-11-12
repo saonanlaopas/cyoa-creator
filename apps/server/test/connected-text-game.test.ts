@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { builtinFictionCraft, selectCreativeDirectionContext, sourceCanonicalJson, sourceDigest, type CreativeDirection, type LongFormEndingPlan, type LongFormMechanicsPlan, type LongFormRoutePlan } from "@story-to-cyoa/domain";
+import { builtinFictionCraft, selectCreativeDirectionContext, sourceCanonicalJson, sourceDigest, type CreativeDirection, type LongFormEndingPlan, type LongFormMechanicsPlan, type LongFormRoutePlan, type LongFormStoryBible } from "@story-to-cyoa/domain";
 import { ArtifactRepository, ChangeSetRepository, CommandRepository, ConversationRepository, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository, openDatabase } from "@story-to-cyoa/persistence";
 import { LongFormProjectService } from "../src/services/long-form-project-service.js";
 import { ConversationalEditService } from "../src/services/conversational-edit-service.js";
@@ -621,9 +621,26 @@ describe("PF-008 reviewed partial preview", () => {
   });
 });
 
-async function largeEndingFixture(requiredOverflow = false) {
-  const f = fixture(), { projectId, call } = f;
-  await completeOriginalFoundations(call, projectId);
+async function largeEndingFixture(shape: "ordinary" | "outcomes" | "overflow" = "ordinary", f = fixture()) {
+  const { projectId, call } = f;
+  const witnessNote = 'The clerk marks "received" in the ledger and records the witness’s account of the beacon.\n';
+  const saveApproved = (artifactId: "bible" | "routes" | "endings" | "mechanics", content: unknown) => {
+    const saved = f.longForm.saveArtifact(projectId, artifactId, content).artifact;
+    f.longForm.approveArtifact(projectId, artifactId, saved.id);
+  };
+  await completeOriginalFoundations(call, projectId, undefined, shape === "outcomes" ? async () => {
+    const bible = f.artifacts.getCurrent<LongFormStoryBible>(projectId, "bible")!.content;
+    bible.characters = ["Keeper", "Clerk", "Pilot", "Engineer", "Inspector", "Dispatcher", "Surveyor"].map((name, i) => ({
+      id: i === 0 ? "character-protagonist" : `fixture-witness-${i}`, name, role: name,
+      summary: `${name}: ${witnessNote.repeat(19).trim()}`, plannedArc: witnessNote.repeat(15).trim(),
+      motivations: ["Account for the damaged signal."], knowledge: ["The registry lists which repairs were deferred."],
+    }));
+    bible.relationships = Array.from({ length: 4 }, (_, i) => ({
+      id: `fixture-witness-relation-${i}`, characterIds: [bible.characters[i]!.id, bible.characters[i + 1]!.id],
+      label: `Witness agreement ${i + 1}`, currentState: witnessNote.repeat(12).trim(), plannedArc: witnessNote.repeat(6).trim(),
+    }));
+    saveApproved("bible", bible);
+  } : undefined);
   const routes = f.artifacts.getCurrent<LongFormRoutePlan>(projectId, "routes")!.content;
   const endings = f.artifacts.getCurrent<LongFormEndingPlan>(projectId, "endings")!.content;
   const mechanics = f.artifacts.getCurrent<LongFormMechanicsPlan>(projectId, "mechanics")!.content;
@@ -646,11 +663,16 @@ async function largeEndingFixture(requiredOverflow = false) {
   }
   mechanics.gates.push({ id: "fixture-ending-gate", targetType: "ending", targetId: focus.id, logic: "all",
     conditions: [{ id: "fixture-ending-condition", mechanicKey: "resolve", operator: "at-least", value: -5 }], rationale: "Use the approved minimum.", fallback: "" });
-  if (requiredOverflow) focus.requirements = Array.from({ length: 100 }, (_, i) =>
-    `Obligation ${i + 1}: ${"Account for each witness and retain the account of the watch. ".repeat(13).trim()}`);
+  if (shape === "outcomes") {
+    const bible = f.artifacts.getCurrent<LongFormStoryBible>(projectId, "bible")!.content;
+    focus.summary = witnessNote.repeat(22).trim();
+    focus.characterOutcomes = bible.characters.map(character => ({ characterId: character.id, outcome: witnessNote.repeat(6).trim() }));
+    focus.relationshipOutcomes = bible.relationships.map(relationship => ({ relationshipId: relationship.id, outcome: witnessNote.repeat(6).trim() }));
+  }
+  if (shape === "overflow") focus.requirements = Array.from({ length: 100 }, (_, i) =>
+    `Obligation ${i + 1}: ${"Account for each witness and retain the account of the watch. ".repeat(12).trim()}`);
   for (const [artifactId, content] of [["routes", routes], ["endings", endings], ["mechanics", mechanics]] as const) {
-    const saved = f.longForm.saveArtifact(projectId, artifactId, content).artifact;
-    f.longForm.approveArtifact(projectId, artifactId, saved.id);
+    saveApproved(artifactId, content);
   }
   const initial = await call("game_state", { projectId });
   await call("initialize_game_plan", { projectId, operationId: randomUUID(), headFingerprint: initial.headFingerprint, approved: true });
@@ -671,6 +693,69 @@ describe("PF-007 connected passage drafting context", () => {
     projectId: f.projectId, contextVersion: 2, operationId: randomUUID(), authoringContextFingerprint: context.fingerprint,
     headFingerprint: context.headFingerprint, passageId: context.passageId, passageVersionId: context.context.targets[0].versionId,
     request: context.task.request, proseMarkdown, approved: true,
+  });
+  function requiredBytes(f: Awaited<ReturnType<typeof largeEndingFixture>>, passageId: string, taskRequest: string, headFingerprint: string) {
+    let bytes: number | undefined;
+    f.drafting.previewConnectedContext(f.projectId, passageId, (context, omittedNeighborProseCount) => {
+      bytes ??= size({ contextVersion: 2, projectId: f.projectId, passageId, task: { kind: "draft", request: taskRequest },
+        headFingerprint, context, omittedNeighborProseCount, fingerprint: "0".repeat(64), providerCalls: 0 });
+      return true;
+    });
+    return bytes!;
+  }
+
+  it("returns a large outcome-linked terminal context over MCP and binds the complete response to submission", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cyoa-pf007-mcp-")), databasePath = join(directory, "terminal.sqlite");
+    cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+    const f = await largeEndingFixture("outcomes", fixture(openDatabase(databasePath))), { projectId } = f;
+    const passageId = `passage-${f.focus.id}`, taskRequest = "Draft.";
+    const { headFingerprint } = await f.call("game_state", { projectId });
+    const required = requiredBytes(f, passageId, taskRequest, headFingerprint);
+    expect(required).toBeGreaterThan(65_000);
+    expect(required).toBeLessThan(67_500);
+    const neighbor = await submitGameDraft(f.call, projectId, "passage-route-1-act",
+      "The witness kept the signed receipt under the lamp until the harbor watch arrived.\n\n".repeat(540).trim());
+    await acceptGameDrafts(f.call, projectId, [{ passageId: neighbor.passageId, candidateDraftVersionId: neighbor.draftVersionId }]);
+    const token = "pf007-disposable-loopback-context-token-0000";
+    const app = buildApp({ databasePath, connectedEditing: { token, projectIds: [projectId] } });
+    cleanups.push(() => app.close());
+    const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    const rpc = async (name: string, args: Record<string, unknown>) => {
+      const response = await fetch(`${address}/mcp`, { method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) });
+      expect(response.ok).toBe(true);
+      const body = await response.text();
+      return { wireBytes: Buffer.byteLength(body), result: JSON.parse(body).result };
+    };
+    const before = writes(f);
+    const reply = await rpc("read_authoring_context", { projectId, scope: "draft", passageId, request: taskRequest });
+    expect(reply.result.isError, JSON.stringify(reply.result.content)).not.toBe(true);
+    const context = reply.result.structuredContent;
+    expect(size(context)).toBe(required);
+    expect(JSON.parse(reply.result.content[0].text)).toEqual(context);
+    expect(reply.wireBytes).toBeGreaterThan(2 * required);
+    expect(reply.wireBytes).toBeLessThan(256_000);
+    expect(context).toMatchObject({ omittedNeighborProseCount: 1, providerCalls: 0, context: { acceptedNeighborProse: [] } });
+    const bible = f.artifacts.getCurrent<LongFormStoryBible>(projectId, "bible")!.content;
+    expect(context.context.upstream.bible.characters).toEqual(bible.characters);
+    expect(context.context.upstream.bible.relationships).toEqual(bible.relationships);
+    expect(context.context.upstream.endings.endings).toEqual([f.focus]);
+    expect(context.context.authoringInstructions).toEqual(f.artifacts.authoringInstructions(projectId));
+    const { fingerprint, providerCalls: _providerCalls, ...binding } = context;
+    expect(fingerprint).toBe(sourceDigest(binding));
+    const input = submit(f, context);
+    const stale = await rpc("submit_draft", { ...input, request: "Draft this changed request." });
+    expect(stale.result).toMatchObject({ isError: true, content: [{ text: "connected_authoring_context_stale_refresh" }] });
+    expect(writes(f)).toEqual(before);
+    const submitted = await rpc("submit_draft", input);
+    expect(submitted.result.isError, JSON.stringify(submitted.result.content)).not.toBe(true);
+    const candidate = submitted.result.structuredContent;
+    expect(candidate).toMatchObject({ status: "candidate", passageId, providerCalls: 0 });
+    expect(f.drafts.getHead(projectId, passageId)?.accepted).toBeNull();
+    expect(f.artifacts.getCurrent(projectId, `draft-authoring-context:${candidate.draftVersionId}`)?.content)
+      .toMatchObject({ contextFingerprint: fingerprint, binding });
+    expect((await rpc("submit_draft", input)).result.structuredContent).toEqual(candidate);
   });
 
   it("fits an exact terminal passage and a route-local nonterminal without sibling foundation bodies", async () => {
@@ -716,12 +801,12 @@ describe("PF-007 connected passage drafting context", () => {
   it("fits whole optional continuity where possible and submits a fresh terminal candidate without acceptance or publication", async () => {
     const f = await largeEndingFixture(), projectId = f.projectId, passageId = `passage-${f.focus.id}`;
     const predecessor = await submitGameDraft(f.call, projectId, "passage-route-1-act",
-      "The beacon crew recorded every vessel that crossed the harbor and marked its arrival in the ledger.\n\n".repeat(720).trim());
+      "The beacon crew recorded every vessel that crossed the harbor and marked its arrival in the ledger.\n\n".repeat(810).trim());
     const short = await submitGameDraft(f.call, projectId, "passage-ending-3", proseMarkdown);
     await acceptGameDrafts(f.call, projectId, [predecessor, short].map(draft => ({ passageId: draft.passageId, candidateDraftVersionId: draft.draftVersionId })));
     const acceptedShort = f.drafts.getHead(projectId, short.passageId)!.accepted!;
     const initial = await read(f, passageId);
-    expect(size(initial)).toBeLessThanOrEqual(64_000);
+    expect(size(initial)).toBeLessThanOrEqual(96_000);
     expect(initial.omittedNeighborProseCount).toBe(1);
     expect(initial.context.acceptedNeighborProse).toEqual([expect.objectContaining({ draftVersionId: acceptedShort.id, proseMarkdown })]);
     const original = submit(f, initial), before = writes(f);
@@ -754,12 +839,18 @@ describe("PF-007 connected passage drafting context", () => {
     expect(f.generate).not.toHaveBeenCalled();
   });
 
-  it("rejects truly oversized required terminal data on both read and submit without writes", async () => {
-    const f = await largeEndingFixture(true), projectId = f.projectId, passageId = `passage-${f.focus.id}`;
+  it("accepts exactly 96,000 required bytes and rejects one byte more on both read and submit without writes", async () => {
+    const f = await largeEndingFixture("overflow"), projectId = f.projectId, passageId = `passage-${f.focus.id}`;
     const { record, headFingerprint } = await f.call("read_game_record", { projectId, kind: "passage", entityId: passageId });
+    const room = 96_000 - requiredBytes(f, passageId, request, headFingerprint);
+    expect(room).toBeGreaterThanOrEqual(0);
+    expect(request.length + room + 1).toBeLessThanOrEqual(6_000);
+    const atLimit = request + "x".repeat(room), overLimit = atLimit + "x";
     const before = writes(f);
-    await expect(read(f, passageId)).rejects.toThrow("connected_authoring_required_context_overflow");
-    await expect(f.call("submit_draft", { projectId, passageId, passageVersionId: record.id, headFingerprint, request, proseMarkdown,
+    expect(size(await read(f, passageId, atLimit))).toBe(96_000);
+    expect(requiredBytes(f, passageId, overLimit, headFingerprint)).toBe(96_001);
+    for (const _ of [1, 2]) await expect(read(f, passageId, overLimit)).rejects.toThrow("connected_authoring_required_context_overflow");
+    await expect(f.call("submit_draft", { projectId, passageId, passageVersionId: record.id, headFingerprint, request: overLimit, proseMarkdown,
       approved: true, operationId: randomUUID(), contextVersion: 2, authoringContextFingerprint: "0".repeat(64) })).rejects.toThrow("connected_authoring_required_context_overflow");
     expect(writes(f)).toEqual(before);
     expect(f.drafts.getHead(projectId, passageId)).toBeUndefined();

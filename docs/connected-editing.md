@@ -112,7 +112,9 @@ Review and compilation bind the exact mode, exclusions, selected passages, stop,
 
 Use dedicated test projects and deterministic requests for verification. No provider credential or paid call is required. M3's narrative simulation remains available alongside the later native visual/world systems; it is not a substitute for their exported-game tests.
 
-Connected draft context fits the complete response within 64,000 UTF-8 bytes. It retains the exact passage, applicable approved direction and full active instructions. It includes the passage's linked ending, its hook and contributing decisions, and explicit sequence/choice references, rather than every ending, hook or decision sharing a route. Optional accepted neighboring prose is included whole when it fits; `omittedNeighborProseCount` reports budget omissions. If required context alone is too large, the read and submission fail without truncation. Re-read before submitting if an older context fingerprint no longer matches; completed receipts remain replayable.
+Connected draft context has a **96,000 UTF-8 byte** ceiling for the complete canonical result, including the task, head and context fingerprints, and omission count. This is not an HTTP body size: MCP sends both structured content and an escaped JSON text copy. The shared 256,000-byte structured-result guard and the 64,000-byte limit for planning, World and scene authoring context are unchanged.
+
+Draft context retains the exact passage, applicable approved direction and full active instructions. It includes the passage's linked ending, outcome-linked character and relationship records, its hook and contributing decisions, and explicit sequence/choice references, rather than every ending, hook or decision sharing a route. Optional accepted neighboring prose is included whole only after required context fits; `omittedNeighborProseCount` reports budget omissions. If required context alone is too large, the read and submission fail without truncation. Re-read before submitting if an older context fingerprint no longer matches; completed receipts remain replayable.
 
 ### Bounded passage-plan additions (PF-005)
 
