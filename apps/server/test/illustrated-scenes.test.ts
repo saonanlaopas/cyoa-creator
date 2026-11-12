@@ -56,6 +56,27 @@ async function applied(f: Awaited<ReturnType<typeof completed>>, value = scene(f
 }
 
 describe("V2 reviewed illustrated scenes", () => {
+  it("reviews a full-scene illustration through the existing background field and packages a reused approved image once", async () => {
+    const f = await completed();
+    const value = { ...scene(f), portraits: [], dialogue: [] };
+    const reviewed = await f.call("review_scene", { projectId: f.projectId, scene: value });
+    expect(reviewed).toMatchObject({ scene: value, previous: null, providerCalls: 0 });
+    expect(f.artifacts.getCurrent(f.projectId, `illustrated-scene:${value.passageId}`)).toBeUndefined();
+    const apply = { projectId: f.projectId, scene: value, fingerprint: reviewed.fingerprint, operationId: randomUUID() };
+    await expect(f.call("apply_scene", { ...apply, approved: false })).rejects.toThrow();
+    await expect(f.call("apply_scene", { ...apply, approved: true, fingerprint: "0".repeat(64) })).rejects.toThrow("scene_review_stale");
+    await f.call("apply_scene", { ...apply, approved: true });
+    const another = f.proof.passages.find(p => p.entityId !== value.passageId)!;
+    const state = await f.call("read_scene", { projectId: f.projectId, passageId: another.entityId });
+    await applied(f, { ...value, passageId: another.entityId, passageVersionId: state.passageVersionId });
+    const build = f.compilation.compile(f.projectId);
+    expect(build.bundle.illustratedPresentation!.scenes).toEqual(expect.arrayContaining([value.passageId, another.entityId].map(passageId =>
+      ({ passageId, background: f.approved.versionId, portraits: [], dialogue: [] }))));
+    expect(build.bundle.illustratedPresentation!.assets.map(image => image.id)).toEqual([f.approved.versionId]);
+    expect(f.assets.usage(f.projectId, f.approved.assetId).totalAssignments).toBe(2);
+    expect(f.generate).not.toHaveBeenCalled();
+  });
+
   it("keeps review separate, pins approved images, compiles and packages only public presentation, preserving old text builds/saves", async () => {
     const f = await completed(), old = f.compilation.compile(f.projectId, f.proof.compiled.inputVersionId);
     const save = createNativePlayerSave(old.bundle, old.playerConfig, createNativePlayerSession(old.bundle, old.playerConfig));

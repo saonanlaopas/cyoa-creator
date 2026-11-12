@@ -7,6 +7,7 @@ import { crc32 } from "node:zlib";
 import sharp from "sharp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import { IMAGE_ASSET_LIMITS, type ImageAsset, type ImageAssetMetadata } from "@story-to-cyoa/domain";
 import { ArtifactRepository, ImageAssetRepository, PortableProjectRepository, ProjectRepository, encodeAssetPng, imageSha256, openDatabase, transaction, validateImageAssets } from "@story-to-cyoa/persistence";
 import { AssetLibraryService } from "../src/services/asset-library-service.js";
@@ -283,11 +284,38 @@ describe("V1 restricted staging and portability", () => {
     const first = await start(), creationId = randomUUID(); await first.call("create_project", { projectId, operationId: creationId, name: "Native asset project", approved: true });
     const game = await completeConnectedTextGame(first.call, projectId), readinessBefore = await first.call("publication_readiness", { projectId });
     await expect(first.call("list_assets", { projectId: randomUUID() })).rejects.toThrow("access_denied");
+    const tools = (await first.client.listTools()).tools;
+    const describeTool = (name: string) => tools.find(tool => tool.name === name)!.description;
+    expect(describeTool("read_asset")).toMatch(/review_scene.*apply_scene/);
+    expect(describeTool("review_scene")).toMatch(/full-scene illustration.*portraits: \[\]/);
+    expect(describeTool("import_staged_asset")).toContain("action only");
+    expect(describeTool("approve_asset")).toContain("content approval");
+    const contextTool = tools.find(tool => tool.name === "read_authoring_context")!;
+    const validateContext = new AjvJsonSchemaValidator().getValidator(contextTool.inputSchema);
+    const sceneContext = { projectId, scope: "scene", passageId: "passage-shared-opening" };
+    const missingPassage = { projectId, scope: "scene" };
+    expect(validateContext(sceneContext).valid).toBe(true);
+    expect(validateContext(missingPassage).valid).toBe(false);
+    expect(validateContext({ projectId, scope: "world" }).valid).toBe(true);
+    expect(validateContext({ projectId, scope: "planning", artifactId: "brief" }).valid).toBe(true);
+    expect(validateContext({ projectId, passageId: sceneContext.passageId, request: "Draft." }).valid).toBe(true);
+    await expect(first.call("read_authoring_context", missingPassage)).rejects.toThrow("connected_authoring_passage_required_for_scene_scope");
+    await expect(first.call("read_authoring_context", { ...missingPassage, projectId: randomUUID() })).rejects.toThrow("access_denied");
+    const context = await first.call("read_authoring_context", sceneContext);
+    expect(context).toMatchObject({ scope: "scene", providerCalls: 0, record: { currentVersionId: null, scene: { passageId: sceneContext.passageId } } });
+    expect((await first.call("read_authoring_context", sceneContext)).fingerprint).toBe(context.fingerprint);
     const input = { projectId, operationId: randomUUID(), approved: true, filename: "harbor.png", sourceSha256: imageSha256(fixtureImage()), metadata: imageMetadata };
+    await expect(first.call("import_staged_asset", { ...input, approved: false })).rejects.toThrow();
+    expect((await first.call("list_assets", { projectId })).total).toBe(0);
     await expect(first.call("import_staged_asset", { ...input, operationId: creationId })).rejects.toThrow("id_conflict");
     const candidate = await first.call("import_staged_asset", input), review = await first.call("review_asset", { projectId, ...{ assetId: candidate.assetId, versionId: candidate.versionId } });
+    expect(candidate).toMatchObject({ status: "candidate", consentKind: "action-authorization", providerCalls: 0 });
+    expect(review.approved).toBeNull();
     const approval = { projectId, operationId: randomUUID(), approved: true, assetId: candidate.assetId, versionId: candidate.versionId, fingerprint: review.fingerprint };
+    await expect(first.call("approve_asset", { ...approval, approved: false })).rejects.toThrow();
+    await expect(first.call("approve_asset", { ...approval, fingerprint: "0".repeat(64) })).rejects.toThrow("review_stale");
     const approved = await first.call("approve_asset", approval), bytes = await fetch(`${first.address}${review.selected.image.url}`); expect(bytes.ok).toBe(true); expect(bytes.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(approved).toMatchObject({ status: "approved", consentKind: "content-approval", providerCalls: 0 });
     await expect(first.call("create_project", { projectId, operationId: input.operationId, approved: true, name: "Conflict" })).rejects.toThrow("id_conflict");
     expect((await first.call("publication_readiness", { projectId })).sourceInputFingerprint).toBe(readinessBefore.sourceInputFingerprint);
     expect(await first.call("export_game", { projectId, buildVersionId: game.compiled.buildVersionId, format: "standalone" })).toMatchObject({ historical: false });
@@ -296,6 +324,14 @@ describe("V1 restricted staging and portability", () => {
     const second = await start(); expect(await second.call("import_staged_asset", input)).toEqual(candidate); expect(await second.call("approve_asset", approval)).toEqual(approved);
     const detail = await second.call("read_asset", { projectId, assetId: candidate.assetId });
     expect(Buffer.from(await (await fetch(`${second.address}${detail.approved.image.url}`)).arrayBuffer())).toEqual(before);
+    const revised = await second.call("revise_asset", { projectId, assetId: candidate.assetId, expectedVersionId: approved.versionId,
+      operationId: randomUUID(), approved: true, metadata: { ...imageMetadata, title: "Updated harbor label" } });
+    expect(revised).toMatchObject({ status: "candidate", consentKind: "action-authorization" });
+    const revisedReview = await second.call("review_asset", { projectId, assetId: candidate.assetId, versionId: revised.versionId });
+    const rejected = await second.call("reject_asset", { projectId, assetId: candidate.assetId, versionId: revised.versionId,
+      operationId: randomUUID(), approved: true, fingerprint: revisedReview.fingerprint });
+    expect(rejected).toMatchObject({ status: "rejected", consentKind: "action-authorization" });
+    expect((await second.call("read_asset", { projectId, assetId: candidate.assetId })).approved.id).toBe(approved.versionId);
     for (const headers of [{ origin: "https://untrusted.example" }, { "sec-fetch-site": "cross-site" }, { host: "untrusted.example" }]) {
       const denied = await second.app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/assets`, headers }); expect(denied.statusCode).toBe(403);
     }

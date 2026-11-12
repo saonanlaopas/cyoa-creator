@@ -90,6 +90,7 @@ test("V2 reviews browser scenes, replays lost Apply and plays packaged backgroun
       await page.goto(`${address}/#long-form`);
       const editor = page.getByRole("region", { name: "Illustrated scenes", exact: true });
       await expect(editor).toBeVisible();
+      await expect(editor.getByRole("combobox", { name: "Background / full-scene illustration", exact: true })).toBeVisible();
       const selectPassage = async (passageId: string) => {
         const select = editor.getByRole("combobox", { name: "Passage", exact: true }); await expect(select).toBeEnabled();
         if (await select.inputValue() !== passageId) {

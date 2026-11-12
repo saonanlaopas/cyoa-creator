@@ -1,6 +1,6 @@
 # Connected Authoring (M1–W6 / desktop CP1)
 
-Connected authoring is opt-in, local, and limited to explicitly configured Long-form projects. It uses Creator's shared foundation, passage/prose, artwork, illustrated-scene, world, validation and publication services. The 51 tools cover accepted M1–W6 systems, including chapters/events, people/schedules, inventory/shops and character/journal rules. No provider generation, SQL, arbitrary filesystem access or unrestricted HTTP tools are exposed.
+Connected authoring is opt-in, local, and limited to explicitly configured Long-form projects. It uses Creator's shared foundation, passage/prose, artwork, illustrated-scene, world, validation and publication services, including chapters/events, people/schedules, inventory/shops and character/journal rules. Discover current commands and schemas through authenticated MCP `tools/list`; the [desktop allowlist](examples/codex-local-mcp.toml) names the configured tools. No provider generation, SQL, arbitrary filesystem access or unrestricted HTTP tools are exposed.
 
 For desktop Codex setup, persistent startup and the short native connection smoke test, start with [Desktop Codex + persistent Creator](desktop-codex.md). Follow [Conversational operation of Creator](conversational-creator.md) for understandable creative approval batches, recovery and native-player verification. Cloud SDK verification is separate from native tool availability in a desktop conversation; final desktop verification remains pending until recorded there. Chat attachments and remote bridges are outside CP1.
 
@@ -30,10 +30,10 @@ Put the following in the connected workspace's local `.codex/config.toml`, not y
 [mcp_servers.cyoa_creator]
 url = "http://127.0.0.1:3000/mcp"
 bearer_token_env_var = "CYOA_MCP_TOKEN"
-# Copy enabled_tools from docs/examples/codex-local-mcp.toml (all 51 tools).
+# Copy enabled_tools from docs/examples/codex-local-mcp.toml.
 ```
 
-Merge the complete [51-tool configuration](examples/codex-local-mcp.toml), including all scene/world operations; preserve other workspace settings. The token must reach the actual Codex process, not just Creator. Restart/reconnect the client after configuration changes and verify native tool calls; reading a TOML file or running an SDK script is insufficient.
+Merge the complete [desktop configuration](examples/codex-local-mcp.toml), including all scene/world operations; preserve other workspace settings. The token must reach the actual Codex process, not just Creator. Restart/reconnect the client after configuration changes and verify native tool calls; reading a TOML file or running an SDK script is insufficient.
 
 See [official Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli). The endpoint uses the [official TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk), stateless Streamable HTTP JSON responses, authenticated POST requests, and no persistent transport session. Initialization supplies cross-tool workflow instructions without changing authorization. Browser Origin requests and non-loopback clients/Host headers are rejected, with no CORS grant.
 
@@ -134,7 +134,7 @@ New route decisions declare their own ID and required choice IDs using distinct 
 
 ## Asset Library (V1)
 
-V1 adds nine scoped tools for image catalogue/history/usage reads, restricted staging import and exact candidate revision/review/approval/rejection. Creator uploads and MCP imports use the same image validation, content-addressed storage and lifecycle service. The server must explicitly configure `CYOA_ASSET_STAGING_DIR` for staging import; no arbitrary path or URL reader is exposed. Image candidates remain separate from approvals and scene assignment. See [Asset Library](asset-library.md) for bounds, retry/recovery and backup/restore/duplication support.
+The library provides image catalogue/history/usage reads, restricted staging import and exact candidate revision/review/approval/rejection. Creator uploads and MCP imports use the same image validation, content-addressed storage and lifecycle service. The server must explicitly configure `CYOA_ASSET_STAGING_DIR` for staging import; no arbitrary path or URL reader is exposed. Image candidates remain separate from approvals and scene assignment. See [Asset Library](asset-library.md) for consent, bounds and recovery, and [upload to offline export](illustrated-scenes.md#upload-to-offline-export) for the complete illustrated workflow.
 
 ## Illustrated scenes and world authoring (V2–W5)
 
@@ -142,4 +142,4 @@ V1 adds nine scoped tools for image catalogue/history/usage reads, restricted st
 
 See [illustrated scenes](illustrated-scenes.md), [locations/time](locations-and-time.md), [chapters/events](chapters-and-events.md), [people/schedules](people-and-schedules.md), [inventory/shops](inventory-and-shops.md) and [character/journal](character-and-journal.md). Default world-game output is native standalone HTML; static ZIP is also supported. Creator's Publication and play can inspect/play/export the same project. Backup/restore, duplication, build listing and player-config editing remain Creator HTTP/UI operations, not MCP tools.
 
-Fiction Craft is configurable per project. Read the [shared guide integration and migration policy](writing/README.md) before authoring; disabling means no guide text is applied. Settings are a separate reviewed creative preference batch and never content approval. Update the complete allowlist for the four added tools. Native desktop verification remains pending until the user runs the smoke test.
+Fiction Craft is configurable per project. Read the [shared guide integration and migration policy](writing/README.md) before authoring; disabling means no guide text is applied. Settings are a separate reviewed creative preference batch and never content approval. Native desktop verification remains pending until the user runs the smoke test.

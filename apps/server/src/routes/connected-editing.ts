@@ -2,7 +2,8 @@ import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { ListToolsRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { ConnectedEditInputs, boundedConnectedResult, type ConnectedEditService, type ConnectedEditTool } from "../services/connected-edit-service.js";
 import type { ConnectedEditingConfig } from "../config.js";
 import { CONNECTED_AUTHORING_INSTRUCTIONS } from "../services/connected-authoring-instructions.js";
@@ -11,7 +12,7 @@ const descriptions: Record<ConnectedEditTool, string> = {
   read_authoring_settings: "Read exact retained Fiction Craft settings and custom instructions. Legacy absent settings remain off. No mutation or provider call.",
   review_authoring_settings: "Preview enabling/disabling the pinned Fiction Craft edition. Custom instructions and project direction remain editable and unchanged; content approvals are separate. Present exact creative batch for consent.",
   apply_authoring_settings: "Apply only the author-approved exact settings review with stale protection and retry UUID. Does not approve content or call a provider.",
-  read_authoring_context: "Read a bounded immutable authoring context, exact guide state/edition/text, custom instructions and approved project direction. Draft scope includes exact passage-local requirements and reports optional neighboring prose omitted for size. Oversized required draft context fails without truncation. Required before submit_draft v2; bind its fingerprint. No writes or provider calls.",
+  read_authoring_context: "Read a bounded immutable authoring context, exact guide state/edition/text, custom instructions and approved project direction. Scene scope requires passageId; planning requires artifactId; draft (the default) requires passageId and request. Draft reports optional neighboring prose omitted for size and fails on oversized required context without truncation. Required before submit_draft v2; bind its fingerprint. No writes or provider calls.",
   inspect_world_journal: "Read currently visible canonical stats/relationships, discovered places, completed-event records, revealed authored entries and objectives from supplied state against the fresh current world. No hidden titles, future schedules, time advance, discovery, save mutation or provider call. Character/journal authoring shares read_world/review_world/apply_world with version-bound consent and retry-safe receipts.",
   inspect_world_economy: "Inspect held items, currency, local shop stock and currently actionable gifts/consumables against a supplied state and fresh current world. Read-only; no time advance, purchase, save mutation or provider call. Inventory/shop authoring uses shared read_world/review_world/apply_world with exact review, consent and retry-safe receipts.",
   inspect_world_presence: "Inspect currently present people and discovered encounters against a supplied state and fresh current world. Read-only; no future timetable, time advance, save mutation or provider call. World review/apply supports versioned recurring schedules, story overrides and explicit event priorities; unresolved mandatory conflicts are rejected.",
@@ -20,17 +21,17 @@ const descriptions: Record<ConnectedEditTool, string> = {
   review_world: "Review a complete authored location/time definition against the current world and passage structure. Includes hierarchy, approved maps, percentage markers, directed travel durations, daily opening hours, local actions and waiting. Ask for separate author approval of this exact fingerprint. Includes optional versioned chapters, named milestones, event prerequisites/repeat rules and explicit transition carry/expiry policies. Contradictions are rejected and bounded potential-trap warnings are reported without exhaustive guarantees. Includes optional weekly character schedules, condition-driven story overrides, event priorities and required encounters. Includes versioned item quantities, integer currency, finite shop stock/hours, purchases, gifts, consumable rules and atomic event transactions; item/relationship predicates use canonical relationship bounds. Includes optional canonical stat/relationship visibility, location reveals, authored journal entries and objective triggers. No crafting, equipment, combat or generation.",
   apply_world: "After explicit author approval, atomically store the exact reviewed world with retry-safe UUID and stale-base checks. No implicit compilation or publication. Disable by reviewing a cleared definition; historical worlds/builds remain immutable.",
   read_scene: "Read the current scene, exact passage binding and staleness. Text layout clears artwork. Asset references must name exact approved versions; expressions and dialogue are authored presentation, not gameplay or prose approval.",
-  review_scene: "Review one authored scene against its previous version and exact current passage. Assign only approved image versions, up to three positioned portraits with explicit expressions, optional background and speaker dialogue. No generation. Ask the author to approve the returned exact fingerprint separately.",
+  review_scene: "Review one authored scene against its previous version and exact current passage. Assign only approved image versions: an optional background, up to three positioned portraits with explicit expressions, and optional speaker dialogue. For a full-scene illustration, set layout to illustrated and use the background field with portraits: []. It uses the same contained stage. No generation. Ask the author to approve the returned exact fingerprint separately before apply_scene.",
   apply_scene: "After explicit author approval, apply the exact reviewed scene/fingerprint atomically with a retry-safe operation UUID. Does not approve prose, change choices or publish. Stale passage/scene bases require a new review. Historical approved assets remain pinned until explicitly reassigned.",
   list_assets: "List compact project image title/status summaries, approval heads and thumbnail URLs, 25 per page. Read full metadata with read_asset. No binary output or generation.",
-  read_asset: "Read exact image-asset metadata/provenance, image URLs, retained approved version and paginated immutable history. No scene assignment or generation.",
+  read_asset: "Read exact image-asset metadata/provenance, image URLs, retained approved version and paginated immutable history. Read-only; assign an approved image to a passage separately with review_scene and apply_scene. No generation.",
   asset_usage: "Inspect exact library version references and paginated current scene assignments. Never infer usage from prose mentions.",
   list_staged_assets: "List bounded regular image filenames/digests only in the explicitly configured staging directory. No arbitrary paths, URLs or filesystem access. Disabled unless configured.",
-  import_staged_asset: "After author consent, import one listed PNG/JPEG/WebP by basename and exact source digest as an unapproved candidate. No symlinks or paths. Bind replacements to assetId/expectedVersionId; retain approved history. Zero provider calls; identical UUID retry survives file removal.",
-  revise_asset: "Create a new metadata candidate at an exact asset head. Never implicitly approve or replace the retained approved image. Requires author consent and retry-safe UUID.",
+  import_staged_asset: "approved: true authorizes this action only. Import one listed PNG/JPEG/WebP by basename and exact source digest as an unapproved candidate. For content approval, use review_asset then approve_asset separately. No symlinks or paths. Bind replacements to assetId/expectedVersionId; retain approved history. Zero provider calls; identical UUID retry survives file removal.",
+  revise_asset: "approved: true authorizes this action only. Create an unapproved metadata candidate at an exact asset head without replacing the retained approval. Review and approve the new candidate separately. Use a retry-safe UUID.",
   review_asset: "Inspect an exact current candidate beside the retained approved version, metadata, provenance, license findings and usage before asking for approval. Returns a locally computed review fingerprint.",
-  approve_asset: "Only after author approval of this exact image/metadata review, approve the current candidate version and fingerprint. Separate from upload/import. Retry identical UUID/arguments; stale heads require new review.",
-  reject_asset: "Reject only the explicitly reviewed current candidate, preserving all immutable files and any earlier approved version. Requires exact review fingerprint, author consent and retry-safe UUID.",
+  approve_asset: "approved: true confirms explicit content approval of the exact current image/metadata candidate and review_asset fingerprint. Separate from authorization to upload, import or revise. Retry identical UUID/arguments; stale heads require new review.",
+  reject_asset: "approved: true authorizes this rejection action only, not content approval. Reject the exact reviewed current candidate using its review fingerprint and a retry-safe UUID. Preserves all immutable files and any earlier approved version.",
   game_state: "Read exact game head, plan approval state and paginated passage/choice/thread metadata with draft IDs. No transcript required. Use read_game_record for bounded exact content.",
   read_game_record: "Read one exact structure/entity/draft version and current head. Omit versionId for current; supply it for saved candidate prose before acceptance. No generation or mutation.",
   initialize_game_plan: "Create Creator's default passage-plan skeleton once from current approved foundations, with exact game head and author consent. Revise using prepare_edit/submit_edit/review_edit/apply_edit; this does not approve the plan or write prose.",
@@ -69,6 +70,27 @@ for (const name of ["list_assets", "read_asset", "asset_usage", "list_staged_ass
 for (const name of ["read_scene", "review_scene"] as const) reads.add(name);
 for (const name of ["read_world", "review_world", "inspect_world_economy", "inspect_world_journal", "preview_chapter_transition", "inspect_world_presence"] as const) reads.add(name);
 
+const assetConsentKinds: Partial<Record<ConnectedEditTool, "action-authorization" | "content-approval">> = {
+  import_staged_asset: "action-authorization",
+  revise_asset: "action-authorization",
+  reject_asset: "action-authorization",
+  approve_asset: "content-approval",
+};
+
+const toolCatalogue = (Object.keys(ConnectedEditInputs) as ConnectedEditTool[]).map(name => ({
+  name,
+  description: descriptions[name],
+  inputSchema: {
+    ...zodToJsonSchema(ConnectedEditInputs[name], { strictUnions: true, pipeStrategy: "input" }),
+    type: "object" as const,
+    ...(name === "read_authoring_context" ? {
+      if: { required: ["scope"], properties: { scope: { const: "scene" } } },
+      then: { required: ["passageId"] },
+    } : {}),
+  },
+  annotations: { readOnlyHint: reads.has(name), destructiveHint: ["apply_world", "apply_scene", "apply_edit", "reject_edit", "approve_foundation", "approve_game_plan", "accept_drafts", "approve_asset", "reject_asset"].includes(name), idempotentHint: true, openWorldHint: false },
+}));
+
 export function registerConnectedEditing(app: FastifyInstance, service: ConnectedEditService, config: ConnectedEditingConfig,
   renderPreview: (projectId: string, buildVersionId: string) => Promise<{ html: string; fingerprint: string }>) {
   const token = Buffer.from(`Bearer ${config.token}`);
@@ -98,12 +120,13 @@ export function registerConnectedEditing(app: FastifyInstance, service: Connecte
     handler: async (req, reply) => {
       if (req.method !== "POST") return reply.code(405).header("Allow", "POST").send({ error: "connected_stateless_post_required" });
       const server = new McpServer({ name: "cyoa-connected-editing", version: "1.0.0" }, { instructions: CONNECTED_AUTHORING_INSTRUCTIONS });
-      for (const name of Object.keys(ConnectedEditInputs) as ConnectedEditTool[]) {
-        server.registerTool(name, { description: descriptions[name], inputSchema: ConnectedEditInputs[name],
-          annotations: { readOnlyHint: reads.has(name), destructiveHint: ["apply_world", "apply_scene", "apply_edit", "reject_edit", "approve_foundation", "approve_game_plan", "accept_drafts", "approve_asset", "reject_asset"].includes(name), idempotentHint: true, openWorldHint: false } },
+      for (const { name, description, annotations } of toolCatalogue) {
+        server.registerTool(name, { description, inputSchema: ConnectedEditInputs[name], annotations },
         async (args: unknown): Promise<CallToolResult> => {
           try {
-            const result = boundedConnectedResult(await service.call(name, args)) as Record<string, unknown>;
+            const outcome = await service.call(name, args) as Record<string, unknown>;
+            const consentKind = assetConsentKinds[name];
+            const result = boundedConnectedResult(consentKind ? { ...outcome, consentKind } : outcome) as Record<string, unknown>;
             return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
           } catch (error) {
             const message = error instanceof Error ? error.message.slice(0, 1000) : "connected_operation_failed";
@@ -111,6 +134,8 @@ export function registerConnectedEditing(app: FastifyInstance, service: Connecte
           }
         });
       }
+      // The SDK's Zod discovery drops cross-field constraints; keep its existing tool call validation.
+      server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: toolCatalogue }));
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
       try {
         await server.connect(transport);

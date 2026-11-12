@@ -5,6 +5,20 @@ Creator's **Illustrated scenes** workspace and MCP tools `read_scene`,
 not a new game engine: accepted prose, authored choices, conditions, effects,
 endings and saves still use the native player/runtime. No provider calls occur.
 
+## Upload to offline export
+
+1. Upload an image in the [Asset Library](asset-library.md), or discover and import it through `list_staged_assets` and `import_staged_asset`. Import authorization creates an unapproved candidate.
+2. Review the image and metadata, then approve that exact candidate separately (`review_asset` then `approve_asset` in MCP). Optional tags make assets searchable; they do not assign or designate a role. Find approved versions with `list_assets` and `read_asset`.
+3. In **Illustrated scenes**, select one passage. Choose its **Background / full-scene illustration**, up to three portraits, and optional dialogue. For a fully composed event illustration, use `layout: "illustrated"`, set `background` to the exact approved image reference and leave `portraits: []`. The image uses the same contained stage, not a full-bleed or modal renderer. Keep dialogue and interactive controls as accessible HTML, separate from the artwork.
+4. Review and Apply that one assignment. In MCP, `read_scene` gives the current passage version; `read_authoring_context` with `scope: "scene"` also requires that passage's `passageId`. Use `review_scene` then `apply_scene` with the exact fingerprint and separate consent. Repeat for each passage that needs a scene.
+5. In **Publication**, check readiness, compile the approved game, then export native standalone HTML or static ZIP. In MCP use `publication_readiness`, separately authorize the exact `compile_game` review, then use `export_game` with `format: "standalone"` or `"static"` and retrieve the returned download path. Play the delivered artifact offline.
+
+Reuse the same approved image version across passages: scenes store references,
+not copies, and compilation packages that image version once. Portrait character
+and expression names are free-form, not linked to Bible character IDs. There
+are no character or location defaults, structured role designations, or batch
+scene assignments. Approving a replacement does not retarget existing scenes.
+
 ## Authoring and review
 
 - Import/upload and approve images in the Asset library first.
@@ -64,6 +78,8 @@ scene/image history and exact historical builds. Privacy redaction may reseal
 authoring input references but preserves playable fingerprints/presentation.
 Duplication remaps version identities and reseals compilation/build references.
 
-No world/map/exploration/inventory/time/NPC mechanics or paid generation are part
-of V2. The procedural harbor and portrait images in tests are original offline
-fixtures, not claims of model-generated or production-quality illustration.
+Scene assignments do not define World mechanics or maps; those use the separate
+[locations and time](locations-and-time.md) workflow and can coexist with
+illustrated scenes. The procedural harbor and portrait images in tests are
+original offline fixtures, not claims of model-generated or production-quality
+illustration.

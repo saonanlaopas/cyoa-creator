@@ -24,7 +24,7 @@ export const ConnectedGameInputs = {
   initialize_game_plan: z.object(bound).strict(),
   review_game_plan: z.object(project).strict(),
   approve_game_plan: z.object({ ...bound, fingerprint: digest }).strict(),
-  read_authoring_context: z.object({ ...project, scope: z.enum(["draft", "planning", "world", "scene"]).default("draft"), request: z.string().trim().min(1).max(6000).optional(), passageId: id.optional(), artifactId: z.enum(planningArtifactIds).optional() }).strict(),
+  read_authoring_context: z.object({ ...project, scope: z.enum(["draft", "planning", "world", "scene"]).default("draft"), request: z.string().trim().min(1).max(6000).optional(), passageId: id.optional().describe("Required for scene and draft scope."), artifactId: z.enum(planningArtifactIds).optional() }).strict(),
   submit_draft: z.object({ ...bound, contextVersion: z.literal(2).optional(), authoringContextFingerprint: digest.optional(), passageId: id, passageVersionId: id, request: z.string().trim().min(1).max(6000), proseMarkdown: z.string().min(1).max(96000) }).strict(),
   review_drafts: z.object({ ...project, selections }).strict(),
   accept_drafts: z.object({ ...operation, selections, fingerprint: digest, approved: z.literal(true) }).strict(),
@@ -142,6 +142,7 @@ export class ConnectedGameService {
       case "read_authoring_context": {
         const i = ConnectedGameInputs.read_authoring_context.parse(value);
         if (i.scope === "draft") { if (!i.passageId) throw new Error("connected_authoring_passage_required"); if (!i.request) throw new Error("connected_authoring_task_required"); return this.authoringContext(i.projectId, i.passageId, i.request); }
+        if (i.scope === "scene" && !i.passageId) throw new Error("connected_authoring_passage_required_for_scene_scope");
         if (i.scope === "planning" && !i.artifactId) throw new Error("connected_authoring_artifact_required");
         const directionRow = this.database.prepare("SELECT approved_version_id id FROM artifact_workflow_state WHERE project_id=? AND artifact_id='creative-direction'").get(i.projectId) as { id: string | null } | undefined;
         const direction = directionRow?.id ? this.artifacts.getVersion(directionRow.id) : undefined;

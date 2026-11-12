@@ -78,7 +78,7 @@ export function IllustratedScenesWorkspace({ projectId }: { projectId: string })
       <legend>{passages.find((p) => p.entityId === selected)?.content.title}</legend>
       <label>Layout<select value={scene.layout} onChange={(e) => edit({ ...scene, layout: e.target.value as Scene["layout"], ...(e.target.value === "text" ? { background: null, portraits: [], dialogue: [] } : {}) })}><option value="text">Text</option><option value="illustrated">Illustrated</option></select></label>
       {scene.layout === "illustrated" && <>
-        <label>Background<select value={scene.background?.versionId ?? ""} onChange={(e) => edit({ ...scene, background: selectImage(e.target.value) })}>{options(scene.background)}</select></label>
+        <label>Background / full-scene illustration<select value={scene.background?.versionId ?? ""} onChange={(e) => edit({ ...scene, background: selectImage(e.target.value) })}>{options(scene.background)}</select></label>
         <h3>Portraits</h3>
         {scene.portraits.map((p, i) => <div className="scene-editor-row" key={i}>
           <label>Character {i + 1}<input maxLength={100} value={p.character} onChange={(e) => edit({ ...scene, portraits: scene.portraits.map((v, j) => i === j ? { ...v, character: e.target.value } : v) })} /></label>
@@ -117,7 +117,7 @@ export function IllustratedScenesWorkspace({ projectId }: { projectId: string })
 function SceneSummary({ scene, images }: { scene: Scene; images: Record<string, AssetDetail["selected"]> }) {
   return <div><dl>
     <dt>Layout</dt><dd>{scene.layout}</dd>
-    <dt>Background</dt><dd>{scene.background ? images[scene.background.versionId]?.content.metadata.title ?? scene.background.versionId : "None"}</dd>
+    <dt>Background / full-scene illustration</dt><dd>{scene.background ? images[scene.background.versionId]?.content.metadata.title ?? scene.background.versionId : "None"}</dd>
     <dt>Portraits</dt><dd>{scene.portraits.length ? scene.portraits.map((p) => `${p.character}: ${p.expression} (${p.position})`).join("; ") : "None"}</dd>
   </dl>{scene.dialogue.map((line, i) => <p key={i}><strong>{line.speaker}: </strong>{line.text}</p>)}</div>;
 }

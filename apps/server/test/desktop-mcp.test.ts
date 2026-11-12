@@ -10,6 +10,19 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { expect, it } from "vitest";
 
+it("links artwork guides to the live discovery entry point and the complete scene workflow", async () => {
+  const guide = (path: string) => readFile(resolve("docs", path), "utf8");
+  const library = await guide("asset-library.md"), editing = await guide("connected-editing.md"), scenes = await guide("illustrated-scenes.md");
+  for (const doc of [library, editing]) {
+    expect(doc).toContain("illustrated-scenes.md#upload-to-offline-export");
+    expect(doc).toContain("`tools/list`");
+    expect(doc).toContain("(examples/codex-local-mcp.toml)");
+  }
+  expect(scenes).toContain("## Upload to offline export");
+  expect(scenes).toContain("(asset-library.md)");
+  expect(scenes).toMatch(/\x60review_scene\x60 then \x60apply_scene\x60/);
+});
+
 it("CP1 starts the documented persistent host, exposes the full configured tool set and recovers reviewed drafts across process restarts (SDK only)", async () => {
   const root = resolve("."), evidenceRoot = process.env.CP1_EVIDENCE_DIR;
   if (evidenceRoot) await mkdir(evidenceRoot, { recursive: true });

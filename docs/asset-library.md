@@ -1,6 +1,6 @@
 # Asset Library (V1)
 
-The library accepts images as candidates, separately reviews/approves them, and preserves immutable replacement history. It does not assign scenes, render illustrations in the player, generate images, call a provider, or change accepted text games. Those runtime assignments belong to V2.
+The library accepts images as candidates, separately reviews/approves them, and preserves immutable replacement history. **To use an approved image in a passage or an offline game export, follow the [Illustrated scenes workflow](illustrated-scenes.md#upload-to-offline-export).** Scene assignment and rendering are separate Creator features, not library operations. The library does not generate images or call a provider.
 
 ## Creator
 
@@ -8,7 +8,9 @@ Open **Asset library** from any Long-form project. **New asset** accepts one sta
 
 An upload creates an unapproved candidate. **Review candidate** shows its full image, metadata, license findings and any retained approved image. Explicitly review the exact content before **Approve candidate** or **Reject candidate**. Editing local fields invalidates the displayed review; saving metadata makes another candidate. Uploading a replacement binds to the exact current asset version and never silently replaces the retained approved image.
 
-**History** inspects prior metadata and full image bytes, with bounded pagination. Historical views cannot overwrite newer work. **Return to current version** and **Refresh assets** recover after external edits or stale-version conflicts. **Inspect usage** reports library version references separately from scene assignments. V1 has no scene assignments, so that count is zero; it is not an inferred search through prose.
+**History** inspects prior metadata and full image bytes, with bounded pagination. Historical views cannot overwrite newer work. **Return to current version** and **Refresh assets** recover after external edits or stale-version conflicts. **Inspect usage** reports library version references separately from scene and World map assignments. It does not infer usage from prose.
+
+Use searchable tags such as `background`, `full-scene`, `portrait`, `harbor` or `mira-concerned` to organize a larger library. Tags are free-form labels, not structured roles, character/location bindings or defaults. Adding a tag never assigns or retargets an image.
 
 ## Restricted Assistant Import
 
@@ -21,12 +23,12 @@ node apps/server/dist/main.js
 
 Keep staging outside Git and put only files intended for import there. This is a server capability, disabled by default. The assistant's own authorized filesystem tools may place a supplied/generated image there; Creator does not expose a filesystem writer, image-generation provider or URL downloader.
 
-The existing authenticated MCP endpoint exposes these nine additional tools (37 total):
+These are the Asset Library tools. For current project capabilities, use authenticated MCP `tools/list` and the [desktop allowlist](examples/codex-local-mcp.toml); the library table is not the complete registry.
 
 | Tool | Boundary |
 | --- | --- |
 | `list_assets` | Title/description/tag search; 25 compact title/status/thumbnail summaries per page; full metadata in `read_asset` |
-| `read_asset` | Exact image/metadata/provenance and retained approval; 20 history records per page |
+| `read_asset` | Exact image/metadata/provenance and retained approval; 20 history records per page. For assignment, use `review_scene` then `apply_scene`. |
 | `asset_usage` | Exact library references, 25 per page, and actual assignment count |
 | `list_staged_assets` | Regular image basenames, byte counts and SHA-256 only; no arbitrary paths |
 | `import_staged_asset` | Exact staged basename/digest to unapproved candidate; explicit consent and operation UUID |
@@ -55,7 +57,7 @@ Discover a staged file, then import it using its exact `sourceSha256`:
 }
 ```
 
-For replacement, also supply `assetId` and `expectedVersionId`. `approved: true` consents to this action, not approval of the candidate's content. Import reports `assistant-import`, never internal provider generation; it does not verify which generator produced a file.
+For replacement, also supply `assetId` and `expectedVersionId`. The existing `approved: true` input is unchanged. On import, metadata revision and rejection it authorizes the action only; successful MCP results report `consentKind: "action-authorization"` and the resulting status (candidate or rejected). Only a separate `review_asset` followed by `approve_asset` with the exact review fingerprint approves content; its result reports `consentKind: "content-approval"` and `status: "approved"`. Import reports `assistant-import`, never internal provider generation; it does not verify which generator produced a file.
 
 Only a single basename ending in `.png`, `.jpg`, `.jpeg` or `.webp` is accepted. Absolute paths, path separators, symlinks, directories, devices and URLs are not accepted. An opened regular file is read with no-follow/nonblocking flags and a fixed byte bound, and its exact digest must match. Changing the staged file requires fresh discovery. Source files are not deleted or modified by import.
 
