@@ -163,6 +163,8 @@ it("does not autosave on preview/cancel, confirms the actual carry/expiry once, 
   render(<NativePlayer route={{ gameId: f.bundle.gameId, bundleFingerprint: f.bundle.bundleFingerprint, debug: false }} storage={storage} />);
   await user.click(await screen.findByRole("button", { name: "Read the signal notice · 5 min" })); await user.click(screen.getByRole("button", { name: "Confirm action" }));
   await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+  await user.click(screen.getByRole("button", { name: "Continue after result" }));
+  expect(write).toHaveBeenCalledTimes(1);
   await user.click(screen.getByRole("button", { name: "Begin the next chapter · 5 min" }));
   const preview = screen.getByRole("region", { name: "Chapter transition preview" }); expect(preview.textContent).toContain("Milestones expiring: Last conversation"); expect(preview.textContent).toContain("A last conversation: expires permanently");
   await user.click(screen.getByRole("button", { name: "Cancel" })); expect(write).toHaveBeenCalledTimes(1); expect(screen.getByLabelText("Game time").textContent).toBe("Day 1 · 23:55");

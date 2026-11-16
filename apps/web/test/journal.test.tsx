@@ -75,7 +75,10 @@ it("does not autosave during inspection or cancellation and hides narrative choi
   const f = journalFixture(), storage = new MemoryNativePlayerStorage(), user = userEvent.setup(); await storage.install(createNativePlayerInstallation(f.bundle, f.config)); const write = vi.spyOn(storage, "writeAutosave");
   render(<NativePlayer route={{ gameId: f.bundle.gameId, bundleFingerprint: f.bundle.bundleFingerprint, debug: false }} storage={storage} />);
   await user.click(await screen.findByRole("button", { name: "Character", exact: true })); expect(screen.queryByRole("region", { name: "Choices", exact: true })).toBeNull(); expect(screen.queryByRole("heading", { name: "Status", exact: true })).toBeNull();
-  expect(screen.queryByText("Exact prose 0.")).toBeNull(); await user.keyboard("{Escape}"); await screen.findByRole("region", { name: "Choices", exact: true });
+  expect(screen.queryByText("Exact prose 0.")).toBeNull(); await user.keyboard("{Escape}"); await screen.findByText("Exact prose 0.");
+  await user.click(screen.getByRole("button", { name: "Decisions", exact: true })); await screen.findByRole("region", { name: "Choices", exact: true });
+  expect(screen.queryByRole("button", { name: "Wait 5 min", exact: true })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Explore", exact: true }));
   await user.click(screen.getByRole("button", { name: "Wait 5 min", exact: true })); await user.click(screen.getByRole("button", { name: "Cancel", exact: true }));
   await user.click(screen.getByRole("button", { name: "Journal", exact: true })); await user.click(screen.getByRole("button", { name: "Entries", exact: true })); expect(screen.getByText("No journal entries recorded.")).toBeTruthy();
   expect(write).not.toHaveBeenCalled();

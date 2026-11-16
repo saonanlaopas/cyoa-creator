@@ -3,6 +3,7 @@ import { prerequisitesMet, prerequisiteContradictions, type ProgressionPrerequis
 import { assertProgressionState, advancePeopleTime, assertWorldActionAllowed, mandatoryEventStatus, revealProgressionEvents, type NativeProgression } from "./progression.js";
 import { assertPeopleState, characterLocation, peopleTimeBoundaries, type NativePeople } from "./people.js";
 import { cloneRuntimeState } from "./semantics.js";
+import { RequiredEncounterBoundary } from "./encounter-boundary.js";
 import type { RuntimeState } from "./types.js";
 import type { NativeWorld } from "./world.js";
 
@@ -141,8 +142,13 @@ function prepare(world: NativeWorld, state: RuntimeState, command: EconomyComman
   if (mandatoryEventStatus(world, result).conflict) throw new Error("people_mandatory_priority_conflict");
   return { state: result, message };
 }
-export function economyActionAvailability(world: NativeWorld, state: RuntimeState, command: EconomyCommand): { enabled: boolean; reason: string | null } {
-  try { prepare(world, state, command); return { enabled: true, reason: null }; } catch (e) { const message = (e as Error).message; const reason = message.includes("boundary_use_wait") ? "Wait for the required encounter before this action" : message.startsWith("people_mandatory") ? "Complete the required encounter first" : message === "world_time_limit_reached" ? "Game time limit reached" : message; return { enabled: false, reason }; }
+export function economyActionAvailability(world: NativeWorld, state: RuntimeState, command: EconomyCommand): { enabled: boolean; reason: string | null; encounterBoundary?: true } {
+  try { prepare(world, state, command); return { enabled: true, reason: null }; } catch (e) {
+    if (e instanceof RequiredEncounterBoundary) return { enabled: false, reason: "A required encounter would interrupt this action", encounterBoundary: true };
+    const message = (e as Error).message;
+    const reason = message.startsWith("people_mandatory") ? "Complete the required encounter first" : message === "world_time_limit_reached" ? "Game time limit reached" : message;
+    return { enabled: false, reason };
+  }
 }
 export function transitionEconomyWorld(world: NativeWorld, state: RuntimeState, command: EconomyCommand) { assertProgressionState(world, state); assertPeopleState(world, state); assertEconomyState(world, state); return prepare(world, state, command); }
 export function assertEconomyState(world: NativeWorld, state: RuntimeState): void {

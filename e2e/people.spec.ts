@@ -1,4 +1,5 @@
 import { actNativePlayerWorld, createNativePlayerConfig, createNativePlayerSession } from "@story-to-cyoa/runtime";
+import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { expect, test, type Page } from "playwright/test";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
@@ -106,7 +107,9 @@ test("W3 authors weekly schedules, resolves mandatory priorities and plays prese
       const waited = actNativePlayerWorld(chapters.bundle, config, initial, { kind: "wait", minutes: 60 }).session;
       const copy = JSON.stringify(waited), projection = await call("inspect_world_presence", { projectId, state: waited.state });
       expect(projection.present).toEqual([{ id: "mara", name: "Mara Vale" }]); expect(projection.mandatory.eventId).toBe("urgent");
-      expect(JSON.stringify(projection)).not.toMatch(/schedules|overrides|1530|station|cafe/); expect(JSON.stringify(waited)).toBe(copy);
+      const { worldVersionId, ...presence } = projection;
+      expect(worldVersionId).toMatch(/^[a-f0-9-]{36}$/);
+      expect(JSON.stringify(presence)).not.toMatch(/schedules|overrides|1530|station|cafe/); expect(JSON.stringify(waited)).toBe(copy);
       const free = structuredClone(world); free.progression!.chapters = []; free.progression!.initialChapterId = null; free.progression!.transitions = [];
       free.progression!.events = free.progression!.events.filter((e) => e.id !== "crossing");
       free.people!.events = free.people!.events.filter((r) => r.eventId !== "crossing");
@@ -119,15 +122,15 @@ test("W3 authors weekly schedules, resolves mandatory priorities and plays prese
         const panel = player.getByRole("region", { name: "Locations and time", exact: true }), clock = panel.getByLabel("Game time"), here = panel.getByRole("region", { name: "People present" });
         await expect(clock).toHaveText("Day 1 · 23:50"); await expect(here).toHaveText("Here now: No one encountered");
         await expect(panel.getByRole("button", { name: /Speak with Mara|Greet Ivo|Remember the crossing|Discuss the clue/ })).toHaveCount(0);
-        await panel.getByText("Map", { exact: true }).click(); await panel.getByRole("combobox", { name: "Area", exact: true }).selectOption("town");
+        await showPlayerWorldView(player, "Map"); await panel.getByRole("combobox", { name: "Area", exact: true }).selectOption("town");
         await panel.getByRole("button", { name: "Inspect Station", exact: true }).click(); await expect(here).toHaveText("Here now: No one encountered"); await expect(clock).toHaveText("Day 1 · 23:50");
-        await panel.getByText("Map", { exact: true }).click();
-        const confirm = async (label: string) => { await panel.getByRole("button", { name: label, exact: true }).click(); await player.getByRole("button", { name: "Confirm action", exact: true }).focus(); await player.keyboard.press("Enter"); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); };
+        await showPlayerWorldView(player, "Explore");
+        const confirm = async (label: string) => { const action = panel.getByRole("button", { name: label, exact: true }); await expect(action).toBeEnabled(); await action.click(); await player.getByRole("button", { name: "Confirm action", exact: true }).focus(); await player.keyboard.press("Enter"); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); await continuePlayerResult(player); };
         await confirm("Wait 60 min"); await expect(clock).toHaveText("Day 2 · 00:00"); await expect(here).toHaveText("Here now: Mara Vale");
         await expect(panel.getByRole("status")).toContainText("Required encounter: Hear the midnight warning");
-        await expect(panel.getByRole("button", { name: /Answer the midnight signal/ })).toBeDisabled(); await expect(panel.getByRole("button", { name: "Wait 5 min", exact: true })).toBeDisabled();
-        for (const button of await player.getByRole("region", { name: "Choices", exact: true }).getByRole("button").all()) await expect(button).toBeDisabled();
-        await expect(panel.getByRole("button", { name: /Greet Ivo/ })).toBeDisabled();
+        await expect(panel.getByRole("navigation", { name: "Events", exact: true }).getByRole("button")).toHaveCount(1);
+        await expect(panel.getByRole("button", { name: /Answer the midnight signal|Wait 5 min|Greet Ivo/ })).toHaveCount(0);
+        await expect(player.getByRole("region", { name: "Choices", exact: true })).toHaveCount(0);
         expect(await here.textContent()).not.toMatch(/Ivo|station|cafe|Day|1435/);
         for (const [width, height] of [[1280, 900], [390, 844]]) { await player.setViewportSize({ width, height }); await here.scrollIntoViewIfNeeded(); expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); await player.screenshot({ path: info.outputPath(`w3-${surface}-${freeMode ? "free-" : ""}midnight-${width}.png`), fullPage: true }); }
         await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name").fill("Midnight watch"); await player.getByRole("button", { name: "Create save", exact: true }).click();
@@ -145,6 +148,7 @@ test("W3 authors weekly schedules, resolves mandatory priorities and plays prese
           await expect(player.getByRole("region", { name: "Chapter transition preview" })).toContainText("Greet Ivo: expires permanently");
           await player.getByRole("button", { name: "Cancel", exact: true }).click(); await expect(clock).toHaveText("Day 2 · 00:15");
           await confirm("Begin the next chapter · 5 min"); await expect(here).toHaveText("Here now: Mara Vale"); await expect(clock).toHaveText("Day 2 · 00:20");
+          await showPlayerWorldView(player, "Explore");
           await confirm("Remember the crossing · 0 min"); await confirm("Wait 60 min"); await expect(clock).toHaveText("Day 2 · 01:20"); await expect(here).toHaveText("Here now: Mara Vale");
           await confirm("Wait 15 min"); await expect(clock).toHaveText("Day 2 · 01:35"); await expect(here).toHaveText("Here now: No one encountered");
           for (const [width, height] of [[1280, 900], [390, 844]]) { await player.setViewportSize({ width, height }); await here.scrollIntoViewIfNeeded(); await player.screenshot({ path: info.outputPath(`w3-${surface}-override-absence-${width}.png`), fullPage: true }); }

@@ -24,7 +24,8 @@ import {
 import { cloneRuntimeState } from "./semantics.js";
 import type { RuntimeResult, RuntimeState, RuntimeStateDelta } from "./types.js";
 import { enterPassage } from "./engine.js";
-import { assertProgressionState, revealProgressionEvents } from "./progression.js";
+import { assertProgressionState, mandatoryEventStatus, revealProgressionEvents } from "./progression.js";
+import { RequiredEncounterBoundary } from "./encounter-boundary.js";
 import { assertPlaytestCommand } from "./native-preview.js";
 import { transitionWorld, type WorldCommand } from "./world.js";
 
@@ -176,6 +177,7 @@ export type NativePlayerErrorCode =
   | "player_config_invalid"
   | "player_session_invalid"
   | "player_choice_rejected"
+  | "player_world_confirmation_stale"
   | "player_rewind_unavailable"
   | "save_schema_unsupported"
   | "save_game_mismatch"
@@ -224,6 +226,7 @@ export interface NativePlayerTransitionResult {
   session: NativePlayerSession;
   stateDelta: RuntimeStateDelta[];
   choiceId: string;
+  feedback: string[];
 }
 
 export interface NativePlayerStorage {
@@ -454,25 +457,87 @@ export function chooseNativePlayerSession(
     session: buildSession(game, config, nextState, history, nextSequence),
     stateDelta: transition.step.stateDelta,
     choiceId,
+    feedback: game.choices.get(choiceId)!.effects.flatMap(effect => effect.visibility === "visible" && effect.feedback.trim() ? [effect.feedback] : []),
   };
 }
 
-export function actNativePlayerWorld(bundleValue: unknown, configValue: unknown, sessionValue: unknown, command: WorldCommand): { session: NativePlayerSession; message: string } {
-  const game = loadNativeGame(bundleValue), config = assertNativePlayerConfig(configValue, game.bundle);
-  const session = assertNativePlayerSession(game.bundle, config, sessionValue);
+export type NativeWorldActionPreflight =
+  | { ready: true; fingerprint: string; waitUntilEncounter?: number }
+  | { ready: false; message: string; recovery?: { command: Extract<WorldCommand, { kind: "wait" }>; fingerprint: string; minutes: number; reachesEncounter: boolean } };
+
+const actionFingerprint = (session: NativePlayerSession, command: WorldCommand) => stableFingerprint({ session, command });
+function runWorldCommand(game: LoadedNativeGame, session: NativePlayerSession, command: WorldCommand) {
   if (atNativePreviewStop(game, session.state)) throw new NativePlayerError("player_choice_rejected", "native_preview_stop_reached");
   assertPlaytestCommand(game.bundle.preview, command);
   if (!game.bundle.world || nativeGameTerminal(game, session.state).result) throw new NativePlayerError("player_choice_rejected", "World actions are unavailable");
-  const transition = transitionWorld(game.bundle.world, session.state, command);
+  return transitionWorld(game.bundle.world, session.state, command);
+}
+
+const encounterBlocked = "A required encounter would interrupt this action. Nothing has changed.";
+export function preflightNativePlayerWorld(bundleValue: unknown, configValue: unknown, sessionValue: unknown, command: WorldCommand): NativeWorldActionPreflight {
+  const game = loadNativeGame(bundleValue), config = assertNativePlayerConfig(configValue, game.bundle);
+  const session = assertNativePlayerSession(game.bundle, config, sessionValue);
+  try {
+    const next = completeWorldCommand(game, config, session, command);
+    const waited = command.kind === "wait" ? next.session.state.world!.minutes - session.state.world!.minutes : null;
+    return { ready: true, fingerprint: actionFingerprint(session, command),
+      ...(command.kind === "wait" && waited !== null && waited < command.minutes ? { waitUntilEncounter: waited } : {}) };
+  } catch (error) {
+    if (error instanceof RequiredEncounterBoundary && game.bundle.world) {
+      const world = game.bundle.world, distance = error.minute - session.state.world!.minutes;
+      let earlier: Extract<NativeWorldActionPreflight, { ready: false }>["recovery"];
+      for (const duration of [...world.waitMinutes].sort((a, b) => a - b)) {
+        const wait = { kind: "wait", minutes: duration } as const;
+        try {
+          const next = completeWorldCommand(game, config, session, wait).session.state;
+          const fingerprint = actionFingerprint(session, wait);
+          if (next.world?.minutes === error.minute && mandatoryEventStatus(world, next).eventId)
+            return { ready: false, message: encounterBlocked, recovery: { command: wait, fingerprint, minutes: distance, reachesEncounter: true } };
+          if (duration < distance && next.world?.minutes === session.state.world!.minutes + duration)
+            earlier = { command: wait, fingerprint, minutes: duration, reachesEncounter: false };
+        } catch { /* An unavailable wait is not a recovery option. */ }
+      }
+      return { ready: false, message: earlier ? `${encounterBlocked} You can wait and check again.` : `${encounterBlocked} No available wait reaches it safely.`, ...(earlier ? { recovery: earlier } : {}) };
+    }
+    return { ready: false, message: worldActionErrorMessage(error) };
+  }
+}
+
+export function worldActionErrorMessage(error: unknown): string {
+  if (error instanceof RequiredEncounterBoundary) return encounterBlocked;
+  if (error instanceof NativePlayerError && error.code === "player_world_confirmation_stale") return error.message;
+  if (!(error instanceof Error)) return "This action is unavailable.";
+  return ({
+    people_mandatory_event_pending: "Complete the required encounter first.",
+    people_mandatory_priority_conflict: "Required encounters conflict. This action could not proceed.",
+    world_destination_closed_at_arrival: "That destination is closed at arrival.",
+    native_preview_stop_reached: "The preview boundary has been reached.",
+    chapter_transition_preview_stale: "The chapter transition has changed. Review it again.",
+    world_time_limit_reached: "This action would exceed the game time limit.",
+    "Outside this preview": "Outside this preview",
+  } as Record<string, string>)[error.message] ?? "This action is no longer available. Nothing has changed.";
+}
+
+export function actNativePlayerWorld(bundleValue: unknown, configValue: unknown, sessionValue: unknown, command: WorldCommand, confirmationFingerprint?: string) {
+  const game = loadNativeGame(bundleValue), config = assertNativePlayerConfig(configValue, game.bundle);
+  const session = assertNativePlayerSession(game.bundle, config, sessionValue);
+  if (confirmationFingerprint !== undefined && confirmationFingerprint !== actionFingerprint(session, command)) {
+    throw new NativePlayerError("player_world_confirmation_stale", "World state changed. Select the action again.");
+  }
+  return completeWorldCommand(game, config, session, command);
+}
+
+function completeWorldCommand(game: LoadedNativeGame, config: NativePlayerConfig, session: NativePlayerSession, command: WorldCommand) {
+  const transition = runWorldCommand(game, session, command);
   const state = transition.state;
   state.turn += 1;
   // Waiting and local actions advance a turn, but do not fabricate passage visits or re-enter the scene.
   const next = transition.passageId
     ? enterPassage(game.runtime, state, transition.passageId)
     : state;
-  revealProgressionEvents(game.bundle.world, next);
+  revealProgressionEvents(game.bundle.world!, next);
   if (!transition.passageId) next.world!.stationaryTurns = (next.world!.stationaryTurns ?? 0) + 1;
-  return { session: buildSession(game, config, next, historyAfterTransition(game, config, session, next, null), next.turn), message: transition.message };
+  return { session: buildSession(game, config, next, historyAfterTransition(game, config, session, next, null), next.turn), message: transition.message, enteredPassage: transition.passageId !== undefined };
 }
 
 export function rewindNativePlayerSession(

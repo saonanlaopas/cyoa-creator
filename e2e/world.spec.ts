@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "playwright/test";
+import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -97,7 +98,7 @@ test("W1 reviews shared world operations and travels home/cafe/station with free
         const requests: string[] = []; player.on("request", (r) => requests.push(r.url()));
         const worldPanel = player.getByRole("region", { name: "Locations and time", exact: true }), clock = worldPanel.getByLabel("Game time");
         await expect(clock).toHaveText("Day 1 · 23:50");
-        await worldPanel.getByText("Map", { exact: true }).click();
+        await showPlayerWorldView(player, "Map");
         await worldPanel.getByRole("button", { name: "Inspect Cafe", exact: true }).click();
         await expect(worldPanel.getByRole("region", { name: "Destination" })).toContainText("Cafe"); await expect(clock).toHaveText("Day 1 · 23:50");
         for (const [width, height] of [[1280, 900], [390, 844]]) {
@@ -107,9 +108,10 @@ test("W1 reviews shared world operations and travels home/cafe/station with free
           expect(geometry).toEqual([true, true, true]); expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
           await worldPanel.scrollIntoViewIfNeeded(); await player.screenshot({ path: info.outputPath(`w1-${label}-map-${width}.png`), fullPage: true });
         }
-        await worldPanel.getByRole("navigation", { name: "Travel", exact: true }).getByRole("button", { name: "Cafe · 15 min", exact: true }).click();
+        await worldPanel.getByRole("button", { name: "Travel to Cafe (15 min)", exact: true }).click();
         await player.getByRole("button", { name: "Cancel", exact: true }).click(); await expect(clock).toHaveText("Day 1 · 23:50");
         const confirm = async () => { await player.getByRole("button", { name: "Confirm action", exact: true }).focus(); await player.keyboard.press("Enter"); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); };
+        await showPlayerWorldView(player, "Explore");
         await worldPanel.getByRole("navigation", { name: "Travel", exact: true }).getByRole("button", { name: "Cafe · 15 min", exact: true }).click(); await confirm();
         await expect(clock).toHaveText("Day 2 · 00:05"); await expect(worldPanel.locator("header strong")).toHaveText("Cafe");
         await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name").fill("Midnight cafe"); await player.getByRole("button", { name: "Create save", exact: true }).click();
@@ -120,12 +122,13 @@ test("W1 reviews shared world operations and travels home/cafe/station with free
         await expect(clock).toHaveText("Day 2 · 00:22");
         await expect(player.getByRole("region", { name: "Action outcome", exact: true })).toHaveText("The early train leaves at dawn.");
         await expect(player.getByRole("status")).toHaveText("Progress autosaved.");
+        await continuePlayerResult(player);
         await worldPanel.getByRole("button", { name: "Wait 15 min", exact: true }).click(); await confirm(); await expect(clock).toHaveText("Day 2 · 00:37");
         await player.getByRole("button", { name: "Rewind", exact: true }).click(); await expect(clock).toHaveText("Day 2 · 00:22");
         await player.getByRole("button", { name: "Load game", exact: true }).click(); await player.getByRole("button", { name: "Load", exact: true }).click();
         await expect(clock).toHaveText("Day 2 · 00:05"); await expect(worldPanel.locator("header strong")).toHaveText("Cafe");
         await worldPanel.getByRole("button", { name: "Home · 15 min", exact: true }).click(); await confirm(); await expect(clock).toHaveText("Day 2 · 00:20");
-        for (let i = 0; i < 2; i++) { await worldPanel.getByRole("button", { name: "Wait 60 min", exact: true }).click(); await confirm(); }
+        for (let i = 0; i < 2; i++) { await worldPanel.getByRole("button", { name: "Wait 60 min", exact: true }).click(); await confirm(); await continuePlayerResult(player); }
         await expect(worldPanel.getByRole("button", { name: "Cafe · 15 min · Closed at arrival", exact: true })).toBeDisabled();
         expect(requests.some((url) => /\/api\/|openrouter|provider/i.test(url))).toBe(false);
       };

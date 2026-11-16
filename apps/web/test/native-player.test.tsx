@@ -8,6 +8,8 @@ import {
   assertNativePlayerManualSlot,
   createNativePlayerConfig,
   createNativePlayerInstallation,
+  compiledRuntimeFingerprint,
+  loadNativeGame,
   loadNativePlayerSave,
   nativeBundleFingerprint,
   type NativePlayerSave,
@@ -95,7 +97,12 @@ describe("NativePlayer", () => {
     await user.click(screen.getByRole("button", { name: "Read departure board · 7 min" }));
     await user.click(screen.getByRole("button", { name: "Confirm action" }));
     expect(screen.getByRole("region", { name: "Action outcome" }).textContent).toContain("The early train leaves at dawn.");
-    if (transition === "choice") await user.click(screen.getByRole("button", { name: "Continue 1" }));
+    if (transition === "choice") {
+      await user.click(screen.getByRole("button", { name: "Continue after result" }));
+      await user.click(screen.getByRole("button", { name: "Decisions", exact: true }));
+      await user.click(screen.getByRole("button", { name: "Continue 1" }));
+      expect(screen.getByRole("region", { name: "Action outcome" }).textContent).toContain("Resolve rises.");
+    }
     if (transition === "rewind") await user.click(screen.getByRole("button", { name: "Rewind" }));
     if (transition === "restart") {
       await user.click(screen.getByRole("button", { name: "Restart" }));
@@ -110,23 +117,54 @@ describe("NativePlayer", () => {
       mounted.rerender(<NativePlayer route={other.route} storage={fixture.storage} />);
       await waitFor(() => expect(screen.queryByLabelText("Game time")).toBeNull());
     }
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Action outcome" })).toBeNull());
+    if (transition !== "choice") await waitFor(() => expect(screen.queryByRole("region", { name: "Action outcome" })).toBeNull());
   });
 
-  it("retains the outcome when another action is cancelled and replaces it only when that action commits", async () => {
+  it("continues from a focused outcome without a new write; cancelling the next action does not advance time", async () => {
     const fixture = await installedWorldPlayer();
     const user = userEvent.setup();
     render(<NativePlayer route={fixture.route} storage={fixture.storage} />);
     await user.click(await screen.findByRole("button", { name: "Read departure board · 7 min" }));
     await user.click(screen.getByRole("button", { name: "Confirm action" }));
+    expect(screen.getByRole("region", { name: "Action outcome" }).textContent).toContain("The early train leaves at dawn.");
+    expect(screen.queryByRole("button", { name: "Wait 15 min" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Continue after result" }));
     await user.click(screen.getByRole("button", { name: "Wait 15 min" }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.getByRole("region", { name: "Action outcome" }).textContent).toContain("The early train leaves at dawn.");
+    expect(screen.queryByRole("region", { name: "Action outcome" })).toBeNull();
     expect(screen.getByLabelText("Game time").textContent).toBe("Day 2 · 00:22");
     await user.click(screen.getByRole("button", { name: "Wait 15 min" }));
     await user.click(screen.getByRole("button", { name: "Confirm action" }));
     expect(screen.getByRole("region", { name: "Action outcome" }).textContent).not.toContain("The early train leaves at dawn.");
     expect(screen.getByLabelText("Game time").textContent).toBe("Day 2 · 00:37");
+  });
+
+  it("shows only visible same-passage feedback through a failed autosave and retry, without replaying effects", async () => {
+    const bundle = playerFixture(3), runtime = structuredClone(loadNativeGame(bundle).runtime);
+    const choice = bundle.choices.find(item => item.id === "choice-0")!;
+    choice.destinationPassageId = choice.sourcePassageId;
+    choice.effects.find(effect => effect.visibility === "hidden")!.feedback = "Secret acknowledgment.";
+    runtime.choices[choice.id]!.destinationPassageId = choice.sourcePassageId;
+    runtime.choices[choice.id]!.effects = choice.effects;
+    bundle.runtimeFingerprint = compiledRuntimeFingerprint(runtime);
+    bundle.bundleFingerprint = nativeBundleFingerprint(bundle);
+    const config = createNativePlayerConfig(playerConfigInput(bundle), bundle), storage = new MemoryNativePlayerStorage();
+    await storage.install(createNativePlayerInstallation(bundle, config, true));
+    const write = vi.spyOn(storage, "writeAutosave").mockRejectedValueOnce(new Error("Test write failure"));
+    render(<NativePlayer route={{ gameId: bundle.gameId, bundleFingerprint: bundle.bundleFingerprint, debug: false }} storage={storage} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Continue 1" }));
+    const result = screen.getByRole("region", { name: "Action outcome" });
+    expect(result.textContent).toContain("Resolve rises.");
+    expect(result.textContent).not.toContain("Secret acknowledgment.");
+    expect(screen.getByText("Turn 2").textContent).toBe("Turn 2");
+    await user.click(screen.getByRole("button", { name: "Retry autosave" }));
+    expect(write.mock.calls[1]![2].state).toEqual(write.mock.calls[0]![2].state);
+    expect(screen.getByRole("region", { name: "Action outcome" })).toBe(result);
+    await user.click(screen.getByRole("button", { name: "Continue after result" }));
+    expect(screen.queryByRole("region", { name: "Action outcome" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Continue 1" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(write).toHaveBeenCalledTimes(2);
   });
 
   it("plays, autosaves, reloads, manually saves/loads, rewinds, and restarts without API calls", async () => {
@@ -147,7 +185,7 @@ describe("NativePlayer", () => {
 
     await user.click(screen.getByRole("button", { name: "Continue 1" }));
     expect(await screen.findByRole("heading", { name: "Passage 1" })).toBeTruthy();
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Passage 1" })));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Choice result" })));
     first.unmount();
 
     render(<NativePlayer route={fixture.route} storage={fixture.storage} />);

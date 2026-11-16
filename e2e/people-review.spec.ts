@@ -1,4 +1,5 @@
 import { actNativePlayerWorld, createNativePlayerConfig, createNativePlayerSession } from "@story-to-cyoa/runtime";
+import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { expect, test, type Page } from "playwright/test";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -68,8 +69,8 @@ test("W3 review fixes complete required costs, observe effects before discovery 
       const play = async (page: Page, surface: string, width: number) => {
         page.setDefaultTimeout(10000);
         const panel = page.getByRole("region", { name: "Locations and time", exact: true }), clock = panel.getByLabel("Game time"), here = panel.getByRole("region", { name: "People present" });
-        const confirm = async (label: string) => { await panel.getByRole("button", { name: label, exact: true }).click(); await page.getByRole("button", { name: "Confirm action", exact: true }).click(); await expect(page.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); };
-        await expect(clock).toHaveText("Day 1 · 23:50"); await expect(panel.getByRole("button", { name: "Wait 5 min", exact: true })).toBeDisabled();
+        const confirm = async (label: string) => { await panel.getByRole("button", { name: label, exact: true }).click(); await page.getByRole("button", { name: "Confirm action", exact: true }).click(); await expect(page.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); await continuePlayerResult(page); };
+        await expect(clock).toHaveText("Day 1 · 23:50"); await expect(panel.getByRole("button", { name: "Wait 5 min", exact: true })).toHaveCount(0);
         await panel.getByRole("button", { name: "Finish the warning · 5 min", exact: true }).click(); await page.getByRole("button", { name: "Cancel", exact: true }).click(); await expect(clock).toHaveText("Day 1 · 23:50");
         await confirm("Finish the warning · 5 min"); await expect(clock).toHaveText("Day 1 · 23:55");
         await expect(panel.getByRole("status")).toContainText("Required encounter: Answer the later signal");
@@ -86,9 +87,10 @@ test("W3 review fixes complete required costs, observe effects before discovery 
         await page.screenshot({ path: info.outputPath(`w3-review-${surface}-preview-${width}.png`), fullPage: true });
         await page.getByRole("button", { name: "Cancel", exact: true }).click();
         await confirm("Begin the next chapter · 0 min"); await expect(panel.getByRole("status")).toContainText("Complete arrival check");
-        await expect(panel.getByRole("button", { name: /Read the ledger/ })).toBeDisabled();
+        await expect(panel.getByRole("button", { name: /Read the ledger/ })).toHaveCount(0);
         await confirm("Complete arrival check · 0 min"); await expect(panel.getByRole("button", { name: "Read the ledger · 0 min", exact: true })).toBeEnabled();
-        await confirm("Read the ledger · 0 min"); await expect(panel.getByRole("button", { name: /Read the ledger/ })).toContainText("Completed");
+        await confirm("Read the ledger · 0 min"); await expect(panel.getByRole("button", { name: /Read the ledger/ })).toHaveCount(0);
+        await showPlayerWorldView(page, "History"); await expect(panel.getByRole("region", { name: "World history" })).toContainText("Read the ledger · Completed");
         await page.getByRole("button", { name: "Load game", exact: true }).click(); await page.getByRole("button", { name: "Load", exact: true }).click();
         await expect(panel.getByRole("button", { name: "Read the ledger · 0 min", exact: true })).toBeEnabled(); await expect(panel.getByRole("button", { name: /Hidden greeting/ })).toHaveCount(0);
         await confirm("Begin the next chapter · 0 min"); await confirm("Complete arrival check · 0 min"); await confirm("Read the ledger · 0 min");

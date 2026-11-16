@@ -435,6 +435,12 @@ export function validatePassagePlan(input: {
       && passageById.has(choice!.destinationPassageId)
       && conditionCompatible(choice!.condition, registry)
       && !conditionDefinitelyImpossible(choice!.condition, registry, writableMechanics));
+    for (const choice of plausibleChoices) if (choice.destinationPassageId === passage.id
+      && !choice.effects.some(effect => effect.visibility === "visible" && effect.feedback.trim())) add({
+      code: "choice.self-loop.no-visible-feedback", severity: "warning", entityType: "choice", entityId: choice.id,
+      message: "This choice returns to the same passage without visible feedback or a distinct response passage.",
+      evidence: [passage.id], suggestion: "Add authored visible feedback or link a distinct response passage.",
+    });
     if (!passage.terminal && passage.choiceIds.length > 0 && plausibleChoices.length === 0) add({
       code: "graph.choice.none-plausible", severity: "error", entityType: "passage", entityId: passage.id,
       message: "No outgoing choice appears available under any plausible state.", evidence: passage.choiceIds,

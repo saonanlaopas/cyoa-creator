@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "playwright/test";
+import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -153,12 +154,12 @@ test("W2 authors optional chapters/events and previews carry/expiry before offli
         const requests: string[] = []; player.on("request", (r) => requests.push(r.url()));
         const panel = player.getByRole("region", { name: "Locations and time", exact: true }), clock = panel.getByLabel("Game time");
         await expect(clock).toHaveText("Day 1 · 23:50");
-        const confirm = async (label: string) => { await panel.getByRole("button", { name: label, exact: true }).click(); await player.getByRole("button", { name: "Confirm action", exact: true }).focus(); await player.keyboard.press("Enter"); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); };
+        const confirm = async (label: string) => { await panel.getByRole("button", { name: label, exact: true }).click(); await player.getByRole("button", { name: "Confirm action", exact: true }).focus(); await player.keyboard.press("Enter"); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); await continuePlayerResult(player); };
         if (freeMode) {
           await expect(panel.getByText("Chapter-free play", { exact: true })).toBeVisible();
           await expect(panel.getByRole("navigation", { name: "Chapter transitions" }).getByRole("button")).toHaveCount(0);
           await confirm("Read the signal notice · 5 min"); await expect(clock).toHaveText("Day 1 · 23:55"); await player.reload();
-          await expect(panel.getByText("Milestones: Signal clue, Farewell memory", { exact: true })).toBeVisible();
+          await showPlayerWorldView(player, "History"); await expect(panel.getByText("Milestones: Signal clue, Farewell memory", { exact: true })).toBeVisible();
           for (const [width, height] of [[1280, 900], [390, 844]]) { await player.setViewportSize({ width, height }); expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); await panel.scrollIntoViewIfNeeded(); await player.screenshot({ path: info.outputPath(`w2-${surface}-free-${width}.png`), fullPage: true }); }
           return;
         }
@@ -166,8 +167,12 @@ test("W2 authors optional chapters/events and previews carry/expiry before offli
         await expect(panel.getByRole("button", { name: "Begin the next chapter · 5 min", exact: true })).toBeDisabled();
         await expect(panel.getByRole("button", { name: /Remember the crossing/ })).toHaveCount(0);
         await confirm("Read the signal notice · 5 min"); await expect(clock).toHaveText("Day 1 · 23:55");
-        await confirm("Listen to the daily bell · 0 min"); await expect(panel.getByRole("button", { name: /Listen to the daily bell.*Already played today/ })).toBeDisabled();
-        await confirm("Chapter check-in · 0 min"); await expect(panel.getByRole("button", { name: /Chapter check-in.*Already played in this chapter/ })).toBeDisabled();
+        await confirm("Listen to the daily bell · 0 min"); await expect(panel.getByRole("button", { name: /Listen to the daily bell/ })).toHaveCount(0);
+        await confirm("Chapter check-in · 0 min"); await expect(panel.getByRole("button", { name: /Chapter check-in/ })).toHaveCount(0);
+        await showPlayerWorldView(player, "History");
+        await expect(panel.getByRole("region", { name: "World history" })).toContainText(/Listen to the daily bell.*Already played today/);
+        await expect(panel.getByRole("region", { name: "World history" })).toContainText(/Chapter check-in.*Already played in this chapter/);
+        await showPlayerWorldView(player, "Explore");
         await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name").fill("Before crossing"); await player.getByRole("button", { name: "Create save", exact: true }).click();
         await panel.getByRole("button", { name: "Begin the next chapter · 5 min", exact: true }).click();
         const preview = player.getByRole("region", { name: "Chapter transition preview" });
@@ -176,10 +181,14 @@ test("W2 authors optional chapters/events and previews carry/expiry before offli
         await player.getByRole("button", { name: "Cancel", exact: true }).click(); await expect(clock).toHaveText("Day 1 · 23:55");
         await expect(panel.getByText("Chapter: Before dawn", { exact: true })).toBeVisible();
         await confirm("Begin the next chapter · 5 min"); await expect(clock).toHaveText("Day 2 · 00:00");
-        await expect(panel.getByText("Chapter: After the crossing", { exact: true })).toBeVisible(); await expect(panel.getByText("Milestones: Signal clue", { exact: true })).toBeVisible();
-        await expect(panel.getByRole("button", { name: /A last conversation.*Expired/ })).toBeDisabled();
+        await expect(panel.getByText("Chapter: After the crossing", { exact: true })).toBeVisible();
+        await showPlayerWorldView(player, "History"); await expect(panel.getByText("Milestones: Signal clue", { exact: true })).toBeVisible();
+        await expect(panel.getByRole("region", { name: "World history" })).toContainText("A last conversation · Expired");
+        await showPlayerWorldView(player, "Explore");
         await confirm("Listen to the daily bell · 0 min"); await confirm("Chapter check-in · 0 min"); await confirm("Remember the crossing · 0 min");
-        await confirm("Rest · 0 min"); await expect(panel.getByRole("button", { name: /Rest.*Cooldown has not elapsed/ })).toBeDisabled();
+        await confirm("Rest · 0 min"); await expect(panel.getByRole("button", { name: /^Rest/ })).toHaveCount(0);
+        await showPlayerWorldView(player, "History"); await expect(panel.getByRole("region", { name: "World history" })).toContainText(/Rest.*Cooldown has not elapsed/);
+        await showPlayerWorldView(player, "Explore");
         await confirm("Wait 15 min"); await confirm("Rest · 0 min"); await expect(clock).toHaveText("Day 2 · 00:15");
         await player.reload(); await expect(clock).toHaveText("Day 2 · 00:15"); await expect(panel.getByText("Chapter: After the crossing", { exact: true })).toBeVisible();
         for (const [width, height] of [[1280, 900], [390, 844]]) { await player.setViewportSize({ width, height }); expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); await panel.scrollIntoViewIfNeeded(); await player.screenshot({ path: info.outputPath(`w2-${surface}-second-chapter-${width}.png`), fullPage: true }); }
@@ -188,7 +197,7 @@ test("W2 authors optional chapters/events and previews carry/expiry before offli
         await expect(clock).toHaveText("Day 1 · 23:55"); await expect(panel.getByText("Chapter: Before dawn", { exact: true })).toBeVisible();
         await expect(panel.getByRole("button", { name: "A last conversation · 0 min", exact: true })).toBeEnabled();
         await player.getByRole("button", { name: "Restart", exact: true }).click(); await player.getByRole("button", { name: "Restart game", exact: true }).click();
-        await expect(clock).toHaveText("Day 1 · 23:50"); await expect(panel.getByText("Milestones: None yet", { exact: true })).toBeVisible();
+        await expect(clock).toHaveText("Day 1 · 23:50"); await showPlayerWorldView(player, "History"); await expect(panel.getByText("Milestones: None yet", { exact: true })).toBeVisible();
         expect(requests.some((url) => /\/api\/|openrouter|provider/i.test(url))).toBe(false);
       };
       for (const [mode, exported] of [["chapters", chapterLed], ["free", chapterFree]] as const) {

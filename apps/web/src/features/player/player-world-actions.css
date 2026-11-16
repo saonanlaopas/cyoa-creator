@@ -1,0 +1,12 @@
+.player-world-header { display: flex; gap: .5rem 1rem; flex-wrap: wrap; align-items: baseline; }
+.player-actions { display: grid; gap: .7rem; border-top: 1px solid #354949; padding-top: 1rem; min-width: 0; }
+.player-actions nav, .player-secondary nav { display: flex; gap: .45rem; flex-wrap: wrap; }
+.player-actions nav button, .player-secondary nav button { max-width: 100%; overflow-wrap: anywhere; }
+.player-secondary { display: grid; gap: .75rem; min-width: 0; }
+.player-secondary select { max-width: 100%; }
+.player-result { border-inline-start: 3px solid #75ad9d; background: #182426; padding: .65rem .9rem; margin-block: .75rem; }
+.player-result h2 { font-size: 1.1rem; margin: .35rem 0; }
+.world-map-schematic { color: #b4d7cc; background: #17262c; }
+.world-map-schematic svg { position: absolute; width: 100%; height: 100%; }
+.world-map-schematic polyline { fill: none; stroke: currentColor; stroke-width: .35; opacity: .8; }
+.world-marker[data-current="true"] { outline: 3px solid #eec76b; outline-offset: 2px; }

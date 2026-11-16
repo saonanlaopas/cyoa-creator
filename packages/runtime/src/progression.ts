@@ -9,6 +9,7 @@ import { stableFingerprint } from "./canonical.js";
 import { cloneRuntimeState } from "./semantics.js";
 import type { RuntimeState } from "./types.js";
 import type { NativeWorld } from "./world.js";
+import { RequiredEncounterBoundary } from "./encounter-boundary.js";
 
 const id = z.string().min(1).max(200), name = z.string().trim().min(1).max(200);
 const minutes = z.number().int().min(0).max(52_560_000);
@@ -291,7 +292,7 @@ export function advancePeopleTime(world: NativeWorld, state: RuntimeState, end: 
     if (pending.conflict) throw new Error("people_mandatory_priority_conflict");
     if (pending.eventId) {
       if (waiting) return next;
-      throw new Error("people_required_encounter_boundary_use_wait");
+      throw new RequiredEncounterBoundary(minute);
     }
   }
   return next;

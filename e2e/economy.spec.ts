@@ -1,4 +1,5 @@
 import { actNativePlayerWorld, createNativePlayerConfig, createNativePlayerSession, type WorldCommand } from "@story-to-cyoa/runtime";
+import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { expect, test, type Page, type Locator } from "playwright/test";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -91,9 +92,9 @@ test("W4 authors trade with stale edits and safe retries, then plays atomic inve
       const play = async (player: Page, surface: string, width: number) => {
         player.setDefaultTimeout(15000);
         const panel = player.getByRole("region", { name: "Locations and time", exact: true }), trade = panel.getByRole("region", { name: "Inventory and shops", exact: true }), clock = panel.getByLabel("Game time");
-        const confirm = async (button: Locator) => { await button.click(); await player.getByRole("button", { name: "Confirm action", exact: true }).click(); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); };
-        const wait = (minutes: number) => confirm(panel.getByRole("button", { name: `Wait ${minutes} min`, exact: true }));
-        const show = async (name: string) => { const b = trade.getByRole("button", { name, exact: true }); if (await b.getAttribute("aria-pressed") !== "true") await b.click(); };
+        const confirm = async (button: Locator) => { await button.click(); await player.getByRole("button", { name: "Confirm action", exact: true }).click(); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); await continuePlayerResult(player); };
+        const show = (name: string) => showPlayerWorldView(player, name);
+        const wait = async (minutes: number) => { await show("Explore"); await confirm(panel.getByRole("button", { name: `Wait ${minutes} min`, exact: true })); };
         const buy = () => trade.getByRole("button", { name: "Buy 1 Tea · 4 Coins · 2 min", exact: true });
         const gift = () => trade.getByRole("button", { name: "Share tea · 1 Tea to Mara · 1 min", exact: true });
         const use = () => trade.getByRole("button", { name: "Drink tea · 1 Tea · 1 min · Gain 1 Coins", exact: true });
@@ -107,8 +108,8 @@ test("W4 authors trade with stale edits and safe retries, then plays atomic inve
         await show("Give a gift"); await confirm(gift()); await expect(gift()).toBeDisabled(); await expect(trade.getByText("Already completed today", { exact: true })).toBeVisible();
         await player.screenshot({ path: info.outputPath(`w4-${surface}-gift-limit-${width}.png`), fullPage: true });
         await show("Inventory"); await confirm(use()); await expect(use()).toBeDisabled();
-        await confirm(panel.getByRole("button", { name: /^Discuss the ledger · 0 min/ })); await expect(panel).toContainText("Milestones: Signal clue");
-        await wait(5); await confirm(use()); await expect(clock).toHaveText("Day 2 · 00:09"); await expect(trade).toContainText("Coins: 15"); await expect(trade.getByText("Tea × 1", { exact: true })).toBeVisible();
+        await show("Explore"); await confirm(panel.getByRole("button", { name: /^Discuss the ledger · 0 min/ })); await show("History"); await expect(panel).toContainText("Milestones: Signal clue");
+        await wait(5); await show("Inventory"); await confirm(use()); await expect(clock).toHaveText("Day 2 · 00:09"); await expect(trade).toContainText("Coins: 15"); await expect(trade.getByText("Tea × 1", { exact: true })).toBeVisible();
         await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.state);
         await player.screenshot({ path: info.outputPath(`w4-${surface}-inventory-${width}.png`), fullPage: true });
         await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name").fill("After trade"); await player.getByRole("button", { name: "Create save", exact: true }).click();

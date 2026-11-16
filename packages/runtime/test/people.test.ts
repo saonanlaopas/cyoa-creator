@@ -3,8 +3,66 @@ import { NativeWorldSchema, peopleDiagnostics, peopleTimeBoundaries, assertPeopl
   previewChapterTransition, progressionEventAvailability, rewindNativePlayerSession, restartNativePlayerSession, chooseNativePlayerSession, chooseNativeGameChoice, evaluateNativeGameChoice, loadNativeGame, transitionWorld, stableFingerprint, validateNativeGameBundle } from "../src/index.js";
 import { peopleFixture } from "./people-fixture.js";
 import { progressionFixture } from "./progression-fixture.js";
+import { economyFixture } from "./economy-fixture.js";
+import { actNativePlayerWorld, preflightNativePlayerWorld } from "../src/index.js";
 
 describe("W3 authored people and deterministic encounter boundaries", () => {
+  it("preflights an entire costly stationary action, offers only an authored wait, and rejects stale confirmations", () => {
+    const f = economyFixture();
+    f.people.events.find(event => event.eventId === "urgent")!.mandatory = true;
+    f.progression.events[0]!.prerequisites = [];
+    f.progression.events[0]!.minutes = 35;
+    f.economy.items[0]!.initial = 1;
+    const initial = f.refresh(), before = structuredClone(initial);
+    const command = { kind: "event", id: "hello" } as const;
+    const preview = preflightNativePlayerWorld(f.bundle, f.config, initial, command);
+    expect(preview).toMatchObject({ ready: false, recovery: { command: { kind: "wait", minutes: 15 }, minutes: 10, reachesEncounter: true } });
+    expect(preflightNativePlayerWorld(f.bundle, f.config, initial, { kind: "wait", minutes: 60 }))
+      .toMatchObject({ ready: true, waitUntilEncounter: 10 });
+    expect(JSON.stringify(preview)).not.toMatch(/urgent|Hear the warning|mara/);
+    expect(() => actNativePlayerWorld(f.bundle, f.config, initial, command)).toThrow("boundary_use_wait");
+    expect(initial).toEqual(before);
+    if (preview.ready || !preview.recovery) throw new Error("Expected safe wait");
+    const wait = preview.recovery;
+    const atEncounter = actNativePlayerWorld(f.bundle, f.config, initial, wait.command, wait.fingerprint).session;
+    expect(atEncounter.state.world!.minutes).toBe(1440);
+    expect(atEncounter.state.world!.economy).toEqual(initial.state.world!.economy);
+    expect(() => actNativePlayerWorld(f.bundle, f.config, atEncounter, wait.command, wait.fingerprint))
+      .toThrow(expect.objectContaining({ code: "player_world_confirmation_stale" }));
+    const finishedEncounter = f.act(atEncounter, { kind: "event", id: "urgent" });
+    const ready = preflightNativePlayerWorld(f.bundle, f.config, finishedEncounter, command);
+    if (!ready.ready) throw new Error("Expected available repair");
+    const completed = actNativePlayerWorld(f.bundle, f.config, finishedEncounter, command, ready.fingerprint).session;
+    expect(completed.state.world).toMatchObject({ minutes: 1475, economy: { currency: 25, items: { tea: 0 } } });
+    expect(completed.state.world!.progression!.events.hello!.count).toBe(1);
+    expect(loadNativePlayerSave(f.bundle, f.config, createNativePlayerSave(f.bundle, f.config, completed))).toEqual(completed);
+  });
+
+  it("preflights exact completion and travel arrival without inventing a recovery wait", () => {
+    const f = peopleFixture();
+    for (const event of f.progression.events.filter(e => e.id !== "hello"))
+      event.prerequisites.push({ kind: "location", locationId: "home", present: true });
+    f.world.waitMinutes = [5];
+    const initial = f.refresh(), action = { kind: "action", id: "long-task" } as const;
+    expect(preflightNativePlayerWorld(f.bundle, f.config, initial, action)).toMatchObject({ ready: false, recovery: {
+      command: { kind: "wait", minutes: 5 }, minutes: 5, reachesEncounter: false,
+    } });
+    const travel = { kind: "travel", id: "home-station" } as const;
+    const journey = preflightNativePlayerWorld(f.bundle, f.config, initial, travel);
+    if (!journey.ready) throw new Error("Travel observes arrival, not origin encounters in transit");
+    expect(actNativePlayerWorld(f.bundle, f.config, initial, travel, journey.fingerprint).session.state.world)
+      .toMatchObject({ locationId: "station", minutes: 1450 });
+    expect(() => actNativePlayerWorld(f.bundle, f.config, initial, action, journey.fingerprint))
+      .toThrow(expect.objectContaining({ code: "player_world_confirmation_stale" }));
+    f.world.actions.find(item => item.id === action.id)!.minutes = 10;
+    const exact = f.refresh(), ready = preflightNativePlayerWorld(f.bundle, f.config, exact, action);
+    if (!ready.ready) throw new Error("Exact completion must be allowed");
+    const finished = actNativePlayerWorld(f.bundle, f.config, exact, action, ready.fingerprint).session;
+    expect(finished.state.world!.minutes).toBe(1440);
+    expect(preflightNativePlayerWorld(f.bundle, f.config, finished, action))
+      .toEqual({ ready: false, message: "Complete the required encounter first." });
+  });
+
   it("preserves known-choice lookup outside the current passage and gates current required-world choices", () => {
     const old = progressionFixture(), view = evaluateNativeGameChoice(loadNativeGame(old.bundle), old.initial.state, "choice-1");
     expect(view.choice.id).toBe("choice-1"); expect(view.availability.enabled).toBe(true);

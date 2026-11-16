@@ -20,6 +20,14 @@ World actions use the existing runtime's passage entry and state cloning, turn/v
 
 Standalone HTML and static ZIP package map assets and work with Creator offline. Markdown and Twee explicitly reject enabled worlds rather than dropping travel/time mechanics. Full/privacy archives, backup/restore and duplication retain exact world history. To disable a world, review and apply a disabled definition with cleared locations/connections/actions; prior builds remain available. Missing/stale dependencies block new compilation with a diagnostic; restoring them or reviewing a corrected/disabled definition recovers without deleting history.
 
+## Player Interaction
+
+Exploration shows local World actions, while Decisions shows authored passage choices. An event or chapter transition with a passage can take the player directly to its decisions. Neither view infers restrictions from prose. The map, inventory, trade, and history are secondary views. The map lists known directed connections and marks authored positions when no artwork is available; locations without markers stay in the list. Inspecting a location never travels or advances time.
+
+World confirmation checks the same rules as execution, including the full duration of stationary actions. Travel still observes the destination on arrival, not origin-side encounters during transit. If a required encounter interrupts an action, the player can explicitly choose an available authored wait. The original action is not retried and may no longer be available afterward. The session and command are rechecked at confirmation.
+
+Stationary results and visible choice feedback are separate from autosave status. Continue dismisses the result without another action; retrying autosave writes the already-committed session. Feedback is not part of the save format. Previously exported standalone HTML contains the older player; re-export to get the updated interface without changing the build's content.
+
 ## Verification
 
 `packages/runtime/test/world.test.ts` exercises midnight, overnight/parent hours, arrival boundaries, integer limits, atomic rejection, normal choice compatibility, save integrity, rewind/restart and malformed worlds. `apps/server/test/world.test.ts` covers exact review, concurrency, retries, rollback, direct persistence, historical builds, lineage, portability/duplication and byte limits. `apps/web/test/world.test.tsx` checks consent, review invalidation, lost responses, unmount and map fallback. `e2e/world.spec.ts` authors through MCP and Creator, tests stale concurrent review/lost Apply, then shuts Creator down and plays home/cafe/station through standalone and nested static exports on desktop/mobile, with cancellation, midnight, save/reload/load, local actions, waiting and closed arrivals.

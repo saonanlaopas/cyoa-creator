@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   NativePlayerError,
-  actNativePlayerWorld, type WorldCommand, type ChapterTransitionPreview,
+  actNativePlayerWorld, preflightNativePlayerWorld, worldActionErrorMessage, mandatoryEventStatus,
+  type WorldCommand, type ChapterTransitionPreview, type NativeWorldActionPreflight,
   assertNativePlayerInstallation,
   assertNativePlayerManualSlot,
   canRewindNativePlayerSession,
@@ -24,7 +25,7 @@ import {
 } from "@story-to-cyoa/runtime";
 import { IndexedDbNativePlayerStorage } from "./native-player-storage.js";
 import { IllustratedScene } from "./IllustratedScene.js";
-import { WorldPanel } from "./WorldPanel.js";
+import { PlayerWorldHeader, PlayerWorldViews, isPrimaryWorldView, type PlayerWorldView } from "./PlayerWorldViews.js";
 
 export interface NativePlayerRoute {
   gameId: string;
@@ -43,22 +44,24 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
   route: NativePlayerRoute;
   storage?: NativePlayerStorage;
 }) {
-  const [worldView, setWorldView] = useState("explore");
+  const [worldView, setWorldView] = useState<PlayerWorldView | null>(null);
   const [storage] = useState<NativePlayerStorage>(() => suppliedStorage ?? new IndexedDbNativePlayerStorage());
   const [installation, setInstallation] = useState<NativePlayerInstallation | null>(null);
   const [session, setSession] = useState<NativePlayerSession | null>(null);
   const [slots, setSlots] = useState<SlotView[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("Loading game…");
-  const [actionOutcome, setActionOutcome] = useState<string | null>(null);
+  const [actionOutcome, setActionOutcome] = useState<{ text: string; focused: boolean; kind: "choice" | "world" } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"save" | "load" | "restart" | "overwrite" | "delete" | null>(null);
   const [pendingSlot, setPendingSlot] = useState<SlotView | null>(null);
-  const [worldAction, setWorldAction] = useState<{ command: WorldCommand; label: string; preview?: ChapterTransitionPreview } | null>(null);
+  const [worldAction, setWorldAction] = useState<{ command: WorldCommand; label: string; preview?: ChapterTransitionPreview; check: NativeWorldActionPreflight } | null>(null);
   const [recoveryRequired, setRecoveryRequired] = useState(false);
   const [saveLabel, setSaveLabel] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const outcomeRef = useRef<HTMLHeadingElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const worldInvoker = useRef<HTMLElement | null>(null);
 
   const refreshSlots = async (installed: NativePlayerInstallation): Promise<void> => {
     const rawSlots = await storage.listManualSlots(installed.gameId);
@@ -97,6 +100,9 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
         if (!current) return;
         setInstallation(installed);
         setSession(next);
+        setActionOutcome(null);
+        setWorldView(null);
+        setWorldAction(null);
         setRecoveryRequired(Boolean(autosaveError));
         setError(autosaveError ? `Autosave was not loaded. ${playerErrorMessage(autosaveError)}` : null);
         setMessage(autosaveError ? "" : autosave ? "Autosave restored." : "New game started.");
@@ -134,13 +140,14 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
     await storage.writeAutosave(installed.gameId, installed.bundleFingerprint, save);
   };
 
-  const commitSession = async (next: NativePlayerSession, success: string, outcome: string | null = null): Promise<void> => {
+  const commitSession = async (next: NativePlayerSession, success: string, outcome: typeof actionOutcome = null, view: PlayerWorldView | null = null): Promise<void> => {
     if (!installation) return;
     setSession(next);
     setActionOutcome(outcome);
+    setWorldView(view);
     setRecoveryRequired(false);
     setError(null);
-    focusPassage();
+    requestAnimationFrame(() => (outcome ? outcomeRef.current ?? headingRef.current : headingRef.current)?.focus());
     try {
       await persistAutosave(installation, next);
       setMessage(installation.config.autosaveEnabled ? success : "Progress updated. Autosave is disabled.");
@@ -154,8 +161,10 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
     if (!installation || !session || busy) return;
     setBusy(true);
     try {
-      const next = chooseNativePlayerSession(installation.bundle, installation.config, session, choiceId).session;
-      await commitSession(next, "Progress autosaved.");
+      const { session: next, feedback } = chooseNativePlayerSession(installation.bundle, installation.config, session, choiceId);
+      const samePassage = next.state.currentPassageId === session.state.currentPassageId;
+      await commitSession(next, "Progress autosaved.", feedback.length ? { text: feedback.join("\n\n"), focused: samePassage, kind: "choice" } : null,
+        samePassage && worldView === "decisions" ? "decisions" : null);
     } catch (caught) {
       setError(playerErrorMessage(caught));
     } finally {
@@ -273,25 +282,66 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
   </main>;
 
   const view = nativePlayerView(installation.bundle, installation.config, session);
-  const secondaryView = Boolean(installation.bundle.world?.journal) && worldView !== "explore";
+  const world = installation.bundle.world;
+  const blocked = busy || recoveryRequired, ended = view.previewStopped || Boolean(view.terminal.result);
+  const hasDecisions = view.choices.length > 0 || visiblePlaytestRestrictions(installation.bundle.preview, session.state, true).length > 0;
+  const pending = world ? mandatoryEventStatus(world, session.state) : null;
+  const naturalView = world?.locations.some(location => location.passageId === view.passage.id) || !hasDecisions ? "explore" : "decisions";
+  const activeView = worldView ?? naturalView;
+  const worldMode = activeView === "decisions" && (ended || !hasDecisions || pending?.eventId || pending?.conflict) ? "explore" : activeView;
+  const secondaryView = Boolean(world && !isPrimaryWorldView(worldMode));
+  const focusedOutcome = Boolean(actionOutcome?.focused && !ended);
   const canRewind = canRewindNativePlayerSession(installation.bundle, installation.config, session);
+  const closeWorldAction = () => {
+    setWorldAction(null);
+    requestAnimationFrame(() => worldInvoker.current?.focus());
+  };
+  const selectWorldAction = (command: WorldCommand, label: string, preview?: ChapterTransitionPreview) => {
+    worldInvoker.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setWorldAction({ command, label, preview, check: preflightNativePlayerWorld(installation.bundle, installation.config, session, command) });
+  };
+  const confirmWorldAction = async (command: WorldCommand, fingerprint: string) => {
+    if (blocked) return;
+    setBusy(true);
+    try {
+      const next = actNativePlayerWorld(installation.bundle, installation.config, session, command, fingerprint);
+      setWorldAction(null);
+      const destinationView = next.enteredPassage ? (command.kind === "event" || command.kind === "chapter-transition" ? "decisions" : null) : worldMode;
+      await commitSession(next.session, "Progress autosaved.", { text: next.message, focused: !next.enteredPassage, kind: "world" }, destinationView);
+    } catch (e) {
+      setWorldAction(old => old ? { ...old, check: { ready: false, message: worldActionErrorMessage(e) } } : old);
+    } finally { setBusy(false); }
+  };
+  const decisions = !ended && <section className="native-player-choices" aria-label="Choices">
+    {view.choices.map(({ choice, availability }) => <button
+      key={choice.id}
+      disabled={blocked || !availability.enabled}
+      aria-describedby={!availability.enabled && choice.unavailableExplanation ? `${choice.id}-reason` : undefined}
+      onClick={() => void choose(choice.id)}
+    >
+      <span>{choice.text}</span>
+      {!availability.enabled && choice.unavailableExplanation ? <small id={`${choice.id}-reason`}>{choice.unavailableExplanation}</small> : null}
+    </button>)}
+    {visiblePlaytestRestrictions(installation.bundle.preview, session.state, true).map(item => <button key={playtestActionKey(item)} disabled>{OUTSIDE_PLAYTEST}</button>)}
+  </section>;
 
   return <main id="main-content" className="native-player-shell" tabIndex={-1}>
     <div className="native-player-layout">
-      <article className="native-player-card native-player-passage">
+      <article className="native-player-card native-player-passage" role={world ? "region" : undefined} aria-label={world ? "Locations and time" : undefined}>
         <header>
           {installation.bundle.preview && <p className="eyebrow">{installation.bundle.preview.playtest ? "Bounded playtest" : "Partial preview"}</p>}
           <p className="eyebrow">{view.terminal.result ? "Ending" : `Turn ${session.state.turn + 1}`}</p>
           <h1 ref={headingRef} tabIndex={-1}>{view.passage.presentation.title}</h1>
+          {world && <PlayerWorldHeader world={world} state={session.state} />}
         </header>
-        {installation.bundle.world && <WorldPanel world={installation.bundle.world} state={session.state} onViewChange={setWorldView} disabled={busy || recoveryRequired || view.previewStopped || Boolean(view.terminal.result)} preview={view.previewStopped || view.terminal.result ? undefined : installation.bundle.preview} onAction={(command, label, preview) => setWorldAction({ command, label, ...(preview ? { preview } : {}) })} />}
-        {!secondaryView && installation.bundle.illustratedPresentation && <IllustratedScene presentation={installation.bundle.illustratedPresentation} passageId={view.passage.id} />}
-        {(!secondaryView || view.previewStopped) && <div className="native-player-prose">
+        {actionOutcome && (!secondaryView || focusedOutcome || ended) && <div className="player-result native-player-prose">
+          <h2 ref={outcomeRef} tabIndex={-1}>{actionOutcome.kind === "choice" ? "Choice result" : "Action result"}</h2>
+          <section aria-label="Action outcome" aria-live="polite">{paragraphs(actionOutcome.text).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>
+        </div>}
+        {!focusedOutcome && !secondaryView && installation.bundle.illustratedPresentation && <IllustratedScene presentation={installation.bundle.illustratedPresentation} passageId={view.passage.id} />}
+        {!focusedOutcome && (!secondaryView || ended) && <div className="native-player-prose">
           {paragraphs(view.passage.proseMarkdown).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
         </div>}
-        {!secondaryView && actionOutcome && <section className="native-player-prose" aria-label="Action outcome" aria-live="polite">
-          {paragraphs(actionOutcome).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
-        </section>}
         {recoveryRequired && <section className="native-player-recovery" aria-label="Save recovery">
           <strong>Saved progress needs attention.</strong>
           <p>Start a new game explicitly or load a compatible manual save. The unreadable autosave has not been deleted.</p>
@@ -302,19 +352,13 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
         </section>}
         {view.terminal.result && <p className="native-player-ending" role="status">This ending is complete.</p>}
         {view.previewStopped && <p className="native-player-ending" role="status">Preview boundary reached.</p>}
-        {!secondaryView && !view.terminal.result && !view.previewStopped && <section className="native-player-choices" aria-label="Choices">
-          {view.choices.map(({ choice, availability }) => <button
-            key={choice.id}
-            disabled={busy || recoveryRequired || !availability.enabled}
-            aria-describedby={!availability.enabled && choice.unavailableExplanation ? `${choice.id}-reason` : undefined}
-            onClick={() => void choose(choice.id)}
-          >
-            <span>{choice.text}</span>
-            {!availability.enabled && choice.unavailableExplanation
-              ? <small id={`${choice.id}-reason`}>{choice.unavailableExplanation}</small> : null}
-          </button>)}
-          {visiblePlaytestRestrictions(installation.bundle.preview, session.state, true).map(item => <button key={playtestActionKey(item)} disabled>{OUTSIDE_PLAYTEST}</button>)}
-        </section>}
+        {focusedOutcome ? <button aria-label="Continue after result" onClick={() => {
+          setActionOutcome(null);
+          if (pending?.eventId || pending?.conflict) setWorldView("explore");
+          focusPassage();
+        }}>Continue</button> : world ? <PlayerWorldViews world={world} state={session.state} view={worldMode} select={setWorldView}
+          disabled={blocked || ended} preview={ended ? undefined : installation.bundle.preview} ended={ended}
+          hasDecisions={hasDecisions} decisions={decisions} onAction={selectWorldAction} /> : decisions}
       </article>
 
       <aside className="native-player-sidebar" aria-label="Game status and saves">
@@ -365,19 +409,23 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
       </div>)}
     </PlayerDialog>}
 
-    {worldAction && <PlayerDialog labelId="world-action-title" onClose={() => setWorldAction(null)}>
+    {worldAction && <PlayerDialog labelId="world-action-title" onClose={closeWorldAction}>
       <h2 id="world-action-title">{worldAction.label}?</h2>
-      {worldAction.preview && <section aria-label="Chapter transition preview"><p>{worldAction.preview.fromChapter} → {worldAction.preview.toChapter}</p>
+      {worldAction.preview && worldAction.check.ready && <section aria-label="Chapter transition preview"><p>{worldAction.preview.fromChapter} → {worldAction.preview.toChapter}</p>
         <p>Milestones kept: {worldAction.preview.carriedMilestones.map((m) => m.name).join(", ") || "None"}</p>
         <p>Milestones expiring: {worldAction.preview.expiredMilestones.map((m) => m.name).join(", ") || "None"}</p>
         <h3>Known opportunities affected</h3>{worldAction.preview.lostOpportunities.length ? <ul>{worldAction.preview.lostOpportunities.map((event) => <li key={event.id}>{event.label}: {event.permanent ? "expires permanently" : event.reason}</li>)}</ul> : <p>No known opportunities lost.</p>}
         <p>Some opportunities may not be known yet. Cancel to continue exploring.</p>
       </section>}
-      <button autoFocus disabled={busy} onClick={() => setWorldAction(null)}>Cancel</button>
-      <button disabled={busy || recoveryRequired} onClick={() => { if (busy || recoveryRequired) return; setBusy(true);
-        void (async () => { try { const next = actNativePlayerWorld(installation.bundle, installation.config, session, worldAction.command);
-          setWorldAction(null); await commitSession(next.session, "Progress autosaved.", next.message); } catch (e) { setError(playerErrorMessage(e)); } finally { setBusy(false); } })();
-      }}>Confirm action</button>
+      {!worldAction.check.ready && <p role="status">{worldAction.check.message}</p>}
+      {worldAction.check.ready && worldAction.check.waitUntilEncounter !== undefined &&
+        <p role="status">This wait will stop after {worldAction.check.waitUntilEncounter} min for a required encounter.</p>}
+      <button autoFocus disabled={busy} onClick={closeWorldAction}>Cancel</button>
+      {worldAction.check.ready
+        ? <button disabled={blocked} onClick={() => worldAction.check.ready && void confirmWorldAction(worldAction.command, worldAction.check.fingerprint)}>Confirm action</button>
+        : worldAction.check.recovery && <button disabled={blocked} onClick={() => {
+          if (!worldAction.check.ready && worldAction.check.recovery) void confirmWorldAction(worldAction.check.recovery.command, worldAction.check.recovery.fingerprint);
+        }}>Wait {worldAction.check.recovery.minutes} min{worldAction.check.recovery.reachesEncounter ? " for the encounter" : ""}</button>}
     </PlayerDialog>}
     {dialog === "load" && <PlayerDialog labelId="load-game-title" onClose={closeDialog}>
       <h2 id="load-game-title">Load game</h2>

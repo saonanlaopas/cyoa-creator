@@ -1,4 +1,5 @@
 import { expect, test } from "playwright/test";
+import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -97,17 +98,23 @@ for (const bounded of [false, true]) test(bounded
         await expect(page.getByText(label, { exact: true })).toBeVisible();
         await expect(page).toHaveTitle(new RegExp(`^${label}:`));
         await expect(page.getByText(openingProse, { exact: true })).toBeVisible();
-        await world.getByText("Map", { exact: true }).click();
+        await showPlayerWorldView(page, "Map");
         await expect(world.getByRole("img")).toHaveJSProperty("naturalWidth", 640);
         await expect(clock).toHaveText("Day 1 · 23:50");
+        await showPlayerWorldView(page, "Explore");
         if (bounded) {
           const blocked = page.getByRole("button", { name: "Outside this preview", exact: true });
-          await expect(blocked).toHaveCount(3);
+          await expect(blocked).toHaveCount(2);
           for (const button of await blocked.all()) await expect(button).toBeDisabled();
+          await showPlayerWorldView(page, "Decisions");
+          await expect(blocked).toHaveCount(1);
+          await expect(blocked).toBeDisabled();
+          await showPlayerWorldView(page, "Explore");
           await expect(page.getByText(/Secret future|secret itinerary|Station/)).toHaveCount(0);
           await world.getByRole("button", { name: "Wait 15 min", exact: true }).click();
           await page.getByRole("button", { name: "Confirm action", exact: true }).click();
           await expect(clock).toHaveText("Day 2 · 00:05");
+          await continuePlayerResult(page);
           await expect(page.getByText(/Required encounter/)).toHaveCount(0);
           await world.getByRole("button", { name: /^Correct the ledger/ }).click();
         } else {
@@ -118,7 +125,7 @@ for (const bounded of [false, true]) test(bounded
         await expect(clock).toHaveText(stopTime);
         if (bounded) {
           await expect(page.getByRole("region", { name: "Action outcome" })).toHaveText("The corrected ledger balances.");
-          await expect(page.getByRole("region", { name: "Inventory and shops" })).toContainText("Coins: 7");
+          await expect(world.locator("header")).toContainText("Coins: 7");
         }
         const assertStop = async () => {
           await expect(page.getByText(boundaryProse, { exact: true })).toBeVisible();

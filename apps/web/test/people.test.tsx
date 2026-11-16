@@ -88,9 +88,15 @@ it("stops actual player waiting at a required boundary, resumes saved priority o
   await storage.install(createNativePlayerInstallation(f.bundle, f.config));
   const write = vi.spyOn(storage, "writeAutosave");
   render(<NativePlayer route={{ gameId: f.bundle.gameId, bundleFingerprint: f.bundle.bundleFingerprint, debug: false }} storage={storage} />);
-  await user.click(await screen.findByRole("button", { name: "Wait 60 min" })); await user.click(screen.getByRole("button", { name: "Confirm action" }));
+  await user.click(await screen.findByRole("button", { name: "Wait 60 min" }));
+  expect(screen.getByRole("dialog").textContent).toContain("This wait will stop after 10 min for a required encounter.");
+  expect(screen.getByRole("dialog").textContent).not.toContain("Hear the warning");
+  expect(write).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Confirm action" }));
   await waitFor(() => expect(write).toHaveBeenCalledTimes(1)); expect(screen.getByLabelText("Game time").textContent).toBe("Day 2 · 00:00");
-  expect((screen.getByRole("button", { name: "Continue 1" }) as HTMLButtonElement).disabled).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Continue after result" }));
+  expect(write).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: "Continue 1" })).toBeNull();
   write.mockRejectedValueOnce(new Error("Save failed"));
   await user.click(screen.getByRole("button", { name: "Hear the warning · 0 min" })); await user.click(screen.getByRole("button", { name: "Confirm action" }));
   expect((await screen.findByRole("alert")).textContent).toContain("not saved");

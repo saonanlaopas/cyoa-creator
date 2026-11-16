@@ -91,6 +91,8 @@ it("keeps trade navigation and cancellation free, then consumes exactly one purc
   expect(write).not.toHaveBeenCalled(); expect(screen.getByLabelText("Game time").textContent).toBe("Day 1 · 23:50");
   await user.click(buy); await user.click(screen.getByRole("button", { name: "Confirm action", exact: true }));
   await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+  await user.click(screen.getByRole("button", { name: "Continue after result" }));
+  expect(write).toHaveBeenCalledTimes(1);
   await user.click(screen.getByRole("button", { name: "Inventory", exact: true }));
   expect(screen.queryByRole("region", { name: "Local shops", exact: true })).toBeNull();
   await user.click(screen.getByRole("button", { name: "Drink tea · 1 Tea · 1 min · Gain 1 Coins", exact: true })); await user.click(screen.getByRole("button", { name: "Confirm action", exact: true }));
