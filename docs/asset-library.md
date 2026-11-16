@@ -10,7 +10,19 @@ An upload creates an unapproved candidate. **Review candidate** shows its full i
 
 **History** inspects prior metadata and full image bytes, with bounded pagination. Historical views cannot overwrite newer work. **Return to current version** and **Refresh assets** recover after external edits or stale-version conflicts. **Inspect usage** reports library version references separately from scene and World map assignments. It does not infer usage from prose.
 
-Use searchable tags such as `background`, `full-scene`, `portrait`, `harbor` or `mira-concerned` to organize a larger library. Tags are free-form labels, not structured roles, character/location bindings or defaults. Adding a tag never assigns or retargets an image.
+### Designations
+
+Add an optional designation to an upload or metadata revision. Existing images can stay unclassified. Use searchable tags alongside designations for free-form grouping.
+
+| Role | Optional fields |
+| --- | --- |
+| `background`, `full-scene-illustration`, `map` | World `locationId`, authored `stateKey` |
+| `portrait` | Story Bible `characterId`, authored `expressionKey` |
+| `reference-sheet` | Story Bible `characterId`, World `locationId` |
+
+For example, `metadata.designation: { "role": "portrait", "characterId": "character-protagonist", "expressionKey": "concerned" }`. Keys are case-sensitive, start with an ASCII letter or digit, and may contain letters, digits, underscores or hyphens (60 characters maximum). Variant keys are labels, not live state conditions. Use **Approved versions only** and the role or binding filters in Creator to search retained approvals rather than pending metadata.
+
+Review and approve a designated candidate as usual. If a bound character or location is later removed, reads flag the missing target. Revise the asset and clear that binding, choose another canonical record, or select **Unclassified**; then review and approve the new candidate. MCP clients clear the designation by omitting `metadata.designation` from the complete replacement metadata, or clear one binding by omitting its field. Stale candidates may still be rejected after review. Historical approvals, backups, and exact scene/map references remain intact. A designation never assigns artwork or establishes a default.
 
 ## Restricted Assistant Import
 
@@ -27,7 +39,8 @@ These are the Asset Library tools. For current project capabilities, use authent
 
 | Tool | Boundary |
 | --- | --- |
-| `list_assets` | Title/description/tag search; 25 compact title/status/thumbnail summaries per page; full metadata in `read_asset` |
+| `list_assets` | Title/description/tag search; 25 compact summaries per page. Optional `role`, `characterId`, `locationId`, `expressionKey`, `stateKey` and `approvedOnly` filters; full metadata in `read_asset`. Filters compare the listed version; approved-only lists the latest approved version per asset, even if another version is pending. |
+| `list_asset_bindings` | Current canonical IDs/names; `kind: "character"` or `"location"`, optional search, 50 per page. |
 | `read_asset` | Exact image/metadata/provenance and retained approval; 20 history records per page. For assignment, use `review_scene` then `apply_scene`. |
 | `asset_usage` | Exact library references, 25 per page, and actual assignment count |
 | `list_staged_assets` | Regular image basenames, byte counts and SHA-256 only; no arbitrary paths |

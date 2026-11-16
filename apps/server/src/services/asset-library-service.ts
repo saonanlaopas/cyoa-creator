@@ -1,8 +1,8 @@
 import { constants, closeSync, fstatSync, openSync, opendirSync, readSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { IMAGE_ASSET_LIMITS, ImageAssetMetadataSchema, ImageDigestSchema, sourceCanonicalJson, sourceDigest } from "@story-to-cyoa/domain";
-import { ConversationRepository, ImageAssetRepository, ProjectRepository, imageSha256, transaction, type StoryDatabase } from "@story-to-cyoa/persistence";
+import { IMAGE_ASSET_LIMITS, ImageAssetMetadataSchema, ImageCatalogueFiltersSchema, ImageDigestSchema, sourceCanonicalJson, sourceDigest } from "@story-to-cyoa/domain";
+import { ConversationRepository, ImageAssetRepository, ProjectRepository, imageBindingMaps, imageBindingOptions, imageBindingStatus, imageSha256, transaction, type StoryDatabase } from "@story-to-cyoa/persistence";
 import { prepareImageAsset } from "./image-asset-preparation.js";
 
 const project = { projectId: z.string().uuid() }, asset = { ...project, assetId: z.string().uuid() };
@@ -11,7 +11,8 @@ const exact = { ...asset, versionId: z.string().min(1).max(240) };
 const filename = z.string().max(120).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.(png|jpe?g|webp)$/i);
 export const AssetCandidateInput = z.object({ ...operation, assetId: z.string().uuid().optional(), expectedVersionId: z.string().min(1).max(240).optional(), metadata: ImageAssetMetadataSchema }).strict();
 export const ConnectedAssetInputs = {
-  list_assets: z.object({ ...project, search: z.string().max(200).default(""), offset: z.number().int().min(0).max(200).default(0) }).strict(),
+  list_assets: ImageCatalogueFiltersSchema.extend({ ...project, search: z.string().max(200).default(""), offset: z.number().int().min(0).max(200).default(0) }).strict(),
+  list_asset_bindings: z.object({ ...project, kind: z.enum(["character", "location"]), search: z.string().max(200).default(""), offset: z.number().int().min(0).max(200).default(0) }).strict(),
   read_asset: z.object({ ...asset, versionId: z.string().min(1).max(240).optional(), offset: z.number().int().min(0).max(2000).default(0) }).strict(),
   asset_usage: z.object({ ...asset, offset: z.number().int().min(0).max(2000).default(0) }).strict(),
   list_staged_assets: z.object({ ...project, offset: z.number().int().min(0).max(500).default(0) }).strict(),
@@ -45,7 +46,8 @@ export class AssetLibraryService {
     const content = version.content;
     const url = (hash: string) => `/api/long-form/projects/${encodeURIComponent(projectId)}/assets/files/${hash}`;
     const image = this.repository.fileInfo(projectId, content.fileSha256), thumbnail = this.repository.fileInfo(projectId, content.thumbnailSha256);
-    return { ...version, image: { sha256: image.sha256, width: image.width, height: image.height, bytes: image.bytes, url: url(image.sha256) },
+    const bindings = content.metadata.designation && imageBindingStatus(content.metadata.designation, imageBindingMaps(this.database, projectId));
+    return { ...version, ...(bindings ? { bindings } : {}), image: { sha256: image.sha256, width: image.width, height: image.height, bytes: image.bytes, url: url(image.sha256) },
       thumbnail: { sha256: thumbnail.sha256, width: thumbnail.width, height: thumbnail.height, bytes: thumbnail.bytes, url: url(thumbnail.sha256) } };
   }
   read(projectId: string, assetId: string, versionId?: string, offset = 0) {
@@ -75,8 +77,12 @@ export class AssetLibraryService {
     const detail = this.read(projectId, assetId, versionId);
     if (detail.currentVersionId !== versionId || detail.selected.content.status !== "candidate") throw new Error("image_current_candidate_required_reload_and_review");
     const findings = detail.selected.content.metadata.license ? [] : [{ code: "image_license_unspecified", severity: "warning", message: "License is unspecified." }];
+    const bindings = detail.selected.bindings;
+    for (const [kind, binding] of [["character", bindings?.character], ["location", bindings?.location]] as const) if (binding?.name === null) {
+      findings.push({ code: `image_designation_${kind}_stale`, severity: "error", message: `Missing ${kind} ${binding.id}. Clear or replace this binding on a new metadata candidate.` });
+    }
     const usage = this.usage(projectId, assetId);
-    return { ...detail, findings, usage, fingerprint: sourceDigest({ versionId, content: detail.selected.content, currentVersionId: detail.currentVersionId, approvedVersionId: detail.approved?.id ?? null, findings, usage }) };
+    return { ...detail, findings, usage, fingerprint: sourceDigest({ versionId, content: detail.selected.content, currentVersionId: detail.currentVersionId, approvedVersionId: detail.approved?.id ?? null, findings, usage, ...(bindings ? { bindings } : {}) }) };
   }
   file(projectId: string, hash: string) { this.access(projectId); return this.repository.file(projectId, ImageDigestSchema.parse(hash)); }
   private replay(projectId: string, operationId: string, tool: string, input: unknown): Outcome | undefined {
@@ -133,9 +139,21 @@ export class AssetLibraryService {
     const parsed = ConnectedAssetInputs[tool].parse(value); this.access(parsed.projectId);
     switch (tool) {
       case "list_assets": {
-        const i = ConnectedAssetInputs.list_assets.parse(value), list = this.repository.list(i.projectId, i.search, i.offset);
-        return { ...list, items: list.items.map((v) => ({ assetId: v.content.assetId, versionId: v.id, status: v.content.status, metadata: { title: v.content.metadata.title },
-          thumbnailUrl: `/api/long-form/projects/${i.projectId}/assets/files/${v.content.thumbnailSha256}`, approvedVersionId: this.repository.approved(i.projectId, v.content.assetId)?.id ?? null })) };
+        const { projectId, search, offset, ...filters } = ConnectedAssetInputs.list_assets.parse(value);
+        const list = this.repository.list(projectId, search, offset, filters);
+        const maps = list.items.some(v => v.content.metadata.designation) ? imageBindingMaps(this.database, projectId) : undefined;
+        return { ...list, items: list.items.map((v) => {
+          const { title, designation } = v.content.metadata;
+          const bindings = designation && maps && imageBindingStatus(designation, maps);
+          return { assetId: v.content.assetId, versionId: v.id, status: v.content.status, metadata: { title, ...(designation ? { designation } : {}) },
+            ...(bindings?.character?.name === null || bindings?.location?.name === null ? { bindingStale: true } : {}),
+            thumbnailUrl: `/api/long-form/projects/${projectId}/assets/files/${v.content.thumbnailSha256}`, approvedVersionId: filters.approvedOnly ? v.id : this.repository.approved(projectId, v.content.assetId)?.id ?? null };
+        }) };
+      }
+      case "list_asset_bindings": {
+        const { projectId, kind, search, offset } = ConnectedAssetInputs.list_asset_bindings.parse(value), query = search.toLowerCase();
+        const entries = imageBindingOptions(this.database, projectId, kind).filter(({ id, name }) => id.toLowerCase().includes(query) || name.toLowerCase().includes(query));
+        return { kind, total: entries.length, offset, items: entries.slice(offset, offset + 50) };
       }
       case "read_asset": { const i = ConnectedAssetInputs.read_asset.parse(value); return this.read(i.projectId, i.assetId, i.versionId, i.offset); }
       case "asset_usage": { const i = ConnectedAssetInputs.asset_usage.parse(value); return this.usage(i.projectId, i.assetId, i.offset); }

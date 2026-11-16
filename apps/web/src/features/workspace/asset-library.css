@@ -14,7 +14,8 @@
 .asset-catalogue strong, .asset-catalogue small { display: block; overflow-wrap: anywhere; }
 .asset-catalogue small { margin-top: 6px; color: #b1c4bb; }
 .asset-library label { display: grid; gap: 6px; min-width: 0; margin: 12px 0; }
-.asset-library input:not([type=checkbox]), .asset-library textarea { min-width: 0; width: 100%; max-width: 100%; }
+.asset-library input:not([type=checkbox]), .asset-library textarea, .asset-library select { min-width: 0; width: 100%; max-width: 100%; }
+.asset-library select { color-scheme: dark; color: inherit; background: #17231f; border: 1px solid #63716b; border-radius: 4px; padding: .6rem; }
 .asset-library fieldset { border: 0; border-top: 1px solid #435b50; padding: 16px 0; margin: 20px 0; min-width: 0; }
 .asset-comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; margin-top: 16px; }
 .asset-comparison figure { margin: 0; min-width: 0; }
@@ -29,7 +30,7 @@
 .asset-review-metadata > div { padding: 8px 0; border-bottom: 1px solid #35483e; }
 .asset-review-metadata dt { text-transform: capitalize; color: #b1c4bb; }
 .asset-review-metadata dd { margin: 4px 0; overflow-wrap: anywhere; }
-.asset-review .checkbox-line { display: flex; }
+.asset-library .checkbox-line { display: flex; }
 .asset-actions, .asset-pagination { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .asset-pagination { margin: 12px 0; }
 .asset-pagination button { width: 44px; height: 44px; padding: 0; }

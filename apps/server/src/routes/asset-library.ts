@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { IMAGE_ASSET_LIMITS } from "@story-to-cyoa/domain";
+import { IMAGE_ASSET_LIMITS, type ImageCatalogueFilters } from "@story-to-cyoa/domain";
+import { z } from "zod";
 import type { AssetLibraryService } from "../services/asset-library-service.js";
 
 type Project = { projectId: string };
@@ -14,8 +15,16 @@ export function registerAssetLibrary(app: FastifyInstance, service: AssetLibrary
   };
   const errorStatus = (error: unknown) => /processing_busy_retry/.test((error as Error).message) ? 429 : /size_exceeded|too_large|dimensions_exceeded/.test((error as Error).message) ? 413
     : /stale|conflict|current_candidate_required/.test((error as Error).message) ? 409 : /not_found|unavailable/.test((error as Error).message) ? 404 : 400;
-  app.get<{ Params: Project; Querystring: { search?: string; offset?: string } }>(base, { onRequest }, async (req, reply) => {
-    try { return await service.call("list_assets", { ...req.params, search: req.query.search ?? "", offset: Number(req.query.offset ?? 0) }); }
+  app.get<{ Params: Project; Querystring: Omit<ImageCatalogueFilters, "approvedOnly"> & { search?: string; offset?: string; approvedOnly?: string } }>(base, { onRequest }, async (req, reply) => {
+    try {
+      const { search, offset, approvedOnly, role, characterId, locationId, expressionKey, stateKey } = req.query;
+      return await service.call("list_assets", { role, characterId, locationId, expressionKey, stateKey, ...req.params, search: search ?? "", offset: Number(offset ?? 0),
+        approvedOnly: z.enum(["true", "false"]).optional().parse(approvedOnly) === "true" });
+    }
+    catch (error) { return reply.code(errorStatus(error)).send({ error: (error as Error).message }); }
+  });
+  app.get<{ Params: Project; Querystring: { kind?: string; search?: string; offset?: string } }>(`${base}/bindings`, { onRequest }, async (req, reply) => {
+    try { return await service.call("list_asset_bindings", { ...req.params, kind: req.query.kind, search: req.query.search, offset: Number(req.query.offset ?? 0) }); }
     catch (error) { return reply.code(errorStatus(error)).send({ error: (error as Error).message }); }
   });
   app.get<{ Params: Project & { hash: string } }>(`${base}/files/:hash`, { onRequest }, async (req, reply) => {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ImageAssetMetadataSchema, ImageAssetSchema, type ImageAsset, type ImageAssetMetadata, type ImageFile } from "@story-to-cyoa/domain";
+import { ImageAssetMetadataSchema, ImageAssetSchema, type ImageAsset, type ImageAssetMetadata, type ImageCatalogueFilters, type ImageFile } from "@story-to-cyoa/domain";
 import { ArtifactRepository, type ArtifactVersion } from "./artifact-repository.js";
 import { assertImageArtifact, imageAssetKey, imageFileKey, imageFileMetadata, validateImageFile } from "./image-asset-validation.js";
 import type { StoryDatabase } from "./database.js";
@@ -7,11 +7,16 @@ import type { StoryDatabase } from "./database.js";
 export class ImageAssetRepository {
   private readonly artifacts: ArtifactRepository;
   constructor(private readonly database: StoryDatabase) { this.artifacts = new ArtifactRepository(database); }
-  list(projectId: string, search = "", offset = 0) {
-    const where = `project_id=? AND artifact_type='image-asset' AND version=(SELECT MAX(v.version) FROM artifact_versions v WHERE v.project_id=artifact_versions.project_id AND v.artifact_id=artifact_versions.artifact_id)
-      AND (?='' OR instr(lower(json_extract(content_json,'$.metadata.title') || ' ' || json_extract(content_json,'$.metadata.description') || ' ' || json_extract(content_json,'$.metadata.tags')),lower(?))>0)`;
-    const total = this.database.prepare(`SELECT COUNT(*) total FROM artifact_versions WHERE ${where}`).get(projectId, search, search) as { total: number };
-    const rows = this.database.prepare(`SELECT id FROM artifact_versions WHERE ${where} ORDER BY created_at DESC,id LIMIT 25 OFFSET ?`).all(projectId, search, search, offset) as { id: string }[];
+  list(projectId: string, search = "", offset = 0, filters: ImageCatalogueFilters = {}) {
+    const approved = filters.approvedOnly ? "AND json_extract(v.content_json,'$.status')='approved'" : "";
+    const designationFields = ["role", "characterId", "locationId", "expressionKey", "stateKey"] as const;
+    const active = designationFields.filter(field => filters[field] !== undefined);
+    const where = `project_id=? AND artifact_type='image-asset' AND version=(SELECT MAX(v.version) FROM artifact_versions v WHERE v.project_id=artifact_versions.project_id AND v.artifact_id=artifact_versions.artifact_id ${approved})
+      AND (?='' OR instr(lower(json_extract(content_json,'$.metadata.title') || ' ' || json_extract(content_json,'$.metadata.description') || ' ' || json_extract(content_json,'$.metadata.tags')),lower(?))>0)
+      ${active.map(field => `AND json_extract(content_json,'$.metadata.designation.${field}')=?`).join(" ")}`;
+    const args = [projectId, search, search, ...active.map(field => filters[field]!)];
+    const total = this.database.prepare(`SELECT COUNT(*) total FROM artifact_versions WHERE ${where}`).get(...args) as { total: number };
+    const rows = this.database.prepare(`SELECT id FROM artifact_versions WHERE ${where} ORDER BY created_at DESC,id LIMIT 25 OFFSET ?`).all(...args, offset) as { id: string }[];
     return { total: total.total, offset, items: rows.map(({ id }) => this.version(projectId, id)) };
   }
   version(projectId: string, versionId: string): ArtifactVersion<ImageAsset> {

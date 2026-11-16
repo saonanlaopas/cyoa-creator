@@ -1,11 +1,41 @@
 import { createHash } from "node:crypto";
 import { PNG } from "pngjs";
-import { IMAGE_ASSET_LIMITS, ImageAssetSchema, ImageFileSchema, sourceCanonicalJson, type ImageFile } from "@story-to-cyoa/domain";
+import { IMAGE_ASSET_LIMITS, ImageAssetSchema, ImageFileSchema, sourceCanonicalJson, type ImageDesignation, type ImageFile } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
 
 export const imageSha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 export const imageFileKey = (hash: string) => `image-file:${hash}`;
 export const imageAssetKey = (id: string) => `image-asset:${id}`;
+export function imageBindingOptions(database: StoryDatabase, projectId: string, kind: "character" | "location") {
+  // These are the current canonical authoring records, not runtime people or scene labels.
+  const character = kind === "character";
+  const entries = database.prepare(`SELECT json_extract(item.value,'$.id') id, json_extract(item.value,'$.name') name
+    FROM artifact_versions a,json_each(a.content_json,?) item
+    WHERE a.project_id=? AND a.artifact_id=? AND a.artifact_type=a.artifact_id
+    AND a.version=(SELECT MAX(b.version) FROM artifact_versions b WHERE b.project_id=a.project_id AND b.artifact_id=a.artifact_id)
+    ORDER BY name COLLATE NOCASE,id`).all(character ? "$.characters" : "$.locations", projectId, character ? "bible" : "world-definition") as Array<{ id: string; name: string }>;
+  return entries;
+}
+export function imageBindingStatus(designation: ImageDesignation, options: Record<"character" | "location", ReadonlyMap<string, string>>) {
+  const characterId = "characterId" in designation ? designation.characterId : undefined;
+  const locationId = "locationId" in designation ? designation.locationId : undefined;
+  return {
+    ...(characterId ? { character: { id: characterId, name: options.character.get(characterId) ?? null } } : {}),
+    ...(locationId ? { location: { id: locationId, name: options.location.get(locationId) ?? null } } : {}),
+  };
+}
+export function imageBindingMaps(database: StoryDatabase, projectId: string) {
+  const entries = (kind: "character" | "location") => new Map(imageBindingOptions(database, projectId, kind).map(({ id, name }) => [id, name]));
+  return { character: entries("character"), location: entries("location") };
+}
+export function assertImageDesignationWrite(database: StoryDatabase, projectId: string, value: unknown) {
+  const { metadata: { designation }, status } = ImageAssetSchema.parse(value);
+  if (!designation || status === "rejected") return;
+  const bindings = imageBindingStatus(designation, imageBindingMaps(database, projectId));
+  if (bindings.character?.name === null || bindings.location?.name === null) {
+    throw new Error("image_designation_binding_stale: clear or replace the missing character/location on a new metadata candidate");
+  }
+}
 export function imageFileMetadata(database: StoryDatabase, projectId: string, hash: string) {
   const file = database.prepare(`SELECT json_extract(content_json,'$.sha256') sha256,json_extract(content_json,'$.width') width,
     json_extract(content_json,'$.height') height,json_extract(content_json,'$.bytes') bytes FROM artifact_versions
@@ -78,9 +108,25 @@ export function assertImageArtifact(database: StoryDatabase, row: AssetRow, valu
 }
 export function validateImageAssets(database: StoryDatabase, projectId: string): void {
   const rows = database.prepare("SELECT * FROM artifact_versions WHERE project_id=? AND (artifact_type IN ('image-file','image-asset') OR artifact_id LIKE 'image-file:%' OR artifact_id LIKE 'image-asset:%') ORDER BY artifact_id,version").all(projectId) as AssetRow[];
+  const bindings = { character: new Set<string>(), location: new Set<string>() };
   for (const row of rows) {
     const value = JSON.parse(row.content_json);
     assertImageArtifact(database, row, value);
+    if (row.artifact_type !== "image-asset") continue;
+    const designation = ImageAssetSchema.parse(value).metadata.designation;
+    if (designation && "characterId" in designation && designation.characterId) bindings.character.add(designation.characterId);
+    if (designation && "locationId" in designation && designation.locationId) bindings.location.add(designation.locationId);
+  }
+  // A deleted target may be stale today, but must have existed in this project's retained history.
+  for (const kind of ["character", "location"] as const) if (bindings[kind].size) {
+    const character = kind === "character";
+    const artifactId = character ? "bible" : "world-definition";
+    const missing = database.prepare(`SELECT value FROM json_each(?) WHERE value NOT IN (
+      SELECT json_extract(item.value,'$.id') FROM artifact_versions a,json_each(a.content_json,?) item
+      WHERE a.project_id=? AND a.artifact_id=? AND a.artifact_type=?
+      AND json_type(item.value,'$.id')='text') LIMIT 1`)
+      .get(JSON.stringify([...bindings[kind]]), character ? "$.characters" : "$.locations", projectId, artifactId, artifactId);
+    if (missing) throw new Error("image_designation_binding_history_invalid");
   }
   assertImageProjectBudget(database, projectId);
 }

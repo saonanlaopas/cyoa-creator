@@ -48,6 +48,10 @@ test("V1 imports through MCP, uploads/reviews/replaces in Creator and restores/d
       await expect(page.getByRole("img", { name: imageMetadata.altText, exact: true })).toBeVisible();
       expect(await page.getByRole("img", { name: imageMetadata.altText, exact: true }).evaluate((el) => ({ width: (el as HTMLImageElement).naturalWidth, height: (el as HTMLImageElement).naturalHeight }))).toEqual({ width: 512, height: 320 });
       await page.getByLabel("Title", { exact: true }).fill("Harbor daylight"); await page.getByLabel("Tags", { exact: true }).fill("harbor, coast");
+      await expect(page.getByRole("combobox", { name: "Asset role", exact: true })).toBeVisible();
+      await page.getByRole("combobox", { name: "Asset role", exact: true }).selectOption("background");
+      await page.getByLabel("State key", { exact: true }).fill("day-one");
+      await expect(page.getByRole("combobox", { name: "World location", exact: true })).toHaveValue("");
       let lostResponse = false;
       await page.route("**/assets/*/revise", async (route) => {
         if (lostResponse) { await route.continue(); return; }
@@ -59,11 +63,20 @@ test("V1 imports through MCP, uploads/reviews/replaces in Creator and restores/d
       await expect(page.getByRole("status")).toContainText("Candidate saved");
       await page.unroute("**/assets/*/revise");
       await page.getByRole("button", { name: "Review candidate", exact: true }).click();
+      await expect(page.getByText("Background / State: day-one", { exact: true }).last()).toBeVisible();
       await page.getByLabel("I reviewed this exact image and metadata.").check();
       await page.getByRole("button", { name: "Approve candidate", exact: true }).click();
       await expect(page.getByRole("status")).toHaveText("Exact image candidate approved.");
       const approved = await first.call("read_asset", { projectId, assetId: candidate.assetId });
       expect(approved.approved.content.metadata.tags).toEqual(["harbor", "coast"]); const originalHash = approved.approved.image.sha256;
+      expect(approved.approved.content.metadata.designation).toEqual({ role: "background", stateKey: "day-one" });
+      await page.getByLabel("Approved versions only").check();
+      await page.getByRole("combobox", { name: "Filter by role", exact: true }).selectOption("portrait");
+      await expect(page.getByText("No assets found.")).toBeVisible();
+      await page.getByRole("combobox", { name: "Filter by role", exact: true }).selectOption("background");
+      await expect(page.getByRole("button", { name: /Harbor daylight.*approved.*Background/ })).toBeVisible();
+      await page.getByLabel("Approved versions only").uncheck();
+      await page.getByRole("combobox", { name: "Filter by role", exact: true }).selectOption("");
       await page.getByLabel("Replacement image", { exact: true }).setInputFiles({ name: "sunset.png", mimeType: "image/png", buffer: fixtureImage(512, 320, true) });
       await page.getByLabel("Title", { exact: true }).fill("Harbor sunset");
       await page.getByRole("textbox", { name: "Description", exact: true }).fill("A golden harbor sky, red signal tower and blue water.");

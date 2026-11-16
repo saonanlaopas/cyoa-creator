@@ -3,7 +3,7 @@ import { AuthoringInstructionsRepository } from "./authoring-instructions-reposi
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { AuthoringSettingsSchema, AUTHORING_SETTINGS_ID, CreativeDirectionSchema, isUnavailableSource, normalizeAdaptationIntent, type AdaptationIntent } from "@story-to-cyoa/domain";
-import { assertImageArtifact, assertImageProjectBudget } from "./image-asset-validation.js";
+import { assertImageArtifact, assertImageDesignationWrite, assertImageProjectBudget } from "./image-asset-validation.js";
 import { validateIllustratedScene } from "./illustrated-scene-validation.js";
 import { validateWorld } from "./world-validation.js";
 import { readSourceMaterial } from "./source-material.js";
@@ -133,6 +133,7 @@ export class ArtifactRepository {
     if (artifactType.startsWith("image-") || input.artifactId.startsWith("image-")) {
       assertImageArtifact(this.database, { id, project_id: input.projectId, artifact_id: input.artifactId, artifact_type: artifactType,
         version: latest.version + 1, schema_version: input.schemaVersion ?? 1, content_json: JSON.stringify(content) }, content);
+      if (artifactType === "image-asset") assertImageDesignationWrite(this.database, input.projectId, content);
       assertImageProjectBudget(this.database, input.projectId, { artifactId: input.artifactId, artifactType, version: latest.version + 1, content });
     }
     this.database.prepare(`

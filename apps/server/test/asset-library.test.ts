@@ -8,7 +8,7 @@ import sharp from "sharp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
-import { IMAGE_ASSET_LIMITS, type ImageAsset, type ImageAssetMetadata } from "@story-to-cyoa/domain";
+import { IMAGE_ASSET_LIMITS, ImageDesignationSchema, emptyWorld, type ImageAsset, type ImageAssetMetadata } from "@story-to-cyoa/domain";
 import { ArtifactRepository, ImageAssetRepository, PortableProjectRepository, ProjectRepository, encodeAssetPng, imageSha256, openDatabase, transaction, validateImageAssets } from "@story-to-cyoa/persistence";
 import { AssetLibraryService } from "../src/services/asset-library-service.js";
 import { boundedConnectedResult, CONNECTED_RESULT_BYTES } from "../src/services/connected-edit-service.js";
@@ -20,6 +20,8 @@ import { buildApp } from "../src/app.js";
 import { RecoveryService } from "../src/services/recovery-service.js";
 import { fixtureImage, imageMetadata } from "../../../e2e/helpers/image-assets.js";
 import { completeConnectedTextGame } from "../../../e2e/helpers/connected-text-game.js";
+import { applyPreviewWorld } from "../../../e2e/helpers/partial-preview.js";
+import { authoredWorld } from "../../../e2e/helpers/world.js";
 
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -37,6 +39,17 @@ function fixture() {
 }
 
 describe("V1 image preparation and immutable library", () => {
+  it("keeps role-specific designation fields optional and rejects cross-role fields and invalid keys", () => {
+    for (const role of ImageDesignationSchema.options.map(option => option.shape.role.value)) {
+      expect(ImageDesignationSchema.parse({ role })).toEqual({ role });
+    }
+    for (const designation of [
+      { role: "map", characterId: "character-protagonist" },
+      { role: "portrait", locationId: "town" },
+      { role: "portrait", expressionKey: "not a key" },
+      { role: "reference-sheet", stateKey: "night" },
+    ]) expect(ImageDesignationSchema.safeParse(designation).success).toBe(false);
+  });
   it.each(["png", "jpeg", "webp"] as const)("decodes static %s, creates canonical content-addressed PNG and a real bounded thumbnail", async (format) => {
     const input = await sharp(fixtureImage()).toFormat(format).toBuffer(), prepared = await prepareImageAsset(input, "/private/device/harbor.image", "user-upload");
     expect(prepared.image).toMatchObject({ width: 512, height: 320, mimeType: "image/png", sha256: imageSha256(Buffer.from(prepared.image.base64, "base64")) });
@@ -332,6 +345,85 @@ describe("V1 restricted staging and portability", () => {
       operationId: randomUUID(), approved: true, fingerprint: revisedReview.fingerprint });
     expect(rejected).toMatchObject({ status: "rejected", consentKind: "action-authorization" });
     expect((await second.call("read_asset", { projectId, assetId: candidate.assetId })).approved.id).toBe(approved.versionId);
+    expect(tools.find(tool => tool.name === "list_asset_bindings")?.annotations?.readOnlyHint).toBe(true);
+    const characterId = "character-protagonist";
+    const characters = await second.call("list_asset_bindings", { projectId, kind: "character", search: characterId });
+    expect(characters.items).toEqual([{ id: characterId, name: expect.any(String) }]);
+    await expect(second.call("list_asset_bindings", { projectId: randomUUID(), kind: "character" })).rejects.toThrow("access_denied");
+    const locationId = "town";
+    const exactImage = { assetId: candidate.assetId, versionId: approved.versionId };
+    await applyPreviewWorld(second.call, projectId, await authoredWorld(second.call, projectId, exactImage));
+    const locations = await second.call("list_asset_bindings", { projectId, kind: "location", search: "harbor" });
+    expect(locations.items).toEqual([{ id: locationId, name: "Harbor district" }]);
+    const scene = (await second.call("read_scene", { projectId, passageId: "passage-shared-opening" })).scene;
+    const illustrated = { ...scene, layout: "illustrated", background: exactImage };
+    const sceneReview = await second.call("review_scene", { projectId, scene: illustrated });
+    await second.call("apply_scene", { projectId, scene: illustrated, fingerprint: sceneReview.fingerprint, approved: true, operationId: randomUUID() });
+    const revise = (expectedVersionId: string, designation?: ImageAssetMetadata["designation"]) => ({
+      projectId, assetId: candidate.assetId, operationId: randomUUID(), expectedVersionId, approved: true, metadata: { ...imageMetadata, designation },
+    });
+    const portrait = { role: "portrait", characterId, expressionKey: "concerned" } as const;
+    const bad = revise(rejected.versionId, { ...portrait, characterId: "absent-character" });
+    await expect(second.call("revise_asset", bad)).rejects.toThrow("image_designation_binding_stale");
+    expect((await second.call("read_asset", { projectId, assetId: candidate.assetId })).currentVersionId).toBe(rejected.versionId);
+    const portraitInput = revise(rejected.versionId, portrait);
+    const portraitCandidate = await second.call("revise_asset", portraitInput);
+    const catalogue = (filters: Record<string, unknown>) => second.call("list_assets", { projectId, ...filters });
+    expect((await catalogue({ approvedOnly: true })).items).toMatchObject([{ versionId: approved.versionId }]);
+    expect((await catalogue({ approvedOnly: true, role: "portrait" })).total).toBe(0);
+    expect((await catalogue({ role: "portrait" })).items).toMatchObject([{ versionId: portraitCandidate.versionId, metadata: { designation: portrait } }]);
+    const reviewNew = (versionId: string) => second.call("review_asset", { projectId, assetId: candidate.assetId, versionId });
+    const reviewInput = (versionId: string, fingerprint: string) => ({ projectId, assetId: candidate.assetId, versionId, fingerprint, approved: true, operationId: randomUUID() });
+    const approvedPortrait = await second.call("approve_asset", reviewInput(portraitCandidate.versionId, (await reviewNew(portraitCandidate.versionId)).fingerprint));
+    const map = { role: "map", locationId, stateKey: "day-one" } as const;
+    const mapCandidate = await second.call("revise_asset", revise(approvedPortrait.versionId, map));
+    const currentFilter = { approvedOnly: true, role: "portrait", characterId, expressionKey: "concerned" };
+    expect((await catalogue(currentFilter)).items).toMatchObject([{ versionId: approvedPortrait.versionId, metadata: { designation: portrait } }]);
+    expect((await catalogue({ approvedOnly: true, role: "portrait", offset: 25 })).items).toEqual([]);
+    expect((await catalogue({ role: "map", locationId, stateKey: "day-one" })).items).toMatchObject([{ versionId: mapCandidate.versionId }]);
+    expect((await catalogue({ role: "map", locationId, stateKey: "night" })).total).toBe(0);
+    expect((await second.call("read_scene", { projectId, passageId: scene.passageId })).scene.background).toEqual(exactImage);
+    expect((await second.call("read_world", { projectId })).world.locations[0].mapImage).toEqual(exactImage);
+    const mapReview = await reviewNew(mapCandidate.versionId);
+    await applyPreviewWorld(second.call, projectId, emptyWorld());
+    const stale = await reviewNew(mapCandidate.versionId);
+    expect(stale.findings).toContainEqual(expect.objectContaining({ code: "image_designation_location_stale", severity: "error" }));
+    await expect(second.call("approve_asset", reviewInput(mapCandidate.versionId, mapReview.fingerprint))).rejects.toThrow("image_review_stale");
+    await expect(second.call("approve_asset", reviewInput(mapCandidate.versionId, stale.fingerprint))).rejects.toThrow("image_designation_binding_stale");
+    expect((await catalogue({ role: "map" })).items).toMatchObject([{ versionId: mapCandidate.versionId, bindingStale: true }]);
+    const rejectedMap = await second.call("reject_asset", reviewInput(mapCandidate.versionId, stale.fingerprint));
+    expect(rejectedMap.status).toBe("rejected");
+    const repaired = await second.call("revise_asset", revise(rejectedMap.versionId));
+    await second.call("approve_asset", reviewInput(repaired.versionId, (await reviewNew(repaired.versionId)).fingerprint));
+    expect((await catalogue({ approvedOnly: true, role: "portrait" })).total).toBe(0);
+    expect(await second.call("revise_asset", portraitInput)).toEqual(portraitCandidate);
+    const db = openDatabase(databasePath); cleanup.push(() => db.close());
+    const source = new PortableProjectRepository(db), exports = new PublicationExportService(source, undefined);
+    for (const mode of ["full-fidelity", "privacy-redacted"] as const) {
+      const target = openDatabase(); cleanup.push(() => target.close());
+      const portable = new PortableProjectRepository(target);
+      new PublicationExportService(portable, undefined).importPortable(exports.exportStudioPortable(projectId, mode).bytes);
+      const restored = new AssetLibraryService(target);
+      expect(restored.read(projectId, candidate.assetId, mapCandidate.versionId).selected.bindings).toEqual({ location: { id: locationId, name: null } });
+      if (mode === "full-fidelity") {
+        const { consentKind: _consentKind, ...receipt } = portraitCandidate;
+        expect(await restored.call("revise_asset", portraitInput)).toEqual(receipt);
+      }
+      const copy = new ProjectRepository(target).duplicate(projectId, "Copied asset designations", validatePortableAuthoringProject, prepareStudioHistoryDuplicate);
+      expect(new ImageAssetRepository(target).history(copy.id, candidate.assetId)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ content: expect.objectContaining({ metadata: { ...imageMetadata, designation: portrait } }) }),
+        expect.objectContaining({ content: expect.objectContaining({ metadata: { ...imageMetadata, designation: map } }) }),
+      ]));
+    }
+    const forged = source.exportStudioRows(projectId);
+    for (const row of forged.tables.artifact_versions.filter(row => row.id === mapCandidate.versionId || row.id === rejectedMap.versionId)) {
+      const content = JSON.parse(String(row.content_json));
+      content.metadata.designation.locationId = "never-existed";
+      row.content_json = JSON.stringify(content);
+    }
+    const target = openDatabase(); cleanup.push(() => target.close());
+    expect(() => new PortableProjectRepository(target).importRows(forged, validatePortableAuthoringProject)).toThrow("image_designation_binding_history_invalid");
+    expect(new ProjectRepository(target).get(projectId)).toBeUndefined();
     for (const headers of [{ origin: "https://untrusted.example" }, { "sec-fetch-site": "cross-site" }, { host: "untrusted.example" }]) {
       const denied = await second.app.inject({ method: "GET", url: `/api/long-form/projects/${projectId}/assets`, headers }); expect(denied.statusCode).toBe(403);
     }
