@@ -13,5 +13,6 @@ enabled_tools = [
   "review_preview", "compile_preview", "export_preview",
   "list_assets", "list_asset_bindings", "read_asset", "asset_usage", "list_staged_assets", "import_staged_asset", "revise_asset", "review_asset", "approve_asset", "reject_asset",
   "read_scene", "review_scene", "apply_scene",
+  "read_scene_defaults", "review_scene_default", "apply_scene_default", "review_scene_batch", "apply_scene_batch",
   "read_world", "review_world", "apply_world", "preview_chapter_transition", "inspect_world_presence", "inspect_world_economy", "inspect_world_journal",
 ]

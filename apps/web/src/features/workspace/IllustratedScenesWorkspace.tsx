@@ -4,14 +4,17 @@ import type { IllustratedPresentation } from "@story-to-cyoa/runtime";
 import { loadPassagePlan, type PassagePlanState } from "../../api/passage-plan.js";
 import { assetPath, assetRequest, type AssetDetail, type AssetList } from "../../api/asset-library.js";
 import { IllustratedScene } from "../player/IllustratedScene.js";
+import { SceneBatchWorkspace } from "./SceneBatchWorkspace.js";
 
 type Review = { fingerprint: string; previous: Scene | null; scene: Scene };
 export function IllustratedScenesWorkspace({ projectId }: { projectId: string }) {
+  const [batch, setBatch] = useState(false);
   const [passages, setPassages] = useState<PassagePlanState["passages"]>([]), [selected, setSelected] = useState("");
   const [scene, setScene] = useState<Scene | null>(null), [review, setReview] = useState<Review | null>(null), [consent, setConsent] = useState(false);
   const [assets, setAssets] = useState<AssetList>({ total: 0, offset: 0, items: [] }), [offset, setOffset] = useState(0);
   const [images, setImages] = useState<Record<string, AssetDetail["selected"]>>({});
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState("");
+  const dirty = useRef(false);
   const sequence = useRef(0), operation = useRef<{ key: string; id: string } | null>(null);
   const call = <T,>(tool: string, input: unknown) => assetRequest<T>(`/api/long-form/projects/${encodeURIComponent(projectId)}/scenes/${tool}`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
@@ -28,6 +31,7 @@ export function IllustratedScenesWorkspace({ projectId }: { projectId: string })
     const n = ++sequence.current; setReview(null); setConsent(false); setScene(null); setError(null); setBusy(true);
     try { const result = await call<{ scene: Scene; passageVersionId: string; stale: boolean }>("read_scene", { passageId: selected });
       if (n !== sequence.current) return;
+      dirty.current = false;
       setScene({ ...result.scene, passageVersionId: result.passageVersionId });
       setNotice(result.stale ? "Passage changed. Review this scene against the current passage before applying." : "");
     } catch (e) { if (n === sequence.current) setError(String(e)); }
@@ -41,7 +45,7 @@ export function IllustratedScenesWorkspace({ projectId }: { projectId: string })
       .then((detail) => active && setImages((old) => ({ ...old, [ref.versionId]: detail.selected }))).catch((e) => active && setError(String(e)));
     return () => { active = false; };
   }, [projectId, scene, images]);
-  const edit = (value: Scene) => { setScene(value); setReview(null); setConsent(false); operation.current = null; setNotice(""); };
+  const edit = (value: Scene) => { dirty.current = true; setScene(value); setReview(null); setConsent(false); operation.current = null; setNotice(""); };
   const selectImage = (versionId: string) => {
     const item = assets.items.find((a) => a.approvedVersionId === versionId);
     return item && versionId ? { assetId: item.assetId, versionId } : null;
@@ -67,6 +71,12 @@ export function IllustratedScenesWorkspace({ projectId }: { projectId: string })
   };
   return <section className="artifact-pane scene-editor" aria-label="Illustrated scenes">
     <h2>Illustrated scenes</h2>
+    <button type="button" aria-expanded={batch} onClick={() => setBatch(!batch)}>Scene defaults and batches</button>
+    {batch && <SceneBatchWorkspace key={projectId} projectId={projectId} passages={passages} onApply={() => {
+      if (!selected) return;
+      if (dirty.current) { setReview(null); setConsent(false); setNotice("Unapplied individual edits retained. Review again against the latest scene."); }
+      else void load();
+    }} />}
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
     <div className="scene-editor-top"><label>Passage<select disabled={busy} value={selected} onChange={(e) => setSelected(e.target.value)}>{passages.map((p) => <option key={p.entityId} value={p.entityId}>{p.content.title}</option>)}</select></label>
       <button title="Reload scene" disabled={busy || !selected} onClick={() => void load()}>Reload</button>

@@ -1,0 +1,5 @@
+.scene-batch-workspace { display: grid; gap: 1rem; margin-block: 1rem; overflow-wrap: anywhere; }
+.scene-batch-workspace fieldset, .scene-batch-workspace select { min-width: 0; max-width: 100%; }
+.scene-batch-workspace legend { font-weight: 600; }
+.scene-batch-workspace li { margin-block: .4rem; }
+.scene-batch-summary dd { margin: 0 0 .5rem; }

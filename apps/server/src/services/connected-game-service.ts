@@ -9,6 +9,8 @@ import type { PassageDraftService } from "./passage-draft-service.js";
 import type { SimulationService } from "./simulation-service.js";
 import type { NativeCompilationService } from "./native-compilation-service.js";
 import { IllustratedSceneService, SceneInputs } from "./illustrated-scene-service.js";
+import { SceneBatchInputs, SceneBatchService } from "./scene-batch-service.js";
+import { SceneDefaultsSchema, sceneDefaultKey } from "@story-to-cyoa/domain";
 import { WorldInputs, WorldService } from "./world-service.js";
 
 const id = z.string().trim().min(1).max(240), digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -18,6 +20,7 @@ const selections = z.array(z.object({ passageId: id, candidateDraftVersionId: id
 const connectedDraftContextBytes = 96_000;
 export const ConnectedGameInputs = {
   ...SceneInputs,
+  ...SceneBatchInputs,
   ...WorldInputs,
   game_state: z.object({ ...project, kind: z.enum(["passage", "choice", "thread"]).default("passage"), offset: z.number().int().min(0).max(50000).default(0) }).strict(),
   read_game_record: z.object({ ...project, kind: z.enum(["structure", "passage", "choice", "thread", "draft"]), entityId: id.default("root"), versionId: id.optional() }).strict(),
@@ -38,7 +41,7 @@ export const ConnectedGameInputs = {
   export_game: z.object({ ...project, buildVersionId: id, format: z.enum(["standalone", "static", "markdown"]), allowHistorical: z.boolean().default(false) }).strict(),
 };
 export type ConnectedGameTool = keyof typeof ConnectedGameInputs;
-export const connectedGameMutations = new Set<ConnectedGameTool>(["apply_world", "apply_scene", "initialize_game_plan", "approve_game_plan", "submit_draft", "accept_drafts", "compile_game", "compile_preview", "simulate_game"]);
+export const connectedGameMutations = new Set<ConnectedGameTool>(["apply_world", "apply_scene", "apply_scene_default", "apply_scene_batch", "initialize_game_plan", "approve_game_plan", "submit_draft", "accept_drafts", "compile_game", "compile_preview", "simulate_game"]);
 const previewSelection = (selection: NativePreviewSelection) => ({ ...selection, passageIds: [...selection.passageIds].sort() });
 const previewFingerprint = (headFingerprint: string, input: NativeCompilationInput) => sourceDigest({
   kind: "partial-preview", headFingerprint, sourceInputFingerprint: input.sourceInputFingerprint, preview: input.preview,
@@ -128,6 +131,11 @@ export class ConnectedGameService {
       case "read_scene": { const i = SceneInputs.read_scene.parse(value); return new IllustratedSceneService(this.database).read(i.projectId, i.passageId); }
       case "review_scene": { const i = SceneInputs.review_scene.parse(value); return new IllustratedSceneService(this.database).review(i.projectId, i.scene); }
       case "apply_scene": { const i = SceneInputs.apply_scene.parse(value); return new IllustratedSceneService(this.database).apply(i.projectId, i.scene, i.fingerprint); }
+      case "read_scene_defaults": { const i = SceneBatchInputs.read_scene_defaults.parse(value); return new SceneBatchService(this.database).readDefaults(i.projectId); }
+      case "review_scene_default": { const i = SceneBatchInputs.review_scene_default.parse(value); return new SceneBatchService(this.database).reviewDefault(i.projectId, i.change); }
+      case "apply_scene_default": { const i = SceneBatchInputs.apply_scene_default.parse(value); return new SceneBatchService(this.database).applyDefault(i.projectId, i.change, i.fingerprint); }
+      case "review_scene_batch": { const i = SceneBatchInputs.review_scene_batch.parse(value); return new SceneBatchService(this.database).reviewBatch(i.projectId, i.selection); }
+      case "apply_scene_batch": { const i = SceneBatchInputs.apply_scene_batch.parse(value); return new SceneBatchService(this.database).applyBatch(i.projectId, i.selection, i.fingerprint); }
       case "game_state": {
         const i = ConnectedGameInputs.game_state.parse(value);
         const rows = this.database.prepare(`SELECT h.entity_id AS entityId,h.version_id AS versionId,
@@ -273,6 +281,19 @@ export class ConnectedGameService {
       const i = SceneInputs.apply_scene.parse(value), saved = this.artifacts.getVersion(r.versionId);
       if (!saved || saved.projectId !== i.projectId || saved.artifactId !== `illustrated-scene:${i.scene.passageId}` || saved.artifactType !== "illustrated-scene"
         || !equal(saved.content, i.scene) || r.passageId !== i.scene.passageId || r.status !== "applied") throw new Error("connected_receipt_lineage_invalid");
+    } else if (tool === "apply_scene_default") {
+      const i = SceneBatchInputs.apply_scene_default.parse(value), saved = this.artifacts.getVersion(r.versionId);
+      if (!saved || saved.projectId !== i.projectId || saved.artifactId !== "scene-defaults" || saved.artifactType !== "scene-defaults" || r.status !== "applied") throw new Error("connected_receipt_lineage_invalid");
+      const entry = SceneDefaultsSchema.parse(saved.content).entries.find(item => sceneDefaultKey(item.slot) === sceneDefaultKey(i.change.slot));
+      if (!equal(entry?.image ?? null, i.change.image)) throw new Error("connected_receipt_lineage_invalid");
+    } else if (tool === "apply_scene_batch") {
+      const i = SceneBatchInputs.apply_scene_batch.parse(value), allowed = new Set(i.selection.map(item => item.passageId));
+      if (r.status !== "applied" || r.fingerprint !== i.fingerprint || !Array.isArray(r.scenes) || !r.scenes.length) throw new Error("connected_receipt_lineage_invalid");
+      for (const scene of r.scenes) {
+        const saved = this.artifacts.getVersion(scene.versionId);
+        if (!allowed.delete(scene.passageId) || !saved || saved.projectId !== i.projectId || saved.artifactId !== `illustrated-scene:${scene.passageId}`
+          || saved.artifactType !== "illustrated-scene" || sourceDigest(saved.content) !== scene.sceneFingerprint) throw new Error("connected_receipt_lineage_invalid");
+      }
     }
     if (tool === "initialize_game_plan") {
       const version = this.passages.getStructureVersion(r.structureVersionId);

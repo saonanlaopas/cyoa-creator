@@ -23,6 +23,11 @@ const descriptions: Record<ConnectedEditTool, string> = {
   read_scene: "Read the current scene, exact passage binding and staleness. Text layout clears artwork. Asset references must name exact approved versions; expressions and dialogue are authored presentation, not gameplay or prose approval.",
   review_scene: "Review one authored scene against its previous version and exact current passage. Assign only approved image versions: an optional background, up to three positioned portraits with explicit expressions, and optional speaker dialogue. For a full-scene illustration, set layout to illustrated and use the background field with portraits: []. It uses the same contained stage. No generation. Ask the author to approve the returned exact fingerprint separately before apply_scene.",
   apply_scene: "After explicit author approval, apply the exact reviewed scene/fingerprint atomically with a retry-safe operation UUID. Does not approve prose, change choices or publish. Stale passage/scene bases require a new review. Historical approved assets remain pinned until explicitly reassigned.",
+  read_scene_defaults: "Read versioned authoring-only location background and character/expression portrait defaults, pinned asset versions, and missing bindings. Find canonical IDs with list_asset_bindings. Defaults never change existing scenes.",
+  review_scene_default: "Review setting or clearing one default slot. Set an exact approved image version with a matching designation; use image:null to clear, including stale slots. No scene changes.",
+  apply_scene_default: "Apply only the exact reviewed default change after explicit consent. Supply the review fingerprint and retry-safe UUID. No scene assignment or artwork approval.",
+  review_scene_batch: "Review up to six explicitly selected passages. Choose location and/or canonical character, expression and position for each; no inference from prose. Existing occupied slots are preserved unless explicitly selected for replacement. Resolve or deselect all unresolved rows and review again before asking for consent.",
+  apply_scene_batch: "Apply only the exact approved ready batch using its original selection, fingerprint and retry-safe UUID. All changed passages commit together; stale reviews write nothing. No prose approval, image approval, compilation or publication.",
   list_assets: "List compact project image summaries and designations, 25 per page. Use approvedOnly to search retained approved versions rather than latest candidates. Optional exact role, characterId, locationId, expressionKey and stateKey filters combine with text search. Read full metadata with read_asset.",
   list_asset_bindings: "Find canonical current Story Bible characters or World locations by name or ID, 50 per page, for optional image designations. Read-only; no scene or map assignment.",
   read_asset: "Read exact image-asset metadata/provenance, image URLs, retained approved version and paginated immutable history. Read-only; assign an approved image to a passage separately with review_scene and apply_scene. No generation.",
@@ -68,7 +73,7 @@ const descriptions: Record<ConnectedEditTool, string> = {
 const reads = new Set<ConnectedEditTool>(["read_authoring_settings", "review_authoring_settings", "read_authoring_context", "list_projects", "project_state", "list_edit_targets", "list_edits", "get_edit", "review_edit", "read_foundation", "review_foundation_approval"]);
 for (const name of ["game_state", "read_game_record", "review_game_plan", "review_drafts", "publication_readiness", "read_simulation", "export_game", "review_preview", "export_preview"] as const) reads.add(name);
 for (const name of ["list_assets", "list_asset_bindings", "read_asset", "asset_usage", "list_staged_assets", "review_asset"] as const) reads.add(name);
-for (const name of ["read_scene", "review_scene"] as const) reads.add(name);
+for (const name of ["read_scene", "review_scene", "read_scene_defaults", "review_scene_default", "review_scene_batch"] as const) reads.add(name);
 for (const name of ["read_world", "review_world", "inspect_world_economy", "inspect_world_journal", "preview_chapter_transition", "inspect_world_presence"] as const) reads.add(name);
 
 const assetConsentKinds: Partial<Record<ConnectedEditTool, "action-authorization" | "content-approval">> = {
@@ -89,7 +94,7 @@ const toolCatalogue = (Object.keys(ConnectedEditInputs) as ConnectedEditTool[]).
       then: { required: ["passageId"] },
     } : {}),
   },
-  annotations: { readOnlyHint: reads.has(name), destructiveHint: ["apply_world", "apply_scene", "apply_edit", "reject_edit", "approve_foundation", "approve_game_plan", "accept_drafts", "approve_asset", "reject_asset"].includes(name), idempotentHint: true, openWorldHint: false },
+  annotations: { readOnlyHint: reads.has(name), destructiveHint: ["apply_world", "apply_scene", "apply_scene_default", "apply_scene_batch", "apply_edit", "reject_edit", "approve_foundation", "approve_game_plan", "accept_drafts", "approve_asset", "reject_asset"].includes(name), idempotentHint: true, openWorldHint: false },
 }));
 
 export function registerConnectedEditing(app: FastifyInstance, service: ConnectedEditService, config: ConnectedEditingConfig,

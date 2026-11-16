@@ -1,7 +1,10 @@
 import { testDraftingContext } from "./helpers/authoring-context.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { type IllustratedScene } from "@story-to-cyoa/domain";
+import { emptyWorld, type IllustratedScene, type ImageAssetMetadata, type SceneDefaultSlot, type SceneBatchSelection } from "@story-to-cyoa/domain";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ArtifactRepository, ChangeSetRepository, ImageAssetRepository, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository, openDatabase, type StoryDatabase } from "@story-to-cyoa/persistence";
 import { createNativePlayerSave, createNativePlayerSession, loadNativePlayerSave, nativeBundleFingerprint, validateNativeGameBundle } from "@story-to-cyoa/runtime";
 import { LongFormProjectService } from "../src/services/long-form-project-service.js";
@@ -18,6 +21,8 @@ import { validatePortableAuthoringProject } from "../src/services/portable-proje
 import { prepareStudioHistoryDuplicate } from "../src/services/studio-history-duplication.js";
 import { acceptGameDrafts, approveGamePlan, completeConnectedTextGame, submitGameDraft } from "../../../e2e/helpers/connected-text-game.js";
 import { fixtureImage, imageMetadata } from "../../../e2e/helpers/image-assets.js";
+import { authoredWorld } from "../../../e2e/helpers/world.js";
+import { applyPreviewWorld } from "../../../e2e/helpers/partial-preview.js";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const close of cleanups.splice(0).reverse()) close(); });
@@ -35,14 +40,126 @@ function fixture(db: StoryDatabase = openDatabase(), projectId = randomUUID()) {
   const publication = new PublicationExportService(new PortableProjectRepository(db), compilation);
   return { db, projectId, projects, artifacts, passages, compilation, assets, call, service, publication, generate };
 }
-async function completed() {
-  const f = fixture(); await f.call("create_project", { projectId: f.projectId, operationId: randomUUID(), name: "V2 illustrated harbor", approved: true });
+async function completed(f = fixture()) {
+  await f.call("create_project", { projectId: f.projectId, operationId: randomUUID(), name: "V2 illustrated harbor", approved: true });
   const proof = await completeConnectedTextGame(f.call, f.projectId);
   const candidate = await f.assets.upload({ projectId: f.projectId, operationId: randomUUID(), approved: true, metadata: imageMetadata }, fixtureImage(), "harbor.png", "image/png");
   const review = f.assets.review(f.projectId, candidate.assetId, candidate.versionId);
   const approved = await f.call("approve_asset", { projectId: f.projectId, operationId: randomUUID(), approved: true, assetId: candidate.assetId, versionId: candidate.versionId, fingerprint: review.fingerprint });
   return { ...f, proof, candidate, approved };
 }
+
+it("PF-010B reviews and applies explicit scene batches atomically, retaining archived defaults and replay", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cyoa-scene-defaults-")), path = join(dir, "offline.sqlite");
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  const f = await completed(fixture(openDatabase(path))), { projectId, call } = f;
+  const home = "home", characterId = "character-protagonist", expressionKey = "concerned";
+  const bgSlot = { kind: "background", locationId: home } as const, portraitSlot = { kind: "portrait", characterId, expressionKey } as const;
+  const defaults = () => call("read_scene_defaults", { projectId });
+  const world = await authoredWorld(call, projectId);
+  await applyPreviewWorld(call, projectId, world);
+  expect(await defaults()).toMatchObject({ entries: [], versionId: null });
+  const image = async (designation: ImageAssetMetadata["designation"], title: string) => {
+    const candidate = await f.assets.upload({ projectId, operationId: randomUUID(), approved: true, metadata: { ...imageMetadata, designation, title } }, fixtureImage(), "harbor.png", "image/png");
+    const review = await call("review_asset", { projectId, assetId: candidate.assetId, versionId: candidate.versionId });
+    const version = await call("approve_asset", { projectId, assetId: candidate.assetId, versionId: candidate.versionId, fingerprint: review.fingerprint, operationId: randomUUID(), approved: true });
+    return { assetId: version.assetId, versionId: version.versionId };
+  };
+  const background = await image({ role: "background", locationId: home }, "Harbor home");
+  const portrait = await image({ role: "portrait", characterId, expressionKey }, "Keeper concerned");
+  const revise = await call("revise_asset", { projectId, operationId: randomUUID(), approved: true, assetId: portrait.assetId, expectedVersionId: portrait.versionId,
+    metadata: { ...imageMetadata, title: "Pending replacement", designation: { role: "portrait", characterId, expressionKey } } });
+  const reviewDefault = (slot: SceneDefaultSlot, image: IllustratedScene["background"]) => call("review_scene_default", { projectId, change: { slot, image } });
+  const setDefault = async (slot: SceneDefaultSlot, image: IllustratedScene["background"]) => {
+    const r = await reviewDefault(slot, image);
+    const input = { projectId, change: r.change, fingerprint: r.fingerprint, approved: true, operationId: randomUUID() };
+    return { input, result: await call("apply_scene_default", input) };
+  };
+  await expect(reviewDefault(bgSlot, portrait)).rejects.toThrow("scene_default_asset_binding_mismatch");
+  await expect(reviewDefault(portraitSlot, { assetId: portrait.assetId, versionId: revise.versionId })).rejects.toThrow("scene_default_approved_asset_required");
+  const a = "passage-shared-opening", b = "passage-shared-route-pivot";
+  const priorScene = scene(f);
+  priorScene.portraits[0]!.character = "Harbor guide";
+  const previous = await applied(f, priorScene);
+  const before = () => f.db.prepare("SELECT (SELECT COUNT(*) FROM artifact_versions) artifacts,(SELECT COUNT(*) FROM messages) messages,(SELECT COUNT(*) FROM passage_draft_versions) drafts").get();
+  const selection: SceneBatchSelection = [
+    { passageId: a, background: { locationId: home }, portraits: [{ position: "right", characterId, expressionKey }] },
+    { passageId: b, background: { locationId: home }, portraits: [] },
+  ];
+  const inspect = (selectionValue = selection) => call("review_scene_batch", { projectId, selection: selectionValue });
+  const missing = await inspect();
+  expect(missing.ready).toBe(false);
+  expect(missing.passages[0].unresolved[0]).toContain("No default configured");
+  const defaultReceipt = await setDefault(bgSlot, background);
+  await setDefault(portraitSlot, portrait);
+  const ambiguous = await inspect([{ ...selection[0]!, portraits: [...selection[0]!.portraits, { ...selection[0]!.portraits[0]!, position: "center" }] }]);
+  expect(ambiguous.ready).toBe(false);
+  expect(ambiguous.passages[0].unresolved.join()).toMatch(/Ambiguous portrait selection/);
+  expect((await inspect()).passages[0]).toMatchObject({ before: { background: scene(f).background }, after: { background: scene(f).background } });
+  const final: SceneBatchSelection = [{ ...selection[0]!, background: { locationId: home, replace: true } }, selection[1]!];
+  const r = await inspect(final);
+  expect(r).toMatchObject({ ready: true, passages: [
+    { before: { background: scene(f).background, dialogueLineCount: 1 }, after: { background, dialogueLineCount: 1, portraits: expect.arrayContaining([expect.objectContaining({ image: portrait, position: "right" })]) } },
+    { before: null, after: { background }, changed: true },
+  ] });
+  const send = (fingerprint: string) => ({ projectId, selection: final, fingerprint, operationId: randomUUID(), approved: true });
+  const changedDefault = await image({ role: "background", locationId: home, stateKey: "night" }, "Different default");
+  await setDefault(bgSlot, changedDefault);
+  const preStale = before();
+  await expect(call("apply_scene_batch", send(r.fingerprint))).rejects.toThrow("scene_batch_review_stale");
+  expect(before()).toEqual(preStale);
+  await setDefault(bgSlot, background);
+  const beforeSceneEdit = (await inspect(final)).fingerprint;
+  await applied(f, priorScene);
+  const afterSceneEdit = before();
+  await expect(call("apply_scene_batch", send(beforeSceneEdit))).rejects.toThrow("scene_batch_review_stale");
+  expect(before()).toEqual(afterSceneEdit);
+  const input = send((await inspect(final)).fingerprint), preRollback = before();
+  await expect(call("apply_scene_batch", { ...input, approved: false })).rejects.toThrow();
+  await expect(call("apply_scene_batch", { ...input, selection: [final[0]] })).rejects.toThrow("scene_batch_review_stale");
+  f.db.exec(`CREATE TEMP TRIGGER fail_batch_scene BEFORE INSERT ON artifact_versions WHEN NEW.artifact_id='illustrated-scene:${b}' BEGIN SELECT RAISE(ABORT,'second scene failed'); END`);
+  await expect(call("apply_scene_batch", input)).rejects.toThrow("second scene failed");
+  expect(before()).toEqual(preRollback);
+  f.db.exec("DROP TRIGGER fail_batch_scene");
+  const receipt = await call("apply_scene_batch", input);
+  expect(receipt.scenes.map((scene: { passageId: string }) => scene.passageId)).toEqual([a, b]);
+  const saved = await call("read_scene", { projectId, passageId: a });
+  expect(saved.scene.dialogue).toEqual(scene(f).dialogue);
+  expect(saved.scene.background).toEqual(background);
+  const current = f.compilation.compile(projectId);
+  expect(current.bundle.illustratedPresentation?.scenes).toHaveLength(2);
+  expect((await f.publication.exportStandalone(projectId, current.input.id)).html).toContain("connect-src 'none'");
+  expect(f.artifacts.getVersion(previous.result.versionId)?.content).toEqual(priorScene);
+  const pendingReview = await call("review_asset", { projectId, assetId: portrait.assetId, versionId: revise.versionId });
+  await call("approve_asset", { projectId, assetId: portrait.assetId, versionId: revise.versionId, fingerprint: pendingReview.fingerprint, approved: true, operationId: randomUUID() });
+  expect((await defaults()).entries).toContainEqual(expect.objectContaining({ slot: portraitSlot, image: portrait }));
+  expect((await call("read_scene", { projectId, passageId: a })).scene).toEqual(saved.scene);
+  await applyPreviewWorld(call, projectId, emptyWorld());
+  expect((await defaults()).entries.find((entry: { slot: SceneDefaultSlot }) => entry.slot.kind === "background").stale).toBe(true);
+  const staleDefault = await inspect([{ passageId: a, background: { locationId: home, replace: true }, portraits: [] }]);
+  expect(staleDefault.passages[0].unresolved.join()).toContain("Missing canonical target");
+  await setDefault(bgSlot, null);
+  const archived = f.publication.exportStudioPortable(projectId, "full-fidelity");
+  const redacted = f.publication.exportStudioPortable(projectId, "privacy-redacted");
+  const reopened = fixture(openDatabase(path), projectId);
+  const afterRestart = before();
+  expect(await reopened.call("apply_scene_batch", input)).toEqual(receipt);
+  expect(await reopened.call("apply_scene_default", defaultReceipt.input)).toEqual(defaultReceipt.result);
+  expect(before()).toEqual(afterRestart);
+  await expect(reopened.call("apply_scene_batch", { ...input, selection: [final[0]] })).rejects.toThrow("connected_operation_id_conflict");
+  expect(await reopened.call("read_scene", { projectId, passageId: a })).toEqual(saved);
+  for (const archive of [archived, redacted]) {
+    const restored = fixture(openDatabase(), projectId);
+    restored.publication.importPortable(archive.bytes);
+    expect((await restored.call("read_scene_defaults", { projectId })).entries).toMatchObject([{ slot: portraitSlot, image: portrait }]);
+    expect(restored.compilation.compile(projectId, current.input.id).bundle.illustratedPresentation).toEqual(current.bundle.illustratedPresentation);
+    if (archive === archived) expect(await restored.call("apply_scene_batch", input)).toEqual(receipt);
+    const copy = restored.projects.duplicate(projectId, "Copied scene defaults", validatePortableAuthoringProject, prepareStudioHistoryDuplicate);
+    const copied = restored.artifacts.getCurrent<{ entries: Array<{ image: { versionId: string } }> }>(copy.id, "scene-defaults")!;
+    expect(copied.content.entries[0]!.image.versionId).not.toBe(portrait.versionId);
+  }
+  expect(f.generate).not.toHaveBeenCalled();
+});
 function scene(f: { projectId: string; passages: PassagePlanRepository; approved: { assetId: string; versionId: string } }): IllustratedScene {
   return { schemaId: "cyoa.illustrated-scene", schemaVersion: 1, passageId: "passage-shared-opening", passageVersionId: f.passages.currentEntity(f.projectId, "passage", "passage-shared-opening")!.id,
     layout: "illustrated", background: { assetId: f.approved.assetId, versionId: f.approved.versionId },

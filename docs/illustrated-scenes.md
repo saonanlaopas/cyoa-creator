@@ -15,10 +15,46 @@ endings and saves still use the native player/runtime. No provider calls occur.
 
 Reuse the same approved image version across passages: scenes store references,
 not copies, and compilation packages that image version once. Portrait character
-and expression names in the scene are still free-form. A library designation
-does not fill scene fields. There are no character or location defaults,
-automatic suggestions, or batch scene assignments. Approving a replacement
+and expression names in an individually edited scene are still free-form.
+A library designation alone never fills scene fields. Approving a replacement
 does not retarget existing scenes.
+
+### Defaults and reviewed batches
+
+Open **Scene defaults and batches** in the Illustrated scenes workspace. A
+location gets one background default. A character can have one portrait
+default per explicitly named expression. Choose an exact approved image with a
+matching Asset Library designation, review the change, and apply it separately.
+Defaults are versioned authoring records, not runtime rules. A pending or newly
+approved image version does not retarget a default or a scene.
+
+Select up to **six passages per batch**. For each, choose the background location
+and/or character, expression, and position for each intended portrait. Nothing
+is inferred from prose, NPC schedules, or the passage's mapped location.
+Occupied slots stay untouched unless **Replace existing** is selected for that
+slot. Review shows artwork before/after, exact version IDs, reasons, unresolved
+items, and the count of unchanged dialogue lines. Use individual scene review
+to read or edit dialogue or rebind a stale scene. Adjust selections or remove
+unresolved passages and review again. Apply commits all changed rows together;
+it does not approve artwork, prose, or publication. After Apply, start the
+next batch with the remaining passages. No changes are applied to omitted
+passages.
+
+In MCP, use `list_asset_bindings`, `list_assets` with `approvedOnly: true`,
+and `read_scene_defaults`. Call `review_scene_default` with
+`change: { slot: { kind: "background", locationId }, image: { assetId, versionId } }`
+(or a portrait slot with `kind: "portrait", characterId, expressionKey`).
+Use `image: null` to clear even a stale slot. Apply with `apply_scene_default`,
+the same change, fingerprint, approval and a retry-safe operation UUID.
+Call `review_scene_batch` with `selection` rows containing `passageId`, optional
+`background: { locationId, replace? }` and `portraits: [{ characterId, expressionKey, position, replace? }]`.
+Then use `apply_scene_batch` with the exact selection, approved fingerprint and
+retry-safe operation UUID. If the review goes stale, review again. For a lost
+response, retry identical arguments on the original operation UUID.
+
+The project supports up to 100 default slots. Defaults travel in project
+archives and copies, not playable exports. On a privacy-redacted restore, use
+fresh reviews; operation receipts are not carried over.
 
 ## Authoring and review
 

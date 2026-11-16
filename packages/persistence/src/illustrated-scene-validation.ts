@@ -1,5 +1,6 @@
-import { IllustratedSceneSchema, ImageAssetSchema, sceneAssetReferences } from "@story-to-cyoa/domain";
+import { IllustratedSceneSchema, ImageAssetSchema, sceneAssetReferences, sourceCanonicalJson } from "@story-to-cyoa/domain";
 import type { StoryDatabase } from "./database.js";
+import { sceneDefaultsId, validateSceneDefaults } from "./scene-defaults-validation.js";
 
 export function validateIllustratedScene(database: StoryDatabase, projectId: string, value: unknown) {
   const scene = IllustratedSceneSchema.parse(value);
@@ -22,5 +23,12 @@ export function validateIllustratedScenes(database: StoryDatabase, projectId: st
   for (const row of rows) {
     const scene = validateIllustratedScene(database, projectId, JSON.parse(row.content_json));
     if (row.artifact_id !== `illustrated-scene:${scene.passageId}` || row.artifact_type !== "illustrated-scene" || row.schema_version !== 1) throw new Error("scene_identity_invalid");
+  }
+  const defaults = database.prepare("SELECT artifact_id,artifact_type,schema_version,content_json FROM artifact_versions WHERE project_id=? AND (artifact_type=? OR artifact_id=?)")
+    .all(projectId, sceneDefaultsId, sceneDefaultsId) as typeof rows;
+  for (const row of defaults) {
+    const raw = JSON.parse(row.content_json);
+    if (row.artifact_id !== sceneDefaultsId || row.artifact_type !== sceneDefaultsId || row.schema_version !== 1
+      || sourceCanonicalJson(validateSceneDefaults(database, projectId, raw)) !== sourceCanonicalJson(raw)) throw new Error("scene_defaults_identity_invalid");
   }
 }

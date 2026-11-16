@@ -10,6 +10,7 @@ import { unzipSync } from "fflate";
 import { completeConnectedTextGame } from "./helpers/connected-text-game.js";
 import { fixtureImage, imageMetadata } from "./helpers/image-assets.js";
 import { portraitImage } from "./helpers/illustrated-assets.js";
+import type { ImageAssetMetadata } from "@story-to-cyoa/domain";
 
 const portraitOrders = [
   ["right", "left"], ["right", "center", "left"], ["left", "center", "right"],
@@ -66,10 +67,10 @@ test("V2 reviews browser scenes, replays lost Apply and plays packaged backgroun
       };
       await call("create_project", { projectId, operationId: randomUUID(), name: "V2 Illustrated Harbor", approved: true });
       const proof = await completeConnectedTextGame(call, projectId);
-      const importImage = async (filename: string, bytes: Buffer, title: string, altText: string) => {
+      const importImage = async (filename: string, bytes: Buffer, title: string, altText: string, designation?: ImageAssetMetadata["designation"]) => {
         await writeFile(join(directory, filename), bytes);
         const candidate = await call("import_staged_asset", { projectId, operationId: randomUUID(), approved: true, filename,
-          sourceSha256: createHash("sha256").update(bytes).digest("hex"), metadata: { ...imageMetadata, title, altText } });
+          sourceSha256: createHash("sha256").update(bytes).digest("hex"), metadata: { ...imageMetadata, title, altText, designation } });
         const review = await call("review_asset", { projectId, assetId: candidate.assetId, versionId: candidate.versionId });
         const approved = await call("approve_asset", { projectId, operationId: randomUUID(), approved: true, assetId: candidate.assetId, versionId: candidate.versionId, fingerprint: review.fingerprint });
         return { assetId: approved.assetId, versionId: approved.versionId };
@@ -77,6 +78,8 @@ test("V2 reviews browser scenes, replays lost Apply and plays packaged backgroun
       const harbor = await importImage("harbor.png", fixtureImage(), "Harbor daylight", "Red signal tower over blue harbor water");
       const concerned = await importImage("mira.png", portraitImage(), "Mira concerned", "Mira in a green coat, concerned expression");
       const smiling = await importImage("mira-smile.png", portraitImage(true), "Mira relieved", "Mira in a red coat, relieved expression");
+      const batchPortrait = await importImage("mira-default.png", portraitImage(), "Batch portrait", "Mira in a green coat, concerned expression",
+        { role: "portrait", characterId: "character-protagonist", expressionKey: "concerned" });
       const ordersByPassage = new Map<string, readonly string[]>(), titles = new Map<string, string>();
       for (const [i, passage] of proof.passages.entries()) {
         const state = await call("read_scene", { projectId, passageId: passage.entityId }), ending = passage.entityId.startsWith("passage-ending-");
@@ -130,6 +133,38 @@ test("V2 reviews browser scenes, replays lost Apply and plays packaged backgroun
       await page.setViewportSize({ width: 390, height: 844 }); await editor.scrollIntoViewIfNeeded();
       await page.screenshot({ path: info.outputPath("v2-mobile-scene-editor.png"), fullPage: true });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await editor.getByRole("button", { name: "Scene defaults and batches" }).click();
+      const defaultImage = editor.getByRole("combobox", { name: "Approved image for default" });
+      await expect(defaultImage.locator(`option[value="${batchPortrait.versionId}"]`)).toHaveCount(1);
+      await defaultImage.selectOption(batchPortrait.versionId);
+      await editor.getByRole("button", { name: "Review setting default" }).click();
+      await expect(editor.getByRole("button", { name: "Apply default", exact: true })).toBeDisabled();
+      await editor.getByLabel("I approve this exact default change.").check();
+      await editor.getByRole("button", { name: "Apply default", exact: true }).click();
+      await expect(editor.getByText("Default applied. Existing scenes are unchanged.")).toBeVisible();
+      const slot = JSON.stringify(["portrait", "character-protagonist", "concerned"]);
+      for (const passageId of ["passage-shared-opening", "passage-shared-route-pivot"]) {
+        const position = ordersByPassage.get(passageId)![0]!;
+        await editor.getByRole("combobox", { name: "Passage to add" }).selectOption(passageId);
+        await editor.getByRole("button", { name: "Add passage to batch" }).click();
+        const control = `${position} portrait`;
+        const row = editor.getByRole("group", { name: titles.get(passageId), exact: true }).filter({ has: page.getByRole("combobox", { name: control, exact: true }) });
+        await row.getByRole("combobox", { name: control, exact: true }).selectOption(slot);
+        await row.getByLabel(`Replace existing ${control}`).check();
+      }
+      await editor.getByRole("button", { name: "Review batch", exact: true }).click();
+      const reviewedBatch = editor.getByRole("region", { name: "Scene batch review" });
+      await expect(reviewedBatch.getByRole("heading", { name: "Before", exact: true })).toHaveCount(2);
+      await expect(reviewedBatch.getByRole("heading", { name: "After", exact: true })).toHaveCount(2);
+      await expect(reviewedBatch.getByRole("button", { name: "Apply scene batch" })).toBeDisabled();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await reviewedBatch.getByLabel("I approve this exact scene batch.").check();
+      await reviewedBatch.getByRole("button", { name: "Apply scene batch" }).click();
+      await expect(editor.getByText("Scene batch applied. Existing builds are unchanged.")).toBeVisible();
+      for (const id of ["passage-shared-opening", "passage-shared-route-pivot"]) {
+        const scene = await call("read_scene", { projectId, passageId: id });
+        expect(scene.scene.portraits[0].image).toEqual(batchPortrait);
+      }
       const review = await call("publication_readiness", { projectId }); expect(review.ready).toBe(true);
       const compiled = await call("compile_game", { projectId, operationId: randomUUID(), headFingerprint: review.headFingerprint, fingerprint: review.fingerprint, approved: true });
       const exported = await call("export_game", { projectId, buildVersionId: compiled.buildVersionId, format: "standalone" });
@@ -139,7 +174,8 @@ test("V2 reviews browser scenes, replays lost Apply and plays packaged backgroun
       const zip = await request.get(staticExport.downloadPath); await expect(zip).toBeOK();
       const files = unzipSync(await zip.body()), gameFile = Object.entries(files).find(([path]) => path.endsWith("game.json"));
       expect(gameFile).toBeTruthy(); const bundle = JSON.parse(Buffer.from(gameFile![1]).toString());
-      expect(bundle.illustratedPresentation.assets).toHaveLength(3);
+      expect(bundle.illustratedPresentation.assets).toHaveLength(4);
+      expect(bundle.illustratedPresentation.scenes.find((scene: { passageId: string }) => scene.passageId === "passage-shared-opening").portraits[0].image).toBe(batchPortrait.versionId);
       expect(JSON.stringify(bundle)).not.toMatch(/sourceName|sourceSha256|assistant-import|operationId|Author request/);
       const labels = new Map<string, string>(), destinations = new Map<string, string>();
       for (const id of new Set([...proof.path, ...proof.alternate, ...proof.detourPath])) {
