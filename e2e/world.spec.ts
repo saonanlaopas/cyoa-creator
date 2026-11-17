@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "playwright/test";
-import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
+import { showPlayerWorldView } from "./helpers/player-interaction.js";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -115,6 +115,7 @@ test("W1 reviews shared world operations and travels home/cafe/station with free
         await worldPanel.getByRole("navigation", { name: "Travel", exact: true }).getByRole("button", { name: "Cafe · 15 min", exact: true }).click(); await confirm();
         await expect(clock).toHaveText("Day 2 · 00:05"); await expect(worldPanel.locator("header strong")).toHaveText("Cafe");
         await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name").fill("Midnight cafe"); await player.getByRole("button", { name: "Create save", exact: true }).click();
+        await expect(player.getByRole("status")).toHaveText("Saved “Midnight cafe”.");
         await player.reload(); await expect(clock).toHaveText("Day 2 · 00:05");
         await worldPanel.getByRole("button", { name: "Station · 10 min", exact: true }).click(); await confirm();
         await expect(clock).toHaveText("Day 2 · 00:15"); await expect(worldPanel.locator("header strong")).toHaveText("Station");
@@ -122,18 +123,21 @@ test("W1 reviews shared world operations and travels home/cafe/station with free
         await expect(clock).toHaveText("Day 2 · 00:22");
         await expect(player.getByRole("region", { name: "Action outcome", exact: true })).toHaveText("The early train leaves at dawn.");
         await expect(player.getByRole("status")).toHaveText("Progress autosaved.");
-        await continuePlayerResult(player);
+        await player.getByRole("button", { name: "Continue after result", exact: true }).click();
         await worldPanel.getByRole("button", { name: "Wait 15 min", exact: true }).click(); await confirm(); await expect(clock).toHaveText("Day 2 · 00:37");
         await player.getByRole("button", { name: "Rewind", exact: true }).click(); await expect(clock).toHaveText("Day 2 · 00:22");
-        await player.getByRole("button", { name: "Load game", exact: true }).click(); await player.getByRole("button", { name: "Load", exact: true }).click();
+        await player.getByRole("button", { name: "Load game", exact: true }).click();
+        const load = player.getByRole("dialog", { name: "Load game" });
+        await expect(load).toContainText("Midnight cafe");
+        await load.getByRole("button", { name: "Load", exact: true }).click();
         await expect(clock).toHaveText("Day 2 · 00:05"); await expect(worldPanel.locator("header strong")).toHaveText("Cafe");
         await worldPanel.getByRole("button", { name: "Home · 15 min", exact: true }).click(); await confirm(); await expect(clock).toHaveText("Day 2 · 00:20");
-        for (let i = 0; i < 2; i++) { await worldPanel.getByRole("button", { name: "Wait 60 min", exact: true }).click(); await confirm(); await continuePlayerResult(player); }
+        for (let i = 0; i < 2; i++) { await worldPanel.getByRole("button", { name: "Wait 60 min", exact: true }).click(); await confirm(); await player.getByRole("button", { name: "Continue after result", exact: true }).click(); }
         await expect(worldPanel.getByRole("button", { name: "Cafe · 15 min · Closed at arrival", exact: true })).toBeDisabled();
         expect(requests.some((url) => /\/api\/|openrouter|provider/i.test(url))).toBe(false);
       };
       const offline = await browser.newContext(), standalonePage = await offline.newPage();
-      try { await standalonePage.goto(pathToFileURL(file).href); await play(standalonePage, "standalone"); } finally { await offline.close(); }
+      try { await test.step("Play and restore the standalone world", async () => { await standalonePage.goto(pathToFileURL(file).href); await play(standalonePage, "standalone"); }); } finally { await offline.close(); }
       const staticServer = createServer((req, res) => {
         const path = req.url?.replace(/^\/nested\//, "") ?? "index.html", bytes = files[path];
         if (!bytes) { res.writeHead(404); res.end(); return; }
@@ -141,7 +145,7 @@ test("W1 reviews shared world operations and travels home/cafe/station with free
       });
       await new Promise<void>((resolve) => staticServer.listen(0, "127.0.0.1", resolve));
       const socket = staticServer.address(), context = await browser.newContext(), staticPage = await context.newPage();
-      try { await staticPage.goto(`http://127.0.0.1:${typeof socket === "object" && socket ? socket.port : 0}/nested/index.html`); await play(staticPage, "static"); }
+      try { await test.step("Play and restore the static world", async () => { await staticPage.goto(`http://127.0.0.1:${typeof socket === "object" && socket ? socket.port : 0}/nested/index.html`); await play(staticPage, "static"); }); }
       finally { await context.close(); await new Promise<void>((resolve) => staticServer.close(() => resolve())); }
     } finally { await request.dispose(); }
   } finally {
