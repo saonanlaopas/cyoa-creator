@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { NativePreviewStopSchema, PlaytestExclusionSchema, previewWorldSuppressions, type NativeWorld } from "@story-to-cyoa/runtime";
+import { NativePreviewStopSchema, PlaytestExclusionSchema, previewWorldSuppressions, worldStartPassageId, type NativeWorld } from "@story-to-cyoa/runtime";
 import { BoundedPlaytestReviewSchema, hasBoundedPath, projectBoundedWorld } from "./bounded-world-playtest.js";
 import type { ChoicePlan, PassagePlan } from "./schemas/passage-plan.js";
 
@@ -48,8 +48,9 @@ export function inspectNativePreviewBoundary(selection: NativePreviewSelection, 
   }
   const suppressedWorldCommands = previewWorldSuppressions(projection?.world ?? world);
   if (world) {
-    const worldStart = world.locations.find(location => location.id === world.startLocationId)?.passageId;
-    if (worldStart !== startPassageId) block("world start", world.startLocationId, worldStart ?? startPassageId, "Use the canonical World start passage for this preview.");
+    const worldStart = worldStartPassageId(world);
+    if (worldStart !== startPassageId) block("world start", world.startLocationId, worldStart,
+      world.introductionPassageId ? "Use the canonical World opening passage for this preview." : "Use the canonical World start passage for this preview.");
     if (!bounded) {
       for (const location of world.locations) if (location.passageId) edge("world location", location.id, location.passageId);
       for (const action of suppressedWorldCommands) if ("destinationPassageId" in action && action.destinationPassageId) {
@@ -57,8 +58,8 @@ export function inspectNativePreviewBoundary(selection: NativePreviewSelection, 
       }
     }
   }
-  if (projection) {
-    if (!blockers.length && !hasBoundedPath(projection.world, retained, byId, startPassageId, stopPassageId)) {
+  if (projection || world?.introductionPassageId) {
+    if (!blockers.length && !hasBoundedPath(projection?.world ?? world!, retained, byId, startPassageId, stopPassageId)) {
       block("stop", stopPassageId, stopPassageId, "The preview stop has no structural path from the start.");
     }
   } else {

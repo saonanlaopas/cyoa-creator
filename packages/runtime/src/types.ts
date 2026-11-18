@@ -46,6 +46,7 @@ export interface RuntimeCompileSource {
   passageVersions: Array<{
     versionId: string;
     id: string;
+    interactionMode?: "world-location" | "decisions";
     choiceIds: string[];
     terminal: boolean;
     endingId: string | null;

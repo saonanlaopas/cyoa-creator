@@ -4,6 +4,8 @@ import type { StoryDatabase } from "./database.js";
 
 export function validateWorld(database: StoryDatabase, projectId: string, value: unknown, historical = false) {
   const world = WorldDefinitionSchema.parse(value);
+  if (world.introduction && !database.prepare("SELECT 1 FROM passage_entity_versions WHERE project_id=? AND id=? AND entity_kind='passage' AND entity_id=?")
+    .get(projectId, world.introduction.versionId, world.introduction.passageId)) throw new Error("world_introduction_lineage_invalid");
   if (world.progression) NativeProgressionSchema.parse(projectWorldProgression(world.progression));
   if (world.people) validatePeopleReferences(projectWorldPeople(world.people), world.progression ? projectWorldProgression(world.progression) : undefined, world.locations.map((l) => ({ id: l.id, passageId: l.passage?.passageId ?? null })));
   const progression = world.progression ? projectWorldProgression(world.progression) : undefined, people = world.people ? projectWorldPeople(world.people) : undefined;

@@ -43,3 +43,4 @@ export * from "./stages/draft-passages.js";
 export * from "./stages/propose-change.js";
 export * from "./project-setup.js";
 export * from "./source-analysis.js";
+export * from "./player-flow-diagnostics.js";

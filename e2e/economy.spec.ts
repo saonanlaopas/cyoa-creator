@@ -101,18 +101,23 @@ test("W4 authors trade with stale edits and safe retries, then plays atomic inve
         await expect(clock).toHaveText("Day 1 · 23:50"); await show("Shops here"); await expect(buy()).toBeDisabled(); await expect(trade.getByText("Shop is closed during this purchase").first()).toBeVisible();
         await show("Inventory"); await expect(trade.getByText("Tea × 1", { exact: true })).toBeVisible(); await show("Give a gift"); await expect(gift()).toBeEnabled(); await expect(clock).toHaveText("Day 1 · 23:50");
         await wait(5); await show("Shops here"); await buy().click(); await player.getByRole("button", { name: "Cancel", exact: true }).click(); await expect(clock).toHaveText("Day 1 · 23:55"); await expect(trade).toContainText("Coins: 20");
-        for (let n = 0; n < 3; n++) await confirm(buy());
+        for (let n = 0; n < 3; n++) {
+          await confirm(buy());
+          await expect(trade).toHaveCount(0);
+          await show("Shops here");
+        }
         await expect(clock).toHaveText("Day 2 · 00:01"); await expect(trade).toContainText("Coins: 8"); await expect(buy()).toBeDisabled(); await expect(trade.getByText("Out of stock", { exact: true })).toBeVisible();
         await expect(trade.getByRole("button", { name: "Buy 1 Ticket · 30 Coins · 0 min", exact: true })).toBeDisabled();
         expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); await player.screenshot({ path: info.outputPath(`w4-${surface}-stock-${width}.png`), fullPage: true });
-        await show("Give a gift"); await confirm(gift()); await expect(gift()).toBeDisabled(); await expect(trade.getByText("Already completed today", { exact: true })).toBeVisible();
+        await show("Give a gift"); await confirm(gift()); await show("Give a gift"); await expect(gift()).toBeDisabled(); await expect(trade.getByText("Already completed today", { exact: true })).toBeVisible();
         await player.screenshot({ path: info.outputPath(`w4-${surface}-gift-limit-${width}.png`), fullPage: true });
-        await show("Inventory"); await confirm(use()); await expect(use()).toBeDisabled();
+        await show("Inventory"); await confirm(use()); await show("Inventory"); await expect(use()).toBeDisabled();
         await show("Explore"); await confirm(panel.getByRole("button", { name: /^Discuss the ledger · 0 min/ })); await show("History"); await expect(panel).toContainText("Milestones: Signal clue");
-        await wait(5); await show("Inventory"); await confirm(use()); await expect(clock).toHaveText("Day 2 · 00:09"); await expect(trade).toContainText("Coins: 15"); await expect(trade.getByText("Tea × 1", { exact: true })).toBeVisible();
+        await wait(5); await show("Inventory"); await confirm(use()); await expect(clock).toHaveText("Day 2 · 00:09"); await show("Inventory"); await expect(trade).toContainText("Coins: 15"); await expect(trade.getByText("Tea × 1", { exact: true })).toBeVisible();
         await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.state);
         await player.screenshot({ path: info.outputPath(`w4-${surface}-inventory-${width}.png`), fullPage: true });
         await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name").fill("After trade"); await player.getByRole("button", { name: "Create save", exact: true }).click();
+        await expect(player.getByRole("status").filter({ hasText: /^Saved “After trade”\.$/ })).toBeVisible();
         await player.reload(); await expect(clock).toHaveText("Day 2 · 00:09"); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.state);
         const finish = async () => { await wait(15); await wait(5); await show("Shops here"); await expect(trade.getByRole("button", { name: "Buy 1 Ticket · 0 Coins · 2 min", exact: true })).toBeDisabled(); await expect(clock).toHaveText("Day 2 · 00:29"); await expect(trade.getByText("Shop is closed during this purchase", { exact: true })).toBeVisible(); await wait(5); await wait(1440); await show("Give a gift"); await expect(gift()).toBeEnabled(); await confirm(gift()); };
         await finish(); await expect(clock).toHaveText("Day 3 · 00:35"); await expect.poll(async () => (await readSave(player))?.state).toEqual(final.state);

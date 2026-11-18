@@ -16,7 +16,7 @@ export const WorldStateSchema = z.object({ schemaVersion: z.literal(1), location
 const NativeWorldBaseSchema = z.object({
   schemaId: z.literal("cyoa.native-world"), schemaVersion: z.literal(1),
   progression: NativeProgressionSchema.optional(), people: NativePeopleSchema.optional(), economy: NativeEconomySchema.optional(), journal: NativeJournalSchema.optional(),
-  startLocationId: id, initialMinutes: z.number().int().min(0).max(52_560_000),
+  startLocationId: id, introductionPassageId: id.optional(), initialMinutes: z.number().int().min(0).max(52_560_000),
   waitMinutes: z.array(z.number().int().min(1).max(1440)).max(6),
   locations: z.array(z.object({ id, name: label, parentId: id.nullable(), passageId: id.nullable(), mapImage: id.nullable(),
     marker: z.object({ x: z.number().min(0).max(100), y: z.number().min(0).max(100) }).strict().nullable(),
@@ -34,6 +34,8 @@ export const NativeProjectedWorldSchema = NativeWorldBaseSchema.superRefine((wor
   const locations = new Map(world.locations.map((l) => [l.id, l]));
   for (const list of [world.locations, world.connections, world.actions, world.assets]) if (new Set(list.map((x) => x.id)).size !== list.length) fail();
   const passages = world.locations.flatMap((l) => l.passageId ? [l.passageId] : []);
+  if (world.introductionPassageId && (passages.includes(world.introductionPassageId)
+    || [...(world.progression?.events ?? []), ...(world.progression?.transitions ?? [])].some(item => item.passageId === world.introductionPassageId))) fail();
   if (new Set(passages).size !== passages.length || new Set(world.waitMinutes).size !== world.waitMinutes.length || !locations.get(world.startLocationId)?.passageId) fail();
   const used = new Set<string>();
   for (const l of world.locations) {
@@ -54,6 +56,17 @@ export const NativeWorldSchema = NativeProjectedWorldSchema.superRefine((world, 
   if (!world.waitMinutes.length) ctx.addIssue({ code: "custom", message: "world_wait_required" });
 });
 export type NativeWorld = z.infer<typeof NativeWorldSchema>;
+export function worldStartPassageId(world: NativeWorld): string {
+  return world.introductionPassageId ?? world.locations.find(location => location.id === world.startLocationId)!.passageId!;
+}
+
+export function worldHubHasExit(world: NativeWorld, passageId: string): boolean {
+  const location = world.locations.find(item => item.passageId === passageId);
+  return Boolean(location && (world.connections.some(item => item.from === location.id)
+    || [...(world.progression?.events ?? []), ...(world.progression?.transitions ?? [])].some(item =>
+      item.passageId && item.passageId !== passageId && !item.prerequisites.some(condition =>
+        condition.kind === "location" && (condition.present !== (condition.locationId === location.id))))));
+}
 export type WorldCommand = EconomyCommand | ProgressionCommand | { kind: "travel"; id: string } | { kind: "action"; id: string } | { kind: "wait"; minutes: number };
 export function initialWorldState(world: NativeWorld): NonNullable<RuntimeState["world"]> {
   const state: NonNullable<RuntimeState["world"]> = { schemaVersion: 1, locationId: world.startLocationId, minutes: world.initialMinutes, ...(world.journal ? { journal: initialJournalState() } : {}), ...(world.progression ? { progression: initialProgressionState(world.progression) } : {}), ...(world.economy ? { economy: initialEconomyState(world.economy) } : {}), ...(world.people ? { people: { schemaVersion: 1 as const, knownCharacterIds: [] } } : {}) };

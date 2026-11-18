@@ -1,7 +1,7 @@
 import { assertWorldActionAllowed, mandatoryEventStatus, revealProgressionEvents } from "./progression.js";
 import { z } from "zod";
 import { IllustratedPresentationSchema } from "./illustrated-scenes.js";
-import { NativeProjectedWorldSchema, WorldStateSchema, initialWorldState } from "./world.js";
+import { NativeProjectedWorldSchema, WorldStateSchema, initialWorldState, worldHubHasExit, worldStartPassageId } from "./world.js";
 import { canonical, serializedBytes, stableFingerprint } from "./canonical.js";
 import { compiledRuntimeFingerprint } from "./compile.js";
 import {
@@ -95,6 +95,7 @@ const MechanicSchema = z.discriminatedUnion("category", [
 const PassageSchema = z.object({
   id: StableId,
   proseMarkdown: z.string(),
+  interactionMode: z.enum(["world-location", "decisions"]).optional(),
   choiceIds: z.array(StableId).max(100),
   terminal: z.boolean(),
   endingId: StableId.nullable(),
@@ -346,11 +347,14 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
     const world = bundle.world;
     if (world.journal && (world.journal.mechanics.length !== bundle.mechanics.filter((m) => m.category === "stat" || m.category === "relationship").length || world.journal.mechanics.some((r) => !bundle.mechanics.some((d) => d.category === r.category && d.key === r.key && (d.minimum ?? -1_000_000_000) === r.minimum && (d.maximum ?? 1_000_000_000) === r.maximum && d.initial === r.initial)))) findings.push({ code: "journal.mechanic-bindings-invalid", message: "Journal mechanics must match exact canonical definitions" });
     if (world.economy && (world.economy.relationships.length !== bundle.mechanics.filter((m) => m.category === "relationship").length || world.economy.relationships.some((r) => !bundle.mechanics.some((d) => d.category === "relationship" && d.key === r.key && (d.minimum ?? -1_000_000_000) === r.minimum && (d.maximum ?? 1_000_000_000) === r.maximum && d.initial === r.initial)))) findings.push({ code: "economy.relationship-bindings-invalid", message: "Economy relationship bounds must match canonical mechanics" });
-    if (world.locations.find((l) => l.id === world.startLocationId)?.passageId !== bundle.startPassageId
+    if (worldStartPassageId(world) !== bundle.startPassageId
       || world.locations.some((l) => l.passageId && !bundle.passages.some((p) => p.id === l.passageId))
       || [...(world.progression?.events ?? []), ...(world.progression?.transitions ?? [])].some((item) => item.passageId && !bundle.passages.some((p) => p.id === item.passageId))) {
-      findings.push({ code: "world.passage-invalid", message: "World locations require existing passages and a matching start passage" });
+      findings.push({ code: "world.passage-invalid", message: "World locations require existing passages and an opening matching the game start" });
     }
+    if (world.introductionPassageId && (bundle.passages.find(p => p.id === world.introductionPassageId)?.terminal
+      || bundle.choices.some(choice => choice.destinationPassageId === world.introductionPassageId)))
+      findings.push({ code: "world.introduction-reentry", message: "The World introduction cannot be an ending or a choice destination" });
   }
   if (bundle.illustratedPresentation) {
     const { assets, scenes } = bundle.illustratedPresentation;
@@ -417,7 +421,12 @@ export function validateNativeGameBundle(value: unknown): NativeGameBundle {
     if (!passage.terminal && passage.endingId !== null) add({
       code: "native.bundle.nonterminal-ending", message: `Nonterminal passage ${passage.id} references an ending`, passageId: passage.id,
     });
-    if (!passage.terminal && !passage.choiceIds.length && passage.id !== bundle.preview?.stopPassageId && !boundedChoiceSources.has(passage.id)) add({
+    const mappedHub = passage.interactionMode === "world-location" && bundle.world?.locations.some(item => item.passageId === passage.id);
+    if (passage.interactionMode === "world-location" && (!mappedHub || passage.terminal)) add({
+      code: "world.hub-binding-invalid", message: "A World location passage must be nonterminal and mapped to a location", passageId: passage.id,
+    });
+    if (!passage.terminal && !passage.choiceIds.length && passage.id !== bundle.preview?.stopPassageId && !boundedChoiceSources.has(passage.id)
+      && !(mappedHub && (bundle.preview?.playtest || worldHubHasExit(bundle.world!, passage.id)))) add({
       code: "native.bundle.dead-end", message: `Nonterminal passage ${passage.id} has no choices`, passageId: passage.id,
     });
     passage.choiceIds.forEach((choiceId) => {

@@ -20,6 +20,7 @@ export interface SequencePlan {
 }
 export interface PassagePlan {
   id: string; sequenceId: string; title: string; kind: "scene" | "transition" | "hub" | "climax" | "epilogue";
+  interactionMode?: "world-location" | "decisions";
   purpose: string; summary: string; wordTarget: number; routeIds: string[]; tags: string[];
   characterIds: string[]; relationshipIds: string[]; locationIds: string[];
   requiredFactIds: string[]; revealedFactIds: string[]; setupThreadIds: string[];

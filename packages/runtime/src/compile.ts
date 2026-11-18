@@ -145,10 +145,11 @@ export function compileRuntime(source: RuntimeCompileSource, options: { previewS
         position: choice.position,
       }];
     }));
+  const worldHubs = new Set(source.passageVersions.filter(passage => passage.interactionMode === "world-location").map(passage => passage.id));
   for (const passage of Object.values(passages)) {
     if (passage.terminal && passage.choiceIds.length) add({ code: "runtime.terminal.outgoing", message: `Terminal passage ${passage.id} has outgoing choices`, passageId: passage.id });
     if (passage.terminal && (!passage.endingId || !endingIds.has(passage.endingId))) add({ code: "runtime.terminal.ending-invalid", message: `Terminal passage ${passage.id} has no valid ending`, passageId: passage.id, endingId: passage.endingId ?? undefined });
-    if (!passage.terminal && !passage.choiceIds.length && passage.id !== options.previewStopPassageId && !options.previewChoiceSources?.has(passage.id)) add({ code: "runtime.passage.dead-end", message: `Nonterminal passage ${passage.id} has no choices`, passageId: passage.id });
+    if (!passage.terminal && !passage.choiceIds.length && !worldHubs.has(passage.id) && passage.id !== options.previewStopPassageId && !options.previewChoiceSources?.has(passage.id)) add({ code: "runtime.passage.dead-end", message: `Nonterminal passage ${passage.id} has no choices`, passageId: passage.id });
     for (const routeId of passage.routeIds) if (!routeIds.has(routeId)) add({ code: "runtime.passage.route-missing", message: `Passage ${passage.id} references unknown route ${routeId}`, passageId: passage.id });
     for (const choiceId of passage.choiceIds) if (!choices[choiceId] || choices[choiceId].sourcePassageId !== passage.id) add({ code: "runtime.passage.choice-invalid", message: `Passage ${passage.id} has invalid choice ${choiceId}`, passageId: passage.id, choiceId });
   }

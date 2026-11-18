@@ -320,6 +320,10 @@ export function assertNativeRuntimeState(game: LoadedNativeGame, value: unknown)
   }
   const mappedLocation = game.bundle.world?.locations.find((l) => l.passageId === state.currentPassageId);
   if (mappedLocation && mappedLocation.id !== state.world?.locationId) throw new NativePlayerError("save_state_invalid", "Passage and world location disagree");
+  const introduction = game.bundle.world?.introductionPassageId;
+  if (introduction && (state.visitCounts[introduction] !== 1
+    || state.currentPassageId === introduction && state.world?.locationId !== game.bundle.world!.startLocationId))
+    throw new NativePlayerError("save_state_invalid", "One-time introduction and World location disagree");
   if (!game.passages.has(state.currentPassageId)) {
     throw new NativePlayerError("save_state_invalid", `Runtime state references missing passage ${state.currentPassageId}`);
   }

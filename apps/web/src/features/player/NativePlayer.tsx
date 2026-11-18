@@ -147,7 +147,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
     setWorldView(view);
     setRecoveryRequired(false);
     setError(null);
-    requestAnimationFrame(() => (outcome ? outcomeRef.current ?? headingRef.current : headingRef.current)?.focus());
+    requestAnimationFrame(() => (outcome?.focused ? outcomeRef.current ?? headingRef.current : headingRef.current)?.focus());
     try {
       await persistAutosave(installation, next);
       setMessage(installation.config.autosaveEnabled ? success : "Progress updated. Autosave is disabled.");
@@ -286,7 +286,10 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
   const blocked = busy || recoveryRequired, ended = view.previewStopped || Boolean(view.terminal.result);
   const hasDecisions = view.choices.length > 0 || visiblePlaytestRestrictions(installation.bundle.preview, session.state, true).length > 0;
   const pending = world ? mandatoryEventStatus(world, session.state) : null;
-  const naturalView = world?.locations.some(location => location.passageId === view.passage.id) || !hasDecisions ? "explore" : "decisions";
+  const prefersLocation = view.passage.interactionMode
+    ? view.passage.interactionMode === "world-location"
+    : world?.locations.some(location => location.passageId === view.passage.id);
+  const naturalView = !hasDecisions || prefersLocation ? "explore" : "decisions";
   const activeView = worldView ?? naturalView;
   const worldMode = activeView === "decisions" && (ended || !hasDecisions || pending?.eventId || pending?.conflict) ? "explore" : activeView;
   const secondaryView = Boolean(world && !isPrimaryWorldView(worldMode));
@@ -306,7 +309,9 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
     try {
       const next = actNativePlayerWorld(installation.bundle, installation.config, session, command, fingerprint);
       setWorldAction(null);
-      const destinationView = next.enteredPassage ? (command.kind === "event" || command.kind === "chapter-transition" ? "decisions" : null) : worldMode;
+      const destinationMode = installation.bundle.passages.find(passage => passage.id === next.session.state.currentPassageId)?.interactionMode;
+      const defaultsToDecisions = !destinationMode && (command.kind === "event" || command.kind === "chapter-transition");
+      const destinationView = next.enteredPassage ? (defaultsToDecisions ? "decisions" : null) : worldMode;
       await commitSession(next.session, "Progress autosaved.", { text: next.message, focused: !next.enteredPassage, kind: "world" }, destinationView);
     } catch (e) {
       setWorldAction(old => old ? { ...old, check: { ready: false, message: worldActionErrorMessage(e) } } : old);
@@ -331,11 +336,13 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
         <header>
           {installation.bundle.preview && <p className="eyebrow">{installation.bundle.preview.playtest ? "Bounded playtest" : "Partial preview"}</p>}
           <p className="eyebrow">{view.terminal.result ? "Ending" : `Turn ${session.state.turn + 1}`}</p>
-          <h1 ref={headingRef} tabIndex={-1}>{view.passage.presentation.title}</h1>
+          {!focusedOutcome && <h1 ref={headingRef} tabIndex={-1}>{view.passage.presentation.title}</h1>}
           {world && <PlayerWorldHeader world={world} state={session.state} />}
         </header>
         {actionOutcome && (!secondaryView || focusedOutcome || ended) && <div className="player-result native-player-prose">
-          <h2 ref={outcomeRef} tabIndex={-1}>{actionOutcome.kind === "choice" ? "Choice result" : "Action result"}</h2>
+          {focusedOutcome
+            ? <h1 ref={outcomeRef} tabIndex={-1}>{actionOutcome.kind === "choice" ? "Choice result" : "Action result"}</h1>
+            : <h2>{actionOutcome.kind === "choice" ? "Choice result" : "Action result"}</h2>}
           <section aria-label="Action outcome" aria-live="polite">{paragraphs(actionOutcome.text).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</section>
         </div>}
         {!focusedOutcome && !secondaryView && installation.bundle.illustratedPresentation && <IllustratedScene presentation={installation.bundle.illustratedPresentation} passageId={view.passage.id} />}
@@ -354,7 +361,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
         {view.previewStopped && <p className="native-player-ending" role="status">Preview boundary reached.</p>}
         {focusedOutcome ? <button aria-label="Continue after result" onClick={() => {
           setActionOutcome(null);
-          if (pending?.eventId || pending?.conflict) setWorldView("explore");
+          if (world && (actionOutcome?.kind === "world" || pending?.eventId || pending?.conflict)) setWorldView("explore");
           focusPassage();
         }}>Continue</button> : world ? <PlayerWorldViews world={world} state={session.state} view={worldMode} select={setWorldView}
           disabled={blocked || ended} preview={ended ? undefined : installation.bundle.preview} ended={ended}
@@ -362,12 +369,12 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
       </article>
 
       <aside className="native-player-sidebar" aria-label="Game status and saves">
-        {!installation.bundle.world?.journal && view.visibleState.length > 0 && <section className="native-player-state">
-          <h2>Status</h2>
+        {!installation.bundle.world?.journal && view.visibleState.length > 0 && <details className="native-player-state">
+          <summary>Status</summary>
           <dl>{view.visibleState.map((item) => <div key={item.key}>
             <dt>{item.label}</dt><dd>{item.value}{item.bandLabel ? ` · ${item.bandLabel}` : ""}</dd>
           </div>)}</dl>
-        </section>}
+        </details>}
         <section className="native-player-controls" aria-label="Game controls">
           <h2>Game</h2>
           {installation.config.rewindPolicy.kind !== "disabled"

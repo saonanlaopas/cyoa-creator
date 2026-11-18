@@ -1,6 +1,7 @@
 import { peopleDiagnostics, progressionDiagnostics } from "@story-to-cyoa/runtime";
 import { resolveIllustrations } from "./illustrated-scene-service.js";
 import { resolveWorld, worldReference } from "./world-service.js";
+import { playerFlowDiagnostics } from "@story-to-cyoa/pipeline";
 import {
   LongFormEndingPlanSchema,
   LongFormMechanicsPlanSchema,
@@ -699,14 +700,16 @@ export class NativeCompilationService {
       }
     }
 
-    let previewWorld: ResolvedNativeCompilationInput["world"];
+    let world: ResolvedNativeCompilationInput["world"];
     let previewBoundary: ReturnType<typeof inspectNativePreviewBoundary> | undefined;
     const selectedIds = new Set(selection?.passageIds);
     const draftPassages = selection ? passages.filter(passage => selectedIds.has(passage.id)) : passages;
+    try { world = resolveWorld(this.artifacts, projectId, entityReferences(passageVersions)); }
+    catch (error) { blocker("publication.world-invalid", (error as Error).message, "project", projectId); }
+    for (const finding of playerFlowDiagnostics(passages, choices, world?.presentation ?? undefined))
+      warningDiagnostics.push(diagnostic(finding.code, "warning", finding.message, "choice", finding.entityId));
     if (selection) {
-      try { previewWorld = resolveWorld(this.artifacts, projectId, entityReferences(passageVersions)); }
-      catch (error) { blocker("publication.world-invalid", (error as Error).message, "project", projectId); }
-      previewBoundary = inspectNativePreviewBoundary(selection, passages, choices, previewWorld?.presentation ?? undefined);
+      previewBoundary = inspectNativePreviewBoundary(selection, passages, choices, world?.presentation ?? undefined);
       for (const finding of previewBoundary.blockers) blocker("preview.boundary-invalid", finding.message, finding.source, finding.id);
     }
     const boundary = previewBoundary?.boundary;
@@ -825,11 +828,6 @@ export class NativeCompilationService {
         },
       };
       let illustrations: ResolvedNativeCompilationInput["illustrations"];
-      let world = previewWorld;
-      if (!selection) {
-        try { world = resolveWorld(this.artifacts, projectId, identity.passages); }
-        catch (error) { blocker("publication.world-invalid", (error as Error).message, "project", projectId); }
-      }
       const playableWorld = previewBoundary?.projection?.world ?? world?.presentation;
       if (playableWorld?.progression) for (const finding of progressionDiagnostics(playableWorld.progression, playableWorld.initialMinutes, playableWorld.economy)) warningDiagnostics.push(diagnostic(finding.code, "warning", `${finding.message} Limited static analysis; not exhaustive.`, "world-progression", finding.entityId));
       if (playableWorld?.people) for (const finding of peopleDiagnostics(playableWorld.people, playableWorld.progression)) warningDiagnostics.push(diagnostic(finding.code, "warning", finding.message, "world-people", finding.entityId));

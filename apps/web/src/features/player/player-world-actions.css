@@ -5,7 +5,7 @@
 .player-secondary { display: grid; gap: .75rem; min-width: 0; }
 .player-secondary select { max-width: 100%; }
 .player-result { border-inline-start: 3px solid #75ad9d; background: #182426; padding: .65rem .9rem; margin-block: .75rem; }
-.player-result h2 { font-size: 1.1rem; margin: .35rem 0; }
+.player-result :is(h1, h2) { font-size: 1.1rem; margin: .35rem 0; }
 .world-map-schematic { color: #b4d7cc; background: #17262c; }
 .world-map-schematic svg { position: absolute; width: 100%; height: 100%; }
 .world-map-schematic polyline { fill: none; stroke: currentColor; stroke-width: .35; opacity: .8; }

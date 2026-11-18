@@ -425,7 +425,7 @@ export function validatePassagePlan(input: {
       message: "Terminal passage is not linked to an approved ending.", evidence: [],
       suggestion: "Link an approved ending or clear terminal status.",
     });
-    if (!passage.terminal && passage.choiceIds.length === 0) add({
+    if (!passage.terminal && passage.choiceIds.length === 0 && passage.interactionMode !== "world-location") add({
       code: "graph.dead-end.accidental", severity: "error", entityType: "passage", entityId: passage.id,
       message: "Nonterminal passage has no outgoing choice.", evidence: [], suggestion: "Add a choice or mark it terminal.",
     });
@@ -489,7 +489,8 @@ export function validatePassagePlan(input: {
   const reached = reachable(bundle.structure.startPassageId, outgoing);
   bundle.passages.filter((passage) => !reached.has(passage.id)).forEach((passage) => add({
     code: "graph.passage.unreachable", severity: "warning", entityType: "passage", entityId: passage.id,
-    message: "Passage is unreachable from the selected start under structural analysis.", evidence: [], suggestion: "Add an incoming choice or remove it.",
+    message: passage.interactionMode === "world-location" ? "This World location is not reachable by passage choices alone." : "Passage is unreachable from the selected start under structural analysis.",
+    evidence: [], suggestion: passage.interactionMode === "world-location" ? "Review the World routes that enter this location." : "Add an incoming choice or remove it.",
   }));
   stronglyConnected(bundle.passages, outgoing).filter((component) =>
     component.length > 1 || (outgoing.get(component[0]!) ?? []).some((choice) => choice.destinationPassageId === component[0]))

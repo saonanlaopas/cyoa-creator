@@ -101,7 +101,8 @@ test("W6 authors, reviews and publishes the complete visual game, restores and d
           await expect(player.getByRole("region", { name: "People present", exact: true })).toContainText("No one encountered"); await show("Give a gift"); await expect(views.getByText("No authored gifts for anyone here.", { exact: true })).toBeVisible();
           await show("Shops here"); expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
           if (variant.mode === "chapter-led" && variant.surface === "standalone" && width === 1280) await player.screenshot({ path: info.outputPath("w6-chapter-led-standalone-1280-shop.png"), fullPage: true });
-          await confirm(views.getByRole("button", { name: "Buy 1 Tea · 3 Coins · 2 min", exact: true })); await expect(views.getByText("Out of stock", { exact: true })).toBeVisible();
+          await confirm(views.getByRole("button", { name: "Buy 1 Tea · 3 Coins · 2 min", exact: true }));
+          await show("Shops here"); await expect(views.getByText("Out of stock", { exact: true })).toBeVisible();
           await show("Explore"); await confirm(views.getByRole("button", { name: "Wait 5 min", exact: true })); await expect(player.getByRole("region", { name: "People present", exact: true })).toContainText("Mara");
           await show("Give a gift"); expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
           if (variant.mode === "chapter-free" && variant.surface === "static" && width === 390) await player.screenshot({ path: info.outputPath("w6-chapter-free-static-390-gift.png"), fullPage: true });

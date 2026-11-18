@@ -677,6 +677,10 @@ function PassageEditor(props: {
     <div className="passage-reference-grid">
       <Lines label="Route IDs" values={props.passage.routeIds} onChange={(value) => update("routeIds", value)} />
       <Lines label="Tags" values={props.passage.tags} onChange={(value) => update("tags", value)} />
+      <label>Player interaction<select value={props.passage.interactionMode ?? ""} onChange={event => {
+        const value = event.target.value;
+        update("interactionMode", value === "world-location" || value === "decisions" ? value : undefined);
+      }}><option value="">Default</option><option value="world-location">World location</option><option value="decisions">Authored responses</option></select></label>
       <Lines label="Character IDs" values={props.passage.characterIds} onChange={(value) => update("characterIds", value)} />
       <Lines label="Relationship IDs" values={props.passage.relationshipIds} onChange={(value) => update("relationshipIds", value)} />
       <Lines label="Location IDs" values={props.passage.locationIds} onChange={(value) => update("locationIds", value)} />

@@ -16,7 +16,7 @@ import {
   IllustratedPresentationSchema,
   type IllustratedPresentation,
   type NativeGameBundle,
-  NativeWorldSchema, type NativeWorld, initialWorldState, projectWorldJournal, projectWorldProgression, projectWorldPeople, projectWorldEconomy,
+  NativeWorldSchema, type NativeWorld, initialWorldState, projectWorldJournal, projectWorldProgression, projectWorldPeople, projectWorldEconomy, worldHubHasExit, worldStartPassageId,
   type RuntimeMechanicDefinition,
   type RuntimeCompileSource,
 } from "@story-to-cyoa/runtime";
@@ -249,6 +249,7 @@ export function compileNativeGame(input: ResolvedNativeCompilationInput): Native
       const draft = draftByPassage.get(passage.id)!;
       return {
         ...passage,
+        ...(authoring.content.interactionMode ? { interactionMode: authoring.content.interactionMode } : {}),
         proseMarkdown: draft.proseMarkdown,
         presentation: { title: authoring.content.title },
         source: {
@@ -314,12 +315,28 @@ export function assertResolvedNativeCompilationInput(
         || stableFingerprint(world.presentation === null ? null : NativeWorldSchema.parse(world.presentation)) !== exact.world.presentationFingerprint
         || Boolean(world.presentation) !== world.content.enabled) throw new Error("native_world_lineage_invalid");
       for (const l of [...world.content.locations, ...(world.content.progression?.events ?? []), ...(world.content.progression?.transitions ?? [])]) if (l.passage && !exact.passages.some((p) => p.entityId === l.passage!.passageId && p.versionId === l.passage!.versionId)) throw new Error("native_world_passage_stale");
+      if (world.content.introduction) {
+        const ref = world.content.introduction;
+        const opening = resolved.passages.find(p => p.content.id === ref.passageId && p.versionId === ref.versionId);
+        if (!opening || opening.content.id !== resolved.structure.content.startPassageId) throw new Error("world_introduction_stale_reload_and_review");
+        if (opening.content.terminal || resolved.choices.some(choice => choice.content.destinationPassageId === ref.passageId))
+          throw new Error("world_introduction_cannot_be_an_ending_or_choice_destination");
+      }
       if (world.presentation) {
+        if (worldStartPassageId(world.presentation) !== resolved.structure.content.startPassageId) throw new Error("world_start_passage_must_match_game");
         const expectedLocations = world.content.locations.map(({ passage, mapImage, ...l }) => ({ ...l, passageId: passage?.passageId ?? null, mapImage: mapImage?.versionId ?? null }));
         if (stableFingerprint({ ...world.presentation, assets: [] }) !== stableFingerprint({ schemaId: "cyoa.native-world", schemaVersion: 1,
           startLocationId: world.content.startLocationId, initialMinutes: world.content.initialMinutes, waitMinutes: world.content.waitMinutes,
+          ...(world.content.introduction ? { introductionPassageId: world.content.introduction.passageId } : {}),
           ...(world.content.journal ? { journal: projectWorldJournal(world.content.journal, LongFormMechanicsPlanSchema.parse(resolved.upstreamArtifacts.find((a) => a.artifactId === "mechanics")!.content)) } : {}), locations: expectedLocations, connections: world.content.connections, actions: world.content.actions, assets: [], ...(world.content.economy ? { economy: projectWorldEconomy(world.content.economy, LongFormMechanicsPlanSchema.parse(resolved.upstreamArtifacts.find((a) => a.artifactId === "mechanics")!.content).relationships) } : {}), ...(world.content.progression ? { progression: projectWorldProgression(world.content.progression) } : {}), ...(world.content.people ? { people: projectWorldPeople(world.content.people) } : {}) })) throw new Error("native_world_projection_invalid");
       }
+    }
+    for (const { content: passage } of resolved.passages) {
+      if (passage.interactionMode !== "world-location") continue;
+      const world = resolved.world?.presentation;
+      if (passage.terminal || !world?.locations.some(location => location.passageId === passage.id)
+        || !passage.choiceIds.length && !worldHubHasExit(world, passage.id))
+        throw new Error(`World location passage ${passage.id} requires a nonterminal location binding and a choice or World exit.`);
     }
     if (Boolean(exact.illustrations) !== Boolean(resolved.illustrations)) throw new Error("native_illustration_lineage_invalid");
     if (exact.illustrations && resolved.illustrations) {

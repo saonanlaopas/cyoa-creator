@@ -16,6 +16,7 @@ type Review = { fingerprint: string; world: WorldDefinition; previous: WorldDefi
 export function WorldWorkspace({ projectId }: { projectId: string }) {
   const [world, setWorld] = useState<WorldDefinition | null>(null), [review, setReview] = useState<Review | null>(null);
   const [passages, setPassages] = useState<PassagePlanState["passages"]>([]), [assets, setAssets] = useState<AssetList["items"]>([]);
+  const [gameStartId, setGameStartId] = useState<string | null>(null);
   const [statOptions, setStatOptions] = useState<CharacterOption[]>([]);
   const [relationshipOptions, setRelationshipOptions] = useState<Array<{ key: string; label: string; minimum: number; maximum: number; initial: number }>>([]);
   const [images, setImages] = useState<Record<string, AssetDetail["selected"]>>({});
@@ -28,7 +29,7 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
       const result = await call<{ world: WorldDefinition; relationshipOptions?: typeof relationshipOptions; statOptions?: CharacterOption[] }>("read_world", {}), plan = await loadPassagePlan(projectId);
       const images: AssetList["items"] = [];
       for (let offset = 0; ; offset += 25) { const page = await assetRequest<AssetList>(`${assetPath(projectId)}?offset=${offset}`); images.push(...page.items); if (offset + 25 >= page.total) break; }
-      if (generation.current === n) { setWorld(result.world); setRelationshipOptions(result.relationshipOptions ?? []); setStatOptions(result.statOptions ?? []); setPassages(plan.passages); setAssets(images); }
+      if (generation.current === n) { setWorld(result.world); setRelationshipOptions(result.relationshipOptions ?? []); setStatOptions(result.statOptions ?? []); setPassages(plan.passages); setGameStartId(plan.structure?.content.startPassageId ?? null); setAssets(images); }
     } catch (e) { if (generation.current === n) setError(String(e)); }
     finally { if (generation.current === n) setBusy(false); }
   };
@@ -62,6 +63,7 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
   const numeric = (value: number, change: (n: number) => void, max = 1440, min = 0) => <input type="number" min={min} max={max} step={1} value={value} onChange={(e) => change(Number(e.target.value))} />;
   const projection: NativeWorld | null = world.enabled && WorldDefinitionSchema.safeParse(world).success ? {
     schemaId: "cyoa.native-world", schemaVersion: 1, startLocationId: world.startLocationId!, initialMinutes: world.initialMinutes, waitMinutes: world.waitMinutes,
+    ...(world.introduction ? { introductionPassageId: world.introduction.passageId } : {}),
     locations: world.locations.map(({ passage, mapImage, ...l }) => ({ ...l, passageId: passage?.passageId ?? null, mapImage: mapImage?.versionId ?? null })),
     connections: world.connections, actions: world.actions, ...(world.journal ? { journal: projectWorldJournal(world.journal, { visibleStats: statOptions, relationships: relationshipOptions }) } : {}), ...(world.economy ? { economy: projectWorldEconomy(world.economy, relationshipOptions) } : {}), ...(world.progression ? { progression: projectWorldProgression(world.progression) } : {}), ...(world.people ? { people: projectWorldPeople(world.people) } : {}),
     assets: Object.values(images).filter((a) => world.locations.some((location) => location.mapImage?.versionId === a.id))
@@ -72,7 +74,7 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
   const previewParsed = projection ? NativeWorldSchema.safeParse({ ...projection,
     assets: projection.assets.map((asset) => ({ ...asset, dataUrl: "data:image/png;base64,AA==" })) }) : null;
   const previewWorld = previewParsed?.success ? projection : null;
-  const previewState: RuntimeState | null = previewWorld ? { currentPassageId: previewWorld.locations.find((l) => l.id === previewWorld.startLocationId)!.passageId!,
+  const previewState: RuntimeState | null = previewWorld ? { currentPassageId: previewWorld.introductionPassageId ?? previewWorld.locations.find((l) => l.id === previewWorld.startLocationId)!.passageId!,
     world: initialWorldState(previewWorld), turn: 0,
     stats: Object.fromEntries(statOptions.map((m) => [m.key, m.initial])), relationships: Object.fromEntries(relationshipOptions.map((r) => [r.key, r.initial])), resources: {}, flags: {}, decisions: [], routes: [], knownFacts: [], visitCounts: {} } : null;
   return <WorldConditionOptionsContext.Provider value={{ world, economy: world.economy, relationships: relationshipOptions }}><section className="artifact-pane world-editor" aria-label="World authoring"><h2>Locations and time</h2>
@@ -83,6 +85,16 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
       {world.enabled && <>
         <div className="world-row"><label>Start location<select value={world.startLocationId ?? ""} onChange={(e) => edit({ ...world, startLocationId: e.target.value || null })}>{locationOptions(true)}</select></label>
           <label>Initial game minutes{numeric(world.initialMinutes, (n) => edit({ ...world, initialMinutes: n }), 52_560_000)}</label></div>
+        <label className="world-check"><input type="checkbox" checked={Boolean(world.introduction)} disabled={!world.introduction && !gameStartId} onChange={e => {
+          const { introduction: _old, ...rest } = world;
+          const opening = passages.find(p => p.entityId === gameStartId);
+          edit(e.target.checked && opening ? { ...rest, introduction: { passageId: opening.entityId, versionId: opening.id } } : rest);
+        }} />Use a separate one-time introduction</label>
+        {world.introduction && <p>Opening: {passages.find(p => p.entityId === world.introduction!.passageId)?.content.title ?? world.introduction.passageId}
+          {passages.find(p => p.entityId === gameStartId)?.id !== world.introduction.versionId && gameStartId && <button type="button" onClick={() => {
+            const opening = passages.find(p => p.entityId === gameStartId);
+            if (opening) edit({ ...world, introduction: { passageId: opening.entityId, versionId: opening.id } });
+          }}>Rebind to current game start</button>}</p>}
         <h3>Locations</h3>
         {world.locations.map((l, i) => <div className="world-row" key={l.id}>
           <label>Location name {i + 1}<input value={l.name} maxLength={200} onChange={(e) => patchLocation(i, { name: e.target.value })} /></label>
@@ -145,6 +157,7 @@ export function WorldWorkspace({ projectId }: { projectId: string }) {
 function WorldSummary({ world }: { world: WorldDefinition }) {
   const name = (id: string | null) => world.locations.find((l) => l.id === id)?.name ?? "None";
   return <div><p>{world.enabled ? `Start: ${name(world.startLocationId)}; initial minutes: ${world.initialMinutes}` : "World disabled"}</p>
+    {world.introduction && <p>One-time introduction: {world.introduction.passageId} ({world.introduction.versionId})</p>}
     {world.locations.map((l) => <p key={l.id}><strong>{l.name}</strong> · Parent: {name(l.parentId)} · {l.passage?.passageId ?? "Area only"} · Map: {l.mapImage ? "Approved image" : "None"} · Marker: {l.marker ? `${l.marker.x}, ${l.marker.y}` : "None"} · Hours: {l.hours ? `${l.hours.opens}–${l.hours.closes}` : "Always open"}</p>)}
     {world.connections.map((c) => <p key={c.id}>{name(c.from)} → {name(c.to)} · {c.minutes} min</p>)}
     {world.actions.map((a) => <p key={a.id}>{name(a.locationId)} · {a.label} · {a.minutes} min · {a.result}</p>)}

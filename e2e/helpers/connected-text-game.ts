@@ -27,7 +27,7 @@ export async function acceptGameDrafts(call: FoundationCall, projectId: string, 
   return call("accept_drafts", { projectId, operationId: randomUUID(), selections, fingerprint: review.fingerprint, approved: true });
 }
 
-export async function completeConnectedTextGame(call: FoundationCall, projectId: string, onCandidate?: (passageId: string, draft: any) => Promise<void>, afterBible?: () => Promise<void>, beforeDrafting?: () => Promise<void>) {
+export async function completeConnectedTextGame(call: FoundationCall, projectId: string, onCandidate?: (passageId: string, draft: any) => Promise<void>, afterBible?: () => Promise<void>, beforeDrafting?: () => Promise<void | Array<{ passageId: string; proseMarkdown: string }>>) {
   await completeOriginalFoundations(call, projectId, undefined, afterBible);
   const initial = await call("game_state", { projectId });
   await call("initialize_game_plan", { projectId, operationId: randomUUID(), headFingerprint: initial.headFingerprint, approved: true });
@@ -80,13 +80,13 @@ export async function completeConnectedTextGame(call: FoundationCall, projectId:
     targetKey: `passage:${p.entityId}`, kind: "set-fields", changes: { title: descriptions[p.entityId]![0], summary: descriptions[p.entityId]![1], purpose: descriptions[p.entityId]![1], draftingNotes: ["Use the authored text, preserve the graph and make civic costs legible."] },
   })));
   await applyGameEdit(call, projectId, contentProposal.proposalId);
-  await beforeDrafting?.();
+  const extraDrafts = await beforeDrafting?.();
   await approveGamePlan(call, projectId);
   const selections: Array<{ passageId: string; candidateDraftVersionId: string }> = [];
-  for (const passage of passages) {
-    const draft = await submitGameDraft(call, projectId, passage.entityId, descriptions[passage.entityId]![2]);
-    await onCandidate?.(passage.entityId, draft);
-    selections.push({ passageId: passage.entityId, candidateDraftVersionId: draft.draftVersionId });
+  for (const { passageId, proseMarkdown } of [...passages.map((passage: any) => ({ passageId: passage.entityId, proseMarkdown: descriptions[passage.entityId]![2] })), ...(extraDrafts ?? [])]) {
+    const draft = await submitGameDraft(call, projectId, passageId, proseMarkdown);
+    await onCandidate?.(passageId, draft);
+    selections.push({ passageId, candidateDraftVersionId: draft.draftVersionId });
   }
   await acceptGameDrafts(call, projectId, selections);
   const path = ["choice-passage-shared-opening-continue", "choice-passage-shared-route-pivot-continue", "choice-passage-route-1-act-ending-1"];

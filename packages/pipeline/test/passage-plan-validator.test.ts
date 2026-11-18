@@ -5,10 +5,12 @@ import {
   defaultLongFormRoutePlan,
   defaultLongFormStoryBible,
   defaultProjectBrief,
+  playerFlowDiagnostics,
   validatePassagePlan,
   type PassagePlanBundle,
 } from "../src/index.js";
 import {
+  NativeWorldSchema,
   RuntimeCompileError,
   compileRuntime,
   conditionStaticTruth,
@@ -18,6 +20,27 @@ import {
   evaluateRuntimeCondition,
   type RuntimeCompileSource,
 } from "@story-to-cyoa/runtime";
+
+it("reports structurally duplicate responses, World navigation and potentially visible hidden scaffolding without rewriting choices", () => {
+  const { bundle } = fixture();
+  const start = bundle.passages[0]!, gate = bundle.passages[1]!, seed = bundle.choices[0]!;
+  const navigation = { ...seed, id: "navigation", destinationPassageId: gate.id, effects: [], sourceDecisionIds: [], condition: null, unavailableBehavior: "hidden" as const };
+  const same = { ...navigation, id: "reconvergent", label: "Another response", unavailableBehavior: "disabled" as const };
+  const distinct = { ...same, id: "distinct", effects: [{ id: "resolve-effect", mechanicKey: "resolve", operation: "add" as const, value: 1, visibility: "visible" as const, feedback: "A different answer." }] };
+  start.choiceIds = [navigation.id, same.id, distinct.id];
+  const choices = [navigation, same, distinct];
+  const before = structuredClone(choices);
+  const world = NativeWorldSchema.parse({ schemaId: "cyoa.native-world", schemaVersion: 1, startLocationId: "home", initialMinutes: 0, waitMinutes: [5],
+    locations: [start, gate].map((passage, index) => ({ id: index ? "gate" : "home", name: passage.title, passageId: passage.id, parentId: null, mapImage: null, marker: null, hours: null })),
+    connections: [{ id: "road", from: "home", to: "gate", minutes: 5 }], actions: [], assets: [] });
+  expect(playerFlowDiagnostics(bundle.passages, choices, world)).toEqual([
+    expect.objectContaining({ code: "choice.hidden-scaffolding-exposure", entityId: navigation.id }),
+    expect.objectContaining({ code: "choice.immediate-reconvergence", entityId: navigation.id }),
+    expect.objectContaining({ code: "choice.world-travel-duplicate", entityId: navigation.id }),
+    expect.objectContaining({ code: "choice.world-travel-duplicate", entityId: same.id }),
+  ]);
+  expect(choices).toEqual(before);
+});
 
 function fixture() {
   const brief = defaultProjectBrief("Validator");

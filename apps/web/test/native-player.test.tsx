@@ -185,7 +185,8 @@ describe("NativePlayer", () => {
 
     await user.click(screen.getByRole("button", { name: "Continue 1" }));
     expect(await screen.findByRole("heading", { name: "Passage 1" })).toBeTruthy();
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Choice result" })));
+    expect(screen.getByRole("region", { name: "Action outcome" }).textContent).not.toBe("");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Passage 1" })));
     first.unmount();
 
     render(<NativePlayer route={fixture.route} storage={fixture.storage} />);

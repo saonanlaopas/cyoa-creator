@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { WorldDefinitionSchema, emptyWorld, type WorldDefinition } from "@story-to-cyoa/domain";
 import { ArtifactRepository, ChangeSetRepository, ImageAssetRepository, PassageDraftAcceptanceRepository, PassageDraftRepository, PassagePlanRepository, PortableProjectRepository, ProjectRepository, WorkflowRepository, openDatabase, type StoryDatabase } from "@story-to-cyoa/persistence";
-import { actNativePlayerWorld, createNativePlayerSession } from "@story-to-cyoa/runtime";
+import { actNativePlayerWorld, assertNativeRuntimeState, createNativePlayerSave, createNativePlayerSession, loadNativeGame, loadNativePlayerSave, rewindNativePlayerSession, restartNativePlayerSession } from "@story-to-cyoa/runtime";
 import { LongFormProjectService } from "../src/services/long-form-project-service.js";
 import { ConversationalEditService } from "../src/services/conversational-edit-service.js";
 import { ConnectedEditService } from "../src/services/connected-edit-service.js";
@@ -52,6 +52,50 @@ async function apply(f: Awaited<ReturnType<typeof completed>>, world = f.world) 
   return { input, result: await f.call("apply_world", input) };
 }
 describe("W1 durable reviewed locations and time", () => {
+  it("pins a separate one-time introduction across reviewed Worlds, previews, saves and portability", async () => {
+    const f = await completed(), legacy = await apply(f), old = f.compilation.compile(f.projectId);
+    const world = structuredClone(f.world), home = world.locations.find(l => l.id === "home")!;
+    world.introduction = home.passage!;
+    const hub = f.passages.currentEntity(f.projectId, "passage", "passage-route-2-act")!;
+    home.passage = { passageId: hub.entityId, versionId: hub.id };
+    const unknown = { ...world, introduction: { ...world.introduction, versionId: hub.id } };
+    await expect(f.call("review_world", { projectId: f.projectId, world: unknown })).rejects.toThrow("world_introduction_lineage_invalid");
+    expect(() => f.artifacts.saveArtifact({ projectId: f.projectId, artifactId: "world-definition", artifactType: "world-definition", content: unknown })).toThrow("world_introduction_lineage_invalid");
+    await expect(f.call("review_world", { projectId: f.projectId, world: { ...world, introduction: home.passage } })).rejects.toThrow("world_introduction_cannot_be_a_world_destination");
+    expect(f.artifacts.getCurrent(f.projectId, "world-definition")!.id).toBe(legacy.result.versionId);
+    const applied = await apply(f, world), build = f.compilation.compile(f.projectId);
+    const { bundle, playerConfig } = build;
+    const start = createNativePlayerSession(bundle, playerConfig);
+    expect(start.state).toMatchObject({ currentPassageId: world.introduction.passageId, world: { locationId: "home", minutes: 1430 } });
+    const cafe = actNativePlayerWorld(bundle, playerConfig, start, { kind: "travel", id: "home-cafe" }).session;
+    const returned = actNativePlayerWorld(bundle, playerConfig, cafe, { kind: "travel", id: "cafe-home" }).session;
+    expect(returned.state).toMatchObject({ currentPassageId: hub.entityId, world: { locationId: "home", minutes: 1460 }, visitCounts: { [world.introduction.passageId]: 1 } });
+    expect(loadNativePlayerSave(bundle, playerConfig, createNativePlayerSave(bundle, playerConfig, returned))).toEqual(returned);
+    expect(() => assertNativeRuntimeState(loadNativeGame(bundle), { ...cafe.state, currentPassageId: bundle.startPassageId })).toThrow("One-time introduction");
+    expect(rewindNativePlayerSession(bundle, playerConfig, returned).state).toEqual(cafe.state);
+    expect(restartNativePlayerSession(bundle, playerConfig)).toEqual(start);
+    for (const mode of ["faithful-slice", "bounded-playtest"]) {
+      const selection = { mode, passageIds: bundle.passages.map(p => p.id), startPassageId: bundle.startPassageId, stopPassageId: hub.entityId };
+      const review = await f.call("review_preview", { projectId: f.projectId, selection });
+      expect(review, JSON.stringify(review.blockers)).toMatchObject({ ready: true });
+      const preview = await f.call("compile_preview", { projectId: f.projectId, selection: review.selection, operationId: randomUUID(),
+        fingerprint: review.fingerprint, headFingerprint: review.headFingerprint, approved: true });
+      const html = await f.call("export_preview", { projectId: f.projectId, buildVersionId: preview.buildVersionId });
+      expect(html.kind).toBe("partial-preview");
+      const wrongStart = await f.call("review_preview", { projectId: f.projectId, selection: { ...selection, startPassageId: hub.entityId } });
+      expect(wrongStart.blockers).toContainEqual(expect.objectContaining({ message: expect.stringContaining("canonical World opening") }));
+    }
+    expect(f.compilation.compile(f.projectId, old.input.id).bundle).toEqual(old.bundle);
+    const restored = fixture(openDatabase(), f.projectId);
+    restored.publication.importPortable(f.publication.exportStudioPortable(f.projectId, "full-fidelity").bytes);
+    expect(await restored.call("apply_world", applied.input)).toEqual(applied.result);
+    expect(restored.compilation.compile(f.projectId, build.input.id).bundle).toEqual(bundle);
+    const copy = restored.projects.duplicate(f.projectId, "Split World copy", validatePortableAuthoringProject, prepareStudioHistoryDuplicate);
+    const copiedWorld = restored.artifacts.getCurrent<WorldDefinition>(copy.id, "world-definition")!.content;
+    expect(copiedWorld.introduction).toEqual({ passageId: world.introduction.passageId,
+      versionId: restored.passages.currentEntity(copy.id, "passage", world.introduction.passageId)!.id });
+    expect(restored.compilation.compile(copy.id).bundle.world?.introductionPassageId).toBe(world.introduction.passageId);
+  });
   it("separates review/Apply/publication, preserves historical text builds, packages only approved map data and rejects unsupported exports", async () => {
     const f = await completed(), old = f.compilation.compile(f.projectId, f.proof.compiled.inputVersionId);
     expect(await f.call("read_world", { projectId: f.projectId })).toMatchObject({ versionId: null, world: { enabled: false } });

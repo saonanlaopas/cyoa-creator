@@ -48,6 +48,7 @@ export const RepairPassagePlanSchema = z.object({
   revealedFactIds: z.array(PassageId).max(100).default([]), setupThreadIds: z.array(PassageId).max(100).default([]),
   payoffThreadIds: z.array(PassageId).max(100).default([]), preservedDifferenceIds: z.array(PassageId).max(100).default([]),
   choiceIds: z.array(PassageId).max(100).default([]), terminal: z.boolean().default(false),
+  interactionMode: z.enum(["world-location", "decisions"]).optional(),
   endingId: PassageId.nullable().default(null), draftingNotes: z.array(PassageText).max(100).default([]),
   unresolvedQuestions: z.array(PassageText).max(100).default([]),
   planningStatus: z.enum(["outline", "planned", "reviewed", "locked"]).default("outline"),

@@ -13,6 +13,7 @@ export const WorldDefinitionSchema = z.object({
   people: WorldPeopleSchema.optional(),
   economy: WorldEconomySchema.optional(), journal: WorldJournalSchema.optional(),
   enabled: z.boolean(), startLocationId: id.nullable(),
+  introduction: z.object({ passageId: id, versionId: id }).strict().optional(),
   initialMinutes: z.number().int().min(0).max(52_560_000),
   waitMinutes: z.array(z.number().int().min(1).max(1440)).min(1).max(6),
   locations: z.array(z.object({
@@ -28,13 +29,15 @@ export const WorldDefinitionSchema = z.object({
   const fail = (message: string) => ctx.addIssue({ code: "custom", message });
   if (new TextEncoder().encode(JSON.stringify(world)).byteLength > 48_000) fail("world_definition_byte_limit");
   if (!world.enabled) {
-    if (world.journal || world.economy || world.people || world.progression || world.startLocationId || world.locations.length || world.connections.length || world.actions.length) fail("disabled_world_must_clear_definitions");
+    if (world.introduction || world.journal || world.economy || world.people || world.progression || world.startLocationId || world.locations.length || world.connections.length || world.actions.length) fail("disabled_world_must_clear_definitions");
     return;
   }
   const locations = new Map(world.locations.map((l) => [l.id, l]));
   if (!world.startLocationId || !locations.get(world.startLocationId)?.passage) fail("world_start_location_required");
   for (const list of [world.locations, world.connections, world.actions]) if (new Set(list.map((x) => x.id)).size !== list.length) fail("world_ids_must_be_unique");
   const passages = world.locations.flatMap((l) => l.passage ? [l.passage.passageId] : []);
+  if (world.introduction && (passages.includes(world.introduction.passageId)
+    || [...(world.progression?.events ?? []), ...(world.progression?.transitions ?? [])].some(item => item.passage?.passageId === world.introduction!.passageId))) fail("world_introduction_cannot_be_a_world_destination");
   if (new Set(passages).size !== passages.length) fail("world_passage_location_ambiguous");
   if (new Set(world.waitMinutes).size !== world.waitMinutes.length) fail("world_wait_durations_must_be_unique");
   for (const location of world.locations) {
