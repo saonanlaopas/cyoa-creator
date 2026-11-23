@@ -88,6 +88,7 @@ it("stops actual player waiting at a required boundary, resumes saved priority o
   await storage.install(createNativePlayerInstallation(f.bundle, f.config));
   const write = vi.spyOn(storage, "writeAutosave");
   render(<NativePlayer route={{ gameId: f.bundle.gameId, bundleFingerprint: f.bundle.bundleFingerprint, debug: false }} storage={storage} />);
+  await user.click(await screen.findByText("Wait…", { exact: true }));
   await user.click(await screen.findByRole("button", { name: "Wait 60 min" }));
   expect(screen.getByRole("dialog").textContent).toContain("This wait will stop after 10 min for a required encounter.");
   expect(screen.getByRole("dialog").textContent).not.toContain("Hear the warning");

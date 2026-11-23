@@ -18,7 +18,8 @@ const rule = { id, label, minutes: z.number().int().min(0).max(1440), prerequisi
 export const WorldEconomySchema = z.object({
   schemaId: z.literal("cyoa.world-economy"), schemaVersion: z.literal(1),
   currency: z.object({ name: label, initial: amount, maximum: amount }).strict(),
-  items: z.array(z.object({ id, name: label, description: z.string().trim().max(1000), maximum: quantity, initial: amount, consumable: z.boolean() }).strict()).max(50),
+  items: z.array(z.object({ id, name: label, description: z.string().trim().max(1000), maximum: quantity, initial: amount, consumable: z.boolean(),
+    illustration: z.literal("pocket-watch").optional() }).strict()).max(50),
   shops: z.array(z.object({ id, name: label, locationId: id,
     hours: z.object({ opens: z.number().int().min(0).max(1439), closes: z.number().int().min(0).max(1439) }).strict().nullable(),
     offers: z.array(z.object({ id, itemId: id, quantity, price: amount, stock: z.number().int().min(0).max(10000), minutes: z.number().int().min(0).max(1440), prerequisites: z.array(WorldPrerequisiteSchema).max(20) }).strict()).max(30),

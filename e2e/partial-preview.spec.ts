@@ -1,5 +1,5 @@
 import { expect, test } from "playwright/test";
-import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
+import { openPlayerWait, continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -111,7 +111,7 @@ for (const bounded of [false, true]) test(bounded
           await expect(blocked).toBeDisabled();
           await showPlayerWorldView(page, "Explore");
           await expect(page.getByText(/Secret future|secret itinerary|Station/)).toHaveCount(0);
-          await world.getByRole("button", { name: "Wait 15 min", exact: true }).click();
+          await openPlayerWait(page); await world.getByRole("button", { name: "Wait 15 min", exact: true }).click();
           await page.getByRole("button", { name: "Confirm action", exact: true }).click();
           await expect(clock).toHaveText("Day 2 · 00:05");
           await continuePlayerResult(page);
@@ -135,7 +135,7 @@ for (const bounded of [false, true]) test(bounded
           await expect(world.getByRole("button", { name: "Home · 15 min", exact: true })).toBeDisabled();
           if (bounded) await expect(world.getByRole("button", { name: "Read departure board · 5 min", exact: true })).toHaveCount(0);
           else await expect(world.getByRole("button", { name: "Read departure board · 5 min", exact: true })).toBeDisabled();
-          await expect(world.getByRole("button", { name: "Wait 15 min", exact: true })).toBeDisabled();
+          await openPlayerWait(page); await expect(world.getByRole("button", { name: "Wait 15 min", exact: true })).toBeDisabled();
           await expect(clock).toHaveText(stopTime);
         };
         await assertStop();

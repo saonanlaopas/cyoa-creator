@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Locator } from "playwright/test";
-import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
+import { openPlayerWait, continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { randomUUID, createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -97,13 +97,13 @@ test("W6 authors, reviews and publishes the complete visual game, restores and d
           await confirm(views.getByRole("button", { name: "Listen to the tide (optional) · 3 min", exact: true }));
           await show("Map"); await views.getByRole("button", { name: "Inspect Quay cafe", exact: true }).click(); await expect(views.getByRole("region", { name: "Destination", exact: true })).toContainText("Quay cafe"); await expect(player.locator(".illustrated-scene")).toHaveCount(0);
           await player.screenshot({ path: info.outputPath(`w6-${variant.mode}-${variant.surface}-${width}-explore.png`), fullPage: true });
-          await confirm(views.getByRole("button", { name: "Travel to Quay cafe (7 min)", exact: true }));
+          await confirm(views.getByRole("button", { name: "Travel to Quay cafe · 7 min", exact: true }));
           await expect(player.getByRole("region", { name: "People present", exact: true })).toContainText("No one encountered"); await show("Give a gift"); await expect(views.getByText("No authored gifts for anyone here.", { exact: true })).toBeVisible();
           await show("Shops here"); expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
           if (variant.mode === "chapter-led" && variant.surface === "standalone" && width === 1280) await player.screenshot({ path: info.outputPath("w6-chapter-led-standalone-1280-shop.png"), fullPage: true });
           await confirm(views.getByRole("button", { name: "Buy 1 Tea · 3 Coins · 2 min", exact: true }));
           await show("Shops here"); await expect(views.getByText("Out of stock", { exact: true })).toBeVisible();
-          await show("Explore"); await confirm(views.getByRole("button", { name: "Wait 5 min", exact: true })); await expect(player.getByRole("region", { name: "People present", exact: true })).toContainText("Mara");
+          await show("Explore"); await openPlayerWait(player); await confirm(views.getByRole("button", { name: "Wait 5 min", exact: true })); await expect(player.getByRole("region", { name: "People present", exact: true })).toContainText("Mara");
           await show("Give a gift"); expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
           if (variant.mode === "chapter-free" && variant.surface === "static" && width === 390) await player.screenshot({ path: info.outputPath("w6-chapter-free-static-390-gift.png"), fullPage: true });
           await confirm(views.getByRole("button", { name: /^Share a warm cup · 1 Tea to Mara · 1 min/ })); await show("Explore"); await expect(views).toContainText("Required encounter: Hear Mara's warning"); await expect(views.getByRole("button", { name: "Wait 5 min", exact: true })).toHaveCount(0);

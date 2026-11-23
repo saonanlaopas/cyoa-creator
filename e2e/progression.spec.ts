@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "playwright/test";
-import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
+import { openPlayerWait, continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -154,9 +154,9 @@ test("W2 authors optional chapters/events and previews carry/expiry before offli
         const requests: string[] = []; player.on("request", (r) => requests.push(r.url()));
         const panel = player.getByRole("region", { name: "Locations and time", exact: true }), clock = panel.getByLabel("Game time");
         await expect(clock).toHaveText("Day 1 · 23:50");
-        const confirm = async (label: string) => { await panel.getByRole("button", { name: label, exact: true }).click(); await player.getByRole("button", { name: "Confirm action", exact: true }).focus(); await player.keyboard.press("Enter"); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); await continuePlayerResult(player); };
+        const confirm = async (label: string) => { if (/^Wait \d+ min$/.test(label)) await openPlayerWait(player); await panel.getByRole("button", { name: label, exact: true }).click(); await player.getByRole("button", { name: "Confirm action", exact: true }).focus(); await player.keyboard.press("Enter"); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); await continuePlayerResult(player); };
         if (freeMode) {
-          await expect(panel.getByText("Chapter-free play", { exact: true })).toBeVisible();
+          await expect(panel.getByText(/^Chapter:/)).toHaveCount(0);
           await expect(panel.getByRole("navigation", { name: "Chapter transitions" }).getByRole("button")).toHaveCount(0);
           await confirm("Read the signal notice · 5 min"); await expect(clock).toHaveText("Day 1 · 23:55"); await player.reload();
           await showPlayerWorldView(player, "History"); await expect(panel.getByText("Milestones: Signal clue, Farewell memory", { exact: true })).toBeVisible();

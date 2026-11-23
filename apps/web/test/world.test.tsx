@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { emptyWorld } from "@story-to-cyoa/domain";
 import { WorldWorkspace } from "../src/features/workspace/WorldWorkspace.js";
 import { WorldPanel } from "../src/features/player/WorldPanel.js";
+import { PlayerWorldMap } from "../src/features/player/PlayerWorldActions.js";
 import type { NativeWorld, RuntimeState } from "@story-to-cyoa/runtime";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -56,4 +57,37 @@ it("keeps map inspection free, uses safe text, and retains destination navigatio
   expect(document.querySelector("script")).toBeNull();
   await user.click(screen.getByRole("button", { name: "Travel to <script>Cafe</script> (10 min)" }));
   expect(onAction).toHaveBeenCalledWith({ kind: "travel", id: "to-cafe" }, "Travel to <script>Cafe</script> (10 min)");
+});
+
+it("offers keyboard inspection without artwork or markers, preserving one-way routes and safe arrival restrictions", async () => {
+  const world: NativeWorld = { schemaId: "cyoa.native-world", schemaVersion: 1, startLocationId: "landing", initialMinutes: 480,
+    waitMinutes: [], assets: [], actions: [],
+    locations: [
+      { id: "harbor", name: "Harbor", parentId: null, passageId: null, mapImage: null, marker: null, hours: null },
+      { id: "landing", name: "Landing", parentId: "harbor", passageId: "home", mapImage: null, marker: null, hours: null },
+      { id: "office", name: "Office", parentId: "harbor", passageId: "office-entry", mapImage: null, marker: null, hours: { opens: 420, closes: 482 } },
+      { id: "quay", name: "Quay", parentId: "harbor", passageId: "quay-entry", mapImage: null, marker: null, hours: null },
+      { id: "pier", name: "Pier", parentId: "harbor", passageId: "pier-entry", mapImage: null, marker: null, hours: null },
+    ],
+    connections: [{ id: "out-office", from: "landing", to: "office", minutes: 3 },
+      { id: "out-quay", from: "landing", to: "quay", minutes: 3 },
+      { id: "in-pier", from: "pier", to: "landing", minutes: 3 }] };
+  const state: RuntimeState = { currentPassageId: "home", stats: {}, relationships: {}, flags: {}, resources: {}, decisions: [], routes: [],
+    knownFacts: [], visitCounts: { home: 1 }, turn: 0, world: { schemaVersion: 1, locationId: "landing", minutes: 480 } };
+  const onAction = vi.fn(), user = userEvent.setup();
+  render(<PlayerWorldMap world={world} state={state} disabled={false} onAction={onAction} />);
+  expect(screen.getByText("You are here:", { exact: true }).parentElement?.textContent).toBe("You are here: Landing");
+  expect(screen.queryByRole("img")).toBeNull();
+  screen.getByRole("button", { name: "Pier", exact: true }).focus();
+  await user.keyboard("{Enter}");
+  await screen.findByText("No direct route from Landing.");
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Pier" })));
+  expect(screen.queryByRole("button", { name: /Travel to Pier/ })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Office · 3 min (Closed at arrival)" }));
+  expect((screen.getByRole("button", { name: "Travel to Office · 3 min" }) as HTMLButtonElement).disabled).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Quay · 3 min", exact: true }));
+  expect(onAction).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Travel to Quay · 3 min" }));
+  expect(onAction).toHaveBeenCalledExactlyOnceWith({ kind: "travel", id: "out-quay" }, "Travel to Quay (3 min)");
+  expect(state.world?.minutes).toBe(480);
 });

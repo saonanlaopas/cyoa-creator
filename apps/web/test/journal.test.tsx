@@ -79,6 +79,7 @@ it("does not autosave during inspection or cancellation and hides narrative choi
   await user.click(screen.getByRole("button", { name: "Decisions", exact: true })); await screen.findByRole("region", { name: "Choices", exact: true });
   expect(screen.queryByRole("button", { name: "Wait 5 min", exact: true })).toBeNull();
   await user.click(screen.getByRole("button", { name: "Explore", exact: true }));
+  await user.click(screen.getByText("Wait…", { exact: true }));
   await user.click(screen.getByRole("button", { name: "Wait 5 min", exact: true })); await user.click(screen.getByRole("button", { name: "Cancel", exact: true }));
   await user.click(screen.getByRole("button", { name: "Journal", exact: true })); await user.click(screen.getByRole("button", { name: "Entries", exact: true })); expect(screen.getByText("No journal entries recorded.")).toBeTruthy();
   expect(write).not.toHaveBeenCalled();

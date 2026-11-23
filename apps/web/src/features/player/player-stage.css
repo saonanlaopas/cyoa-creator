@@ -1,0 +1,52 @@
+/* A single stage for illustrated and text-only games. The illustration component
+   keeps ownership of its aspect ratio, portrait composition, and credits. */
+body:has(.game-stage) { background: #171c1b; }
+#main-content:has(.game-stage) { background: #171c1b; max-width: 85rem; padding: 0; margin: auto; }
+#main-content .game-stage { display: grid; grid-template-columns: 12rem minmax(0,1fr); grid-template-rows: auto 1fr; gap: 0; min-height: 100vh; align-items: start; }
+.game-stage .game-rail { grid-area: 1/1; color: #e6ece6; padding: 2rem 1.15rem 1rem; }
+.game-stage .stage-emblem { color: #f5c780; font: 2.4rem/1 Georgia,serif; margin-bottom: 2.2rem; }
+.game-stage .game-rail .player-world-header { display: grid; padding: 0 0 1.2rem; gap: .4rem; border: none; }
+.game-rail .player-world-header strong { font: 1.35rem Georgia,serif; color: #fff2d7; }
+.game-rail time { font-variant-numeric: tabular-nums; color: #b5d9c9; }
+.game-stage .game-rail .player-view-nav { display: grid; gap: .55rem; }
+.game-stage .game-rail nav > div { display: grid; gap: .2rem; }
+.game-stage .game-rail button { text-align: start; padding: .5rem .75rem; border: 0; border-inline-start: 2px solid transparent; background: none; color: #cbd6cd; border-radius: 0; }
+.game-stage .game-rail button[aria-pressed=true], .game-stage .game-rail button:hover { background: #294139; border-inline-start-color: #a7e1bd; color: #fff; }
+#main-content .game-stage .native-player-passage { grid-area: 1/2/3/3; align-content: start; min-height: 100vh; min-width: 0; background: #faf6eb; color: #283831; border: 0; border-radius: 0; padding: 0 0 2.5rem; gap: 1rem; box-shadow: none; }
+#main-content .game-stage .native-player-passage > :not(header,.illustrated-scene) { width: min(40rem,calc(100% - 3rem)); margin-inline: auto; }
+#main-content .game-stage .native-player-passage > header { margin: 0; border-top: 4px solid #c6985a; padding: 1.75rem 2rem 0; text-align: center; }
+.game-stage header .eyebrow { color: #576d60; font-size: .76rem; }
+.game-stage header h1 { margin: .4rem 0; color: #1d3a31; font: normal 2.55rem/1.12 Georgia,serif; }
+.game-stage .native-player-prose { font: normal 1.13rem/1.72 Georgia,serif; color: #273831; }
+.game-stage .illustrated-scene { background: #18231f; }
+.game-stage .player-result { background: #e4ede0; border-color: #456c53; }
+.game-stage .player-result :is(h1,h2), .game-stage .native-player-passage :is(h2,h3,h4) { font-family: Georgia,serif; color: #234338; }
+.game-stage .native-player-passage button:not(.player-map-marker) { background: #f3f0e5; color: #254237; border: 1px solid #94a597; border-radius: 4px; min-height: 2.7rem; white-space: normal; overflow-wrap: anywhere; }
+.game-stage .native-player-passage :is(.native-player-choices,.player-activities,.map-destination-route) button:not(:disabled) { background: #264e41; color: #fff7df; border-color: #264e41; }
+.game-stage .native-player-passage button:not(:disabled,.player-map-marker):hover { background: #efe0b9; color: #24392f; border-color: #937449; }
+.game-stage .native-player-passage :is(.map-origin strong,.map-note,.player-travel p) { color: #485f52; }
+.game-stage .map-destination { color: #294536; background: #e4ede0; }
+.game-stage .world-map-schematic { background-color: #203a34; background-image: linear-gradient(#ffffff0c 1px,transparent 1px),linear-gradient(90deg,#ffffff0c 1px,transparent 1px); background-size: 2rem 2rem; }
+#main-content .game-stage .native-player-sidebar { grid-area: 2/1; padding: 0 1.15rem; color: #cbd6cd; }
+.game-stage .native-player-sidebar > section { background: transparent; border: none; border-top: 1px solid #506159; border-radius: 0; padding: .8rem 0; box-shadow: none; }
+.stage-game-menu { grid-column: 1 / -1; }
+.stage-game-menu summary { cursor: pointer; color: #e8ddc1; padding: .45rem 0; }
+.stage-game-menu button { width: 100%; margin-top: .3rem; }
+.game-stage :focus-visible { outline: 3px solid #b46e25; outline-offset: 2px; }
+@media(max-width:760px) {
+  #main-content .game-stage { display: flex; flex-direction: column; align-items: stretch; }
+  .game-stage .game-rail { padding: .6rem 1rem; }
+  .game-stage .stage-emblem { display: none; }
+  .game-stage .game-rail .player-world-header, .game-stage .game-rail .player-view-nav, .game-stage .game-rail nav > div { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .45rem; }
+  .game-stage .game-rail .player-world-header { padding: 0 0 .35rem; }
+  .game-stage .game-rail .player-side-tools { padding: 0; border: none; }
+  #main-content .game-stage .native-player-passage { min-height: 0; }
+  #main-content .game-stage .native-player-passage > header { padding: 1rem 1rem 0; }
+  .game-stage header h1 { font-size: 1.85rem; }
+  #main-content .game-stage .native-player-passage > :not(header,.illustrated-scene) { width: calc(100% - 2rem); }
+  #main-content .game-stage .native-player-sidebar { padding-block: .7rem; }
+}
+.player-tool-icon { display: inline-block; width: 1em; height: 1em; vertical-align: -.12em; margin-inline-end: .45em; }
+.inventory-object { display: flex; align-items: flex-start; gap: .85rem; padding-block: .7rem; border-block-end: 1px solid #b9c3b7; }
+.inventory-object .inventory-art { width: 3.25rem; height: auto; flex: none; }
+.inventory-object p { margin: .2rem 0 0; line-height: 1.45; color: #46584b; }

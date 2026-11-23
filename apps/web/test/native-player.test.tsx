@@ -129,6 +129,7 @@ describe("NativePlayer", () => {
     expect(screen.getByRole("region", { name: "Action outcome" }).textContent).toContain("The early train leaves at dawn.");
     expect(screen.queryByRole("button", { name: "Wait 15 min" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Continue after result" }));
+    await user.click(screen.getByText("Wait…", { exact: true }));
     await user.click(screen.getByRole("button", { name: "Wait 15 min" }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("region", { name: "Action outcome" })).toBeNull();

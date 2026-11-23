@@ -1,5 +1,5 @@
 import { actNativePlayerWorld, createNativePlayerConfig, createNativePlayerSession } from "@story-to-cyoa/runtime";
-import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
+import { openPlayerWait, continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { expect, test, type Page } from "playwright/test";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
@@ -125,7 +125,7 @@ test("W3 authors weekly schedules, resolves mandatory priorities and plays prese
         await showPlayerWorldView(player, "Map"); await panel.getByRole("combobox", { name: "Area", exact: true }).selectOption("town");
         await panel.getByRole("button", { name: "Inspect Station", exact: true }).click(); await expect(here).toHaveText("Here now: No one encountered"); await expect(clock).toHaveText("Day 1 · 23:50");
         await showPlayerWorldView(player, "Explore");
-        const confirm = async (label: string) => { const action = panel.getByRole("button", { name: label, exact: true }); await expect(action).toBeEnabled(); await action.click(); await player.getByRole("button", { name: "Confirm action", exact: true }).focus(); await player.keyboard.press("Enter"); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); await continuePlayerResult(player); };
+        const confirm = async (label: string) => { if (/^Wait \d+ min$/.test(label)) await openPlayerWait(player); const action = panel.getByRole("button", { name: label, exact: true }); await expect(action).toBeEnabled(); await action.click(); await player.getByRole("button", { name: "Confirm action", exact: true }).focus(); await player.keyboard.press("Enter"); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); await continuePlayerResult(player); };
         await confirm("Wait 60 min"); await expect(clock).toHaveText("Day 2 · 00:00"); await expect(here).toHaveText("Here now: Mara Vale");
         await expect(panel.getByRole("status")).toContainText("Required encounter: Hear the midnight warning");
         await expect(panel.getByRole("navigation", { name: "Events", exact: true }).getByRole("button")).toHaveCount(1);
@@ -153,7 +153,7 @@ test("W3 authors weekly schedules, resolves mandatory priorities and plays prese
           await confirm("Wait 15 min"); await expect(clock).toHaveText("Day 2 · 01:35"); await expect(here).toHaveText("Here now: No one encountered");
           for (const [width, height] of [[1280, 900], [390, 844]]) { await player.setViewportSize({ width, height }); await here.scrollIntoViewIfNeeded(); await player.screenshot({ path: info.outputPath(`w3-${surface}-override-absence-${width}.png`), fullPage: true }); }
           await confirm("Wait 15 min"); await expect(here).toHaveText("Here now: Mara Vale"); await expect(clock).toHaveText("Day 2 · 01:50");
-        } else await expect(panel.getByText("Chapter-free play", { exact: true })).toBeVisible();
+        } else await expect(panel.getByText(/^Chapter:/)).toHaveCount(0);
         await player.reload(); await expect(here).toHaveText("Here now: Mara Vale");
         await player.getByRole("button", { name: "Rewind", exact: true }).click();
         await player.getByRole("button", { name: "Load game", exact: true }).click(); await player.getByRole("button", { name: "Load", exact: true }).click();

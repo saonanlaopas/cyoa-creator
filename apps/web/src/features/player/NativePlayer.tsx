@@ -26,6 +26,8 @@ import {
 import { IndexedDbNativePlayerStorage } from "./native-player-storage.js";
 import { IllustratedScene } from "./IllustratedScene.js";
 import { PlayerWorldHeader, PlayerWorldViews, isPrimaryWorldView, type PlayerWorldView } from "./PlayerWorldViews.js";
+import { PlayerWorldTravel } from "./PlayerWorldActions.js";
+import "./player-stage.css";
 
 export interface NativePlayerRoute {
   gameId: string;
@@ -45,6 +47,7 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
   storage?: NativePlayerStorage;
 }) {
   const [worldView, setWorldView] = useState<PlayerWorldView | null>(null);
+  const [rail, setRail] = useState<HTMLElement | null>(null);
   const [storage] = useState<NativePlayerStorage>(() => suppliedStorage ?? new IndexedDbNativePlayerStorage());
   const [installation, setInstallation] = useState<NativePlayerInstallation | null>(null);
   const [session, setSession] = useState<NativePlayerSession | null>(null);
@@ -331,13 +334,17 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
   </section>;
 
   return <main id="main-content" className="native-player-shell" tabIndex={-1}>
-    <div className="native-player-layout">
+    <div className="native-player-layout game-stage">
+      <aside className="game-rail" aria-label="Player navigation">
+        <div className="stage-emblem" aria-hidden="true">✦</div>
+        {world && <PlayerWorldHeader world={world} state={session.state} />}
+        <div ref={setRail} />
+      </aside>
       <article className="native-player-card native-player-passage" role={world ? "region" : undefined} aria-label={world ? "Locations and time" : undefined}>
         <header>
           {installation.bundle.preview && <p className="eyebrow">{installation.bundle.preview.playtest ? "Bounded playtest" : "Partial preview"}</p>}
           <p className="eyebrow">{view.terminal.result ? "Ending" : `Turn ${session.state.turn + 1}`}</p>
           {!focusedOutcome && <h1 ref={headingRef} tabIndex={-1}>{view.passage.presentation.title}</h1>}
-          {world && <PlayerWorldHeader world={world} state={session.state} />}
         </header>
         {actionOutcome && (!secondaryView || focusedOutcome || ended) && <div className="player-result native-player-prose">
           {focusedOutcome
@@ -365,7 +372,9 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
           focusPassage();
         }}>Continue</button> : world ? <PlayerWorldViews world={world} state={session.state} view={worldMode} select={setWorldView}
           disabled={blocked || ended} preview={ended ? undefined : installation.bundle.preview} ended={ended}
-          hasDecisions={hasDecisions} decisions={decisions} onAction={selectWorldAction} /> : decisions}
+          rail={rail} hasDecisions={hasDecisions} decisions={decisions} onAction={selectWorldAction} onReturnFromMap={focusPassage} /> : decisions}
+        {world && worldMode === "explore" && !focusedOutcome && !ended && <PlayerWorldTravel world={world} state={session.state}
+          disabled={blocked} onAction={selectWorldAction} />}
       </article>
 
       <aside className="native-player-sidebar" aria-label="Game status and saves">
@@ -376,12 +385,13 @@ export function NativePlayer({ route, storage: suppliedStorage }: {
           </div>)}</dl>
         </details>}
         <section className="native-player-controls" aria-label="Game controls">
-          <h2>Game</h2>
+          <details className="stage-game-menu"><summary>Game menu</summary>
           {installation.config.rewindPolicy.kind !== "disabled"
             ? <button disabled={busy || recoveryRequired || !canRewind} onClick={() => void rewind()}>Rewind</button> : null}
           <button disabled={busy || recoveryRequired} onClick={() => openDialog("save")}>Save game</button>
           <button disabled={busy} onClick={() => openDialog("load")}>Load game</button>
           <button disabled={busy || recoveryRequired} onClick={() => openDialog("restart")}>Restart</button>
+          </details>
         </section>
         {message && <p className="status good" role="status">{message}</p>}
         {error && <p className="error" role="alert">{error}</p>}

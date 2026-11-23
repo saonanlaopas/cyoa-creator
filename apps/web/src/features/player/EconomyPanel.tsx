@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PocketWatch } from "./PocketWatch.js";
 import { inspectWorldEconomy, OUTSIDE_PLAYTEST, playtestActionKey, visiblePlaytestRestrictions, type NativePreviewStop, type NativeWorld, type RuntimeState, type WorldCommand } from "@story-to-cyoa/runtime";
 import "./economy.css";
 import { economyFeedback } from "./economy-feedback.js";
@@ -12,8 +13,11 @@ export function EconomyPanel({ world, state, disabled, onAction, selectedView, p
   return <section className="economy-panel" aria-label="Inventory and shops">
     <p>{current.currency.name}: <strong>{current.currency.amount}</strong></p>
     {!selectedView && <nav aria-label="Belongings and trade">{(["inventory", "shops", "gifts"] as const).map((key) => <button key={key} aria-pressed={view === key} onClick={() => setView(view === key ? null : key)}>{key === "inventory" ? "Inventory" : key === "shops" ? "Shops here" : "Give a gift"}</button>)}</nav>}
-    {view === "inventory" && <section aria-label="Inventory"><h3>Inventory</h3>{!current.items.length && <p>No items held.</p>}
-      {current.items.map((i) => <p key={i.id}><strong>{i.name} × {i.quantity}</strong> · {item(i.id).description}</p>)}
+    {view === "inventory" && <section aria-label="Inventory">{!selectedView && <h3>Inventory</h3>}{!current.items.length && <p>No items held.</p>}
+      {current.items.map((i) => <div key={i.id} className="inventory-object">
+        {item(i.id).illustration && <PocketWatch />}
+        <div><strong>{i.name} × {i.quantity}</strong><p>{item(i.id).description}</p></div>
+      </div>)}
       {current.uses.map((a) => { const rule = e.uses.find((r) => r.id === a.id)!; const feedback = economyFeedback(e, undefined, rule.effects); const label = `${a.label} · ${rule.quantity} ${item(rule.itemId).name} · ${rule.minutes} min${feedback ? " · " + feedback : ""}`;
         return <div key={a.id}><button disabled={unavailable(a)} onClick={() => onAction({ kind: "use", id: a.id }, label)}>{label}</button>{a.reason && <small>{a.reason}</small>}</div>; })}
     </section>}
