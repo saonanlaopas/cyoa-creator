@@ -1,3 +1,4 @@
+import { useGameMenu } from "./helpers/player-interaction.js";
 import { expect, test, type APIRequestContext } from "playwright/test";
 import { readFile } from "node:fs/promises";
 
@@ -1175,7 +1176,7 @@ test("native publication compiles exact accepted prose deterministically and blo
   const visibleResolve = page.locator(".native-player-state dl > div").filter({ hasText: "Resolve" });
   await expect(visibleResolve.locator("dd")).toHaveText("0");
   const gameplayApiRequests = browserRequests.filter((url) => /\/api\//.test(url)).length;
-  await page.getByRole("button", { name: "Save game" }).click();
+  await useGameMenu(page, "Save game");
   await page.getByLabel("Save name").fill("Opening checkpoint");
   await page.getByRole("button", { name: "Create save" }).click();
   await page.getByRole("button", { name: "Continue" }).click();
@@ -1207,14 +1208,14 @@ test("native publication compiles exact accepted prose deterministically and blo
   await publication.getByRole("button", { name: "Play current build" }).click();
   await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
   await expect(page.getByRole("status")).toContainText("Autosave restored");
-  await page.getByRole("button", { name: "Rewind" }).click();
+  await useGameMenu(page, "Rewind");
   await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: "Load game" }).click();
+  await useGameMenu(page, "Load game");
   await page.getByRole("button", { name: "Load", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: "Restart" }).click();
+  await useGameMenu(page, "Restart");
   await page.getByRole("button", { name: "Restart game" }).click();
   await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
   for (let index = 0; index < 11; index += 1) await page.getByRole("button", { name: "Continue" }).click();
@@ -1223,7 +1224,7 @@ test("native publication compiles exact accepted prose deterministically and blo
   await expect(page.getByRole("region", { name: "Choices" })).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Passage 11" })).toBeVisible();
-  await page.getByRole("button", { name: "Rewind" }).click();
+  await useGameMenu(page, "Rewind");
   await expect(page.getByRole("heading", { name: "Passage 10" })).toBeVisible();
 
   await page.goto("/#long-form");
@@ -1245,7 +1246,7 @@ test("native publication compiles exact accepted prose deterministically and blo
   await publication.getByRole("button", { name: "Play current build" }).click();
   await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
   expect(page.url()).not.toContain(firstFingerprint!);
-  await page.getByRole("button", { name: "Load game" }).click();
+  await useGameMenu(page, "Load game");
   await expect(page.getByText("Opening checkpoint")).toBeVisible();
   await expect(page.getByText(/another gameplay build/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Load", exact: true })).toBeDisabled();
@@ -1299,7 +1300,7 @@ test("native browser player opens a 300-passage exact build without rendering th
   await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
-  await page.getByRole("button", { name: "Rewind" }).click();
+  await useGameMenu(page, "Rewind");
   await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
   await expect(page.getByText(/route-main|decision-route-selection/)).toHaveCount(0);
   expect(browserRequests.filter((url) => /\/api\//.test(url)).length).toBe(apiRequestsAfterBoot);

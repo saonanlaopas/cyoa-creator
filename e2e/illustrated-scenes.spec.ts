@@ -1,3 +1,4 @@
+import { useGameMenu } from "./helpers/player-interaction.js";
 import { expect, test, type Locator } from "playwright/test";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
@@ -211,7 +212,7 @@ test("V2 reviews browser scenes, replays lost Apply and plays packaged backgroun
           }
           await expect(player.getByRole("heading", { name: title, exact: true })).toBeVisible();
           await expect(player.getByRole("img", { name: "Mira in a red coat, relieved expression" }).first()).toHaveJSProperty("naturalWidth", 180);
-          await player.getByRole("button", { name: "Rewind", exact: true }).click();
+          await useGameMenu(player, "Rewind");
           await expect(player.getByRole("heading", { name: title, exact: true })).toHaveCount(0);
           expect(requests.some((url) => /\/api\/|openrouter|provider/i.test(url))).toBe(false);
         } finally { await context.close(); }
@@ -228,17 +229,17 @@ test("V2 reviews browser scenes, replays lost Apply and plays packaged backgroun
       try {
         await staticPage.goto(`http://127.0.0.1:${typeof staticAddress === "object" && staticAddress ? staticAddress.port : 0}/nested/index.html`);
         await expect(staticPage.getByRole("img", { name: "Red signal tower over blue harbor water" })).toHaveJSProperty("naturalWidth", 512);
-        await staticPage.getByRole("button", { name: "Save game", exact: true }).click(); await staticPage.getByLabel("Save name").fill("Illustrated opening");
+        await useGameMenu(staticPage, "Save game"); await staticPage.getByLabel("Save name").fill("Illustrated opening");
         await staticPage.getByRole("button", { name: "Create save", exact: true }).click();
         await staticPage.getByRole("button", { name: labels.get(proof.path[0])!, exact: true }).click();
         await expect(staticPage.getByRole("heading", { name: "The Open Ledger", exact: true })).toBeVisible();
         await staticPage.reload(); await expect(staticPage.getByRole("heading", { name: "The Open Ledger", exact: true })).toBeVisible();
-        await staticPage.getByRole("button", { name: "Load game", exact: true }).click(); await staticPage.getByRole("button", { name: "Load", exact: true }).click();
+        await useGameMenu(staticPage, "Load game"); await staticPage.getByRole("button", { name: "Load", exact: true }).click();
         await expect(staticPage.getByRole("heading", { name: "A Signal in the Rain", exact: true })).toBeVisible();
         await expect(staticPage.getByText("Who lit the signal before the storm?", { exact: true })).toBeVisible();
         const staticOrders = new Set<string>();
         for (const path of [proof.path, proof.alternate, proof.detourPath]) {
-          await staticPage.getByRole("button", { name: "Restart", exact: true }).click(); await staticPage.getByRole("button", { name: "Restart game", exact: true }).click();
+          await useGameMenu(staticPage, "Restart"); await staticPage.getByRole("button", { name: "Restart game", exact: true }).click();
           await expect(staticPage.getByRole("heading", { name: "A Signal in the Rain", exact: true })).toBeVisible();
           for (const [width, height] of [[1280, 900], [390, 844]]) { await staticPage.setViewportSize({ width, height }); await expectPortraitRow(staticPage.locator(".illustrated-scene"), openingOrder); }
           staticOrders.add(openingOrder.join());

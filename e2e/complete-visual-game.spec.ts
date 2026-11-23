@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Locator } from "playwright/test";
-import { openPlayerWait, continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
+import { useGameMenu, openPlayerWait, continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { randomUUID, createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -98,7 +98,7 @@ test("W6 authors, reviews and publishes the complete visual game, restores and d
           await show("Map"); await views.getByRole("button", { name: "Inspect Quay cafe", exact: true }).click(); await expect(views.getByRole("region", { name: "Destination", exact: true })).toContainText("Quay cafe"); await expect(player.locator(".illustrated-scene")).toHaveCount(0);
           await player.screenshot({ path: info.outputPath(`w6-${variant.mode}-${variant.surface}-${width}-explore.png`), fullPage: true });
           await confirm(views.getByRole("button", { name: "Travel to Quay cafe · 7 min", exact: true }));
-          await expect(player.getByRole("region", { name: "People present", exact: true })).toContainText("No one encountered"); await show("Give a gift"); await expect(views.getByText("No authored gifts for anyone here.", { exact: true })).toBeVisible();
+          await expect(player.getByRole("region", { name: "People present", exact: true })).toContainText("No one encountered"); await show("Explore"); await expect(player.getByRole("button", { name: "Give a gift", exact: true })).toHaveCount(0);
           await show("Shops here"); expect(await player.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
           if (variant.mode === "chapter-led" && variant.surface === "standalone" && width === 1280) await player.screenshot({ path: info.outputPath("w6-chapter-led-standalone-1280-shop.png"), fullPage: true });
           await confirm(views.getByRole("button", { name: "Buy 1 Tea · 3 Coins · 2 min", exact: true }));
@@ -109,7 +109,7 @@ test("W6 authors, reviews and publishes the complete visual game, restores and d
           await confirm(views.getByRole("button", { name: /^Share a warm cup · 1 Tea to Mara · 1 min/ })); await show("Explore"); await expect(views).toContainText("Required encounter: Hear Mara's warning"); await expect(views.getByRole("button", { name: "Wait 5 min", exact: true })).toHaveCount(0);
           await imageReady(); await player.screenshot({ path: info.outputPath(`w6-${variant.mode}-${variant.surface}-${width}-encounter.png`), fullPage: true });
           await confirm(views.getByRole("button", { name: "Hear Mara's warning · 5 min", exact: true })); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.afterWarning.state);
-          await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name", { exact: true }).fill("Mara's warning"); await player.getByRole("button", { name: "Create save", exact: true }).click();
+          await useGameMenu(player, "Save game"); await player.getByLabel("Save name", { exact: true }).fill("Mara's warning"); await player.getByRole("button", { name: "Create save", exact: true }).click();
           await expect(player.getByRole("status").filter({ hasText: /^Saved “Mara's warning”\.$/ })).toBeVisible();
           await player.reload(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.afterWarning.state);
           const finish = async () => { await show("Explore"); await confirm(views.getByRole("button", { name: variant.bundle.world.progression.chapters.length ? "Begin II · An honest light · 2 min" : "Take the warning to the station · 2 min", exact: true })); await show("Explore"); await confirm(views.getByRole("button", { name: "Prepare the honest signal · 3 min", exact: true })); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.prepared.state); };
@@ -119,18 +119,18 @@ test("W6 authors, reviews and publishes the complete visual game, restores and d
           await show("Decisions"); await imageReady(); await player.getByRole("button", { name: "Light the honest signal", exact: true }).click(); await expect(player.getByRole("heading", { name: "The Honest Signal", exact: true })).toBeVisible(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.final.state); await imageReady();
           await player.screenshot({ path: info.outputPath(`w6-${variant.mode}-${variant.surface}-${width}-ending.png`), fullPage: true });
           await player.reload(); await expect(player.getByRole("heading", { name: "The Honest Signal", exact: true })).toBeVisible();
-          await player.getByRole("button", { name: "Rewind", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.prepared.state); await show("Decisions"); await player.getByRole("button", { name: "Light the honest signal", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.final.state);
-          await player.getByRole("button", { name: "Load game", exact: true }).click(); await player.getByRole("button", { name: "Load", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.afterWarning.state); await finish(); await show("Decisions"); await player.getByRole("button", { name: "Light the honest signal", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.final.state);
+          await useGameMenu(player, "Rewind"); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.prepared.state); await show("Decisions"); await player.getByRole("button", { name: "Light the honest signal", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.final.state);
+          await useGameMenu(player, "Load game"); await player.getByRole("button", { name: "Load", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.afterWarning.state); await finish(); await show("Decisions"); await player.getByRole("button", { name: "Light the honest signal", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.final.state);
           const state = (await readSave(player)).state; expect(state.world.economy.currency).toBe(3); expect(state.relationships[demo.trust]).toBe(3); expect(state.world.journal.completedObjectiveIds).toEqual(["cup", "signal", "warning"]); expect(state.world.journal.entryIds).toEqual(["guide", "memory", "ready", "warning"]); expect(state.world.minutes).toBe(448);
           const stateFile = `w6-${variant.mode}-${variant.surface}-${width}-state.json`; await writeFile(info.outputPath(stateFile), JSON.stringify(state, null, 2) + "\n");
           if (width === 390 && (variant.mode === "chapter-led" && variant.surface === "static" || variant.mode === "chapter-free" && variant.surface === "standalone")) {
-            await player.getByRole("button", { name: "Rewind", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.prepared.state);
+            await useGameMenu(player, "Rewind"); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.prepared.state);
             await show("Decisions"); await player.getByRole("button", { name: "Share the watch", exact: true }).click(); await expect(player.getByRole("region", { name: "People present", exact: true })).toContainText("Mara");
             const sharedExit = variant.bundle.choices.find((c: any) => c.id === "choice-passage-route-2-act-ending-2").text;
             await player.getByRole("button", { name: sharedExit, exact: true }).click(); await expect(player.getByRole("heading", { name: "A Shared Repair", exact: true })).toBeVisible();
             const sharedState = (await readSave(player)).state; expect(sharedState.world.locationId).toBe("station"); expect(sharedState.currentPassageId).toBe("passage-ending-2"); await imageReady();
             await player.screenshot({ path: info.outputPath(`w6-${variant.mode}-${variant.surface}-${width}-shared-ending.png`), fullPage: true });
-            await player.getByRole("button", { name: "Restart", exact: true }).click(); await player.getByRole("button", { name: "Restart game", exact: true }).click();
+            await useGameMenu(player, "Restart"); await player.getByRole("button", { name: "Restart game", exact: true }).click();
             await show("Decisions");
             await player.getByRole("button", { name: "Hand over the watch (early ending)", exact: true }).click(); await player.getByRole("button", { name: "Finish the handover", exact: true }).click();
             await expect(player.getByRole("heading", { name: "The Unfinished Watch", exact: true })).toBeVisible(); const earlyState = (await readSave(player)).state; expect(earlyState.currentPassageId).toBe("passage-ending-3"); expect(earlyState.world.journal.completedObjectiveIds).toEqual([]);

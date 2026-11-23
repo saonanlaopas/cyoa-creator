@@ -1,3 +1,4 @@
+import { useGameMenu } from "./helpers/player-interaction.js";
 import { expect, test } from "playwright/test";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -104,7 +105,7 @@ test("M3 authors a complete text game through MCP, reviews exact prose in Creato
           await expect(player.getByText(revisedText, { exact: true })).toBeVisible();
           for (const choiceId of path) await player.getByRole("button", { name: labels.get(choiceId)!, exact: true }).click();
           await expect(player.getByRole("heading", { name: title, exact: true })).toBeVisible();
-          await player.getByRole("button", { name: "Rewind", exact: true }).click();
+          await useGameMenu(player, "Rewind");
           await expect(player.getByRole("heading", { name: title, exact: true })).toHaveCount(0);
           await player.getByRole("button", { name: labels.get(path.at(-1)!)!, exact: true }).click();
           await expect(player.getByRole("heading", { name: title, exact: true })).toBeVisible();

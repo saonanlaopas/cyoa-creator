@@ -50,3 +50,4 @@ body:has(.game-stage) { background: #171c1b; }
 .inventory-object { display: flex; align-items: flex-start; gap: .85rem; padding-block: .7rem; border-block-end: 1px solid #b9c3b7; }
 .inventory-object .inventory-art { width: 3.25rem; height: auto; flex: none; }
 .inventory-object p { margin: .2rem 0 0; line-height: 1.45; color: #46584b; }
+.game-stage .native-player-ending { box-sizing: border-box; }

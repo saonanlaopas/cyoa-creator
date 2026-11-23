@@ -9,7 +9,7 @@ import { applyGameEdit, completeConnectedTextGame, proposeGameEdit } from "./hel
 import { applyPreviewWorld } from "./helpers/partial-preview.js";
 import { authoredWorld } from "./helpers/world.js";
 import { withAuthoredPeople } from "./helpers/people.js";
-import { showPlayerWorldView } from "./helpers/player-interaction.js";
+import { useGameMenu, showPlayerWorldView } from "./helpers/player-interaction.js";
 
 test("PF-016–019 play a neutral clinic repair and interview offline on desktop and mobile", async ({ browser }, info) => {
   test.setTimeout(120000);
@@ -178,7 +178,7 @@ test("PF-016–019 play a neutral clinic repair and interview offline on desktop
         await page.reload(); await expect(page.getByRole("heading", { name: "The Public Quay" })).toBeVisible();
         await expect(time).toHaveText("Day 2 · 00:35");
         await expect(page.getByText("Hidden fixture feedback.")).toHaveCount(0);
-        await page.getByRole("button", { name: "Restart", exact: true }).click();
+        await useGameMenu(page, "Restart");
         await page.getByRole("button", { name: "Restart game", exact: true }).click();
         await expect(page.getByRole("heading", { name: "A Signal in the Rain" })).toBeFocused();
         await expect(time).toHaveText("Day 1 · 23:20");

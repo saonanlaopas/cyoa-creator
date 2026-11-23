@@ -1,3 +1,4 @@
+import { useGameMenu } from "./helpers/player-interaction.js";
 import { expect, test } from "playwright/test";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -164,19 +165,19 @@ test("PF-003 creates keyed mechanics through MCP and Creator, then plays their c
         await expect(player.getByRole("button", { name: "Use the calibrated reading", exact: true })).toBeEnabled();
         const status = player.getByRole("complementary", { name: "Game status and saves" });
         await expect(status.getByText("Focus", { exact: true }).locator(".." )).toContainText("1");
-        await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name", { exact: true }).fill("After inspection");
+        await useGameMenu(player, "Save game"); await player.getByLabel("Save name", { exact: true }).fill("After inspection");
         await player.getByRole("button", { name: "Create save", exact: true }).click(); await expect(player.getByRole("status").filter({ hasText: "Saved" })).toBeVisible();
         const inspectedState = await savedState();
         expect(inspectedState).toMatchObject({ stats: { focus: 1 }, relationships: { cooperation: 2 }, flags: { inspected_panel: true, calibrated_panel: true }, resources: { test_charge: 1 } });
         await player.reload(); await expect(player.getByRole("button", { name: "Use the calibrated reading", exact: true })).toBeEnabled();
         expect(await savedState()).toEqual(inspectedState);
         for (const width of [1280, 390]) { await player.setViewportSize({ width, height: 900 }); await player.screenshot({ path: info.outputPath(`pf003-export-${width}.png`), fullPage: true }); await info.attach(`Offline keyed mechanic ${width}`, { path: info.outputPath(`pf003-export-${width}.png`), contentType: "image/png" }); }
-        await player.getByRole("button", { name: "Rewind", exact: true }).click(); await player.getByRole("button", { name: "Leave the panel untouched", exact: true }).click();
+        await useGameMenu(player, "Rewind"); await player.getByRole("button", { name: "Leave the panel untouched", exact: true }).click();
         await expect(player.getByRole("button", { name: /Use the calibrated reading/ })).toBeDisabled(); await expect(player.getByText("Inspect the panel first.", { exact: true })).toBeVisible();
         await expect(player.getByRole("button", { name: "Use the standard check", exact: true })).toBeEnabled();
         const skippedState = await savedState();
         expect(skippedState).toMatchObject({ stats: { focus: 0 }, relationships: { cooperation: 0 }, flags: { inspected_panel: false, calibrated_panel: false }, resources: { test_charge: 2 } });
-        await player.getByRole("button", { name: "Rewind", exact: true }).click(); await player.getByRole("button", { name: "Inspect the panel", exact: true }).click();
+        await useGameMenu(player, "Rewind"); await player.getByRole("button", { name: "Inspect the panel", exact: true }).click();
         await expect(player.getByRole("button", { name: "Use the calibrated reading", exact: true })).toBeEnabled();
         const replayedState = await savedState(); expect(replayedState).toEqual(inspectedState);
         const statePath = info.outputPath("pf003-runtime-state.json"); await writeFile(statePath, JSON.stringify({ inspectedState, skippedState, replayedState }, null, 2));

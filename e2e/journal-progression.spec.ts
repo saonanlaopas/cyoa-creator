@@ -1,5 +1,5 @@
 import { actNativePlayerWorld, createNativePlayerConfig, createNativePlayerSession, previewChapterTransition, type NativePlayerSave } from "@story-to-cyoa/runtime";
-import { continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
+import { useGameMenu, continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { expect, test, type Page } from "playwright/test";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -98,16 +98,16 @@ test("W5 journal-only stationary events and chapter transitions observe short wi
         expect(await readSave(player)).toBeUndefined(); await expect(player.getByLabel("Game time")).toHaveText("Day 1 · 23:50");
         await confirm("Read the signal notice · 15 min"); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterEvent.state);
         await expect(player.getByLabel("Game time")).toHaveText("Day 2 · 00:05"); await journal("event");
-        await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name").fill("After stationary event"); await player.getByRole("button", { name: "Create save", exact: true }).click();
+        await useGameMenu(player, "Save game"); await player.getByLabel("Save name").fill("After stationary event"); await player.getByRole("button", { name: "Create save", exact: true }).click();
         await player.reload(); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterEvent.state);
         await confirm("Begin the next chapter · 15 min"); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterChapter.state);
         await expect(player.getByLabel("Game time")).toHaveText("Day 2 · 00:20"); await journal("chapter");
         await player.reload(); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterChapter.state);
-        await player.getByRole("button", { name: "Load game", exact: true }).click(); await player.getByRole("button", { name: "Load", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterEvent.state);
+        await useGameMenu(player, "Load game"); await player.getByRole("button", { name: "Load", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterEvent.state);
         await confirm("Begin the next chapter · 15 min"); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterChapter.state);
-        await player.getByRole("button", { name: "Rewind", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterEvent.state);
+        await useGameMenu(player, "Rewind"); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterEvent.state);
         await confirm("Begin the next chapter · 15 min"); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterChapter.state);
-        await player.getByRole("button", { name: "Restart", exact: true }).click(); await player.getByRole("button", { name: "Restart game", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(initial.state);
+        await useGameMenu(player, "Restart"); await player.getByRole("button", { name: "Restart game", exact: true }).click(); await expect.poll(async () => (await readSave(player))?.state).toEqual(initial.state);
         await confirm("Read the signal notice · 15 min"); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterEvent.state);
         await confirm("Begin the next chapter · 15 min"); await expect.poll(async () => (await readSave(player))?.state).toEqual(afterChapter.state);
         const saved = await readSave(player); expect(saved!.state.world).not.toHaveProperty("people"); expect(saved!.state.world).not.toHaveProperty("economy");

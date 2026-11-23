@@ -1,5 +1,5 @@
 import { actNativePlayerWorld, createNativePlayerConfig, createNativePlayerSession, type WorldCommand } from "@story-to-cyoa/runtime";
-import { openPlayerWait, continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
+import { playerRail, useGameMenu, openPlayerWait, continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { expect, test, type Page, type Locator } from "playwright/test";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -91,7 +91,7 @@ test("W4 authors trade with stale edits and safe retries, then plays atomic inve
       });
       const play = async (player: Page, surface: string, width: number) => {
         player.setDefaultTimeout(15000);
-        const panel = player.getByRole("region", { name: "Locations and time", exact: true }), trade = panel.getByRole("region", { name: "Inventory and shops", exact: true }), clock = panel.getByLabel("Game time");
+        const panel = player.getByRole("region", { name: "Locations and time", exact: true }), trade = panel.getByRole("region", { name: "Inventory and shops", exact: true }), clock = playerRail(player).getByLabel("Game time");
         const confirm = async (button: Locator) => { await button.click(); await player.getByRole("button", { name: "Confirm action", exact: true }).click(); await expect(player.getByRole("button", { name: "Confirm action", exact: true })).toHaveCount(0); await continuePlayerResult(player); };
         const show = (name: string) => showPlayerWorldView(player, name);
         const wait = async (minutes: number) => { await show("Explore"); await openPlayerWait(player); await confirm(panel.getByRole("button", { name: `Wait ${minutes} min`, exact: true })); };
@@ -116,14 +116,14 @@ test("W4 authors trade with stale edits and safe retries, then plays atomic inve
         await wait(5); await show("Inventory"); await confirm(use()); await expect(clock).toHaveText("Day 2 · 00:09"); await show("Inventory"); await expect(trade).toContainText("Coins: 15"); await expect(trade.getByText("Tea × 1", { exact: true })).toBeVisible();
         await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.state);
         await player.screenshot({ path: info.outputPath(`w4-${surface}-inventory-${width}.png`), fullPage: true });
-        await player.getByRole("button", { name: "Save game", exact: true }).click(); await player.getByLabel("Save name").fill("After trade"); await player.getByRole("button", { name: "Create save", exact: true }).click();
+        await useGameMenu(player, "Save game"); await player.getByLabel("Save name").fill("After trade"); await player.getByRole("button", { name: "Create save", exact: true }).click();
         await expect(player.getByRole("status").filter({ hasText: /^Saved “After trade”\.$/ })).toBeVisible();
         await player.reload(); await expect(clock).toHaveText("Day 2 · 00:09"); await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.state);
         const finish = async () => { await wait(15); await wait(5); await show("Shops here"); await expect(trade.getByRole("button", { name: "Buy 1 Ticket · 0 Coins · 2 min", exact: true })).toBeDisabled(); await expect(clock).toHaveText("Day 2 · 00:29"); await expect(trade.getByText("Shop is closed during this purchase", { exact: true })).toBeVisible(); await wait(5); await wait(1440); await show("Give a gift"); await expect(gift()).toBeEnabled(); await confirm(gift()); };
         await finish(); await expect(clock).toHaveText("Day 3 · 00:35"); await expect.poll(async () => (await readSave(player))?.state).toEqual(final.state);
         await show("Inventory"); await expect(trade.getByText("No items held.", { exact: true })).toBeVisible(); await expect(trade.getByRole("button", { name: /^Drink tea/ })).toHaveCount(0);
         await player.screenshot({ path: info.outputPath(`w4-${surface}-gift-repeat-${width}.png`), fullPage: true });
-        await player.getByRole("button", { name: "Load game", exact: true }).click(); await player.getByRole("button", { name: "Load", exact: true }).click(); await expect(clock).toHaveText("Day 2 · 00:09");
+        await useGameMenu(player, "Load game"); await player.getByRole("button", { name: "Load", exact: true }).click(); await expect(clock).toHaveText("Day 2 · 00:09");
         await expect.poll(async () => (await readSave(player))?.state).toEqual(expected.state); await finish(); await expect.poll(async () => (await readSave(player))?.state).toEqual(final.state);
         await player.reload(); await expect(clock).toHaveText("Day 3 · 00:35"); await expect.poll(async () => (await readSave(player))?.state).toEqual(final.state);
         await expect(player.getByRole("alert")).toHaveCount(0);

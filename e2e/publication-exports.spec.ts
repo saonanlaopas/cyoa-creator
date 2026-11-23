@@ -1,3 +1,4 @@
+import { useGameMenu } from "./helpers/player-interaction.js";
 import { createServer } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -37,9 +38,9 @@ test("static subdirectory publication plays, saves, rewinds, and reloads without
     await expect(page.getByRole("heading", { name: "Passage 0" })).toBeVisible();
     await page.getByRole("button", { name: "Continue 1" }).click();
     await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
-    await page.getByRole("button", { name: "Save game" }).click(); await page.getByLabel("Save name").fill("Checkpoint");
+    await useGameMenu(page, "Save game"); await page.getByLabel("Save name").fill("Checkpoint");
     await page.getByRole("button", { name: "Create save" }).click(); await page.getByRole("button", { name: "Continue 2" }).click();
-    await page.getByRole("button", { name: "Rewind" }).click(); await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
+    await useGameMenu(page, "Rewind"); await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
     await page.reload(); await expect(page.getByRole("heading", { name: "Passage 1" })).toBeVisible();
     expect(requests.some((url) => /\/api\/|openrouter|provider/i.test(url))).toBe(false);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); fixture.database.close(); }

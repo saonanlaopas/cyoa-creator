@@ -1,5 +1,5 @@
 import { expect, test } from "playwright/test";
-import { openPlayerWait, continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
+import { playerRail, useGameMenu, openPlayerWait, continuePlayerResult, showPlayerWorldView } from "./helpers/player-interaction.js";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -93,7 +93,7 @@ for (const bounded of [false, true]) test(bounded
         page.on("request", req => { if (/^https?:/.test(req.url())) network.push(req.url()); });
         await page.goto(pathToFileURL(file).href);
         const world = page.getByRole("region", { name: "Locations and time" });
-        const clock = world.getByLabel("Game time");
+        const clock = playerRail(page).getByLabel("Game time");
         const label = bounded ? "Bounded playtest" : "Partial preview";
         await expect(page.getByText(label, { exact: true })).toBeVisible();
         await expect(page).toHaveTitle(new RegExp(`^${label}:`));
@@ -125,32 +125,34 @@ for (const bounded of [false, true]) test(bounded
         await expect(clock).toHaveText(stopTime);
         if (bounded) {
           await expect(page.getByRole("region", { name: "Action outcome" })).toHaveText("The corrected ledger balances.");
-          await expect(world.locator("header")).toContainText("Coins: 7");
+          await expect(playerRail(page)).toContainText("Coins: 7");
         }
         const assertStop = async () => {
           await expect(page.getByText(boundaryProse, { exact: true })).toBeVisible();
           await expect(page.getByText("Preview boundary reached.", { exact: true })).toBeVisible();
           await expect(page.getByText("This ending is complete.", { exact: true })).toHaveCount(0);
           await expect(page.getByRole("region", { name: "Choices" })).toHaveCount(0);
-          await expect(world.getByRole("button", { name: "Home · 15 min", exact: true })).toBeDisabled();
+          await expect(world.getByRole("button", { name: "Home · 15 min", exact: true })).toHaveCount(0);
           if (bounded) await expect(world.getByRole("button", { name: "Read departure board · 5 min", exact: true })).toHaveCount(0);
           else await expect(world.getByRole("button", { name: "Read departure board · 5 min", exact: true })).toBeDisabled();
           await openPlayerWait(page); await expect(world.getByRole("button", { name: "Wait 15 min", exact: true })).toBeDisabled();
           await expect(clock).toHaveText(stopTime);
         };
         await assertStop();
-        await page.getByRole("button", { name: "Save game", exact: true }).click();
+        await useGameMenu(page, "Save game");
         await page.getByLabel("Save name").fill("Reviewed boundary");
         await page.getByRole("button", { name: "Create save", exact: true }).click();
         await expect(page.getByRole("dialog")).toHaveCount(0);
         await page.reload();
         await assertStop();
-        await page.getByRole("button", { name: "Rewind", exact: true }).click();
+        await useGameMenu(page, "Rewind");
         await expect(page.getByText(openingProse, { exact: true })).toBeVisible();
-        await page.getByRole("button", { name: "Load game", exact: true }).click();
+        await useGameMenu(page, "Load game");
         await page.getByRole("button", { name: "Load", exact: true }).click();
         await assertStop();
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        const layout = await page.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth,
+          overflowing: [...document.querySelectorAll("body *")].filter(el => el.getBoundingClientRect().right > innerWidth).slice(0, 10).map(el => el.className.toString()) }));
+        expect(layout.width, JSON.stringify(layout)).toBeLessThanOrEqual(layout.viewport);
         expect(network).toEqual([]);
         await page.screenshot({ path: info.outputPath(`preview-boundary-${width}.png`), fullPage: true });
       } finally { await context.close(); }
